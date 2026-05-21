@@ -96,7 +96,7 @@ const Icon = ({ name, size = 16, stroke = 1.6, ...rest }) => {
 };
 
 // ─── Modal ───────────────────────────────────────────────────────────────────
-function Modal({ open, title, onClose, children, footer, wide }) {
+function Modal({ open, title, onClose, children, footer, wide, maxWidth }) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e) => { if (e.key === 'Escape') onClose && onClose(); };
@@ -104,9 +104,10 @@ function Modal({ open, title, onClose, children, footer, wide }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
   if (!open) return null;
+  const widthStyle = maxWidth ? { width: `min(${maxWidth}px, calc(100vw - 32px))` } : undefined;
   return (
     <div className="modal-back" onClick={onClose}>
-      <div className={`modal${wide ? ' modal-wide' : ''}`} onClick={(e) => e.stopPropagation()}>
+      <div className={`modal${wide ? ' modal-wide' : ''}`} style={widthStyle} onClick={(e) => e.stopPropagation()}>
         <div className="modal-hd">
           <h3 className="modal-title">{title}</h3>
           <button className="btn btn-icon btn-ghost" onClick={onClose} aria-label="ปิด"><Icon name="x" /></button>
