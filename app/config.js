@@ -10,7 +10,12 @@
  * ===================================================================== */
 
 window.WTP_CONFIG = {
+  // Sheet ID — ใช้สำหรับ READ ทาง CSV (เร็ว ไม่ใช้ Apps Script quota)
   SHEET_ID: '1Q0enboLihOYiYCn7otK9zXBlk6Yy8oHfoAXaFnGujwA',
+
+  // Apps Script URL — ใช้สำหรับ WRITE กลับเข้า Sheet (CRUD)
+  // Deploy จาก standalone script ของ Gmail ส่วนตัว (bypass Workspace policy)
+  APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbz455HjIIIryMwKMfElalQ2Mj0s9sBiRuVP3LVAD_LTtiCjYoi_UYOduDJFdjEAHoymNA/exec',
 
   // ตั้งเวลา auto-refresh จากเซิร์ฟเวอร์ (มิลลิวินาที, 0 = ปิด)
   AUTO_REFRESH_MS: 300000,  // 5 นาที

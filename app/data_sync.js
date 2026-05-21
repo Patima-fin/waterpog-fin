@@ -16,6 +16,7 @@
 
   var cfg = window.WTP_CONFIG || {};
   var SHEET_ID = cfg.SHEET_ID || '';
+  var POST_URL = cfg.APPS_SCRIPT_URL || '';
 
   if (!SHEET_ID) {
     console.info('[WTP Sync] Offline mode — ตั้งค่า SHEET_ID ใน app/config.js เพื่อเปิด sync');
@@ -26,11 +27,18 @@
 
   var BASE = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/gviz/tq?tqx=out:csv&sheet=';
 
+  // Entities ที่รองรับ CRUD ผ่าน Apps Script POST
+  var CRUD_ENTITIES = ['projects', 'projectFinance', 'invoices', 'forecastEntries',
+                       'bankAccounts', 'pvVouchers', 'payables'];
+
   /* ── state ──────────────────────────────────────────────────────── */
   var subscribers      = [];
   var syncStatus       = 'syncing';
   var lastSyncTime     = null;
   var cachedServerData = null;
+  var lastSnapshot     = {};            // last known server state per entity (JSON)
+  var serverDataLoaded = false;         // gate auto-push until first server read
+  var syncTimer        = null;          // debounce timer for syncDiff
   var AUTO_MS          = cfg.AUTO_REFRESH_MS || 0;
 
   function setSyncStatus(s) {
@@ -232,8 +240,13 @@
         payables:        payables,
       };
 
+      // Cache snapshots so the next save doesn't re-push unchanged entities
+      CRUD_ENTITIES.forEach(function (e) {
+        lastSnapshot[e] = JSON.stringify(data[e] || []);
+      });
       cachedServerData = data;
-      WTPData.save(data);                                // persist to localStorage
+      serverDataLoaded = true;
+      origSave(data);                                    // persist to localStorage (skip syncDiff)
       subscribers.forEach(function (cb) { cb(data); });  // notify React
       setSyncStatus('ok');
     }).catch(function (err) {
@@ -241,6 +254,56 @@
       setSyncStatus('error');
     });
   }
+
+  /* ── WRITE: POST to Apps Script ──────────────────────────────────── */
+  function postToServer(body) {
+    if (!POST_URL) return Promise.reject(new Error('APPS_SCRIPT_URL not configured'));
+    return fetch(POST_URL, {
+      method: 'POST',
+      // text/plain avoids CORS preflight; Apps Script reads body as plain text and JSON.parse it
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(body),
+    }).then(function (r) { return r.json(); });
+  }
+
+  function pushEntity(entity, rows) {
+    return postToServer({ action: 'replaceAll', entity: entity, payload: rows })
+      .then(function (resp) {
+        if (resp && resp.error) throw new Error(entity + ': ' + resp.error);
+        return resp;
+      });
+  }
+
+  function syncDiff(data) {
+    if (!POST_URL) return;
+    var changes = [];
+    CRUD_ENTITIES.forEach(function (entity) {
+      var curr = JSON.stringify(data[entity] || []);
+      if (curr !== lastSnapshot[entity]) {
+        lastSnapshot[entity] = curr;
+        changes.push({ entity: entity, rows: data[entity] || [] });
+      }
+    });
+    if (!changes.length) return;
+    setSyncStatus('syncing');
+    Promise.all(changes.map(function (c) { return pushEntity(c.entity, c.rows); }))
+      .then(function () { setSyncStatus('ok'); })
+      .catch(function (err) {
+        console.warn('[WTP Sync] push ล้มเหลว:', err);
+        setSyncStatus('error');
+      });
+  }
+
+  /* ── wrap WTPData.save to auto-push on every change ──────────────── */
+  var origSave = WTPData.save;
+  WTPData.save = function (data) {
+    origSave(data);
+    // Don't push the initial localStorage state — wait until server data has
+    // arrived (otherwise we'd overwrite the Sheet with stale local data).
+    if (!serverDataLoaded) return;
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(function () { syncDiff(data); }, 3000);
+  };
 
   /* ── subscribe (for React) ───────────────────────────────────────── */
   WTPData.subscribe = function (cb) {
