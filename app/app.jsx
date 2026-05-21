@@ -50,8 +50,6 @@ function App() {
   const { push: pushToast, node: toastNode } = useToasts();
   const [syncInfo, setSyncInfo] = aState(() => WTPData.getSyncStatus ? WTPData.getSyncStatus() : { status: 'offline', time: null });
 
-  if (!isLoggedIn) return <LoginPage onLogin={handleLogin} />;
-
   // Persist data on change
   aEffect(() => { WTPData.save(data); }, [data]);
 
@@ -106,6 +104,8 @@ function App() {
   };
 
   // ── Render
+  if (!isLoggedIn) return <LoginPage onLogin={handleLogin} />;
+
   const routes = {
     daily: { label: 'รายงานรับเงินประจำวัน', title: 'Daily Revenue', icon: 'daily' },
     warroom1: { label: 'War Room — รายรับ (หน้า 1)', title: 'Revenue Collection', icon: 'receivables' },
