@@ -10,8 +10,18 @@
  * ===================================================================== */
 
 window.WTP_CONFIG = {
-  APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycby8Q3NmRRYb7_rjhKagAPsxKVOgctvluHuYxme_kEIxKgYLFIjso2JzP88vCPT8-s16fg/exec',   // ← วาง URL จาก Apps Script ตรงนี้
+  APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycby8Q3NmRRYb7_rjhKagAPsxKVOgctvluHuYxme_kEIxKgYLFIjso2JzP88vCPT8-s16fg/exec',
 
   // ตั้งเวลา auto-refresh จากเซิร์ฟเวอร์ (มิลลิวินาที, 0 = ปิด)
   AUTO_REFRESH_MS: 300000,  // 5 นาที
+
+  // ผู้ใช้ระบบ — แก้ไข username/password ได้ตามต้องการ
+  USERS: [
+    { username: 'admin',    password: 'waterpog2025', displayName: 'ผู้ดูแลระบบ' },
+    { username: 'finance1', password: 'fin1234',      displayName: 'การเงิน 1' },
+    { username: 'finance2', password: 'fin1234',      displayName: 'การเงิน 2' },
+  ],
+
+  // อายุ session (มิลลิวินาที) — 0 = ไม่หมดอายุ
+  SESSION_TTL_MS: 8 * 60 * 60 * 1000,  // 8 ชั่วโมง
 };

@@ -13,6 +13,34 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 }/*EDITMODE-END*/;
 
 function App() {
+  const [isLoggedIn, setIsLoggedIn] = aState(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem('wtp-session') || 'null');
+      if (!s) return false;
+      const ttl = (window.WTP_CONFIG && window.WTP_CONFIG.SESSION_TTL_MS) || 0;
+      if (ttl > 0 && Date.now() - s.time > ttl) { localStorage.removeItem('wtp-session'); return false; }
+      return true;
+    } catch { return false; }
+  });
+  const [currentUser, setCurrentUser] = aState(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem('wtp-session') || 'null');
+      return s || null;
+    } catch { return null; }
+  });
+
+  const handleLogin = (userObj) => {
+    const session = { ...userObj, time: Date.now() };
+    localStorage.setItem('wtp-session', JSON.stringify(session));
+    setCurrentUser(session);
+    setIsLoggedIn(true);
+  };
+  const handleLogout = () => {
+    localStorage.removeItem('wtp-session');
+    setIsLoggedIn(false);
+    setCurrentUser(null);
+  };
+
   const [route, setRoute] = aState(() => {
     const h = window.location.hash.replace(/^#/, '');
     return h || 'daily';
@@ -21,6 +49,8 @@ function App() {
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
   const { push: pushToast, node: toastNode } = useToasts();
   const [syncInfo, setSyncInfo] = aState(() => WTPData.getSyncStatus ? WTPData.getSyncStatus() : { status: 'offline', time: null });
+
+  if (!isLoggedIn) return <LoginPage onLogin={handleLogin} />;
 
   // Persist data on change
   aEffect(() => { WTPData.save(data); }, [data]);
@@ -106,7 +136,7 @@ function App() {
 
   return (
     <div className="app">
-      <Sidebar route={route} go={go} routes={routes} data={data} sidebarStyle={tweaks.sidebarStyle} syncInfo={syncInfo} />
+      <Sidebar route={route} go={go} routes={routes} data={data} sidebarStyle={tweaks.sidebarStyle} syncInfo={syncInfo} currentUser={currentUser} onLogout={handleLogout} />
       <div className="main">
         <Topbar route={route} routes={routes} data={data} onReset={resetDemo} />
         <div data-screen-label={route}>
@@ -148,7 +178,7 @@ function App() {
   );
 }
 
-function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {} }) {
+function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, currentUser, onLogout }) {
   const syncLabel = (() => {
     if (!syncInfo || syncInfo.status === 'offline') return 'Offline — ใช้ข้อมูล Local';
     if (syncInfo.status === 'syncing') return 'กำลัง sync…';
@@ -221,15 +251,21 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {} }) {
       </div>
 
       <div className="sb-user">
-        <div className="sb-avatar">FA</div>
+        <div className="sb-avatar">{currentUser ? currentUser.displayName.slice(0,2) : 'FA'}</div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink-900)' }}>ฝ่ายการเงิน</div>
+          <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink-900)' }}>{currentUser ? currentUser.displayName : 'ฝ่ายการเงิน'}</div>
           <div style={{ fontSize: 11, color: 'var(--ink-500)', display:'flex', alignItems:'center', gap:4 }}>
             <span style={{ width:6, height:6, borderRadius:'50%', background: syncDot, flexShrink:0 }} />
             {syncLabel}
           </div>
         </div>
-        <Icon name="settings" size={14} />
+        <button onClick={onLogout} title="ออกจากระบบ" style={{ background:'none', border:'none', cursor:'pointer', color:'var(--ink-400)', padding:4, borderRadius:6, display:'flex', alignItems:'center' }}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+            <polyline points="16 17 21 12 16 7"/>
+            <line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+        </button>
       </div>
     </aside>
   );
@@ -256,6 +292,112 @@ function Topbar({ route, routes, data, onReset }) {
           <Icon name="daily" size={13} />
           <span>{today}</span>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function LoginPage({ onLogin }) {
+  const [username, setUsername] = aState('');
+  const [password, setPassword] = aState('');
+  const [error, setError]       = aState('');
+  const [loading, setLoading]   = aState(false);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    const users = (window.WTP_CONFIG && window.WTP_CONFIG.USERS) || [];
+    const match = users.find(u => u.username === username && u.password === password);
+    setTimeout(() => {
+      setLoading(false);
+      if (match) {
+        onLogin(match);
+      } else {
+        setError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
+      }
+    }, 400);
+  };
+
+  const inputStyle = {
+    width: '100%', padding: '11px 14px', boxSizing: 'border-box',
+    border: '1.5px solid #e2e8f0', borderRadius: 10,
+    fontSize: 14, color: '#1a2236', outline: 'none',
+    fontFamily: 'inherit', transition: 'border-color 0.15s',
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0,
+      background: 'linear-gradient(145deg, #dce8ff 0%, #f4f7fb 55%, #eaf2ff 100%)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontFamily: '"IBM Plex Sans Thai", "IBM Plex Sans", system-ui, sans-serif',
+    }}>
+      <div style={{
+        background: '#fff', borderRadius: 20, padding: '48px 40px',
+        width: '100%', maxWidth: 400,
+        boxShadow: '0 24px 64px rgba(42,111,219,0.13), 0 4px 16px rgba(0,0,0,0.06)',
+        border: '1px solid rgba(42,111,219,0.09)',
+      }}>
+        <div style={{ textAlign: 'center', marginBottom: 36 }}>
+          <div style={{
+            width: 62, height: 62, borderRadius: 17, margin: '0 auto 14px',
+            background: 'linear-gradient(135deg, #2a6fdb, #1a4490)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0 8px 24px rgba(42,111,219,0.32)',
+          }}>
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
+              <path d="M3 5 L6 19 L9 9 L12 16 L15 9 L18 19 L21 5" stroke="white" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </div>
+          <div style={{ fontSize: 21, fontWeight: 700, color: '#1a2236' }}>Water POG</div>
+          <div style={{ fontSize: 13, color: '#7b8ca6', marginTop: 3 }}>Financial Console</div>
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 7 }}>ชื่อผู้ใช้</label>
+            <input
+              type="text" value={username} required autoFocus
+              onChange={e => setUsername(e.target.value)}
+              placeholder="กรอกชื่อผู้ใช้"
+              style={inputStyle}
+              onFocus={e => e.target.style.borderColor = '#2a6fdb'}
+              onBlur={e  => e.target.style.borderColor = '#e2e8f0'}
+            />
+          </div>
+          <div style={{ marginBottom: 24 }}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 7 }}>รหัสผ่าน</label>
+            <input
+              type="password" value={password} required
+              onChange={e => setPassword(e.target.value)}
+              placeholder="กรอกรหัสผ่าน"
+              style={inputStyle}
+              onFocus={e => e.target.style.borderColor = '#2a6fdb'}
+              onBlur={e  => e.target.style.borderColor = '#e2e8f0'}
+            />
+          </div>
+
+          {error && (
+            <div style={{
+              background: '#fef2f2', border: '1px solid #fecaca',
+              borderRadius: 9, padding: '10px 14px',
+              fontSize: 13, color: '#dc2626', marginBottom: 18,
+            }}>{error}</div>
+          )}
+
+          <button type="submit" disabled={loading} style={{
+            width: '100%', padding: '13px',
+            background: loading ? '#93c5fd' : 'linear-gradient(135deg, #2a6fdb, #1a4490)',
+            color: '#fff', border: 'none', borderRadius: 11,
+            fontSize: 15, fontWeight: 600,
+            cursor: loading ? 'not-allowed' : 'pointer',
+            boxShadow: loading ? 'none' : '0 4px 16px rgba(42,111,219,0.35)',
+            fontFamily: 'inherit', transition: 'opacity 0.15s',
+          }}>
+            {loading ? 'กำลังตรวจสอบ…' : 'เข้าสู่ระบบ'}
+          </button>
+        </form>
       </div>
     </div>
   );
