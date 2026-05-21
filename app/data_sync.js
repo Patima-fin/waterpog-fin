@@ -21,12 +21,14 @@
   }
 
   /* ── state ──────────────────────────────────────────────────────── */
-  var subscribers  = [];
-  var lastSnapshot = {};
-  var syncTimer    = null;
-  var syncStatus   = 'syncing';
-  var lastSyncTime = null;
-  var AUTO_MS      = cfg.AUTO_REFRESH_MS || 0;
+  var subscribers       = [];
+  var lastSnapshot      = {};
+  var syncTimer         = null;
+  var syncStatus        = 'syncing';
+  var lastSyncTime      = null;
+  var AUTO_MS           = cfg.AUTO_REFRESH_MS || 0;
+  var cachedServerData  = null;    // last serverData seen — replays to late subscribers
+  var serverDataLoaded  = false;   // gate auto-push until server has responded once
 
   // เอนทิตีที่ sync แบบ replaceAll
   var CRUD_ENTITIES = ['projects', 'invoices', 'forecastEntries',
@@ -78,6 +80,10 @@
   var origSave = WTPData.save;
   WTPData.save = function (data) {
     origSave(data);
+    // Don't push the initial localStorage state — wait until server data has
+    // arrived. Otherwise on slow networks the first useEffect can push stale
+    // cached data back to the server before loadFromServer() completes.
+    if (!serverDataLoaded) return;
     clearTimeout(syncTimer);
     syncTimer = setTimeout(function () { syncDiff(data); }, 3000);
   };
@@ -85,6 +91,12 @@
   /* ── subscribe (for React) ──────────────────────────────────────── */
   WTPData.subscribe = function (cb) {
     subscribers.push(cb);
+    // If serverData already arrived BEFORE this subscriber registered (e.g.
+    // fast cached fetch on a warm browser), replay it now so React state can
+    // catch up — otherwise it would stay stuck on initial localStorage data.
+    if (cachedServerData) {
+      setTimeout(function () { cb(cachedServerData); }, 0);
+    }
     return function () {
       subscribers = subscribers.filter(function (s) { return s !== cb; });
     };
@@ -108,6 +120,8 @@
         CRUD_ENTITIES.forEach(function (e) {
           lastSnapshot[e] = JSON.stringify(serverData[e] || []);
         });
+        cachedServerData = serverData;   // cache for late subscribers
+        serverDataLoaded = true;         // unblock auto-push
         origSave(serverData);            // update localStorage cache
         subscribers.forEach(function (cb) { cb(serverData); }); // re-render React
         setSyncStatus('ok');
