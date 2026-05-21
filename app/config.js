@@ -2,15 +2,15 @@
  * Water POG Financial Dashboard — Configuration
  * =====================================================================
  * วิธีตั้งค่า:
- *  1) Deploy Google Apps Script เป็น Web App (ดูขั้นตอนใน SETUP.md)
- *  2) วาง URL ที่ได้ในช่อง APPS_SCRIPT_URL ด้านล่าง
+ *  1) แชร์ Google Sheet เป็น "Anyone with the link can view"
+ *  2) วาง Sheet ID (ส่วน "/d/XXXXX/" ใน URL) ลงในช่อง SHEET_ID ด้านล่าง
  *  3) บันทึกไฟล์ → รีเฟรชหน้าเว็บ
  *
- * ถ้า APPS_SCRIPT_URL ว่าง → ระบบใช้ข้อมูล Mock ใน localStorage แทน
+ * ถ้า SHEET_ID ว่าง → ระบบใช้ข้อมูล Mock ใน localStorage แทน
  * ===================================================================== */
 
 window.WTP_CONFIG = {
-  APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycby8Q3NmRRYb7_rjhKagAPsxKVOgctvluHuYxme_kEIxKgYLFIjso2JzP88vCPT8-s16fg/exec',
+  SHEET_ID: '1Q0enboLihOYiYCn7otK9zXBlk6Yy8oHfoAXaFnGujwA',
 
   // ตั้งเวลา auto-refresh จากเซิร์ฟเวอร์ (มิลลิวินาที, 0 = ปิด)
   AUTO_REFRESH_MS: 300000,  // 5 นาที
