@@ -1,15 +1,14 @@
 /****************************************************************************************
- * Water POG — Financial Dashboard · Google Apps Script Backend  (v2)
+ * Water POG — Financial Dashboard · Google Apps Script Backend  (v3)
  * ----------------------------------------------------------------------------------------
- * วิธีใช้งาน:
- * 1) เปิด Google Sheet ใหม่ → เมนู Extensions → Apps Script
- * 2) วางโค้ดนี้ในไฟล์ Code.gs (ลบโค้ดเดิมออก) → บันทึก (Ctrl+S)
- * 3) กลับมาที่ชีต → รีเฟรชหน้า → เมนูใหม่ "Water POG" จะปรากฏ
- * 4) เมนู "Water POG" → "① สร้าง/รีเซ็ตชีตทั้งหมด"
+ * วิธีติดตั้ง (ทำครั้งเดียว):
+ * 1) สร้าง Google Sheet ใหม่ในโฟลเดอร์ที่ต้องการ
+ * 2) เมนู Extensions → Apps Script → วางโค้ดนี้ทั้งหมด → Ctrl+S
+ * 3) รีเฟรชหน้า Sheets → เมนู "💧 Water POG" จะปรากฏ
+ * 4) "💧 Water POG" → "① สร้างชีตเปล่า (พร้อมกรอกข้อมูลจริง)"
  * 5) Deploy → New deployment → Web app
- *      Execute as: Me
- *      Who has access: Anyone
- * 6) คัดลอก Web App URL → วางใน app/config.js ช่อง APPS_SCRIPT_URL
+ *      Execute as: Me  |  Who has access: Anyone
+ * 6) Copy URL → วางใน app/config.js ช่อง APPS_SCRIPT_URL
  ****************************************************************************************/
 
 /* ── 0. SHEET NAMES ────────────────────────────────────────────── */
@@ -38,17 +37,28 @@ var SHEETS = {
 /* ── 1. MENU ────────────────────────────────────────────────────── */
 function onOpen() {
   SpreadsheetApp.getUi()
-    .createMenu('Water POG')
-    .addItem('① สร้าง/รีเซ็ตชีตทั้งหมด (Seed)', 'initWorkbook')
-    .addItem('② ล้างข้อมูลทั้งหมด (Wipe)',        'wipeAll')
+    .createMenu('💧 Water POG')
+    .addItem('① สร้างชีตเปล่า (พร้อมกรอกข้อมูลจริง)',   'initEmpty')
+    .addItem('② สร้างชีตพร้อมข้อมูลตัวอย่าง (Demo)',     'initWorkbook')
+    .addItem('③ ล้างข้อมูลทั้งหมด (Wipe)',                'wipeAll')
     .addSeparator()
-    .addItem('🧪 ทดสอบ getAll() ใน Log',          'testGetAll')
-    .addItem('🔗 แสดง Web App URL',               'showWebAppUrl')
+    .addItem('🔗 แสดง URL ของ Spreadsheet นี้',           'showSheetUrl')
+    .addItem('🔗 แสดง Web App URL (หลัง Deploy)',         'showWebAppUrl')
+    .addSeparator()
+    .addItem('🧪 ทดสอบ getAll() ใน Log',                  'testGetAll')
     .addToUi();
 }
+
+function showSheetUrl() {
+  var url = SpreadsheetApp.getActiveSpreadsheet().getUrl();
+  SpreadsheetApp.getUi().alert(
+    '📋 URL ของ Google Sheet นี้:\n\n' + url +
+    '\n\n👉 บุ๊กมาร์กไว้ได้เลย — เข้ามาแก้ข้อมูลได้โดยตรงในแต่ละ Sheet'
+  );
+}
 function showWebAppUrl() {
-  var url = ScriptApp.getService().getUrl() || '(ยังไม่ได้ Deploy)';
-  SpreadsheetApp.getUi().alert('Web App URL:\n\n' + url);
+  var url = ScriptApp.getService().getUrl() || '(ยังไม่ได้ Deploy — ทำขั้นตอน Deploy ก่อน)';
+  SpreadsheetApp.getUi().alert('🌐 Web App URL:\n\n' + url + '\n\n👉 คัดลอกไปใส่ใน app/config.js ช่อง APPS_SCRIPT_URL');
 }
 function testGetAll() { Logger.log(JSON.stringify(getAll(), null, 2)); }
 
@@ -149,7 +159,6 @@ function _sh(name) {
   return sh;
 }
 
-// Fields that are stored as JSON strings (arrays / objects inside a cell)
 var JSON_FIELDS = {
   projects:       ['periods'],
   invoices:       ['followUps', 'actualReceive'],
@@ -179,7 +188,6 @@ function readTable(name) {
         v = Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
       }
       if (v === '') v = null;
-      // Auto-parse JSON string columns
       if (jsonCols.indexOf(h) >= 0 && typeof v === 'string' && v.length > 1) {
         try { v = JSON.parse(v); } catch (_) {}
       }
@@ -193,15 +201,17 @@ function readTable(name) {
 function writeTable(name, headers, rows) {
   var sh = _ss().getSheetByName(name) || _ss().insertSheet(name);
   sh.clear();
-  sh.getRange(1, 1, 1, headers.length).setValues([headers])
-    .setFontWeight('bold').setBackground('#eef2f7');
+  // Header row with styling
+  var headerRange = sh.getRange(1, 1, 1, headers.length);
+  headerRange.setValues([headers]);
+  headerRange.setFontWeight('bold').setBackground('#1a73e8').setFontColor('#ffffff');
+  headerRange.setFontSize(10);
   if (rows.length) {
     var jsonCols = JSON_FIELDS[name] || [];
     var data = rows.map(function (r) {
       return headers.map(function (h) {
         var v = r[h];
         if (v === undefined || v === null) return '';
-        // Serialize arrays/objects to JSON string
         if (jsonCols.indexOf(h) >= 0 && typeof v === 'object') {
           return JSON.stringify(v);
         }
@@ -212,6 +222,14 @@ function writeTable(name, headers, rows) {
   }
   sh.setFrozenRows(1);
   sh.autoResizeColumns(1, headers.length);
+  // Alternate row colors
+  if (rows.length > 0) {
+    for (var i = 2; i <= rows.length + 1; i++) {
+      if (i % 2 === 0) {
+        sh.getRange(i, 1, 1, headers.length).setBackground('#f8f9fa');
+      }
+    }
+  }
 }
 
 function appendRow_(name, headers, obj) {
@@ -245,8 +263,9 @@ function readKV(name) {
 function writeKV(name, obj) {
   var sh = _ss().getSheetByName(name) || _ss().insertSheet(name);
   sh.clear();
-  sh.getRange(1, 1, 1, 2).setValues([['key','value']])
-    .setFontWeight('bold').setBackground('#eef2f7');
+  var headerRange = sh.getRange(1, 1, 1, 2);
+  headerRange.setValues([['key','value']]);
+  headerRange.setFontWeight('bold').setBackground('#1a73e8').setFontColor('#ffffff');
   var rows = Object.keys(obj).map(function (k) { return [k, obj[k]]; });
   if (rows.length) sh.getRange(2, 1, rows.length, 2).setValues(rows);
   sh.setFrozenRows(1);
@@ -324,14 +343,10 @@ function readCashFlow_() {
     nowWeek:      num(kv.nowWeek),
     closing:      JSON.parse(kv.closing || '[]'),
     inflow:       readTable(SHEETS.CF_INFLOW).map(function (r) {
-      return { key:r.key, label:r.label,
-               actual: tryParse(r.actual, []),
-               plan:   tryParse(r.plan,   []) };
+      return { key:r.key, label:r.label, actual:tryParse(r.actual,[]), plan:tryParse(r.plan,[]) };
     }),
     outflow: readTable(SHEETS.CF_OUTFLOW).map(function (r) {
-      return { key:r.key, label:r.label,
-               actual: tryParse(r.actual, []),
-               plan:   tryParse(r.plan,   []) };
+      return { key:r.key, label:r.label, actual:tryParse(r.actual,[]), plan:tryParse(r.plan,[]) };
     }),
   };
 }
@@ -347,10 +362,10 @@ var ENTITY_HEADERS = {
   projects: [
     'id','code','name','startDate','finishDate','allocBudget','signedValue',
     'status','delivery','assignee','debt','note','periods',
-    'stopTime','commenceDate'
+    'stopTime','commenceDate','expectedPay1','expectedPay2'
   ],
   projectFinance: [
-    'id','code','assignee','debtAmount','debtNote','transferDate','note'
+    'id','code','assignee','transferRights','debt','debtNote','transferDate','note'
   ],
   invoices: [
     'id','ivNo','jobNo','period','invoiceDate','balance',
@@ -434,16 +449,162 @@ function replaceAll(entity, rows) {
 /* ── 8. WIPE ────────────────────────────────────────────────────── */
 function wipeAll() {
   var ui  = SpreadsheetApp.getUi();
-  var ans = ui.alert('ยืนยันการล้างข้อมูลทั้งหมด?', ui.ButtonSet.YES_NO);
+  var ans = ui.alert('⚠️ ยืนยันการล้างข้อมูลทั้งหมด?\n\n(การกระทำนี้ไม่สามารถย้อนกลับได้)', ui.ButtonSet.YES_NO);
   if (ans !== ui.Button.YES) return;
   Object.values(SHEETS).forEach(function (name) {
     var sh = _ss().getSheetByName(name);
     if (sh) _ss().deleteSheet(sh);
   });
-  ui.alert('ล้างเรียบร้อย');
+  ui.alert('✅ ล้างเรียบร้อย — พร้อม setup ใหม่ได้เลย');
 }
 
-/* ── 9. SEED / initWorkbook ─────────────────────────────────────── */
+/* ── 9A. INIT EMPTY — สร้างชีตเปล่าพร้อม header (ไม่มีข้อมูลตัวอย่าง) ── */
+function initEmpty() {
+  var today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  var thisYear = new Date().getFullYear();
+
+  // Meta
+  writeKV(SHEETS.META, {
+    companyName: 'บริษัท วอเทอร์ป๊อก จำกัด',
+    shortName:   'Water POG',
+    asOf:        today,
+    year:        thisYear,
+    currency:    'THB',
+  });
+
+  // Pipeline defaults (zeros — แก้ได้ใน Sheet)
+  writeKV(SHEETS.PIPELINE, {
+    waitingSign:           JSON.stringify({ count:0, gross:0, debt:0, net:0 }),
+    signedWip:             JSON.stringify({ count:0, gross:0, debt:0, net:0 }),
+    invoicedOutstanding:   JSON.stringify({ count:0, gross:0, debt:0, net:0 }),
+    totalProjectValue:     0,
+    invoiceBroughtForward: 0,
+    signedNotDelivered:    0,
+    notSigned:             0,
+    totalDebt:             0,
+    usableNet:             0,
+  });
+
+  // War Room defaults
+  writeKV(SHEETS.WARROOM_P1, {
+    topKpis_totalInvoices:               0,
+    topKpis_estimatedCashInflow:         0,
+    topKpis_estimatedDebt:               0,
+    topKpis_netProjection:               0,
+    thisMonthNetProjection:              0,
+    nextMonthNetProjection:              0,
+    outstandingSummary_systemTotal:      JSON.stringify({ count:0, gross:0, debt:0, net:0 }),
+    outstandingSummary_thisMonthTracked: JSON.stringify({ count:0, gross:0, debt:0, net:0 }),
+    outstandingSummary_nextMonthRollover:JSON.stringify({ count:0, gross:0, debt:0, net:0 }),
+    outstandingThisMonthByTransfer:      '[]',
+    outstandingThisMonthTotal:           JSON.stringify({ count:0, gross:0, debt:0, net:0 }),
+    outstandingByTransfer:               '[]',
+    outstandingTotal:                    JSON.stringify({ count:0, gross:0, debt:0, net:0 }),
+    wipByTransfer:                       '[]',
+    wipTotal:                            JSON.stringify({ count:0, gross:0, debt:0, net:0 }),
+  });
+  writeKV(SHEETS.WARROOM_P2, {
+    totalProjectValue:   0,
+    invoiceForwardTotal: 0,
+    wipValue:            0,
+    unsignedTotal:       JSON.stringify({ count:0, value:0 }),
+    signedTotal:         JSON.stringify({ count:0, value:0 }),
+  });
+
+  // YTD / Weekly / Monthly — headers only, empty rows
+  writeTable(SHEETS.YTD_REVENUE,  ['month','en','count','gross','debt','net'], []);
+  writeTable(SHEETS.WEEKLY_RECV,  ['week','count','gross','debt','net'], []);
+  writeTable(SHEETS.MONTHLY_FCST, ['month','en','pctOfRemaining','invIssued','signed','unsigned','debt','netUsable'], []);
+
+  // Daily
+  writeKV(SHEETS.DAILY, {
+    asOfDate:   today,
+    ytdAccum:   JSON.stringify({ count:0, value:0 }),
+    mtdAccum:   JSON.stringify({ count:0, value:0 }),
+    todayAccum: JSON.stringify({ count:0, value:0 }),
+  });
+  writeTable(SHEETS.DAILY_INV, ['id','no','code','name','period','amount','receivedAt'], []);
+
+  // Cash Flow
+  writeKV(SHEETS.CASHFLOW, {
+    month:'', bf:0, planTotal:0, actualPaid:0, paidPct:0,
+    revInflow:0, loanReceived:0, loanLine:0, loanRemain:0, finalNet:0,
+    closing: JSON.stringify([0,0,0,0,0]),
+    nowWeek: 1,
+  });
+  writeTable(SHEETS.CF_INFLOW,  ['key','label','actual','plan'], []);
+  writeTable(SHEETS.CF_OUTFLOW, ['key','label','actual','plan'], []);
+
+  // ── CRUD tables — headers only, NO sample rows ─────────────────
+  writeTable(SHEETS.PROJECTS,    ENTITY_HEADERS.projects,       []);
+  writeTable(SHEETS.PROJECT_FIN, ENTITY_HEADERS.projectFinance, []);
+  writeTable(SHEETS.INVOICES,    ENTITY_HEADERS.invoices,        []);
+  writeTable(SHEETS.FORECAST_E,  ENTITY_HEADERS.forecastEntries, []);
+  writeTable(SHEETS.BANK,        ENTITY_HEADERS.bankAccounts,    []);
+  writeTable(SHEETS.PV_VOUCHERS, ENTITY_HEADERS.pvVouchers,      []);
+  writeTable(SHEETS.PAYABLES,    ENTITY_HEADERS.payables,         []);
+
+  // Add column notes/hints to help user fill in data
+  _addColumnHints_();
+
+  var sheetUrl = SpreadsheetApp.getActiveSpreadsheet().getUrl();
+  SpreadsheetApp.getUi().alert(
+    '✅ สร้างชีตเรียบร้อยแล้ว!\n\n' +
+    '📋 URL ของ Sheet นี้:\n' + sheetUrl + '\n\n' +
+    '📝 ขั้นตอนต่อไป:\n' +
+    '1. กรอกข้อมูลในแต่ละ Sheet ได้เลย\n' +
+    '   • projects — โครงการทั้งหมด\n' +
+    '   • invoices — ใบแจ้งหนี้\n' +
+    '   • bankAccounts — บัญชีธนาคาร\n' +
+    '   • pvVouchers — ใบสำคัญจ่าย\n' +
+    '   • payables — เจ้าหนี้\n\n' +
+    '2. Deploy เป็น Web App:\n' +
+    '   Extensions → Apps Script → Deploy → New deployment\n' +
+    '   Web app | Execute as: Me | Access: Anyone\n\n' +
+    '3. คัดลอก URL → ส่งให้ผู้ดูแลระบบใส่ใน config.js'
+  );
+}
+
+/* เพิ่ม note/hint ให้แต่ละคอลัมน์สำคัญ */
+function _addColumnHints_() {
+  var hints = {
+    projects: {
+      status:   'waiting_sign / signed_wip / invoiced / paid',
+      delivery: 'awaiting / in_progress / pending / delivered / received',
+      periods:  'JSON Array เช่น [{"period":1,"pctPogStank":100,"pctPogDrink":0,"value":1000000,"paymentStatus":"in_progress"}]',
+    },
+    invoices: {
+      status:        'pending_inspection / tracking / issue / paid',
+      followUps:     'JSON Array เช่น [] หรือ [{"date":"2026-01-01","note":"ส่งเอกสาร","by":"ชื่อ"}]',
+      actualReceive: 'null ถ้ายังไม่ได้รับเงิน หรือ {"date":"2026-01-01","amount":100000,"bankAccount":"กรุงเทพ","feeNote":""}',
+    },
+    bankAccounts: {
+      type: 'ออมทรัพย์ / เดินสะพัด/OD / L/C / กระแสรายวัน',
+    },
+    pvVouchers: {
+      category:      'วัสดุ / รับเหมา / ขนส่ง / เงินเดือน / การเงิน / บริการ / สาธารณูปโภค',
+      paymentMethod: 'โอน / เช็ค / หักบัญชี / เงินสด',
+    },
+    payables: {
+      category: 'วัสดุ / รับเหมา / ขนส่ง / บริการ / สาธารณูปโภค / การเงิน',
+      status:   'pending / paid / overdue',
+    },
+  };
+
+  Object.keys(hints).forEach(function (sheetName) {
+    var sh = _ss().getSheetByName(sheetName);
+    if (!sh) return;
+    var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+    var sheetHints = hints[sheetName];
+    headers.forEach(function (h, idx) {
+      if (sheetHints[h]) {
+        sh.getRange(1, idx + 1).setNote('📝 ค่าที่ใส่ได้:\n' + sheetHints[h]);
+      }
+    });
+  });
+}
+
+/* ── 9B. INIT WITH DEMO DATA ────────────────────────────────────── */
 function initWorkbook() {
   var seed = _seedData_();
 
@@ -520,10 +681,10 @@ function initWorkbook() {
   writeTable(SHEETS.PV_VOUCHERS, ENTITY_HEADERS.pvVouchers,       seed.pvVouchers);
   writeTable(SHEETS.PAYABLES,    ENTITY_HEADERS.payables,          seed.payables);
 
-  SpreadsheetApp.getUi().alert('สร้างชีตและใส่ข้อมูลตัวอย่างเรียบร้อย ✅\n\nขั้นตอนถัดไป:\nDeploy → New deployment → Web app\nแล้วนำ URL ไปใส่ใน app/config.js');
+  SpreadsheetApp.getUi().alert('✅ สร้างชีตพร้อมข้อมูลตัวอย่างเรียบร้อย\n\nขั้นตอนถัดไป: Deploy → New deployment → Web app\nแล้วนำ URL ไปใส่ใน app/config.js');
 }
 
-/* ── 10. SEED DATA ──────────────────────────────────────────────── */
+/* ── 10. SEED DATA (Demo) ───────────────────────────────────────── */
 function _seedData_() {
   var n = 1000;
   var id = function () { return 'id_' + (++n).toString(36); };
@@ -615,26 +776,26 @@ function _seedData_() {
       closing:[-1331906.41,-6279476.5,-3584977.04,-6599615.67,-3300000], nowWeek:2,
     },
     projects: [
-      { id:id(), code:'PP064-STIIS', name:'บ้านพรุกง ม.2 ต.วังใหญ่ อ.เทพา จ.สงขลา',           startDate:'2025-08-01', finishDate:'2026-05-15', allocBudget:4200000, signedValue:4630500,   status:'invoiced',     delivery:'received',    assignee:'',          debt:0,         note:'', periods:'[]', stopTime:'', commenceDate:'' },
-      { id:id(), code:'PP073-AYT',   name:'อาคารสำนักงาน เทศบาลตำบลอ่าวยาง จ.พังงา',          startDate:'2025-10-05', finishDate:'2026-07-30', allocBudget:17000000,signedValue:18900000,  status:'invoiced',     delivery:'pending',     assignee:'ธนาคารออมสิน',debt:4200000,  note:'', periods:'[]', stopTime:'', commenceDate:'' },
-      { id:id(), code:'PP081-NKM',   name:'ระบบประปา ต.นาคำ อ.เมือง จ.หนองคาย',               startDate:'2025-09-12', finishDate:'2026-06-30', allocBudget:11000000,signedValue:12500000,  status:'invoiced',     delivery:'delivered',   assignee:'กรุงเทพ',    debt:3500000,  note:'', periods:'[]', stopTime:'', commenceDate:'' },
-      { id:id(), code:'PP084-SKN',   name:'ปรับปรุงท่อจ่ายน้ำ ม.7 ต.สำโรง จ.อุบลฯ',           startDate:'2026-01-22', finishDate:'2026-09-30', allocBudget:7500000, signedValue:8550000,   status:'signed_wip',   delivery:'in_progress', assignee:'',          debt:1800000,  note:'', periods:'[]', stopTime:'', commenceDate:'' },
-      { id:id(), code:'PP088-MTK',   name:'ระบบส่งน้ำ ต.มะตูม อ.พรหมพิราม จ.พิษณุโลก',         startDate:'2026-02-04', finishDate:'2026-10-15', allocBudget:21000000,signedValue:23450300,  status:'signed_wip',   delivery:'in_progress', assignee:'กสิกรไทย',  debt:11366800, note:'', periods:'[]', stopTime:'', commenceDate:'' },
-      { id:id(), code:'PP091-CRI',   name:'ก่อสร้างประปา ม.4 ต.ป่าก่อดำ อ.แม่ลาว จ.เชียงราย',startDate:'2026-02-28', finishDate:'2026-11-30', allocBudget:17000000,signedValue:18900000,  status:'signed_wip',   delivery:'in_progress', assignee:'',          debt:6500000,  note:'', periods:'[]', stopTime:'', commenceDate:'' },
-      { id:id(), code:'PP094-PYO',   name:'ระบบประปาหมู่บ้าน ต.ดอกคำใต้ จ.พะเยา',             startDate:'2026-03-08', finishDate:'2026-12-31', allocBudget:12000000,signedValue:13105200,  status:'signed_wip',   delivery:'pending',     assignee:'',          debt:3240000,  note:'', periods:'[]', stopTime:'', commenceDate:'' },
-      { id:id(), code:'PP097-SKW',   name:'ระบบส่งน้ำดิบ ต.บางพระ อ.ศรีราชา จ.ชลบุรี',         startDate:'2026-03-25', finishDate:'2026-12-31', allocBudget:18000000,signedValue:19440000,  status:'signed_wip',   delivery:'in_progress', assignee:'ไทยพาณิชย์',debt:9720000,  note:'', periods:'[]', stopTime:'', commenceDate:'' },
-      { id:id(), code:'PP101-PTL',   name:'ปรับปรุงระบบประปา ต.เพชรเมืองทอง อ.เมือง จ.ปัตตานี',startDate:'',         finishDate:'',          allocBudget:26000000,signedValue:28740000,  status:'waiting_sign', delivery:'awaiting',    assignee:'',          debt:13420000, note:'', periods:'[]', stopTime:'', commenceDate:'' },
-      { id:id(), code:'PP103-NSN',   name:'ระบบประปาหมู่บ้าน ต.หนองสองห้อง จ.ขอนแก่น',        startDate:'',         finishDate:'',          allocBudget:17500000,signedValue:19160000,  status:'waiting_sign', delivery:'awaiting',    assignee:'',          debt:3229500,  note:'', periods:'[]', stopTime:'', commenceDate:'' },
+      { id:id(), code:'PP064-STIIS', name:'บ้านพรุกง ม.2 ต.วังใหญ่ อ.เทพา จ.สงขลา',            startDate:'2025-08-01', finishDate:'2026-05-15', allocBudget:4200000,  signedValue:4630500,  status:'invoiced',     delivery:'received',    assignee:'',           debt:0,        note:'', periods:'[]', stopTime:'', commenceDate:'', expectedPay1:'', expectedPay2:'' },
+      { id:id(), code:'PP073-AYT',   name:'อาคารสำนักงาน เทศบาลตำบลอ่าวยาง จ.พังงา',           startDate:'2025-10-05', finishDate:'2026-07-30', allocBudget:17000000, signedValue:18900000, status:'invoiced',     delivery:'pending',     assignee:'ธนาคารออมสิน',debt:4200000, note:'', periods:'[]', stopTime:'', commenceDate:'', expectedPay1:'', expectedPay2:'' },
+      { id:id(), code:'PP081-NKM',   name:'ระบบประปา ต.นาคำ อ.เมือง จ.หนองคาย',                startDate:'2025-09-12', finishDate:'2026-06-30', allocBudget:11000000, signedValue:12500000, status:'invoiced',     delivery:'delivered',   assignee:'กรุงเทพ',    debt:3500000, note:'', periods:'[]', stopTime:'', commenceDate:'', expectedPay1:'', expectedPay2:'' },
+      { id:id(), code:'PP084-SKN',   name:'ปรับปรุงท่อจ่ายน้ำ ม.7 ต.สำโรง จ.อุบลฯ',            startDate:'2026-01-22', finishDate:'2026-09-30', allocBudget:7500000,  signedValue:8550000,  status:'signed_wip',   delivery:'in_progress', assignee:'',           debt:1800000, note:'', periods:'[]', stopTime:'', commenceDate:'', expectedPay1:'', expectedPay2:'' },
+      { id:id(), code:'PP088-MTK',   name:'ระบบส่งน้ำ ต.มะตูม อ.พรหมพิราม จ.พิษณุโลก',          startDate:'2026-02-04', finishDate:'2026-10-15', allocBudget:21000000, signedValue:23450300, status:'signed_wip',   delivery:'in_progress', assignee:'กสิกรไทย',  debt:11366800,note:'', periods:'[]', stopTime:'', commenceDate:'', expectedPay1:'', expectedPay2:'' },
+      { id:id(), code:'PP091-CRI',   name:'ก่อสร้างประปา ม.4 ต.ป่าก่อดำ อ.แม่ลาว จ.เชียงราย', startDate:'2026-02-28', finishDate:'2026-11-30', allocBudget:17000000, signedValue:18900000, status:'signed_wip',   delivery:'in_progress', assignee:'',           debt:6500000, note:'', periods:'[]', stopTime:'', commenceDate:'', expectedPay1:'', expectedPay2:'' },
+      { id:id(), code:'PP094-PYO',   name:'ระบบประปาหมู่บ้าน ต.ดอกคำใต้ จ.พะเยา',              startDate:'2026-03-08', finishDate:'2026-12-31', allocBudget:12000000, signedValue:13105200, status:'signed_wip',   delivery:'pending',     assignee:'',           debt:3240000, note:'', periods:'[]', stopTime:'', commenceDate:'', expectedPay1:'', expectedPay2:'' },
+      { id:id(), code:'PP097-SKW',   name:'ระบบส่งน้ำดิบ ต.บางพระ อ.ศรีราชา จ.ชลบุรี',          startDate:'2026-03-25', finishDate:'2026-12-31', allocBudget:18000000, signedValue:19440000, status:'signed_wip',   delivery:'in_progress', assignee:'ไทยพาณิชย์', debt:9720000, note:'', periods:'[]', stopTime:'', commenceDate:'', expectedPay1:'', expectedPay2:'' },
+      { id:id(), code:'PP101-PTL',   name:'ปรับปรุงระบบประปา ต.เพชรเมืองทอง อ.เมือง จ.ปัตตานี',startDate:'',          finishDate:'',           allocBudget:26000000, signedValue:28740000, status:'waiting_sign', delivery:'awaiting',    assignee:'',           debt:13420000,note:'', periods:'[]', stopTime:'', commenceDate:'', expectedPay1:'', expectedPay2:'' },
+      { id:id(), code:'PP103-NSN',   name:'ระบบประปาหมู่บ้าน ต.หนองสองห้อง จ.ขอนแก่น',         startDate:'',          finishDate:'',           allocBudget:17500000, signedValue:19160000, status:'waiting_sign', delivery:'awaiting',    assignee:'',           debt:3229500, note:'', periods:'[]', stopTime:'', commenceDate:'', expectedPay1:'', expectedPay2:'' },
     ],
     projectFinance: [],
     invoices: [
-      { id:id(), ivNo:'IV2026-077', jobNo:'PP064-STIIS', period:1, invoiceDate:'2026-05-10', balance:231525,  status:'paid',              expectedReceive:'2026-05-15', contactName:'คุณสมชาย',    contactPhone:'074-555-1100', followUps:'[]', actualReceive:'null' },
-      { id:id(), ivNo:'IV2026-076', jobNo:'PP073-AYT',   period:2, invoiceDate:'2026-05-05', balance:4200000, status:'pending_inspection', expectedReceive:'2026-05-22', contactName:'คุณวิไล',     contactPhone:'076-555-2200', followUps:'[]', actualReceive:'null' },
-      { id:id(), ivNo:'IV2026-075', jobNo:'PP081-NKM',   period:3, invoiceDate:'2026-05-03', balance:3500000, status:'tracking',           expectedReceive:'2026-05-28', contactName:'คุณธนา',     contactPhone:'042-555-2200', followUps:'[]', actualReceive:'null' },
-      { id:id(), ivNo:'IV2026-074', jobNo:'PP084-SKN',   period:1, invoiceDate:'2026-04-29', balance:1850000, status:'tracking',           expectedReceive:'2026-06-04', contactName:'คุณอมรา',    contactPhone:'045-555-3300', followUps:'[]', actualReceive:'null' },
-      { id:id(), ivNo:'IV2026-073', jobNo:'PP088-MTK',   period:2, invoiceDate:'2026-04-22', balance:5400000, status:'issue',              expectedReceive:'2026-06-10', contactName:'คุณสิงห์',   contactPhone:'055-555-4400', followUps:'[]', actualReceive:'null' },
-      { id:id(), ivNo:'IV2026-072', jobNo:'PP091-CRI',   period:1, invoiceDate:'2026-04-15', balance:2380000, status:'tracking',           expectedReceive:'2026-06-18', contactName:'คุณพิม',     contactPhone:'053-555-5500', followUps:'[]', actualReceive:'null' },
-      { id:id(), ivNo:'IV2026-071', jobNo:'PP097-SKW',   period:4, invoiceDate:'2026-04-08', balance:1900000, status:'pending_inspection', expectedReceive:'2026-06-25', contactName:'คุณสุดารัตน์',contactPhone:'038-555-6600', followUps:'[]', actualReceive:'null' },
+      { id:id(), ivNo:'IV2026-077', jobNo:'PP064-STIIS', period:1, invoiceDate:'2026-05-10', balance:231525,  status:'paid',               expectedReceive:'2026-05-15', contactName:'คุณสมชาย',     contactPhone:'074-555-1100', followUps:'[]', actualReceive:'{"date":"2026-05-15","amount":231525,"bankAccount":"กรุงเทพ","feeNote":""}' },
+      { id:id(), ivNo:'IV2026-076', jobNo:'PP073-AYT',   period:2, invoiceDate:'2026-05-05', balance:4200000, status:'pending_inspection',  expectedReceive:'2026-05-22', contactName:'คุณวิไล',      contactPhone:'076-555-2200', followUps:'[]', actualReceive:'null' },
+      { id:id(), ivNo:'IV2026-075', jobNo:'PP081-NKM',   period:3, invoiceDate:'2026-05-03', balance:3500000, status:'tracking',            expectedReceive:'2026-05-28', contactName:'คุณธนา',      contactPhone:'042-555-2200', followUps:'[]', actualReceive:'null' },
+      { id:id(), ivNo:'IV2026-074', jobNo:'PP084-SKN',   period:1, invoiceDate:'2026-04-29', balance:1850000, status:'tracking',            expectedReceive:'2026-06-04', contactName:'คุณอมรา',     contactPhone:'045-555-3300', followUps:'[]', actualReceive:'null' },
+      { id:id(), ivNo:'IV2026-073', jobNo:'PP088-MTK',   period:2, invoiceDate:'2026-04-22', balance:5400000, status:'issue',               expectedReceive:'2026-06-10', contactName:'คุณสิงห์',    contactPhone:'055-555-4400', followUps:'[]', actualReceive:'null' },
+      { id:id(), ivNo:'IV2026-072', jobNo:'PP091-CRI',   period:1, invoiceDate:'2026-04-15', balance:2380000, status:'tracking',            expectedReceive:'2026-06-18', contactName:'คุณพิม',      contactPhone:'053-555-5500', followUps:'[]', actualReceive:'null' },
+      { id:id(), ivNo:'IV2026-071', jobNo:'PP097-SKW',   period:4, invoiceDate:'2026-04-08', balance:1900000, status:'pending_inspection',  expectedReceive:'2026-06-25', contactName:'คุณสุดารัตน์', contactPhone:'038-555-6600', followUps:'[]', actualReceive:'null' },
     ],
     forecastEntries: [
       { id:id(), date:'2026-05-22', category:'inflow_project', label:'รับเงินงวด 2 — PP073-AYT', amount:4200000,  note:'รอตรวจรับงาน' },
@@ -645,27 +806,21 @@ function _seedData_() {
       { id:id(), date:'2026-06-02', category:'outflow_misc',   label:'เงินเดือนพนักงาน + โบนัส',     amount:-3300000, note:'' },
     ],
     bankAccounts: [
-      { id:id(), bankName:'กรุงเทพ',    accountNo:'123-4-56789-0', accountName:'WaterPOG Co., Ltd. (Main)',    type:'ออมทรัพย์',     balance:2454226.17, asOf:'2026-05-18', note:'บัญชีหลักเก็บเงินรับ' },
-      { id:id(), bankName:'กสิกรไทย',   accountNo:'987-6-54321-0', accountName:'WaterPOG Co., Ltd. (OD)',      type:'เดินสะพัด/OD',  balance:-1200000,   asOf:'2026-05-18', note:'OD Limit 3,000,000' },
-      { id:id(), bankName:'ไทยพาณิชย์', accountNo:'456-7-89012-3', accountName:'WaterPOG Co., Ltd. (Payroll)', type:'ออมทรัพย์',     balance:470000,     asOf:'2026-05-18', note:'เงินเดือน + ค่าใช้จ่ายเบ็ดเตล็ด' },
-      { id:id(), bankName:'กรุงไทย',    accountNo:'321-0-98765-4', accountName:'WaterPOG Co., Ltd. (LC)',      type:'L/C',           balance:1200000,    asOf:'2026-05-18', note:'ค้ำประกันโครงการ' },
+      { id:id(), bankName:'กรุงเทพ',    accountNo:'123-4-56789-0', accountName:'บริษัท วอเทอร์ป๊อก จำกัด (Main)',    type:'ออมทรัพย์',    balance:2454226.17, asOf:'2026-05-18', note:'บัญชีหลักเก็บเงินรับ' },
+      { id:id(), bankName:'กสิกรไทย',   accountNo:'987-6-54321-0', accountName:'บริษัท วอเทอร์ป๊อก จำกัด (OD)',      type:'เดินสะพัด/OD', balance:-1200000,   asOf:'2026-05-18', note:'OD Limit 3,000,000' },
+      { id:id(), bankName:'ไทยพาณิชย์', accountNo:'456-7-89012-3', accountName:'บริษัท วอเทอร์ป๊อก จำกัด (Payroll)', type:'ออมทรัพย์',    balance:470000,     asOf:'2026-05-18', note:'เงินเดือน + ค่าใช้จ่ายเบ็ดเตล็ด' },
+      { id:id(), bankName:'กรุงไทย',    accountNo:'321-0-98765-4', accountName:'บริษัท วอเทอร์ป๊อก จำกัด (LC)',      type:'L/C',          balance:1200000,    asOf:'2026-05-18', note:'ค้ำประกันโครงการ' },
     ],
     pvVouchers: [
-      { id:id(), voucherNo:'PV2026-101', paidDate:'2026-05-02', payee:'บริษัท ท่อพีวีซีไทย จำกัด',     amount:850000,  category:'วัสดุ',        paymentMethod:'เช็ค',       bankAccount:'กรุงเทพ 123-4-56789-0',   reference:'PO-2026-088', note:'' },
-      { id:id(), voucherNo:'PV2026-102', paidDate:'2026-05-04', payee:'หจก. รับเหมา ก.วิศวกรรม',      amount:1200000, category:'รับเหมา',      paymentMethod:'โอน',        bankAccount:'กสิกรไทย 987-6-54321-0', reference:'PP091 งวด 2', note:'งานก่อสร้าง' },
-      { id:id(), voucherNo:'PV2026-103', paidDate:'2026-05-06', payee:'การไฟฟ้าส่วนภูมิภาค',           amount:48000,   category:'สาธารณูปโภค', paymentMethod:'โอน',        bankAccount:'ไทยพาณิชย์ 456-7-89012-3',reference:'PEA 05/2026', note:'' },
-      { id:id(), voucherNo:'PV2026-104', paidDate:'2026-05-08', payee:'ธ.กรุงเทพ (ดอกเบี้ย)',           amount:22500,   category:'การเงิน',      paymentMethod:'หักบัญชี',   bankAccount:'กรุงเทพ 123-4-56789-0',   reference:'PS2026-014',  note:'ดอกเบี้ยเดือน พ.ค.' },
-      { id:id(), voucherNo:'PV2026-105', paidDate:'2026-05-10', payee:'สำนักงานบัญชี เอกชน จำกัด',     amount:35000,   category:'บริการ',       paymentMethod:'โอน',        bankAccount:'กรุงเทพ 123-4-56789-0',   reference:'',            note:'ค่าบัญชี' },
-      { id:id(), voucherNo:'PV2026-106', paidDate:'2026-05-13', payee:'บริษัท ขนส่งยูไนเต็ด จำกัด',    amount:95000,   category:'ขนส่ง',        paymentMethod:'เช็ค',       bankAccount:'กรุงเทพ 123-4-56789-0',   reference:'',            note:'' },
-      { id:id(), voucherNo:'PV2026-107', paidDate:'2026-05-15', payee:'เงินเดือนพนักงาน',               amount:2850000, category:'เงินเดือน',    paymentMethod:'โอน',        bankAccount:'ไทยพาณิชย์ 456-7-89012-3',reference:'Payroll 05/2026',note:'' },
+      { id:id(), voucherNo:'PV2026-101', paidDate:'2026-05-02', payee:'บริษัท ท่อพีวีซีไทย จำกัด',  amount:850000,  category:'วัสดุ',        paymentMethod:'เช็ค',     bankAccount:'กรุงเทพ 123-4-56789-0',    reference:'PO-2026-088', note:'' },
+      { id:id(), voucherNo:'PV2026-102', paidDate:'2026-05-04', payee:'หจก. รับเหมา ก.วิศวกรรม',   amount:1200000, category:'รับเหมา',      paymentMethod:'โอน',      bankAccount:'กสิกรไทย 987-6-54321-0',  reference:'PP091 งวด 2', note:'งานก่อสร้าง' },
+      { id:id(), voucherNo:'PV2026-103', paidDate:'2026-05-06', payee:'การไฟฟ้าส่วนภูมิภาค',        amount:48000,   category:'สาธารณูปโภค', paymentMethod:'โอน',      bankAccount:'ไทยพาณิชย์ 456-7-89012-3', reference:'PEA 05/2026', note:'' },
+      { id:id(), voucherNo:'PV2026-107', paidDate:'2026-05-15', payee:'เงินเดือนพนักงาน',            amount:2850000, category:'เงินเดือน',   paymentMethod:'โอน',      bankAccount:'ไทยพาณิชย์ 456-7-89012-3', reference:'Payroll 05/2026', note:'' },
     ],
     payables: [
-      { id:id(), creditorName:'บริษัท ท่อพีวีซีไทย จำกัด',  invoiceNo:'PV2026-1024', amount:850000,  dueDate:'2026-05-25', category:'วัสดุ',        status:'pending', note:'ค่าท่อ PP088' },
-      { id:id(), creditorName:'หจก. รับเหมา ก.วิศวกรรม',   invoiceNo:'KW2026-088',  amount:1200000, dueDate:'2026-05-30', category:'รับเหมา',      status:'pending', note:'งานก่อสร้าง PP091' },
-      { id:id(), creditorName:'บริษัท ขนส่งยูไนเต็ด จำกัด', invoiceNo:'UC2026-512',  amount:95000,   dueDate:'2026-05-22', category:'ขนส่ง',       status:'overdue', note:'ค่าขนส่งสะสม' },
-      { id:id(), creditorName:'การไฟฟ้าส่วนภูมิภาค',       invoiceNo:'PEA2026-05', amount:48000,   dueDate:'2026-05-31', category:'สาธารณูปโภค', status:'pending', note:'' },
-      { id:id(), creditorName:'บริษัท นาคา ปั๊มน้ำ จำกัด',   invoiceNo:'NK2026-302', amount:540000,  dueDate:'2026-06-10', category:'วัสดุ',        status:'pending', note:'ปั๊มน้ำ + อะไหล่' },
-      { id:id(), creditorName:'สำนักงานบัญชี เอกชน จำกัด', invoiceNo:'AC2026-05',  amount:35000,   dueDate:'2026-05-20', category:'บริการ',       status:'paid',    note:'ค่าบัญชีเดือน พ.ค.' },
+      { id:id(), creditorName:'บริษัท ท่อพีวีซีไทย จำกัด', invoiceNo:'INV-2026-001', amount:850000,  dueDate:'2026-05-25', category:'วัสดุ',        status:'pending', note:'ค่าท่อ PP088' },
+      { id:id(), creditorName:'หจก. รับเหมา ก.วิศวกรรม',  invoiceNo:'KW2026-088',   amount:1200000, dueDate:'2026-05-30', category:'รับเหมา',      status:'pending', note:'งานก่อสร้าง PP091' },
+      { id:id(), creditorName:'การไฟฟ้าส่วนภูมิภาค',      invoiceNo:'PEA2026-05',   amount:48000,   dueDate:'2026-05-31', category:'สาธารณูปโภค', status:'pending', note:'' },
     ],
   };
 }
