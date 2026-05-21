@@ -1,6 +1,11 @@
 [build]
   publish = "."
 
+[[redirects]]
+  from = "/"
+  to   = "/Financial Dashboard.html"
+  status = 200
+
 [[headers]]
   for = "/*"
   [headers.values]
