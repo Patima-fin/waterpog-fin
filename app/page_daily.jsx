@@ -161,7 +161,7 @@ function DailyIvTable({ list, projectByCode, showDate, empty }) {
 function DrillModal({ title, list, projectByCode, onClose }) {
   const total = list.reduce((s, iv) => s + (iv.balance || 0), 0);
   return (
-    <Modal open={true} title={title} onClose={onClose}
+    <Modal open={true} title={title} onClose={onClose} wide
       footer={
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
           <span style={{ fontWeight: 600, color: 'var(--brand-500)' }}>

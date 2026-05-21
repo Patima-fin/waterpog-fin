@@ -409,6 +409,7 @@ button { font: inherit; color: inherit; }
   max-height: calc(100vh - 64px); overflow: auto;
   animation: pop-in var(--t) var(--ease);
 }
+.modal-wide { width: min(960px, calc(100vw - 32px)); }
 .modal-hd { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 .modal-title { font-size: 18px; font-weight: 700; color: var(--ink-900); margin: 0; }
 .modal-foot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
