@@ -160,7 +160,7 @@ function _sh(name) {
 }
 
 var JSON_FIELDS = {
-  projects:       [],   // flat columns — no JSON blobs
+  projects:       ['periods'],
   invoices:       ['followUps', 'actualReceive'],
   forecastEntries:[],
   bankAccounts:   [],
@@ -359,60 +359,23 @@ function tryParse(v, def) {
 
 /* ── 7. CRUD per entity ─────────────────────────────────────────── */
 var ENTITY_HEADERS = {
-
-  // ── projects: ตรงกับ "Project input" sheet ใน Project input.xlsx ──────
   projects: [
-    'id',
-    'Contract No.','พื้นที่','Type','Province','Ref.code',
-    'Start','Finish','Duration','งบประมาณ',
-    'มูลค่าสัญญาที่เซ็น','เซ็นสัญญา','แจ้งเข้าดำเนินการ','หยุดเวลา',
-    '% (POG+STANK)','% (POG DRINK)',
-    'Payment 1','Payment 1 Status','Receive Date',
-    'Payment 2','Payment 2 Status','Receive Date2',
-    'Payment 3','Payment 3 Status','Receive Date3',
-    'TOTAL','Receive','% Progress',
-    'สถานะโครงการ','ผู้รับโอนสิทธิ์','ภาระหนี้','Remark',
-    'status','expectedPay1','expectedPay2',
+    'id','code','name','startDate','finishDate','allocBudget','signedValue',
+    'status','delivery','assignee','debt','note','periods',
+    'stopTime','commenceDate','expectedPay1','expectedPay2'
   ],
-
-  // ── projectFinance: kept for backwards compat ──────────────────────────
   projectFinance: [
     'id','code','assignee','transferRights','debt','debtNote','transferDate','note'
   ],
-
-  // ── invoices: schema คงเดิม (มี tracking fields พิเศษ) ────────────────
   invoices: [
     'id','ivNo','jobNo','period','invoiceDate','balance',
     'status','expectedReceive','contactName','contactPhone',
     'followUps','actualReceive'
   ],
-
-  // ── forecastEntries: ตรงกับ RAW_MANUAL_EXPENSE ────────────────────────
-  forecastEntries: [
-    'id','DATE','PAYMENT_DATE','EXPENSE_TYPE','DESCRIPTION','JOB_NO',
-    'PROJECT_NAME','AMOUNT','Bank_AC','STATUS','CATEGORY','IS_ACCRUED','NOTE'
-  ],
-
-  // ── bankAccounts: ตรงกับ RAW_BANK_BALANCE ─────────────────────────────
-  bankAccounts: [
-    'id','DATE','BANK_NAME','Bank_AC','BALANCE','AVAILABLE_BALANCE','HOLD_AMOUNT','NOTE'
-  ],
-
-  // ── pvVouchers: ตรงกับ RAW_PV_PAYMENT ────────────────────────────────
-  pvVouchers: [
-    'id','Project_Dpt','Ref_Code','PL_PV_No','jobcode','Pmt_Date','Type_of_Pmt','Option',
-    'Payee','Type','AP_No','vchdate','Chq_No','Chq_Date','Bnf_Acct_No','Bnf_Bank',
-    'Bank_AC','Bank_Id','Remark','cc_remark','Amount','Down_payment','Deduct',
-    'Vat','Ret','Before_WHT','WHT','Less_Other','Total','Minus_Other','Net_Amount'
-  ],
-
-  // ── payables: ตรงกับ RAW_AP_OUTSTANDING (เฉพาะ column ที่ใช้งาน) ──────
-  payables: [
-    'id','docno','vchno','vchdate','refno','due','due2','remark',
-    'Amount','VAT','net_new','WHT_EMP','Less_Other','Balance_Amount2',
-    'Less_Ret','Balance_Amount1','netpayment','refcode','jobcode',
-    'jobname','dpt_code','dpt_name','acct_no','cust_name','vendor_group','vendor_group2'
-  ],
+  forecastEntries: ['id','date','category','label','amount','note'],
+  bankAccounts:    ['id','bankName','accountNo','accountName','type','balance','asOf','note'],
+  pvVouchers:      ['id','voucherNo','paidDate','payee','amount','category','paymentMethod','bankAccount','reference','note'],
+  payables:        ['id','creditorName','invoiceNo','amount','dueDate','category','status','note'],
 };
 
 function _entitySheet(entity) {

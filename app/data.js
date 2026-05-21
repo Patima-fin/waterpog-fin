@@ -413,17 +413,11 @@
   };
 
   // Helpers for cross-source lookups
-  const buildLookups = (data) => {
-    // projects ใช้ 'Contract No.' เป็น key, fallback ไป .code (ข้อมูลเก่า)
-    const projectByCode = Object.fromEntries(
-      (data.projects || []).map(p => [p['Contract No.'] || p.code, p])
-    );
-    // financeByCode: ใช้ projectFinance ถ้ามีข้อมูล, ไม่งั้น fallback ไป projects
-    const financeByCode = (data.projectFinance || []).length > 0
-      ? Object.fromEntries((data.projectFinance).map(f => [f.code, f]))
-      : projectByCode;
-    return { projectByCode, financeByCode };
-  };
+  const buildLookups = (data) => ({
+    projectByCode: Object.fromEntries((data.projects || []).map(p => [p.code, p])),
+    financeByCode: Object.fromEntries((data.projectFinance || []).map(f => [f.code, f])),
+  });
+
   window.WTPData = {
     load, save, reset, seed,
     STATUS_META, DELIVERY_META, IV_STATUS_META, PAY_STATUS_META,
