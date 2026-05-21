@@ -173,51 +173,64 @@ function GenericEditModal({ row, onClose, onSave, fields, title }) {
 
 // ─── Page configs ─────────────────────────────────────────────────────────────
 
-const FORECAST_CATEGORIES = {
-  inflow_project: 'เข้า — โครงการ',
-  inflow_loan:    'เข้า — เงินกู้',
-  outflow_op:     'ออก — ดำเนินงาน',
-  outflow_proj:   'ออก — โครงการ',
-  outflow_fin:    'ออก — การเงิน',
-  outflow_misc:   'ออก — เบ็ดเตล็ด',
-};
-
 function ForecastEntriesPage({ data, setData, toast }) {
   return (
     <DataCrudPage data={data} setData={setData} toast={toast} config={{
-      title: 'รายการประมาณการนอกระบบ',
-      sub: 'บันทึกโดย: ฝ่ายงบประมาณการรับ-จ่าย · เงินคาดการณ์ที่ยังไม่อยู่ในระบบ',
+      title: 'Manual Expense · ค่าใช้จ่ายที่บันทึกเอง',
+      sub: 'RAW_MANUAL_EXPENSE · รายการที่ยังไม่อยู่ในระบบ AP · วาง RAW ได้เลย',
       dataKey: 'forecastEntries',
-      addLabel: 'เพิ่มประมาณการ',
-      singular: 'รายการประมาณการ',
-      searchPlaceholder: 'ค้นหารายการ…',
-      searchKeys: ['label', 'note'],
+      addLabel: 'เพิ่มรายการ',
+      singular: 'รายการ',
+      searchPlaceholder: 'ค้นหา DESCRIPTION / JOB_NO / CATEGORY…',
+      searchKeys: ['DESCRIPTION', 'JOB_NO', 'PROJECT_NAME', 'CATEGORY'],
       filters: [
-        { key: 'in',  label: 'เงินเข้า' },
-        { key: 'out', label: 'เงินออก' },
+        { key: 'PLANNED',  label: 'PLANNED' },
+        { key: 'DONE',     label: 'DONE' },
+        { key: 'CANCELED', label: 'CANCELED' },
       ],
-      filterFn: (r, k) => k === 'in' ? r.amount > 0 : r.amount < 0,
-      emptyRow: { date: data.meta.asOf, category: 'inflow_project', label: '', amount: 0, note: '' },
+      filterFn: (r, k) => (r.STATUS || r.status || '') === k,
+      emptyRow: {
+        DATE: data.meta.asOf, PAYMENT_DATE: '', EXPENSE_TYPE: 'Manual',
+        DESCRIPTION: '', JOB_NO: '', PROJECT_NAME: '',
+        AMOUNT: 0, Bank_AC: '', STATUS: 'PLANNED', CATEGORY: '', IS_ACCRUED: '', NOTE: '',
+      },
       columns: [
-        { key: 'date',  label: 'วันที่',  type: 'date', width: 110 },
-        { key: 'label', label: 'รายการ', render: r => <div><div style={{ fontWeight: 500 }}>{r.label}</div>{r.note && <div className="muted" style={{ fontSize: 11.5 }}>{r.note}</div>}</div> },
-        { key: 'category', label: 'ประเภท', width: 130, render: r => <Badge kind={r.amount > 0 ? 'b-green' : 'b-red'} dot={false}>{FORECAST_CATEGORIES[r.category]}</Badge> },
-        { key: 'amount', label: 'มูลค่า', align: 'right', width: 160, render: r => <span style={{ color: r.amount > 0 ? 'var(--good)' : 'var(--bad)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{r.amount > 0 ? '+' : ''}{fmtNum(r.amount, 0)}</span> },
+        { key: 'DATE',          label: 'DATE', type: 'date', width: 105 },
+        { key: 'PAYMENT_DATE',  label: 'PAYMENT_DATE', type: 'date', width: 105 },
+        { key: 'DESCRIPTION',   label: 'DESCRIPTION', render: r => <div><div style={{ fontWeight: 500 }}>{r.DESCRIPTION || r.label}</div>{r.NOTE && <div className="muted" style={{ fontSize: 11.5 }}>{r.NOTE}</div>}</div> },
+        { key: 'JOB_NO',        label: 'JOB_NO', width: 100, mono: true },
+        { key: 'CATEGORY',      label: 'CATEGORY', width: 110, render: r => r.CATEGORY ? <Badge kind="b-gray" dot={false}>{r.CATEGORY}</Badge> : <span className="muted">—</span> },
+        { key: 'AMOUNT',        label: 'AMOUNT', align: 'right', width: 140, render: r => {
+          const v = Number(r.AMOUNT || r.amount || 0);
+          return <span style={{ color: v < 0 ? 'var(--bad)' : 'var(--good)', fontWeight: 700 }}>{v > 0 ? '+' : ''}{fmtNum(v, 0)}</span>;
+        }},
+        { key: 'STATUS',        label: 'STATUS', width: 100, render: r => {
+          const s = r.STATUS || r.status || '';
+          const kind = s === 'DONE' ? 'b-green' : s === 'CANCELED' ? 'b-red' : 'b-amber';
+          return <Badge kind={kind} dot={false}>{s || '—'}</Badge>;
+        }},
       ],
       modalFields: [
-        { key: 'date', label: 'วันที่คาดการณ์', type: 'date' },
-        { key: 'category', label: 'ประเภท', type: 'select', options: Object.entries(FORECAST_CATEGORIES).map(([v, l]) => ({ value: v, label: l })) },
-        { key: 'label', label: 'รายการ', type: 'text', full: true, placeholder: 'เช่น เบิกสินเชื่อหมุนเวียน' },
-        { key: 'amount', label: 'มูลค่า (บาท) · ติดลบ = เงินออก', type: 'number' },
-        { key: 'note', label: 'หมายเหตุ', type: 'textarea', full: true },
+        { key: 'DATE',          label: 'DATE', type: 'date' },
+        { key: 'PAYMENT_DATE',  label: 'PAYMENT_DATE', type: 'date' },
+        { key: 'EXPENSE_TYPE',  label: 'EXPENSE_TYPE', type: 'text' },
+        { key: 'DESCRIPTION',   label: 'DESCRIPTION', type: 'text', full: true },
+        { key: 'JOB_NO',        label: 'JOB_NO', type: 'text' },
+        { key: 'PROJECT_NAME',  label: 'PROJECT_NAME', type: 'text', full: true },
+        { key: 'AMOUNT',        label: 'AMOUNT (บาท) · ติดลบ = ออก', type: 'number' },
+        { key: 'Bank_AC',       label: 'Bank_AC', type: 'text' },
+        { key: 'STATUS',        label: 'STATUS', type: 'text', placeholder: 'PLANNED / DONE / CANCELED' },
+        { key: 'CATEGORY',      label: 'CATEGORY', type: 'text', placeholder: 'Project / Finance / HR…' },
+        { key: 'IS_ACCRUED',    label: 'IS_ACCRUED', type: 'text' },
+        { key: 'NOTE',          label: 'NOTE', type: 'textarea', full: true },
       ],
       summary: (rows) => {
-        const inflow = rows.filter(r => r.amount > 0).reduce((s, r) => s + r.amount, 0);
-        const outflow = rows.filter(r => r.amount < 0).reduce((s, r) => s + r.amount, 0);
+        const inflow  = rows.filter(r => Number(r.AMOUNT||r.amount||0) > 0).reduce((s, r) => s + Number(r.AMOUNT||r.amount||0), 0);
+        const outflow = rows.filter(r => Number(r.AMOUNT||r.amount||0) < 0).reduce((s, r) => s + Number(r.AMOUNT||r.amount||0), 0);
         return [
           { label: 'จำนวนรายการ', value: rows.length, unit: ' รายการ', digits: 0, icon: 'forecast', accent: 'var(--brand-500)' },
           { label: 'เงินเข้ารวม',  value: inflow,  accent: 'var(--good)', icon: 'arrow_down' },
-          { label: 'เงินออกรวม',   value: outflow, accent: 'var(--bad)',  icon: 'arrow_up' },
+          { label: 'เงินออกรวม',   value: Math.abs(outflow), accent: 'var(--bad)',  icon: 'arrow_up' },
           { label: 'สุทธิ',         value: inflow + outflow, accent: (inflow + outflow) >= 0 ? 'var(--good)' : 'var(--bad)', icon: 'coin' },
         ];
       },
@@ -229,50 +242,51 @@ function DataBankPage({ data, setData, toast }) {
   return (
     <DataCrudPage data={data} setData={setData} toast={toast} config={{
       title: 'DATA BANK · บัญชีธนาคาร',
-      sub: 'ยอดคงเหลือบัญชีธนาคารทั้งหมดของบริษัท · ใช้สำหรับคำนวณกระแสเงินสดจริง',
+      sub: 'RAW_BANK_BALANCE · ยอดคงเหลือบัญชีธนาคาร · วาง RAW ได้เลย',
       dataKey: 'bankAccounts',
       addLabel: 'เพิ่มบัญชี',
       singular: 'บัญชี',
       searchPlaceholder: 'ค้นหาธนาคาร/เลขที่บัญชี…',
-      searchKeys: ['bankName', 'accountNo', 'accountName'],
+      searchKeys: ['BANK_NAME', 'Bank_AC', 'NOTE'],
       filters: [
         { key: 'positive', label: 'ยอดเป็นบวก' },
         { key: 'negative', label: 'OD/ติดลบ' },
       ],
-      filterFn: (r, k) => k === 'positive' ? r.balance >= 0 : r.balance < 0,
-      emptyRow: { bankName: '', accountNo: '', accountName: '', type: 'ออมทรัพย์', balance: 0, asOf: data.meta.asOf, note: '' },
+      filterFn: (r, k) => {
+        const bal = Number(r.BALANCE ?? r.balance ?? 0);
+        return k === 'positive' ? bal >= 0 : bal < 0;
+      },
+      emptyRow: { DATE: data.meta.asOf, BANK_NAME: '', Bank_AC: '', BALANCE: 0, AVAILABLE_BALANCE: 0, HOLD_AMOUNT: 0, NOTE: '' },
       columns: [
-        { key: 'bankName',    label: 'ธนาคาร', width: 130, render: r => <div><div style={{ fontWeight: 700, color: 'var(--brand-700)' }}>{r.bankName}</div><div className="muted" style={{ fontSize: 11.5 }}>{r.type}</div></div> },
-        { key: 'accountNo',   label: 'เลขที่บัญชี', width: 160, mono: true },
-        { key: 'accountName', label: 'ชื่อบัญชี' },
-        { key: 'balance',     label: 'ยอดคงเหลือ', type: 'money', align: 'right', width: 160 },
-        { key: 'asOf',        label: 'ณ วันที่', type: 'date', width: 110 },
-        { key: 'note',        label: 'หมายเหตุ' },
+        { key: 'BANK_NAME',          label: 'ธนาคาร', width: 130, render: r => <div style={{ fontWeight: 700, color: 'var(--brand-700)' }}>{r.BANK_NAME || r.bankName}</div> },
+        { key: 'Bank_AC',            label: 'Bank_AC (เลขที่บัญชี)', width: 160, mono: true },
+        { key: 'BALANCE',            label: 'BALANCE', align: 'right', width: 160, render: r => {
+          const v = Number(r.BALANCE ?? r.balance ?? 0);
+          return <span style={{ color: v < 0 ? 'var(--bad)' : 'inherit', fontWeight: 600 }}>{fmtNum(v, 2)}</span>;
+        }},
+        { key: 'AVAILABLE_BALANCE',  label: 'AVAILABLE_BALANCE', align: 'right', width: 160, render: r => <span>{fmtNum(Number(r.AVAILABLE_BALANCE||0), 2)}</span> },
+        { key: 'HOLD_AMOUNT',        label: 'HOLD_AMOUNT', align: 'right', width: 120, render: r => <span className="muted">{fmtNum(Number(r.HOLD_AMOUNT||0), 2)}</span> },
+        { key: 'DATE',               label: 'DATE', type: 'date', width: 110 },
+        { key: 'NOTE',               label: 'NOTE' },
       ],
       modalFields: [
-        { key: 'bankName', label: 'ธนาคาร', type: 'text' },
-        { key: 'type', label: 'ประเภทบัญชี', type: 'select', options: [
-          { value: 'ออมทรัพย์', label: 'ออมทรัพย์' },
-          { value: 'กระแสรายวัน', label: 'กระแสรายวัน' },
-          { value: 'เดินสะพัด/OD', label: 'เดินสะพัด/OD' },
-          { value: 'L/C', label: 'L/C' },
-          { value: 'อื่นๆ', label: 'อื่นๆ' },
-        ] },
-        { key: 'accountNo', label: 'เลขที่บัญชี', type: 'text' },
-        { key: 'accountName', label: 'ชื่อบัญชี', type: 'text', full: true },
-        { key: 'balance', label: 'ยอดคงเหลือ (บาท) · ติดลบ = OD', type: 'number' },
-        { key: 'asOf', label: 'ณ วันที่', type: 'date' },
-        { key: 'note', label: 'หมายเหตุ', type: 'textarea', full: true },
+        { key: 'DATE',              label: 'DATE', type: 'date' },
+        { key: 'BANK_NAME',         label: 'BANK_NAME', type: 'text' },
+        { key: 'Bank_AC',           label: 'Bank_AC (เลขที่บัญชี)', type: 'text' },
+        { key: 'BALANCE',           label: 'BALANCE (บาท)', type: 'number' },
+        { key: 'AVAILABLE_BALANCE', label: 'AVAILABLE_BALANCE', type: 'number' },
+        { key: 'HOLD_AMOUNT',       label: 'HOLD_AMOUNT', type: 'number' },
+        { key: 'NOTE',              label: 'NOTE', type: 'textarea', full: true },
       ],
       summary: (rows) => {
-        const total = rows.reduce((s, r) => s + r.balance, 0);
-        const pos = rows.filter(r => r.balance >= 0).reduce((s, r) => s + r.balance, 0);
-        const od = rows.filter(r => r.balance < 0).reduce((s, r) => s + r.balance, 0);
+        const bal  = rows.reduce((s, r) => s + Number(r.BALANCE ?? r.balance ?? 0), 0);
+        const avail= rows.reduce((s, r) => s + Number(r.AVAILABLE_BALANCE ?? 0), 0);
+        const pos  = rows.filter(r => Number(r.BALANCE??r.balance??0) >= 0).reduce((s, r) => s + Number(r.BALANCE??r.balance??0), 0);
         return [
-          { label: 'จำนวนบัญชี',  value: rows.length, unit: ' บัญชี', digits: 0, icon: 'bank',  accent: 'var(--brand-500)' },
-          { label: 'ยอดบวกรวม',   value: pos,   accent: 'var(--good)', icon: 'arrow_down' },
-          { label: 'OD/ติดลบ',    value: Math.abs(od), accent: 'var(--bad)', icon: 'arrow_up' },
-          { label: 'สุทธิ',        value: total, accent: total >= 0 ? 'var(--good)' : 'var(--bad)', icon: 'coin' },
+          { label: 'จำนวนบัญชี',       value: rows.length, unit: ' บัญชี', digits: 0, icon: 'bank',  accent: 'var(--brand-500)' },
+          { label: 'BALANCE รวม',      value: bal,   accent: bal >= 0 ? 'var(--good)' : 'var(--bad)', icon: 'coin' },
+          { label: 'AVAILABLE รวม',    value: avail, accent: 'oklch(60% 0.18 295)', icon: 'arrow_down' },
+          { label: 'ยอดบวก',          value: pos,   accent: 'var(--good)', icon: 'check' },
         ];
       },
     }} />
@@ -280,54 +294,68 @@ function DataBankPage({ data, setData, toast }) {
 }
 
 function DataPVPage({ data, setData, toast }) {
-  const PV_CATEGORIES = ['วัสดุ', 'รับเหมา', 'ขนส่ง', 'สาธารณูปโภค', 'บริการ', 'เงินเดือน', 'การเงิน', 'ภาษี', 'อื่นๆ'];
-  const PV_METHODS = ['โอน', 'เช็ค', 'เงินสด', 'หักบัญชี', 'ตั๋วแลกเงิน'];
   return (
     <DataCrudPage data={data} setData={setData} toast={toast} config={{
       title: 'DATA PV · Payment Voucher',
-      sub: 'รายการที่จ่ายเงินจริงแล้วทั้งหมด · ใช้สำหรับเทียบกับแผนการจ่ายและบันทึกค่าใช้จ่ายจริง',
+      sub: 'RAW_PV_PAYMENT · รายการจ่ายเงินจริงทั้งหมด · วาง RAW ได้เลย',
       dataKey: 'pvVouchers',
       addLabel: 'เพิ่ม PV',
       singular: 'PV',
-      searchPlaceholder: 'ค้นหาเลขที่ PV / ผู้รับเงิน / อ้างอิง…',
-      searchKeys: ['voucherNo', 'payee', 'reference', 'category'],
-      filters: PV_CATEGORIES.slice(0, 5).map(c => ({ key: c, label: c })),
-      filterFn: (r, k) => r.category === k,
-      emptyRow: { voucherNo: '', paidDate: data.meta.asOf, payee: '', amount: 0, category: 'วัสดุ', paymentMethod: 'โอน', bankAccount: '', reference: '', note: '' },
+      searchPlaceholder: 'ค้นหา PL_PV_No / Payee / AP_No / Ref_Code…',
+      searchKeys: ['PL_PV_No', 'Payee', 'AP_No', 'Ref_Code', 'cc_remark'],
+      filters: [
+        { key: 'HRD', label: 'HRD' }, { key: 'FIN', label: 'FIN' },
+        { key: 'ACC', label: 'ACC' }, { key: 'PMD', label: 'PMD' },
+      ],
+      filterFn: (r, k) => r.Ref_Code === k,
+      emptyRow: {
+        Project_Dpt: '', Ref_Code: '', PL_PV_No: '', jobcode: '',
+        Pmt_Date: data.meta.asOf, Type_of_Pmt: 'Transfer Bank', Option: '',
+        Payee: '', Type: '', AP_No: '', vchdate: '', Chq_No: '', Chq_Date: '',
+        Bnf_Acct_No: '', Bnf_Bank: '', Bank_AC: '', Bank_Id: '',
+        Remark: '', cc_remark: '',
+        Amount: 0, Down_payment: 0, Deduct: 0, Vat: 0, Ret: 0,
+        Before_WHT: 0, WHT: 0, Less_Other: 0, Total: 0, Minus_Other: 0, Net_Amount: 0,
+      },
       columns: [
-        { key: 'voucherNo', label: 'เลขที่ PV', width: 130, mono: true },
-        { key: 'paidDate',  label: 'วันที่จ่าย', type: 'date', width: 110 },
-        { key: 'payee',     label: 'ผู้รับเงิน' },
-        { key: 'category',  label: 'หมวด',   width: 110, render: r => <Badge kind="b-gray" dot={false}>{r.category}</Badge> },
-        { key: 'amount',    label: 'จำนวนเงิน', type: 'money', align: 'right', width: 150 },
-        { key: 'paymentMethod', label: 'วิธีจ่าย', width: 110, render: r => <Badge kind="b-blue" dot={false}>{r.paymentMethod}</Badge> },
-        { key: 'bankAccount', label: 'บัญชี/ที่มา', width: 200 },
-        { key: 'reference', label: 'อ้างอิง', width: 160 },
+        { key: 'PL_PV_No',     label: 'PL_PV_No', width: 150, mono: true },
+        { key: 'Pmt_Date',     label: 'Pmt_Date', type: 'date', width: 105 },
+        { key: 'Payee',        label: 'Payee' },
+        { key: 'Ref_Code',     label: 'Ref_Code', width: 80, render: r => <Badge kind="b-gray" dot={false}>{r.Ref_Code}</Badge> },
+        { key: 'Type_of_Pmt', label: 'Type_of_Pmt', width: 110, render: r => <Badge kind="b-blue" dot={false}>{r.Type_of_Pmt}</Badge> },
+        { key: 'Bank_AC',      label: 'Bank_AC', width: 140, mono: true },
+        { key: 'Net_Amount',   label: 'Net_Amount', align: 'right', width: 140, render: r => <span style={{ fontWeight: 600, color: Number(r.Net_Amount||0) < 0 ? 'var(--bad)' : 'inherit' }}>{fmtNum(Number(r.Net_Amount||0), 2)}</span> },
+        { key: 'AP_No',        label: 'AP_No', width: 150, mono: true },
+        { key: 'cc_remark',    label: 'cc_remark' },
       ],
       modalFields: [
-        { key: 'voucherNo', label: 'เลขที่ PV', type: 'text', placeholder: 'PV2026-XXX' },
-        { key: 'paidDate', label: 'วันที่จ่ายจริง', type: 'date' },
-        { key: 'payee', label: 'ผู้รับเงิน', type: 'text', full: true },
-        { key: 'amount', label: 'จำนวนเงิน (บาท)', type: 'number' },
-        { key: 'category', label: 'หมวดค่าใช้จ่าย', type: 'select', options: PV_CATEGORIES.map(c => ({ value: c, label: c })) },
-        { key: 'paymentMethod', label: 'วิธีจ่าย', type: 'select', options: PV_METHODS.map(m => ({ value: m, label: m })) },
-        { key: 'bankAccount', label: 'บัญชี/แหล่งเงิน', type: 'text', full: true, placeholder: 'เช่น กรุงเทพ 123-4-56789-0' },
-        { key: 'reference', label: 'อ้างอิง (PO/IV/PS/Project)', type: 'text', full: true, placeholder: 'เช่น PO-2026-088 / PP088 งวด 2' },
-        { key: 'note', label: 'หมายเหตุ', type: 'textarea', full: true },
+        { key: 'PL_PV_No',    label: 'PL_PV_No', type: 'text', placeholder: 'PV20260500XXX' },
+        { key: 'Pmt_Date',    label: 'Pmt_Date', type: 'date' },
+        { key: 'Payee',       label: 'Payee', type: 'text', full: true },
+        { key: 'Ref_Code',    label: 'Ref_Code', type: 'text', placeholder: 'HRD / FIN / PMD…' },
+        { key: 'jobcode',     label: 'jobcode', type: 'text' },
+        { key: 'Type_of_Pmt',label: 'Type_of_Pmt', type: 'text' },
+        { key: 'AP_No',       label: 'AP_No', type: 'text' },
+        { key: 'Bank_AC',     label: 'Bank_AC', type: 'text' },
+        { key: 'Net_Amount',  label: 'Net_Amount (บาท)', type: 'number' },
+        { key: 'Amount',      label: 'Amount (ก่อนหัก)', type: 'number' },
+        { key: 'WHT',         label: 'WHT', type: 'number' },
+        { key: 'Vat',         label: 'Vat', type: 'number' },
+        { key: 'cc_remark',   label: 'cc_remark', type: 'textarea', full: true },
       ],
       summary: (rows) => {
-        const total = rows.reduce((s, r) => s + (r.amount || 0), 0);
-        const byCat = {};
-        rows.forEach(r => { byCat[r.category] = (byCat[r.category] || 0) + (r.amount || 0); });
-        const sortedCats = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
-        const topCat = sortedCats[0] || ['—', 0];
+        const total = rows.reduce((s, r) => s + Number(r.Net_Amount || r.amount || 0), 0);
         const month = (new Date()).toISOString().slice(0, 7);
-        const thisMonth = rows.filter(r => (r.paidDate || '').slice(0, 7) === month).reduce((s, r) => s + (r.amount || 0), 0);
+        const thisMonth = rows.filter(r => (r.Pmt_Date || r.paidDate || '').slice(0, 7) === month)
+          .reduce((s, r) => s + Number(r.Net_Amount || r.amount || 0), 0);
+        const byRef = {};
+        rows.forEach(r => { const k = r.Ref_Code || r.category || '?'; byRef[k] = (byRef[k]||0) + Number(r.Net_Amount||r.amount||0); });
+        const topRef = Object.entries(byRef).sort((a,b)=>b[1]-a[1])[0] || ['—', 0];
         return [
-          { label: 'จำนวนรายการ',   value: rows.length, unit: ' รายการ', digits: 0, icon: 'invoice', accent: 'var(--brand-500)' },
-          { label: 'ยอดจ่ายรวม',     value: total, accent: 'var(--bad)', icon: 'arrow_up' },
-          { label: 'จ่ายเดือนนี้',    value: thisMonth, accent: 'oklch(60% 0.18 295)', icon: 'coin' },
-          { label: `หมวดสูงสุด: ${topCat[0]}`, value: topCat[1], accent: 'oklch(70% 0.16 75)', icon: 'money' },
+          { label: 'จำนวน PV',       value: rows.length, unit: ' รายการ', digits: 0, icon: 'invoice', accent: 'var(--brand-500)' },
+          { label: 'Net_Amount รวม', value: total,     accent: 'var(--bad)', icon: 'arrow_up' },
+          { label: 'เดือนนี้',        value: thisMonth, accent: 'oklch(60% 0.18 295)', icon: 'coin' },
+          { label: `Ref สูงสุด: ${topRef[0]}`, value: topRef[1], accent: 'oklch(70% 0.16 75)', icon: 'money' },
         ];
       },
     }} />
@@ -337,68 +365,70 @@ function DataPVPage({ data, setData, toast }) {
 function DataPayablePage({ data, setData, toast }) {
   return (
     <DataCrudPage data={data} setData={setData} toast={toast} config={{
-      title: 'DATA เจ้าหนี้คงค้าง · Accounts Payable',
-      sub: 'รายการเจ้าหนี้และค่าใช้จ่ายค้างจ่าย · ใช้สำหรับวางแผนการจ่ายเงิน',
+      title: 'DATA AP Outstanding · เจ้าหนี้คงค้าง',
+      sub: 'RAW_AP_OUTSTANDING · รายการเจ้าหนี้คงค้าง · วาง RAW ได้เลย',
       dataKey: 'payables',
-      addLabel: 'เพิ่มเจ้าหนี้',
-      singular: 'เจ้าหนี้',
-      searchPlaceholder: 'ค้นหาชื่อเจ้าหนี้/เลขที่ Invoice…',
-      searchKeys: ['creditorName', 'invoiceNo', 'category'],
+      addLabel: 'เพิ่มรายการ',
+      singular: 'รายการ AP',
+      searchPlaceholder: 'ค้นหา cust_name / vchno / jobcode…',
+      searchKeys: ['cust_name', 'vchno', 'jobcode', 'jobname', 'remark'],
       filters: [
-        { key: 'pending', label: 'ค้างจ่าย' },
-        { key: 'overdue', label: 'เลยกำหนด' },
-        { key: 'paid',    label: 'ชำระแล้ว' },
+        { key: 'ven', label: 'Vendor' },
+        { key: 'sub', label: 'Subcontract' },
       ],
-      filterFn: (r, k) => r.status === k,
-      emptyRow: { creditorName: '', invoiceNo: '', amount: 0, dueDate: '', category: 'วัสดุ', status: 'pending', note: '' },
+      filterFn: (r, k) => (r.vendor_group || '').toLowerCase().includes(k),
+      emptyRow: {
+        docno: '', vchno: '', vchdate: '', refno: '', due: '', due2: '', remark: '',
+        Amount: 0, VAT: 0, net_new: 0, WHT_EMP: 0, Less_Other: 0, Balance_Amount2: 0,
+        Less_Ret: 0, Balance_Amount1: 0, netpayment: 0, refcode: '', jobcode: '',
+        jobname: '', dpt_code: '', dpt_name: '', acct_no: '', cust_name: '',
+        vendor_group: '', vendor_group2: '',
+      },
       columns: [
-        { key: 'creditorName', label: 'ชื่อเจ้าหนี้' },
-        { key: 'invoiceNo',    label: 'เลขที่ Invoice', width: 150, mono: true },
-        { key: 'category',     label: 'หมวด', width: 110, render: r => <Badge kind="b-gray" dot={false}>{r.category}</Badge> },
-        { key: 'amount',       label: 'มูลค่า', type: 'money', align: 'right', width: 150 },
-        { key: 'dueDate',      label: 'วันครบกำหนด', type: 'date', width: 120, render: r => {
-          const due = new Date(r.dueDate); const today = new Date();
-          const days = Math.ceil((due - today) / (1000 * 60 * 60 * 24));
+        { key: 'cust_name',      label: 'cust_name (ชื่อเจ้าหนี้)' },
+        { key: 'vchno',          label: 'vchno', width: 160, mono: true },
+        { key: 'vchdate',        label: 'vchdate', type: 'date', width: 105 },
+        { key: 'due',            label: 'due', type: 'date', width: 105, render: r => {
+          const due = r.due ? new Date(r.due) : null;
+          if (!due) return <span className="muted">—</span>;
+          const days = Math.ceil((due - new Date()) / (1000 * 60 * 60 * 24));
           return (
             <div>
-              <div>{fmtDate(r.dueDate)}</div>
-              <div className="muted" style={{ fontSize: 11, color: days < 0 ? 'var(--bad)' : days < 7 ? 'oklch(60% 0.16 75)' : 'var(--ink-500)' }}>
+              <div>{fmtDate(r.due)}</div>
+              <div className="muted" style={{ fontSize: 10.5, color: days < 0 ? 'var(--bad)' : days < 7 ? 'oklch(60% 0.16 75)' : 'var(--ink-500)' }}>
                 {days < 0 ? `เลย ${Math.abs(days)} วัน` : days === 0 ? 'วันนี้' : `อีก ${days} วัน`}
               </div>
             </div>
           );
-        } },
-        { key: 'status', label: 'สถานะ', width: 110, render: r => {
-          const map = { pending: { kind: 'b-amber', label: 'ค้างจ่าย' }, overdue: { kind: 'b-red', label: 'เลยกำหนด' }, paid: { kind: 'b-green', label: 'ชำระแล้ว' } };
-          const m = map[r.status] || map.pending;
-          return <Badge kind={m.kind}>{m.label}</Badge>;
-        } },
+        }},
+        { key: 'netpayment',     label: 'netpayment', align: 'right', width: 140, render: r => <span style={{ fontWeight: 600 }}>{fmtNum(Number(r.netpayment||0), 2)}</span> },
+        { key: 'Balance_Amount1',label: 'Balance_Amount1', align: 'right', width: 140, render: r => <span>{fmtNum(Number(r.Balance_Amount1||0), 2)}</span> },
+        { key: 'jobcode',        label: 'jobcode', width: 110, mono: true },
+        { key: 'vendor_group',   label: 'vendor_group', width: 120, render: r => r.vendor_group ? <Badge kind="b-gray" dot={false}>{r.vendor_group}</Badge> : <span className="muted">—</span> },
+        { key: 'remark',         label: 'remark' },
       ],
       modalFields: [
-        { key: 'creditorName', label: 'ชื่อเจ้าหนี้', type: 'text', full: true },
-        { key: 'invoiceNo', label: 'เลขที่ Invoice', type: 'text' },
-        { key: 'category', label: 'หมวดค่าใช้จ่าย', type: 'select', options: [
-          { value: 'วัสดุ', label: 'วัสดุ' }, { value: 'รับเหมา', label: 'รับเหมา' },
-          { value: 'ขนส่ง', label: 'ขนส่ง' }, { value: 'สาธารณูปโภค', label: 'สาธารณูปโภค' },
-          { value: 'บริการ', label: 'บริการ' }, { value: 'เงินเดือน', label: 'เงินเดือน' },
-          { value: 'การเงิน', label: 'การเงิน' }, { value: 'อื่นๆ', label: 'อื่นๆ' },
-        ] },
-        { key: 'amount', label: 'มูลค่า (บาท)', type: 'number' },
-        { key: 'dueDate', label: 'วันครบกำหนด', type: 'date' },
-        { key: 'status', label: 'สถานะ', type: 'select', options: [
-          { value: 'pending', label: 'ค้างจ่าย' }, { value: 'overdue', label: 'เลยกำหนด' }, { value: 'paid', label: 'ชำระแล้ว' },
-        ] },
-        { key: 'note', label: 'หมายเหตุ', type: 'textarea', full: true },
+        { key: 'cust_name',      label: 'cust_name', type: 'text', full: true },
+        { key: 'vchno',          label: 'vchno', type: 'text' },
+        { key: 'vchdate',        label: 'vchdate', type: 'date' },
+        { key: 'due',            label: 'due (วันครบกำหนด)', type: 'date' },
+        { key: 'netpayment',     label: 'netpayment (บาท)', type: 'number' },
+        { key: 'Amount',         label: 'Amount (ก่อนหัก)', type: 'number' },
+        { key: 'Balance_Amount1',label: 'Balance_Amount1', type: 'number' },
+        { key: 'jobcode',        label: 'jobcode', type: 'text' },
+        { key: 'jobname',        label: 'jobname', type: 'text', full: true },
+        { key: 'vendor_group',   label: 'vendor_group', type: 'text' },
+        { key: 'remark',         label: 'remark', type: 'textarea', full: true },
       ],
       summary: (rows) => {
-        const pending = rows.filter(r => r.status === 'pending').reduce((s, r) => s + r.amount, 0);
-        const overdue = rows.filter(r => r.status === 'overdue').reduce((s, r) => s + r.amount, 0);
-        const paid    = rows.filter(r => r.status === 'paid').reduce((s, r) => s + r.amount, 0);
+        const net  = rows.reduce((s, r) => s + Number(r.netpayment||0), 0);
+        const bal1 = rows.reduce((s, r) => s + Number(r.Balance_Amount1||0), 0);
+        const amt  = rows.reduce((s, r) => s + Number(r.Amount||0), 0);
         return [
-          { label: 'จำนวนรายการ', value: rows.length, unit: ' รายการ', digits: 0, icon: 'invoice', accent: 'var(--brand-500)' },
-          { label: 'ค้างจ่ายรวม',  value: pending, accent: 'oklch(70% 0.16 75)', icon: 'forecast' },
-          { label: 'เลยกำหนด',     value: overdue, accent: 'var(--bad)', icon: 'arrow_up' },
-          { label: 'ชำระแล้ว',     value: paid, accent: 'var(--good)', icon: 'check' },
+          { label: 'จำนวนรายการ',    value: rows.length, unit: ' รายการ', digits: 0, icon: 'invoice', accent: 'var(--brand-500)' },
+          { label: 'Amount รวม',     value: amt,  accent: 'oklch(70% 0.16 75)', icon: 'money' },
+          { label: 'netpayment รวม', value: net,  accent: 'var(--bad)', icon: 'arrow_up' },
+          { label: 'Balance_1 รวม',  value: bal1, accent: 'oklch(60% 0.18 295)', icon: 'coin' },
         ];
       },
     }} />

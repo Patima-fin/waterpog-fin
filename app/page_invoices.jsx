@@ -19,11 +19,13 @@ function InvoicesPage({ data, setData, toast }) {
   const rows = ivMemo(() => data.invoices.map(iv => {
     const p = projectByCode[iv.jobNo] || {};
     const f = financeByCode[iv.jobNo] || {};
-    const debt = f.debt ?? 0;
+    // Support both old schema (f.debt, f.assignee) and new RAW schema (p['ภาระหนี้'], p['ผู้รับโอนสิทธิ์'])
+    const debt     = Number(f.debt ?? f['ภาระหนี้'] ?? 0);
+    const assignee = f.assignee || f['ผู้รับโอนสิทธิ์'] || '—';
     return {
       ...iv,
-      projectName: p.name || '—',
-      assignee:    f.assignee || '—',
+      projectName: p['พื้นที่'] || p.name || '—',
+      assignee,
       debt,
       netExpected: (iv.balance || 0) - debt,
     };
@@ -270,7 +272,7 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
           <div className="field"><label>Job no</label>
             <select className="select input" value={draft.jobNo || ''} onChange={(e) => set('jobNo', e.target.value)}>
               <option value="">— เลือก —</option>
-              {projects.map(p => <option key={p.id} value={p.code}>{p.code} · {p.name.slice(0,30)}</option>)}
+              {projects.map(p => <option key={p.id} value={p['Contract No.'] || p.code}>{p['Contract No.'] || p.code} · {(p['พื้นที่'] || p.name || '').slice(0,30)}</option>)}
             </select>
           </div>
           <div className="field"><label>เลขที่ IV</label><input className="input" value={draft.ivNo || ''} onChange={(e) => set('ivNo', e.target.value)} placeholder="IV2026-XXX" /></div>
@@ -373,7 +375,7 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
             <div className="field"><label>เข้าบัญชี</label>
               <select className="select input" value={draft.actualReceive.bankAccount || ''} onChange={(e) => setReceive({ bankAccount: e.target.value })}>
                 <option value="">— เลือกบัญชี —</option>
-                {(bankAccounts || []).map(b => <option key={b.id} value={`${b.bankName} ${b.accountNo}`}>{b.bankName} · {b.accountNo}</option>)}
+                {(bankAccounts || []).map(b => <option key={b.id} value={`${b.BANK_NAME || b.bankName} ${b.Bank_AC || b.accountNo}`}>{b.BANK_NAME || b.bankName} · {b.Bank_AC || b.accountNo}</option>)}
               </select>
             </div>
             <div className="field" style={{ gridColumn: '1 / -1' }}>
