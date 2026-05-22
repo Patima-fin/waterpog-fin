@@ -734,13 +734,12 @@ function DataPayablePage({ data, setData, toast }) {
   const COLS = [
     { key: 'vchdate',    label: 'วันที่',            w: 90  },
     { key: 'vchno',      label: 'เลขที่ใบสำคัญ',    w: 140 },
-    { key: 'docno',      label: 'docno (col B)',     w: 140 },
-    { key: 'cust_name',  label: 'เจ้าหนี้ / Vendor', w: 240 },
+    { key: 'cust_name',  label: 'เจ้าหนี้ / Vendor', w: 260 },
     { key: 'dpt_code',   label: 'แผนก',              w: 76  },
     { key: 'due2',       label: 'วันครบกำหนด',       w: 105 },
     { key: '_overdue',   label: 'เกินกำหนด',         w: 88  },
     { key: 'netpayment', label: 'Net Payment (฿)',   w: 148 },
-    { key: 'remark',     label: 'หมายเหตุ',           w: 260 },
+    { key: 'remark',     label: 'หมายเหตุ',           w: 280 },
   ];
 
   return (

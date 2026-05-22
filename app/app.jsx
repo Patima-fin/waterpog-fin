@@ -217,12 +217,12 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
       </div>
 
       <div>
-        <div className="sb-section">แดชบอร์ดสำหรับนำเสนอ</div>
+        <div className="sb-section">แดชบอร์ด</div>
         {[
-          ['daily', 'รับเงินประจำวัน', 'daily'],
-          ['warroom1', 'War Room · หน้า 1', 'receivables'],
-          ['warroom2', 'War Room · หน้า 2', 'forecast'],
-          ['cashflow', 'ประมาณการรับ-จ่ายรายสัปดาห์', 'chart'],
+          ['daily',    'รายงานรับเงินรายวัน',    'daily'],
+          ['warroom1', 'War Room · รายรับ',       'receivables'],
+          ['warroom2', 'War Room · รายปี',        'forecast'],
+          ['cashflow', 'กระแสเงินสดรายสัปดาห์', 'chart'],
         ].map(([key, label, icon]) => (
           <button key={key} className={`sb-link ${route === key ? 'active' : ''}`} onClick={() => go(key)}>
             <Icon name={icon} className="sb-icon" />
@@ -235,12 +235,12 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
       <div>
         <div className="sb-section">จัดการข้อมูล</div>
         {[
-          ['projects',      'โครงการทั้งหมด', 'projects'],
-          ['invoices',      'ใบแจ้งหนี้', 'invoice'],
-          ['data_forecast', 'ประมาณการนอกระบบ', 'forecast'],
-          ['data_bank',     'DATA BANK', 'bank'],
-          ['data_pv',       'DATA PV', 'money'],
-          ['data_payable',  'DATA เจ้าหนี้คงค้าง', 'arrow_up'],
+          ['projects',      'โครงการ',          'projects'],
+          ['invoices',      'ลูกหนี้คงค้าง',    'invoice'],
+          ['data_forecast', 'ประมาณการรายจ่าย', 'forecast'],
+          ['data_bank',     'บัญชีธนาคาร',      'bank'],
+          ['data_pv',       'ใบสำคัญจ่าย',      'money'],
+          ['data_payable',  'เจ้าหนี้คงค้าง',   'arrow_up'],
         ].map(([key, label, icon]) => (
           <button key={key} className={`sb-link ${route === key ? 'active' : ''}`} onClick={() => go(key)}>
             <Icon name={icon} className="sb-icon" />
