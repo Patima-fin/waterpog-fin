@@ -468,73 +468,177 @@ function DataPVPage({ data, setData, toast }) {
   );
 }
 
+// Parse dd/MM/yyyy or ISO date string → Date object (handles RAW Excel text dates)
+function parseDue(s) {
+  if (!s) return null;
+  const m = String(s).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) return new Date(+m[3], +m[2] - 1, +m[1]);
+  const d = new Date(s);
+  return isNaN(d) ? null : d;
+}
+
 function DataPayablePage({ data, setData, toast }) {
   return (
     <DataCrudPage data={data} setData={setData} toast={toast} config={{
-      title: 'DATA AP Outstanding · เจ้าหนี้คงค้าง',
-      sub: 'RAW_AP_OUTSTANDING · รายการเจ้าหนี้คงค้าง · วาง RAW ได้เลย',
+      title: 'DATA AP Outstanding · ใบแจ้งหนี้เจ้าหนี้คงค้าง',
+      sub: 'RAW_AP_OUTSTANDING · 54 คอลัมน์ตาม format ต้นฉบับ · วาง RAW ได้เลย',
       dataKey: 'payables',
       addLabel: 'เพิ่มรายการ',
       singular: 'รายการ AP',
-      searchPlaceholder: 'ค้นหา cust_name / vchno / jobcode…',
-      searchKeys: ['cust_name', 'vchno', 'jobcode', 'jobname', 'remark'],
+      searchPlaceholder: 'ค้นหา cust_name / vchno / jobcode / remark…',
+      searchKeys: ['cust_name', 'vchno', 'docno', 'jobcode', 'jobname', 'remark', 'dpt_code'],
       filters: [
-        { key: 'ven', label: 'Vendor' },
-        { key: 'sub', label: 'Subcontract' },
+        { key: 'HRD', label: 'HRD · บุคคล' },
+        { key: 'MNG', label: 'MNG · บริหาร' },
+        { key: 'HO',  label: 'HO · สำนักงาน' },
+        { key: 'ITD', label: 'ITD · IT' },
+        { key: 'IPD', label: 'IPD · ผลิตภัณฑ์' },
+        { key: 'FIN', label: 'FIN · การเงิน' },
+        { key: 'ACC', label: 'ACC · บัญชี' },
+        { key: 'SAL', label: 'SAL · ขาย' },
       ],
-      filterFn: (r, k) => (r.vendor_group || '').toLowerCase().includes(k),
+      filterFn: (r, k) => r.dpt_code === k,
       emptyRow: {
+        maincode: 'MG1', ty: 'AP', doctype: 'O', typecode: '', data_ty: '1', aptype: '4',
         docno: '', vchno: '', vchdate: '', refno: '', due: '', due2: '', remark: '',
-        Amount: 0, VAT: 0, net_new: 0, WHT_EMP: 0, Less_Other: 0, Balance_Amount2: 0,
-        Less_Ret: 0, Balance_Amount1: 0, netpayment: 0, refcode: '', jobcode: '',
-        jobname: '', dpt_code: '', dpt_name: '', acct_no: '', cust_name: '',
-        vendor_group: '', vendor_group2: '',
+        Amount: 0, Less_Adv: 0, Less: 0, exchange: 1, VAT: 0, net_new: 0,
+        WHT_EMP: 0, Less_Other: 0, Balance_Amount2: 0, Less_Ret: 0, Balance_Amount1: 0,
+        amt_bf_wt: 0, WHT_EXT: 0, Net_amount2_new: 0, netpayment: 0,
+        pre_event: '', pre_event2: '', refcode: '', pre_des: '',
+        jobcode: '', jobname: '', ac_code_ven: '', dpt_code: '', dpt_name: '',
+        acct_no: '', cust_name: '', acct_no_h: '', acct_header_name: '',
+        bus_code: '', taxinv: 'N', glretap: '', whamt: 0, Less_adv_amount: 0,
+        acctcust: '', h1_group: '', h2_group: '', h3_group: '', bold: 'FALSE',
+        vendor_group: '', vendor_group2: '', exchange2: 1,
       },
       columns: [
-        { key: 'cust_name',      label: 'cust_name (ชื่อเจ้าหนี้)' },
-        { key: 'vchno',          label: 'vchno', width: 160, mono: true },
-        { key: 'vchdate',        label: 'vchdate', type: 'date', width: 105 },
-        { key: 'due',            label: 'due', type: 'date', width: 105, render: r => {
-          const due = r.due ? new Date(r.due) : null;
-          if (!due) return <span className="muted">—</span>;
-          const days = Math.ceil((due - new Date()) / (1000 * 60 * 60 * 24));
-          return (
+        { key: 'vchno', label: 'vchno (ใบสำคัญ)', width: 165, mono: true,
+          render: r => (
             <div>
-              <div>{fmtDate(r.due)}</div>
-              <div className="muted" style={{ fontSize: 10.5, color: days < 0 ? 'var(--bad)' : days < 7 ? 'oklch(60% 0.16 75)' : 'var(--ink-500)' }}>
-                {days < 0 ? `เลย ${Math.abs(days)} วัน` : days === 0 ? 'วันนี้' : `อีก ${days} วัน`}
-              </div>
+              <div style={{ fontWeight: 600, color: 'var(--brand-700)', fontFamily: 'ui-monospace' }}>{r.vchno || '—'}</div>
+              {r.docno && <div className="muted" style={{ fontSize: 10.5 }}>{r.docno}</div>}
             </div>
-          );
-        }},
-        { key: 'netpayment',     label: 'netpayment', align: 'right', width: 140, render: r => <span style={{ fontWeight: 600 }}>{fmtNum(Number(r.netpayment||0), 2)}</span> },
-        { key: 'Balance_Amount1',label: 'Balance_Amount1', align: 'right', width: 140, render: r => <span>{fmtNum(Number(r.Balance_Amount1||0), 2)}</span> },
-        { key: 'jobcode',        label: 'jobcode', width: 110, mono: true },
-        { key: 'vendor_group',   label: 'vendor_group', width: 120, render: r => r.vendor_group ? <Badge kind="b-gray" dot={false}>{r.vendor_group}</Badge> : <span className="muted">—</span> },
-        { key: 'remark',         label: 'remark' },
+          )
+        },
+        { key: 'vchdate', label: 'vchdate', type: 'date', width: 95 },
+        { key: 'due2', label: 'due (ครบกำหนด)', width: 120,
+          render: r => {
+            const due = parseDue(r.due2 || r.due);
+            if (!due) return <span className="muted">—</span>;
+            const days = Math.ceil((due - new Date()) / 86400000);
+            const color = days < 0 ? 'var(--bad)' : days < 7 ? 'oklch(60% 0.16 75)' : days < 30 ? 'oklch(70% 0.16 60)' : 'var(--ink-500)';
+            return (
+              <div>
+                <div style={{ fontSize: 12 }}>{r.due2 || fmtDate(r.due)}</div>
+                <div style={{ fontSize: 10.5, color }}>
+                  {days < 0 ? `เลย ${Math.abs(days)} วัน` : days === 0 ? 'วันนี้!' : `อีก ${days} วัน`}
+                </div>
+              </div>
+            );
+          }
+        },
+        { key: 'cust_name', label: 'cust_name (เจ้าหนี้)',
+          render: r => (
+            <div>
+              <div style={{ fontWeight: 500 }}>{r.cust_name || '—'}</div>
+              {r.acct_no && <div className="muted" style={{ fontSize: 10.5, fontFamily: 'ui-monospace' }}>{r.acct_no}</div>}
+            </div>
+          )
+        },
+        { key: 'dpt_code', label: 'แผนก', width: 100,
+          render: r => r.dpt_code ? (
+            <div>
+              <Badge kind="b-blue" dot={false}>{r.dpt_code}</Badge>
+              {r.dpt_name && <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>{r.dpt_name.split(' ')[0]}</div>}
+            </div>
+          ) : <span className="muted">—</span>
+        },
+        { key: 'jobcode', label: 'jobcode', width: 100, mono: true,
+          render: r => r.jobcode ? (
+            <div>
+              <div style={{ fontFamily: 'ui-monospace', fontSize: 12 }}>{r.jobcode}</div>
+              {r.jobname && <div className="muted" style={{ fontSize: 10.5 }}>{r.jobname.length > 20 ? r.jobname.slice(0,20) + '…' : r.jobname}</div>}
+            </div>
+          ) : <span className="muted">—</span>
+        },
+        { key: 'Amount', label: 'Amount', align: 'right', width: 110,
+          render: r => <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtNum(Number(r.Amount||0), 2)}</span>
+        },
+        { key: 'netpayment', label: 'netpayment', align: 'right', width: 120,
+          render: r => <span style={{ fontWeight: 700, color: 'var(--bad)' }}>{fmtNum(Number(r.netpayment||0), 2)}</span>
+        },
+        { key: 'Balance_Amount1', label: 'Balance (คงค้าง)', align: 'right', width: 130,
+          render: r => {
+            const v = Number(r.Balance_Amount1||0);
+            return <span style={{ fontWeight: 600, color: v > 0 ? 'oklch(55% 0.18 30)' : 'var(--ink-500)' }}>{fmtNum(v, 2)}</span>;
+          }
+        },
+        { key: 'remark', label: 'remark (คำอธิบาย)',
+          render: r => <span className="muted" style={{ fontSize: 12 }}>{r.remark ? (r.remark.length > 40 ? r.remark.slice(0,40) + '…' : r.remark) : '—'}</span>
+        },
       ],
-      modalFields: [
-        { key: 'cust_name',      label: 'cust_name', type: 'text', full: true },
-        { key: 'vchno',          label: 'vchno', type: 'text' },
-        { key: 'vchdate',        label: 'vchdate', type: 'date' },
-        { key: 'due',            label: 'due (วันครบกำหนด)', type: 'date' },
-        { key: 'netpayment',     label: 'netpayment (บาท)', type: 'number' },
-        { key: 'Amount',         label: 'Amount (ก่อนหัก)', type: 'number' },
-        { key: 'Balance_Amount1',label: 'Balance_Amount1', type: 'number' },
-        { key: 'jobcode',        label: 'jobcode', type: 'text' },
-        { key: 'jobname',        label: 'jobname', type: 'text', full: true },
-        { key: 'vendor_group',   label: 'vendor_group', type: 'text' },
-        { key: 'remark',         label: 'remark', type: 'textarea', full: true },
-      ],
-      summary: (rows) => {
+      footer: (rows) => {
+        const amt  = rows.reduce((s, r) => s + Number(r.Amount||0), 0);
         const net  = rows.reduce((s, r) => s + Number(r.netpayment||0), 0);
         const bal1 = rows.reduce((s, r) => s + Number(r.Balance_Amount1||0), 0);
-        const amt  = rows.reduce((s, r) => s + Number(r.Amount||0), 0);
+        const colCount = 10; // matches columns above + action col
+        return (
+          <tr style={{ background: 'var(--brand-50)', fontWeight: 700 }}>
+            <td colSpan={5} style={{ padding: '8px 14px', fontSize: 12, color: 'var(--brand-700)' }}>รวม {rows.length} รายการ</td>
+            <td />
+            <td className="num" style={{ padding: '8px 14px' }}>{fmtNum(amt, 2)}</td>
+            <td className="num" style={{ padding: '8px 14px', color: 'var(--bad)' }}>{fmtNum(net, 2)}</td>
+            <td className="num" style={{ padding: '8px 14px', color: 'oklch(55% 0.18 30)' }}>{fmtNum(bal1, 2)}</td>
+            <td colSpan={2} />
+          </tr>
+        );
+      },
+      modalFields: [
+        { type: 'section', label: 'ข้อมูลเอกสาร (Document)', icon: 'invoice' },
+        { key: 'vchno',          label: 'vchno (ใบสำคัญ)', type: 'text', required: true, hint: 'เช่น APO2026040181' },
+        { key: 'docno',          label: 'docno (เลขที่เอกสาร)', type: 'text', hint: 'เช่น 20260001155' },
+        { key: 'vchdate',        label: 'vchdate (วันที่ใบสำคัญ)', type: 'date' },
+        { key: 'due2',           label: 'due2 (วันครบกำหนดจ่าย)', type: 'text', hint: 'dd/MM/yyyy เช่น 25/05/2026' },
+        { key: 'taxinv',         label: 'taxinv', type: 'text', hint: 'Y หรือ N' },
+        { key: 'refcode',        label: 'refcode', type: 'text', hint: 'รหัสอ้างอิง' },
+
+        { type: 'section', label: 'เจ้าหนี้ (Vendor)', icon: 'money' },
+        { key: 'cust_name',      label: 'cust_name (ชื่อเจ้าหนี้)', type: 'text', required: true, full: true },
+        { key: 'acct_no',        label: 'acct_no (รหัสเจ้าหนี้)', type: 'text' },
+        { key: 'vendor_group',   label: 'vendor_group', type: 'text', full: true, hint: 'Vendor : (XXXXX) ชื่อบริษัท' },
+
+        { type: 'section', label: 'แผนก / โครงการ', icon: 'forecast' },
+        { key: 'dpt_code',       label: 'dpt_code (รหัสแผนก)', type: 'text', hint: 'HRD / MNG / FIN / ACC / ITD ฯลฯ' },
+        { key: 'dpt_name',       label: 'dpt_name (ชื่อแผนก)', type: 'text' },
+        { key: 'jobcode',        label: 'jobcode (รหัสงาน)', type: 'text' },
+        { key: 'jobname',        label: 'jobname (ชื่องาน)', type: 'text', full: true },
+
+        { type: 'section', label: 'ยอดเงิน (Amounts)', icon: 'coin' },
+        { key: 'Amount',         label: 'Amount (ยอดก่อนหัก)', type: 'number', suffix: '฿', required: true },
+        { key: 'VAT',            label: 'VAT', type: 'number', suffix: '฿' },
+        { key: 'net_new',        label: 'net_new (รวม VAT)', type: 'number', suffix: '฿' },
+        { key: 'Less_Ret',       label: 'Less_Ret (หักประกันผลงาน)', type: 'number', suffix: '฿' },
+        { key: 'WHT_EXT',        label: 'WHT_EXT (ภาษีหัก ณ ที่จ่าย)', type: 'number', suffix: '฿' },
+        { key: 'Balance_Amount1',label: 'Balance_Amount1 (ยอดคงค้าง)', type: 'number', suffix: '฿' },
+        { key: 'netpayment',     label: 'netpayment (ยอดสุทธิที่ต้องจ่าย)', type: 'number', suffix: '฿', required: true },
+
+        { type: 'section', label: 'หมายเหตุ', icon: 'edit' },
+        { key: 'remark',         label: 'remark (คำอธิบาย)', type: 'textarea', full: true, rows: 3 },
+      ],
+      summary: (rows) => {
+        const amt     = rows.reduce((s, r) => s + Number(r.Amount||0), 0);
+        const net     = rows.reduce((s, r) => s + Number(r.netpayment||0), 0);
+        const bal1    = rows.reduce((s, r) => s + Number(r.Balance_Amount1||0), 0);
+        const overdue = rows.filter(r => {
+          const d = parseDue(r.due2 || r.due);
+          return d && d < new Date();
+        }).length;
         return [
-          { label: 'จำนวนรายการ',    value: rows.length, unit: ' รายการ', digits: 0, icon: 'invoice', accent: 'var(--brand-500)' },
-          { label: 'Amount รวม',     value: amt,  accent: 'oklch(70% 0.16 75)', icon: 'money' },
-          { label: 'netpayment รวม', value: net,  accent: 'var(--bad)', icon: 'arrow_up' },
-          { label: 'Balance_1 รวม',  value: bal1, accent: 'oklch(60% 0.18 295)', icon: 'coin' },
+          { label: 'จำนวนรายการ',         value: rows.length, unit: ' รายการ', digits: 0, icon: 'invoice', accent: 'var(--brand-500)' },
+          { label: 'Amount รวม',          value: amt,    accent: 'oklch(70% 0.16 75)', icon: 'money' },
+          { label: 'netpayment รวม',      value: net,    accent: 'var(--bad)', icon: 'arrow_up' },
+          { label: 'คงค้าง (Balance_1)',   value: bal1,   accent: 'oklch(55% 0.18 30)', icon: 'coin',
+            delta: overdue > 0 ? `${overdue} รายการเกินกำหนด` : undefined, deltaKind: overdue > 0 ? 'bad' : 'neu' },
         ];
       },
     }} />
