@@ -525,10 +525,6 @@ function APEditModal({ row, onClose, onSave, onDelete }) {
         const k = Object.keys(d).find(key => candidates.includes(norm(key)));
         if (k && d[k]) d.docno = d[k];
       }
-      // Debug log to console for diagnosis
-      if (typeof console !== 'undefined') {
-        console.log('[AP Edit] vchno:', d.vchno, '| docno:', d.docno, '| all keys:', Object.keys(d));
-      }
       setDraft(d);
     } else {
       setDraft(null);
