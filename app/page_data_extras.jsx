@@ -90,54 +90,69 @@ function DataCrudPage({ data, setData, toast, config }) {
       </div>
 
       <div className="card anim-in" style={{ padding: 0, overflow: 'hidden' }}>
-        <table className="tbl">
-          <thead>
-            <tr>
-              {config.columns.map((c, i) => (
-                <th key={i} style={{ width: c.width, textAlign: c.align || 'left' }}>{c.label}</th>
-              ))}
-              <th style={{ width: 80 }}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 && (
-              <tr><td colSpan={config.columns.length + 1} style={{ padding: 36, textAlign: 'center' }} className="muted">ไม่พบข้อมูล · กดปุ่ม "{config.addLabel || 'เพิ่ม'}" เพื่อบันทึก</td></tr>
-            )}
-            {filtered.map(row => (
-              <tr key={row.id}>
+        <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 330px)' }}>
+          <table className="tbl">
+            <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--surface)' }}>
+              <tr>
                 {config.columns.map((c, i) => (
-                  <td key={i} style={{ textAlign: c.align || 'left' }} className={c.numeric ? 'num' : ''}>
-                    {c.render ? c.render(row) : (
-                      c.type === 'money' ? <span style={{ color: row[c.key] < 0 ? 'var(--bad)' : 'inherit', fontWeight: 600 }}>{fmtNum(row[c.key], c.digits ?? 2)}</span>
-                      : c.type === 'date' ? fmtDate(row[c.key])
-                      : c.mono ? <span style={{ fontFamily: 'ui-monospace', color: 'var(--brand-700)', fontWeight: 600 }}>{row[c.key]}</span>
-                      : row[c.key] || <span className="muted">—</span>
-                    )}
-                  </td>
+                  <th key={i} style={{ width: c.width, textAlign: c.headerAlign || 'center' }}>{c.label}</th>
                 ))}
-                <td>
-                  <div className="row-act">
-                    <button className="btn-icon" onClick={() => setEdit(row)} title="แก้ไข"><Icon name="edit" size={14} /></button>
-                    <button className="btn-icon danger" onClick={() => remove(row.id)} title="ลบ"><Icon name="trash" size={14} /></button>
-                  </div>
-                </td>
+                {!config.readOnlyRows && <th style={{ width: 80 }}></th>}
               </tr>
-            ))}
-          </tbody>
-          {config.footer && (
-            <tfoot>{config.footer(filtered)}</tfoot>
-          )}
-        </table>
+            </thead>
+            <tbody>
+              {filtered.length === 0 && (
+                <tr><td colSpan={config.columns.length + (config.readOnlyRows ? 0 : 1)} style={{ padding: 36, textAlign: 'center' }} className="muted">ไม่พบข้อมูล</td></tr>
+              )}
+              {filtered.map(row => (
+                <tr key={row.id}
+                  style={{ cursor: config.readOnlyRows ? 'pointer' : 'default' }}
+                  onClick={config.readOnlyRows ? () => setEdit(row) : undefined}>
+                  {config.columns.map((c, i) => (
+                    <td key={i} style={{ textAlign: c.align || 'left' }} className={c.numeric ? 'num' : ''}>
+                      {c.render ? c.render(row) : (
+                        c.type === 'money' ? <span style={{ color: row[c.key] < 0 ? 'var(--bad)' : 'inherit', fontWeight: 600 }}>{fmtNum(row[c.key], c.digits ?? 2)}</span>
+                        : c.type === 'date' ? fmtDate(row[c.key])
+                        : c.mono ? <span style={{ fontFamily: 'ui-monospace', color: 'var(--brand-700)', fontWeight: 600 }}>{row[c.key]}</span>
+                        : row[c.key] || <span className="muted">—</span>
+                      )}
+                    </td>
+                  ))}
+                  {!config.readOnlyRows && (
+                    <td onClick={e => e.stopPropagation()}>
+                      <div className="row-act">
+                        <button className="btn-icon" onClick={() => setEdit(row)} title="แก้ไข"><Icon name="edit" size={14} /></button>
+                        <button className="btn-icon danger" onClick={() => remove(row.id)} title="ลบ"><Icon name="trash" size={14} /></button>
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+            {config.footer && (
+              <tfoot>{config.footer(filtered)}</tfoot>
+            )}
+          </table>
+        </div>
       </div>
 
-      <GenericEditModal
-        row={edit}
-        onClose={() => setEdit(null)}
-        onSave={save}
-        fields={config.modalFields}
-        header={config.modalHeader}
-        title={edit?.id ? `แก้ไข ${config.singular || 'รายการ'}` : `เพิ่ม ${config.singular || 'รายการ'}ใหม่`}
-      />
+      {config.readOnlyRows ? (
+        <GenericViewModal
+          row={edit}
+          onClose={() => setEdit(null)}
+          fields={config.modalFields}
+          title={`ข้อมูล ${config.singular || 'รายการ'}`}
+        />
+      ) : (
+        <GenericEditModal
+          row={edit}
+          onClose={() => setEdit(null)}
+          onSave={save}
+          fields={config.modalFields}
+          header={config.modalHeader}
+          title={edit?.id ? `แก้ไข ${config.singular || 'รายการ'}` : `เพิ่ม ${config.singular || 'รายการ'}ใหม่`}
+        />
+      )}
     </div>
   );
 }
@@ -220,6 +235,54 @@ function GenericEditModal({ row, onClose, onSave, fields, title, header }) {
             </div>
           </div>
         ))}
+      </div>
+    </Modal>
+  );
+}
+
+// ─── Read-only view modal ─────────────────────────────────────────────────────
+function GenericViewModal({ row, onClose, fields, title }) {
+  if (!row) return null;
+  const roStyle = { minHeight: 34, borderRadius: 7, border: '1px solid var(--ink-100)', background: 'var(--ink-25, #f9fafb)', padding: '6px 10px', fontSize: 13, color: 'var(--ink-700)', cursor: 'default', userSelect: 'text', lineHeight: 1.5, wordBreak: 'break-word' };
+  return (
+    <Modal open={!!row} title={title} maxWidth={760} onClose={onClose}
+      footer={<button className="btn btn-ghost" onClick={onClose}>ปิด</button>}>
+      <div style={{ display: 'grid', gap: 16 }}>
+        {(() => {
+          const groups = [];
+          let cur = { title: null, icon: null, fields: [] };
+          fields.forEach(f => {
+            if (f.type === 'section') {
+              if (cur.fields.length || cur.title) groups.push(cur);
+              cur = { title: f.label, icon: f.icon, fields: [] };
+            } else { cur.fields.push(f); }
+          });
+          if (cur.fields.length) groups.push(cur);
+          return groups.map((g, gi) => (
+            <div key={gi}>
+              {g.title && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'var(--brand-700)', paddingBottom: 6, borderBottom: '1px solid var(--ink-100)', marginBottom: 10 }}>
+                  {g.icon && <Icon name={g.icon} size={13} />}{g.title}
+                </div>
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                {g.fields.map((f, i) => {
+                  const v = row[f.key];
+                  const display = (v === null || v === undefined || v === '') ? '—'
+                    : f.type === 'number' ? fmtNum(parseNum(v), 2)
+                    : f.type === 'date'   ? (fmtDate(v) || String(v))
+                    : String(v);
+                  return (
+                    <div key={i} className="field" style={{ gridColumn: f.full ? '1 / -1' : 'auto' }}>
+                      <label style={{ fontSize: 12, color: 'var(--ink-500)' }}>{f.label}</label>
+                      <div style={roStyle}>{display}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ));
+        })()}
       </div>
     </Modal>
   );
@@ -423,44 +486,45 @@ function DataPVPage({ data, setData, toast }) {
         Amount: 0, Down_payment: 0, Deduct: 0, Vat: 0, Ret: 0,
         Before_WHT: 0, WHT: 0, Less_Other: 0, Total: 0, Minus_Other: 0, Net_Amount: 0,
       },
+      readOnlyRows: true,
       columns: [
-        { key: 'PL_PV_No',     label: 'PL_PV_No', width: 150, mono: true },
-        { key: 'Pmt_Date',     label: 'Pmt_Date', type: 'date', width: 105 },
-        { key: 'Payee',        label: 'Payee' },
-        { key: 'Ref_Code',     label: 'Ref_Code', width: 80, render: r => <Badge kind="b-gray" dot={false}>{r.Ref_Code}</Badge> },
-        { key: 'Type_of_Pmt', label: 'Type_of_Pmt', width: 110, render: r => <Badge kind="b-blue" dot={false}>{r.Type_of_Pmt}</Badge> },
-        { key: 'Bank_AC',      label: 'Bank_AC', width: 140, mono: true },
-        { key: 'Net_Amount',   label: 'Net_Amount', align: 'right', width: 140, render: r => <span style={{ fontWeight: 600, color: Number(r.Net_Amount||0) < 0 ? 'var(--bad)' : 'inherit' }}>{fmtNum(Number(r.Net_Amount||0), 2)}</span> },
-        { key: 'AP_No',        label: 'AP_No', width: 150, mono: true },
-        { key: 'cc_remark',    label: 'cc_remark' },
+        { key: 'Pmt_Date',   label: 'วันที่จ่าย',   type: 'date',  width: 105 },
+        { key: 'PL_PV_No',   label: 'เลขที่ PV',    width: 155, mono: true },
+        { key: 'AP_No',      label: 'เลขที่ AP',    width: 155, mono: true },
+        { key: 'Payee',      label: 'ผู้รับเงิน' },
+        { key: 'Net_Amount', label: 'ยอดสุทธิ (฿)', align: 'right', headerAlign: 'right', width: 145,
+          render: r => <span style={{ fontWeight: 700, color: parseNum(r.Net_Amount) < 0 ? 'var(--bad)' : 'var(--ink-800)', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(parseNum(r.Net_Amount), 2)}</span> },
+        { key: 'cc_remark',  label: 'หมายเหตุ' },
       ],
       modalFields: [
-        { key: 'PL_PV_No',    label: 'PL_PV_No', type: 'text', placeholder: 'PV20260500XXX' },
-        { key: 'Pmt_Date',    label: 'Pmt_Date', type: 'date' },
-        { key: 'Payee',       label: 'Payee', type: 'text', full: true },
-        { key: 'Ref_Code',    label: 'Ref_Code', type: 'text', placeholder: 'HRD / FIN / PMD…' },
-        { key: 'jobcode',     label: 'jobcode', type: 'text' },
-        { key: 'Type_of_Pmt',label: 'Type_of_Pmt', type: 'text' },
-        { key: 'AP_No',       label: 'AP_No', type: 'text' },
-        { key: 'Bank_AC',     label: 'Bank_AC', type: 'text' },
-        { key: 'Net_Amount',  label: 'Net_Amount (บาท)', type: 'number' },
-        { key: 'Amount',      label: 'Amount (ก่อนหัก)', type: 'number' },
-        { key: 'WHT',         label: 'WHT', type: 'number' },
-        { key: 'Vat',         label: 'Vat', type: 'number' },
-        { key: 'cc_remark',   label: 'cc_remark', type: 'textarea', full: true },
+        { type: 'section', label: 'ข้อมูลหลัก', icon: 'invoice' },
+        { key: 'Pmt_Date',    label: 'วันที่จ่าย',  type: 'date' },
+        { key: 'PL_PV_No',   label: 'เลขที่ PV',   type: 'text' },
+        { key: 'AP_No',      label: 'เลขที่ AP',   type: 'text' },
+        { key: 'Payee',      label: 'ผู้รับเงิน',   type: 'text', full: true },
+        { key: 'Ref_Code',   label: 'Ref Code',    type: 'text' },
+        { key: 'Type_of_Pmt',label: 'ประเภทการจ่าย', type: 'text' },
+        { key: 'Bank_AC',    label: 'บัญชีธนาคาร', type: 'text' },
+        { type: 'section', label: 'ยอดเงิน', icon: 'coin' },
+        { key: 'Net_Amount', label: 'ยอดสุทธิ',    type: 'number' },
+        { key: 'Amount',     label: 'Amount (ก่อนหัก)', type: 'number' },
+        { key: 'WHT',        label: 'WHT',         type: 'number' },
+        { key: 'Vat',        label: 'VAT',         type: 'number' },
+        { type: 'section', label: 'หมายเหตุ', icon: 'edit' },
+        { key: 'cc_remark',  label: 'หมายเหตุ',    type: 'textarea', full: true },
       ],
       summary: (rows) => {
-        const total = rows.reduce((s, r) => s + Number(r.Net_Amount || r.amount || 0), 0);
-        const month = (new Date()).toISOString().slice(0, 7);
-        const thisMonth = rows.filter(r => (r.Pmt_Date || r.paidDate || '').slice(0, 7) === month)
-          .reduce((s, r) => s + Number(r.Net_Amount || r.amount || 0), 0);
+        const total     = rows.reduce((s, r) => s + parseNum(r.Net_Amount), 0);
+        const month     = (new Date()).toISOString().slice(0, 7);
+        const thisMonth = rows.filter(r => (r.Pmt_Date || '').slice(0, 7) === month)
+          .reduce((s, r) => s + parseNum(r.Net_Amount), 0);
         const byRef = {};
-        rows.forEach(r => { const k = r.Ref_Code || r.category || '?'; byRef[k] = (byRef[k]||0) + Number(r.Net_Amount||r.amount||0); });
+        rows.forEach(r => { const k = r.Ref_Code || '?'; byRef[k] = (byRef[k]||0) + parseNum(r.Net_Amount); });
         const topRef = Object.entries(byRef).sort((a,b)=>b[1]-a[1])[0] || ['—', 0];
         return [
-          { label: 'จำนวน PV',       value: rows.length, unit: ' รายการ', digits: 0, icon: 'invoice', accent: 'var(--brand-500)' },
-          { label: 'Net_Amount รวม', value: total,     accent: 'var(--bad)', icon: 'arrow_up' },
-          { label: 'เดือนนี้',        value: thisMonth, accent: 'oklch(60% 0.18 295)', icon: 'coin' },
+          { label: 'จำนวน PV',        value: rows.length, unit: ' รายการ', digits: 0, icon: 'invoice', accent: 'var(--brand-500)' },
+          { label: 'ยอดสุทธิรวม',     value: total,     accent: 'var(--bad)', icon: 'arrow_up' },
+          { label: 'เดือนนี้',         value: thisMonth, accent: 'oklch(60% 0.18 295)', icon: 'coin' },
           { label: `Ref สูงสุด: ${topRef[0]}`, value: topRef[1], accent: 'oklch(70% 0.16 75)', icon: 'money' },
         ];
       },
