@@ -31,6 +31,11 @@
   var CRUD_ENTITIES = ['projects', 'projectFinance', 'invoices', 'forecastEntries',
                        'bankAccounts', 'pvVouchers', 'payables'];
 
+  // jsonFields per entity — for proper rowsToObjects parsing during safety re-fetch
+  var ENTITY_JSON_FIELDS = {
+    invoices: ['followUps', 'actualReceive'],
+  };
+
   /* ── state ──────────────────────────────────────────────────────── */
   var subscribers      = [];
   var syncStatus       = 'syncing';
@@ -39,6 +44,7 @@
   var lastSnapshot     = {};            // last known server state per entity (JSON)
   var serverDataLoaded = false;         // gate auto-push until first server read
   var syncTimer        = null;          // debounce timer for syncDiff
+  var inSyncDiff       = false;         // re-entry guard for syncDiff
   var AUTO_MS          = cfg.AUTO_REFRESH_MS || 0;
 
   function setSyncStatus(s) {
@@ -274,24 +280,91 @@
       });
   }
 
+  /* ── Merge helper: prefer non-empty Sheet values for fields empty in app ──
+   * Protects against the "replaceAll overwrites manual Sheet edits" bug:
+   * if the user fills a cell in the Sheet (e.g. docno for APS/APV) but the
+   * app's in-memory row has that field empty, replaceAll would wipe it. This
+   * merge keeps the Sheet's value whenever the app's value is null/empty.
+   */
+  function mergeRowKeepSheetForEmpty(appRow, sheetRow) {
+    if (!sheetRow) return appRow;
+    var result = Object.assign({}, appRow);
+    Object.keys(sheetRow).forEach(function (k) {
+      var appVal = result[k];
+      var sheetVal = sheetRow[k];
+      var appEmpty = appVal == null || appVal === '';
+      var sheetHasVal = sheetVal != null && sheetVal !== '';
+      if (appEmpty && sheetHasVal) result[k] = sheetVal;
+    });
+    // Also include sheet-only keys (in case app doesn't have those fields at all)
+    Object.keys(sheetRow).forEach(function (k) {
+      if (!(k in result)) result[k] = sheetRow[k];
+    });
+    return result;
+  }
+
   function syncDiff(data) {
     if (!POST_URL) return;
+    if (inSyncDiff) return;
+
     var changes = [];
     CRUD_ENTITIES.forEach(function (entity) {
       var curr = JSON.stringify(data[entity] || []);
       if (curr !== lastSnapshot[entity]) {
-        lastSnapshot[entity] = curr;
-        changes.push({ entity: entity, rows: data[entity] || [] });
+        changes.push({ entity: entity, currentRows: data[entity] || [] });
       }
     });
     if (!changes.length) return;
+
+    inSyncDiff = true;
     setSyncStatus('syncing');
-    Promise.all(changes.map(function (c) { return pushEntity(c.entity, c.rows); }))
-      .then(function () { setSyncStatus('ok'); })
-      .catch(function (err) {
-        console.warn('[WTP Sync] push ล้มเหลว:', err);
-        setSyncStatus('error');
+
+    // STEP 1: Re-fetch the Sheet for each changed entity (safety check).
+    // Prevents stale empty values in the app from overwriting fresh manual
+    // edits the user made directly in the Sheet.
+    Promise.all(changes.map(function (c) {
+      return fetchSheet(c.entity).then(function (rows) {
+        var jsonFields = ENTITY_JSON_FIELDS[c.entity] || null;
+        return {
+          entity: c.entity,
+          sheetRows: rowsToObjects(rows, jsonFields),
+          currentRows: c.currentRows,
+        };
       });
+    })).then(function (fetched) {
+      // STEP 2: Merge — preserve Sheet's non-empty values for empty app fields
+      var safeChanges = fetched.map(function (f) {
+        var sheetById = {};
+        f.sheetRows.forEach(function (r) { if (r.id) sheetById[r.id] = r; });
+        var merged = f.currentRows.map(function (appRow) {
+          return mergeRowKeepSheetForEmpty(appRow, sheetById[appRow.id]);
+        });
+        return { entity: f.entity, rows: merged };
+      });
+
+      // STEP 3: Update snapshot, localStorage, and notify React with merged data
+      var mergedData = Object.assign({}, data);
+      safeChanges.forEach(function (c) {
+        lastSnapshot[c.entity] = JSON.stringify(c.rows);
+        mergedData[c.entity] = c.rows;
+      });
+      origSave(mergedData);
+      subscribers.forEach(function (cb) { cb(mergedData); });
+
+      // STEP 4: Push merged data to Sheet
+      return Promise.all(safeChanges.map(function (c) {
+        return pushEntity(c.entity, c.rows);
+      }));
+    }).then(function () {
+      setSyncStatus('ok');
+    }).catch(function (err) {
+      console.warn('[WTP Sync] push ล้มเหลว:', err);
+      setSyncStatus('error');
+    }).then(function () {
+      inSyncDiff = false;
+    }, function () {
+      inSyncDiff = false;
+    });
   }
 
   /* ── wrap WTPData.save to auto-push on every change ──────────────── */
@@ -301,6 +374,9 @@
     // Don't push the initial localStorage state — wait until server data has
     // arrived (otherwise we'd overwrite the Sheet with stale local data).
     if (!serverDataLoaded) return;
+    // Skip if we're already inside syncDiff (prevents re-entrant loops when
+    // syncDiff calls subscribers, which might trigger React → setData → save).
+    if (inSyncDiff) return;
     clearTimeout(syncTimer);
     syncTimer = setTimeout(function () { syncDiff(data); }, 3000);
   };
@@ -333,5 +409,15 @@
 
   // Expose manual refresh
   WTPData.refreshFromServer = loadFromServer;
+
+  // Diagnostic: fetch raw rows from a specific Sheet tab, optionally filter by predicate.
+  // Useful to verify what the Sheet actually contains vs what the app shows.
+  WTPData.fetchSheetRows = function (entity, predicate) {
+    return fetchSheet(entity).then(function (rows) {
+      var jsonFields = ENTITY_JSON_FIELDS[entity] || null;
+      var objs = rowsToObjects(rows, jsonFields);
+      return predicate ? objs.filter(predicate) : objs;
+    });
+  };
 
 })();
