@@ -90,7 +90,7 @@ function DataCrudPage({ data, setData, toast, config }) {
       </div>
 
       <div className="card anim-in" style={{ padding: 0, overflow: 'hidden' }}>
-        <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 330px)' }}>
+        <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: config.tableMaxHeight || 'calc(100vh - 330px)' }}>
           <table className="tbl">
             <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--surface)' }}>
               <tr>
@@ -487,12 +487,13 @@ function DataPVPage({ data, setData, toast }) {
         Before_WHT: 0, WHT: 0, Less_Other: 0, Total: 0, Minus_Other: 0, Net_Amount: 0,
       },
       readOnlyRows: true,
+      tableMaxHeight: 'min(420px, calc(100vh - 460px))',
       columns: [
-        { key: 'Pmt_Date',   label: 'วันที่จ่าย',   type: 'date',  width: 105 },
-        { key: 'PL_PV_No',   label: 'เลขที่ PV',    width: 155, mono: true },
-        { key: 'AP_No',      label: 'เลขที่ AP',    width: 155, mono: true },
+        { key: 'Pmt_Date',   label: 'วันที่จ่าย',   type: 'date',  width: 100, align: 'center' },
+        { key: 'PL_PV_No',   label: 'เลขที่ PV',    width: 120, mono: true, align: 'center' },
+        { key: 'AP_No',      label: 'เลขที่ AP',    width: 120, mono: true, align: 'center' },
         { key: 'Payee',      label: 'ผู้รับเงิน' },
-        { key: 'Net_Amount', label: 'ยอดสุทธิ (฿)', align: 'right', headerAlign: 'right', width: 145,
+        { key: 'Net_Amount', label: 'ยอดสุทธิ (฿)', align: 'right', headerAlign: 'right', width: 130,
           render: r => <span style={{ fontWeight: 700, color: parseNum(r.Net_Amount) < 0 ? 'var(--bad)' : 'var(--ink-800)', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(parseNum(r.Net_Amount), 2)}</span> },
         { key: 'cc_remark',  label: 'หมายเหตุ' },
       ],
