@@ -539,81 +539,73 @@ function APEditModal({ row, onClose, onSave, onDelete }) {
     </div>
   );
 
-  const F = ({ fkey, label, type, hint, required, placeholder, span }) => {
+  const roStyle = { background: 'var(--ink-25, #f9fafb)', color: 'var(--ink-700)', cursor: 'default', userSelect: 'text' };
+
+  const F = ({ fkey, label, hint, span }) => {
     const v = draft[fkey];
+    const display = (v === null || v === undefined || v === '') ? '—' : String(v);
     return (
       <div className="field" style={{ gridColumn: span ? `span ${span}` : 'auto' }}>
-        <label style={{ fontSize: 12 }}>{label}{required && <span style={{ color: 'var(--bad)', marginLeft: 4 }}>*</span>}</label>
-        {type === 'textarea'
-          ? <textarea className="input" rows={2} value={v || ''} onChange={e => set(fkey, e.target.value)} placeholder={placeholder} style={{ resize: 'vertical' }} />
-          : <input className="input" type={type || 'text'} value={v ?? ''} onChange={e => set(fkey, e.target.value)} placeholder={placeholder} />
-        }
+        <label style={{ fontSize: 12, color: 'var(--ink-500)' }}>{label}</label>
+        <div style={{ ...roStyle, minHeight: 34, borderRadius: 7, border: '1px solid var(--ink-100)', padding: '6px 10px', fontSize: 13, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{display}</div>
         {hint && <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{hint}</div>}
+      </div>
+    );
+  };
+
+  const ROAmount = ({ value, label }) => {
+    const numVal = parseNum(value);
+    const display = (value === null || value === undefined || value === '') ? '—' : fmtNum(numVal, 2);
+    return (
+      <div className="field">
+        <label style={{ fontSize: 12, color: 'var(--ink-500)' }}>{label}</label>
+        <div style={{ ...roStyle, height: 34, borderRadius: 7, border: '1px solid var(--ink-100)', padding: '0 28px 0 10px', fontSize: 13, fontFamily: 'ui-monospace', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', position: 'relative' }}>
+          {display}
+          <span style={{ position: 'absolute', right: 8, fontSize: 11, color: 'var(--ink-400)' }}>฿</span>
+        </div>
       </div>
     );
   };
 
   return (
     <>
-      <Modal open={!!row} title={draft.id ? `แก้ไข AP · ${draft.vchno || '—'}` : 'เพิ่ม AP ใหม่'}
+      <Modal open={!!row} title={`ข้อมูล AP · ${draft.vchno || '—'}`}
         maxWidth={1160} onClose={onClose}
         footer={<>
-          {draft.id && <button className="btn btn-ghost" style={{ color: 'var(--bad)', marginRight: 'auto' }}
-            onClick={() => setConfirm(true)}>
-            <Icon name="trash" size={13} /> ลบรายการ
-          </button>}
-          <button className="btn btn-ghost" onClick={onClose}>ยกเลิก</button>
-          <button className="btn btn-primary" onClick={() => onSave(draft)}><Icon name="check" size={13} /> บันทึก</button>
+          <button className="btn btn-ghost" onClick={onClose}>ปิด</button>
         </>}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px 16px' }}>
           <Hdr label="ข้อมูลเอกสาร" icon="invoice" />
-          <F fkey="vchno"   label="vchno · ใบสำคัญ"         required hint="APO2026040181" />
+          <F fkey="vchno"   label="vchno · ใบสำคัญ" />
           <F fkey="docno"   label="docno (col B)" />
-          <F fkey="vchdate" label="วันที่ใบสำคัญ"             type="date" />
-          <F fkey="due2"    label="วันครบกำหนด"               hint="dd/MM/yyyy" />
-          <F fkey="refno"   label="refno · เลขที่อ้างอิง"    hint="เลขอ้างอิง (col E)" />
-          <F fkey="refcode" label="refcode"                    hint="รหัสอ้างอิง" />
+          <F fkey="vchdate" label="วันที่ใบสำคัญ" />
+          <F fkey="due2"    label="วันครบกำหนด" />
+          <F fkey="refno"   label="refno · เลขที่อ้างอิง" />
+          <F fkey="refcode" label="refcode" />
 
           <Hdr label="เจ้าหนี้ (Vendor)" icon="money" />
-          <F fkey="cust_name" label="ชื่อเจ้าหนี้" required span={3} />
+          <F fkey="cust_name" label="ชื่อเจ้าหนี้" span={3} />
           <F fkey="acct_no"   label="รหัสเจ้าหนี้" />
 
           <Hdr label="แผนก / โครงการ" icon="forecast" />
-          <F fkey="dpt_code" label="รหัสแผนก" hint="HRD / MNG / FIN / ITD" />
+          <F fkey="dpt_code" label="รหัสแผนก" />
           <F fkey="dpt_name" label="ชื่อแผนก" />
           <F fkey="jobcode"  label="Job Code" />
           <F fkey="jobname"  label="ชื่องาน" />
 
           <Hdr label="ยอดเงิน (Amounts)" icon="coin" />
-          <AmountInput value={draft.Amount}     onChange={v => set('Amount', v)}     label="Amount · ยอดก่อนหัก"      required />
-          <AmountInput value={draft.VAT}        onChange={v => set('VAT', v)}        label="VAT · ภาษีมูลค่าเพิ่ม" />
-          <AmountInput value={draft.net_new}    onChange={v => set('net_new', v)}    label="net_new · รวม VAT" />
-          <AmountInput value={draft.Less_Ret}   onChange={v => set('Less_Ret', v)}   label="Less_Ret · หักประกัน" />
-          <AmountInput value={draft.WHT_EXT}    onChange={v => set('WHT_EXT', v)}    label="WHT_EXT · ภาษีหัก ณ จ่าย" />
-          <AmountInput value={draft.netpayment} onChange={v => set('netpayment', v)} label="netpayment · ยอดสุทธิ"    required />
+          <ROAmount value={draft.Amount}     label="Amount · ยอดก่อนหัก" />
+          <ROAmount value={draft.VAT}        label="VAT · ภาษีมูลค่าเพิ่ม" />
+          <ROAmount value={draft.net_new}    label="net_new · รวม VAT" />
+          <ROAmount value={draft.Less_Ret}   label="Less_Ret · หักประกัน" />
+          <ROAmount value={draft.WHT_EXT}    label="WHT_EXT · ภาษีหัก ณ จ่าย" />
+          <ROAmount value={draft.netpayment} label="netpayment · ยอดสุทธิ" />
 
           <Hdr label="หมายเหตุ" icon="edit" />
-          <F fkey="remark" label="remark · คำอธิบาย" type="textarea" span={4} />
+          <F fkey="remark" label="remark · คำอธิบาย" span={4} />
         </div>
       </Modal>
 
-      {/* Delete confirmation modal */}
-      <Modal open={confirmDelete} title="ยืนยันการลบรายการ" maxWidth={400} onClose={() => setConfirm(false)}
-        footer={<>
-          <button className="btn btn-ghost" onClick={() => setConfirm(false)}>ยกเลิก</button>
-          <button className="btn btn-primary" style={{ background: 'var(--bad)', borderColor: 'var(--bad)' }}
-            onClick={() => { onDelete(draft.id); setConfirm(false); onClose(); }}>
-            <Icon name="trash" size={13} /> ยืนยันลบ
-          </button>
-        </>}>
-        <div style={{ textAlign: 'center', padding: '20px 8px' }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>🗑️</div>
-          <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>ต้องการลบรายการนี้?</div>
-          <div style={{ fontFamily: 'ui-monospace', fontWeight: 700, color: 'var(--brand-700)', fontSize: 14, marginBottom: 6 }}>{draft.vchno}</div>
-          {draft.cust_name && <div style={{ fontSize: 13, color: 'var(--ink-500)', marginBottom: 10 }}>{draft.cust_name}</div>}
-          <div style={{ fontSize: 12, color: 'var(--bad)', fontWeight: 500 }}>การลบไม่สามารถย้อนกลับได้</div>
-        </div>
-      </Modal>
     </>
   );
 }
