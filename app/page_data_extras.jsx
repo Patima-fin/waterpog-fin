@@ -477,171 +477,451 @@ function parseDue(s) {
   return isNaN(d) ? null : d;
 }
 
-function DataPayablePage({ data, setData, toast }) {
+// ─── AP Edit Modal (wide landscape, accounting format for amounts) ────────────
+function APEditModal({ row, onClose, onSave, onDelete }) {
+  const [draft, setDraft] = dxState(null);
+  dxEffect(() => { setDraft(row ? { ...row } : null); }, [row]);
+  if (!row || !draft) return null;
+  const set = (k, v) => setDraft(d => ({ ...d, [k]: v }));
+
+  const fmtAcct = (v) => {
+    const n = Number(v) || 0;
+    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  const amountKeys = ['Amount','VAT','net_new','Less_Ret','WHT_EXT','Balance_Amount1','netpayment'];
+
+  const Field = ({ label, fkey, type, hint, required, full, placeholder, rows: r }) => {
+    const v = draft[fkey];
+    const isAmt = amountKeys.indexOf(fkey) >= 0;
+    return (
+      <div className="field" style={{ gridColumn: full ? '1 / -1' : 'auto' }}>
+        <label style={{ fontSize: 12 }}>{label}{required && <span style={{ color: 'var(--bad)', marginLeft: 4 }}>*</span>}</label>
+        {isAmt ? (
+          <div style={{ position: 'relative' }}>
+            <input
+              className="input"
+              type="number"
+              step="0.01"
+              value={v ?? ''}
+              onChange={e => set(fkey, Number(e.target.value))}
+              style={{ textAlign: 'right', paddingRight: 28 }}
+            />
+            <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: 'var(--ink-400)', pointerEvents: 'none' }}>฿</span>
+            <div style={{ fontSize: 10.5, color: 'var(--ink-400)', marginTop: 2, textAlign: 'right', fontFamily: 'ui-monospace' }}>
+              = {fmtAcct(v)}
+            </div>
+          </div>
+        ) : type === 'textarea' ? (
+          <textarea className="input" rows={r || 2} value={v || ''} onChange={e => set(fkey, e.target.value)} placeholder={placeholder} style={{ resize: 'vertical' }} />
+        ) : (
+          <input className="input" type={type || 'text'} value={v ?? ''} onChange={e => set(fkey, e.target.value)} placeholder={placeholder} />
+        )}
+        {hint && <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>{hint}</div>}
+      </div>
+    );
+  };
+
+  const SectionHdr = ({ label, icon }) => (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 8,
+      fontSize: 11, fontWeight: 700, letterSpacing: 0.7, textTransform: 'uppercase',
+      color: 'var(--brand-700)', marginBottom: 10, marginTop: 4,
+      paddingBottom: 6, borderBottom: '1px solid var(--ink-100)',
+      gridColumn: '1 / -1',
+    }}>
+      <Icon name={icon} size={13} />{label}
+    </div>
+  );
+
   return (
-    <DataCrudPage data={data} setData={setData} toast={toast} config={{
-      title: 'DATA AP Outstanding · ใบแจ้งหนี้เจ้าหนี้คงค้าง',
-      sub: 'RAW_AP_OUTSTANDING · 54 คอลัมน์ตาม format ต้นฉบับ · วาง RAW ได้เลย',
-      dataKey: 'payables',
-      addLabel: 'เพิ่มรายการ',
-      singular: 'รายการ AP',
-      searchPlaceholder: 'ค้นหา cust_name / vchno / jobcode / remark…',
-      searchKeys: ['cust_name', 'vchno', 'docno', 'jobcode', 'jobname', 'remark', 'dpt_code'],
-      filters: [
-        { key: 'HRD', label: 'HRD · บุคคล' },
-        { key: 'MNG', label: 'MNG · บริหาร' },
-        { key: 'HO',  label: 'HO · สำนักงาน' },
-        { key: 'ITD', label: 'ITD · IT' },
-        { key: 'IPD', label: 'IPD · ผลิตภัณฑ์' },
-        { key: 'FIN', label: 'FIN · การเงิน' },
-        { key: 'ACC', label: 'ACC · บัญชี' },
-        { key: 'SAL', label: 'SAL · ขาย' },
-      ],
-      filterFn: (r, k) => r.dpt_code === k,
-      emptyRow: {
-        maincode: 'MG1', ty: 'AP', doctype: 'O', typecode: '', data_ty: '1', aptype: '4',
-        docno: '', vchno: '', vchdate: '', refno: '', due: '', due2: '', remark: '',
-        Amount: 0, Less_Adv: 0, Less: 0, exchange: 1, VAT: 0, net_new: 0,
-        WHT_EMP: 0, Less_Other: 0, Balance_Amount2: 0, Less_Ret: 0, Balance_Amount1: 0,
-        amt_bf_wt: 0, WHT_EXT: 0, Net_amount2_new: 0, netpayment: 0,
-        pre_event: '', pre_event2: '', refcode: '', pre_des: '',
-        jobcode: '', jobname: '', ac_code_ven: '', dpt_code: '', dpt_name: '',
-        acct_no: '', cust_name: '', acct_no_h: '', acct_header_name: '',
-        bus_code: '', taxinv: 'N', glretap: '', whamt: 0, Less_adv_amount: 0,
-        acctcust: '', h1_group: '', h2_group: '', h3_group: '', bold: 'FALSE',
-        vendor_group: '', vendor_group2: '', exchange2: 1,
-      },
-      columns: [
-        { key: 'vchno', label: 'vchno (ใบสำคัญ)', width: 165, mono: true,
-          render: r => (
-            <div>
-              <div style={{ fontWeight: 600, color: 'var(--brand-700)', fontFamily: 'ui-monospace' }}>{r.vchno || '—'}</div>
-              {r.docno && <div className="muted" style={{ fontSize: 10.5 }}>{r.docno}</div>}
-            </div>
-          )
-        },
-        { key: 'vchdate', label: 'vchdate', type: 'date', width: 95 },
-        { key: 'due2', label: 'due (ครบกำหนด)', width: 120,
-          render: r => {
-            const due = parseDue(r.due2 || r.due);
-            if (!due) return <span className="muted">—</span>;
-            const days = Math.ceil((due - new Date()) / 86400000);
-            const color = days < 0 ? 'var(--bad)' : days < 7 ? 'oklch(60% 0.16 75)' : days < 30 ? 'oklch(70% 0.16 60)' : 'var(--ink-500)';
-            return (
-              <div>
-                <div style={{ fontSize: 12 }}>{r.due2 || fmtDate(r.due)}</div>
-                <div style={{ fontSize: 10.5, color }}>
-                  {days < 0 ? `เลย ${Math.abs(days)} วัน` : days === 0 ? 'วันนี้!' : `อีก ${days} วัน`}
-                </div>
-              </div>
-            );
-          }
-        },
-        { key: 'cust_name', label: 'cust_name (เจ้าหนี้)',
-          render: r => (
-            <div>
-              <div style={{ fontWeight: 500 }}>{r.cust_name || '—'}</div>
-              {r.acct_no && <div className="muted" style={{ fontSize: 10.5, fontFamily: 'ui-monospace' }}>{r.acct_no}</div>}
-            </div>
-          )
-        },
-        { key: 'dpt_code', label: 'แผนก', width: 100,
-          render: r => r.dpt_code ? (
-            <div>
-              <Badge kind="b-blue" dot={false}>{r.dpt_code}</Badge>
-              {r.dpt_name && <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>{r.dpt_name.split(' ')[0]}</div>}
-            </div>
-          ) : <span className="muted">—</span>
-        },
-        { key: 'jobcode', label: 'jobcode', width: 100, mono: true,
-          render: r => r.jobcode ? (
-            <div>
-              <div style={{ fontFamily: 'ui-monospace', fontSize: 12 }}>{r.jobcode}</div>
-              {r.jobname && <div className="muted" style={{ fontSize: 10.5 }}>{r.jobname.length > 20 ? r.jobname.slice(0,20) + '…' : r.jobname}</div>}
-            </div>
-          ) : <span className="muted">—</span>
-        },
-        { key: 'Amount', label: 'Amount', align: 'right', width: 110,
-          render: r => <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtNum(Number(r.Amount||0), 2)}</span>
-        },
-        { key: 'netpayment', label: 'netpayment', align: 'right', width: 120,
-          render: r => <span style={{ fontWeight: 700, color: 'var(--bad)' }}>{fmtNum(Number(r.netpayment||0), 2)}</span>
-        },
-        { key: 'Balance_Amount1', label: 'Balance (คงค้าง)', align: 'right', width: 130,
-          render: r => {
-            const v = Number(r.Balance_Amount1||0);
-            return <span style={{ fontWeight: 600, color: v > 0 ? 'oklch(55% 0.18 30)' : 'var(--ink-500)' }}>{fmtNum(v, 2)}</span>;
-          }
-        },
-        { key: 'remark', label: 'remark (คำอธิบาย)',
-          render: r => <span className="muted" style={{ fontSize: 12 }}>{r.remark ? (r.remark.length > 40 ? r.remark.slice(0,40) + '…' : r.remark) : '—'}</span>
-        },
-      ],
-      footer: (rows) => {
-        const amt  = rows.reduce((s, r) => s + Number(r.Amount||0), 0);
-        const net  = rows.reduce((s, r) => s + Number(r.netpayment||0), 0);
-        const bal1 = rows.reduce((s, r) => s + Number(r.Balance_Amount1||0), 0);
-        const colCount = 10; // matches columns above + action col
-        return (
-          <tr style={{ background: 'var(--brand-50)', fontWeight: 700 }}>
-            <td colSpan={5} style={{ padding: '8px 14px', fontSize: 12, color: 'var(--brand-700)' }}>รวม {rows.length} รายการ</td>
-            <td />
-            <td className="num" style={{ padding: '8px 14px' }}>{fmtNum(amt, 2)}</td>
-            <td className="num" style={{ padding: '8px 14px', color: 'var(--bad)' }}>{fmtNum(net, 2)}</td>
-            <td className="num" style={{ padding: '8px 14px', color: 'oklch(55% 0.18 30)' }}>{fmtNum(bal1, 2)}</td>
-            <td colSpan={2} />
-          </tr>
-        );
-      },
-      modalFields: [
-        { type: 'section', label: 'ข้อมูลเอกสาร (Document)', icon: 'invoice' },
-        { key: 'vchno',          label: 'vchno (ใบสำคัญ)', type: 'text', required: true, hint: 'เช่น APO2026040181' },
-        { key: 'docno',          label: 'docno (เลขที่เอกสาร)', type: 'text', hint: 'เช่น 20260001155' },
-        { key: 'vchdate',        label: 'vchdate (วันที่ใบสำคัญ)', type: 'date' },
-        { key: 'due2',           label: 'due2 (วันครบกำหนดจ่าย)', type: 'text', hint: 'dd/MM/yyyy เช่น 25/05/2026' },
-        { key: 'taxinv',         label: 'taxinv', type: 'text', hint: 'Y หรือ N' },
-        { key: 'refcode',        label: 'refcode', type: 'text', hint: 'รหัสอ้างอิง' },
+    <Modal open={!!row} title={draft.id ? `แก้ไข AP · ${draft.vchno || ''}` : 'เพิ่ม AP ใหม่'}
+      maxWidth={1000}
+      onClose={onClose}
+      footer={<>
+        {draft.id && (
+          <button className="btn btn-ghost" style={{ color: 'var(--bad)', marginRight: 'auto' }}
+            onClick={() => { if (confirm('ยืนยันการลบรายการ ' + (draft.vchno||'') + ' ?')) { onDelete(draft.id); onClose(); } }}>
+            <Icon name="trash" size={13} /> ลบ
+          </button>
+        )}
+        <button className="btn btn-ghost" onClick={onClose}>ยกเลิก</button>
+        <button className="btn btn-primary" onClick={() => onSave(draft)}><Icon name="check" size={13} /> บันทึก</button>
+      </>}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px 18px' }}>
+        <SectionHdr label="ข้อมูลเอกสาร (Document)" icon="invoice" />
+        <Field fkey="vchno"   label="vchno · ใบสำคัญ"         type="text" required hint="เช่น APO2026040181" />
+        <Field fkey="docno"   label="docno · เลขที่เอกสาร"     type="text" hint="เช่น 20260001155" />
+        <Field fkey="vchdate" label="vchdate · วันที่ใบสำคัญ"  type="date" />
+        <Field fkey="due2"    label="due2 · วันครบกำหนดจ่าย"   type="text" hint="dd/MM/yyyy เช่น 25/05/2026" />
+        <Field fkey="taxinv"  label="taxinv"                    type="text" hint="Y หรือ N" />
+        <Field fkey="refcode" label="refcode · รหัสอ้างอิง"    type="text" />
 
-        { type: 'section', label: 'เจ้าหนี้ (Vendor)', icon: 'money' },
-        { key: 'cust_name',      label: 'cust_name (ชื่อเจ้าหนี้)', type: 'text', required: true, full: true },
-        { key: 'acct_no',        label: 'acct_no (รหัสเจ้าหนี้)', type: 'text' },
-        { key: 'vendor_group',   label: 'vendor_group', type: 'text', full: true, hint: 'Vendor : (XXXXX) ชื่อบริษัท' },
+        <SectionHdr label="เจ้าหนี้ (Vendor)" icon="money" />
+        <Field fkey="cust_name"    label="cust_name · ชื่อเจ้าหนี้" type="text" required full />
+        <Field fkey="acct_no"      label="acct_no · รหัสเจ้าหนี้"   type="text" />
+        <Field fkey="vendor_group" label="vendor_group"               type="text" hint="Vendor : (XXXXX) บริษัท" />
 
-        { type: 'section', label: 'แผนก / โครงการ', icon: 'forecast' },
-        { key: 'dpt_code',       label: 'dpt_code (รหัสแผนก)', type: 'text', hint: 'HRD / MNG / FIN / ACC / ITD ฯลฯ' },
-        { key: 'dpt_name',       label: 'dpt_name (ชื่อแผนก)', type: 'text' },
-        { key: 'jobcode',        label: 'jobcode (รหัสงาน)', type: 'text' },
-        { key: 'jobname',        label: 'jobname (ชื่องาน)', type: 'text', full: true },
+        <SectionHdr label="แผนก / โครงการ" icon="forecast" />
+        <Field fkey="dpt_code" label="dpt_code · รหัสแผนก" type="text" hint="HRD / MNG / FIN / ITD ฯลฯ" />
+        <Field fkey="dpt_name" label="dpt_name · ชื่อแผนก" type="text" />
+        <Field fkey="jobcode"  label="jobcode · รหัสงาน"   type="text" />
+        <Field fkey="jobname"  label="jobname · ชื่องาน"   type="text" full />
 
-        { type: 'section', label: 'ยอดเงิน (Amounts)', icon: 'coin' },
-        { key: 'Amount',         label: 'Amount (ยอดก่อนหัก)', type: 'number', suffix: '฿', required: true },
-        { key: 'VAT',            label: 'VAT', type: 'number', suffix: '฿' },
-        { key: 'net_new',        label: 'net_new (รวม VAT)', type: 'number', suffix: '฿' },
-        { key: 'Less_Ret',       label: 'Less_Ret (หักประกันผลงาน)', type: 'number', suffix: '฿' },
-        { key: 'WHT_EXT',        label: 'WHT_EXT (ภาษีหัก ณ ที่จ่าย)', type: 'number', suffix: '฿' },
-        { key: 'Balance_Amount1',label: 'Balance_Amount1 (ยอดคงค้าง)', type: 'number', suffix: '฿' },
-        { key: 'netpayment',     label: 'netpayment (ยอดสุทธิที่ต้องจ่าย)', type: 'number', suffix: '฿', required: true },
+        <SectionHdr label="ยอดเงิน (Amounts)" icon="coin" />
+        <Field fkey="Amount"          label="Amount · ยอดก่อนหัก"         required />
+        <Field fkey="VAT"             label="VAT · ภาษีมูลค่าเพิ่ม" />
+        <Field fkey="net_new"         label="net_new · รวม VAT" />
+        <Field fkey="Less_Ret"        label="Less_Ret · หักประกันผลงาน" />
+        <Field fkey="WHT_EXT"         label="WHT_EXT · ภาษีหัก ณ ที่จ่าย" />
+        <Field fkey="Balance_Amount1" label="Balance_Amount1 · ยอดคงค้าง" />
+        <Field fkey="netpayment"      label="netpayment · ยอดสุทธิที่ต้องจ่าย" required />
 
-        { type: 'section', label: 'หมายเหตุ', icon: 'edit' },
-        { key: 'remark',         label: 'remark (คำอธิบาย)', type: 'textarea', full: true, rows: 3 },
-      ],
-      summary: (rows) => {
-        const amt     = rows.reduce((s, r) => s + Number(r.Amount||0), 0);
-        const net     = rows.reduce((s, r) => s + Number(r.netpayment||0), 0);
-        const bal1    = rows.reduce((s, r) => s + Number(r.Balance_Amount1||0), 0);
-        const overdue = rows.filter(r => {
-          const d = parseDue(r.due2 || r.due);
-          return d && d < new Date();
-        }).length;
-        return [
-          { label: 'จำนวนรายการ',         value: rows.length, unit: ' รายการ', digits: 0, icon: 'invoice', accent: 'var(--brand-500)' },
-          { label: 'Amount รวม',          value: amt,    accent: 'oklch(70% 0.16 75)', icon: 'money' },
-          { label: 'netpayment รวม',      value: net,    accent: 'var(--bad)', icon: 'arrow_up' },
-          { label: 'คงค้าง (Balance_1)',   value: bal1,   accent: 'oklch(55% 0.18 30)', icon: 'coin',
-            delta: overdue > 0 ? `${overdue} รายการเกินกำหนด` : undefined, deltaKind: overdue > 0 ? 'bad' : 'neu' },
-        ];
-      },
-    }} />
+        <SectionHdr label="หมายเหตุ" icon="edit" />
+        <Field fkey="remark" label="remark · คำอธิบาย" type="textarea" full rows={3} />
+      </div>
+    </Modal>
+  );
+}
+
+// ─── AP Outstanding page (full custom, not DataCrudPage) ─────────────────────
+function DataPayablePage({ data, setData, toast }) {
+  const [edit, setEdit]               = dxState(null);
+  const [query, setQuery]             = dxState('');
+  const [showSug, setShowSug]         = dxState(false);
+  const [docFilter, setDocFilter]     = dxState('all');   // APO / APS / APV / all
+  const [dptFilter, setDptFilter]     = dxState('all');
+  const [sortKey, setSortKey]         = dxState('vchdate');
+  const [sortDir, setSortDir]         = dxState('desc');
+  const [showImport, setShowImport]   = dxState(false);
+  const [importText, setImportText]   = dxState('');
+
+  const rows = data.payables || [];
+
+  const getDocType = (vchno) => {
+    if (!vchno) return 'other';
+    const v = String(vchno).toUpperCase();
+    if (v.startsWith('APO')) return 'APO';
+    if (v.startsWith('APS')) return 'APS';
+    if (v.startsWith('APV')) return 'APV';
+    return 'other';
+  };
+
+  const dptCodes = dxMemo(() =>
+    [...new Set(rows.map(r => r.dpt_code).filter(Boolean))].sort()
+  , [rows]);
+
+  const filtered = dxMemo(() => {
+    let xs = rows;
+    if (docFilter !== 'all') xs = xs.filter(r => getDocType(r.vchno) === docFilter);
+    if (dptFilter !== 'all') xs = xs.filter(r => r.dpt_code === dptFilter);
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      xs = xs.filter(r => ['cust_name','vchno','docno','jobcode','jobname','remark','dpt_code']
+        .some(k => String(r[k]||'').toLowerCase().includes(q)));
+    }
+    return xs.slice().sort((a, b) => {
+      let av = a[sortKey], bv = b[sortKey];
+      if (sortKey === 'vchdate' || sortKey === 'due2') {
+        const da = parseDue(av) || new Date(0), db = parseDue(bv) || new Date(0);
+        return sortDir === 'asc' ? da - db : db - da;
+      }
+      const na = Number(av), nb = Number(bv);
+      if (!isNaN(na) && !isNaN(nb)) return sortDir === 'asc' ? na - nb : nb - na;
+      av = String(av||''); bv = String(bv||'');
+      return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+    });
+  }, [rows, docFilter, dptFilter, query, sortKey, sortDir]);
+
+  const suggestions = dxMemo(() => {
+    if (!query || query.length < 2) return [];
+    const q = query.toLowerCase();
+    const seen = new Set();
+    const out = [];
+    rows.forEach(r => {
+      ['cust_name','vchno'].forEach(k => {
+        const v = String(r[k]||'');
+        if (v.toLowerCase().includes(q) && !seen.has(v) && v) { seen.add(v); out.push(v); }
+      });
+    });
+    return out.slice(0, 8);
+  }, [rows, query]);
+
+  // KPI values over ALL rows (not filtered)
+  const kpiAmt  = rows.reduce((s, r) => s + Number(r.Amount||0), 0);
+  const kpiNet  = rows.reduce((s, r) => s + Number(r.netpayment||0), 0);
+  const kpiBal  = rows.reduce((s, r) => s + Number(r.Balance_Amount1||0), 0);
+  const overdue = rows.filter(r => { const d = parseDue(r.due2||r.due); return d && d < new Date(); }).length;
+
+  // Footer totals over filtered rows
+  const fAmt  = filtered.reduce((s, r) => s + Number(r.Amount||0), 0);
+  const fNet  = filtered.reduce((s, r) => s + Number(r.netpayment||0), 0);
+  const fBal  = filtered.reduce((s, r) => s + Number(r.Balance_Amount1||0), 0);
+
+  // Doc-type counts
+  const dtCount = { APO: 0, APS: 0, APV: 0 };
+  rows.forEach(r => { const t = getDocType(r.vchno); if (dtCount[t] !== undefined) dtCount[t]++; });
+
+  const toggleSort = (key) => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(key); setSortDir('asc'); }
+  };
+  const SI = ({ k }) => sortKey !== k
+    ? <span style={{ opacity: 0.25, fontSize: 10, marginLeft: 2 }}>⇅</span>
+    : <span style={{ fontSize: 10, marginLeft: 2 }}>{sortDir === 'asc' ? '↑' : '↓'}</span>;
+
+  const save = (row) => {
+    setData(d => ({
+      ...d,
+      payables: row.id
+        ? d.payables.map(x => x.id === row.id ? row : x)
+        : [{ ...row, id: WTPData.newId() }, ...d.payables],
+    }));
+    setEdit(null);
+    toast('บันทึกข้อมูลแล้ว');
+  };
+
+  const remove = (id) => {
+    setData(d => ({ ...d, payables: d.payables.filter(x => x.id !== id) }));
+    toast('ลบรายการแล้ว');
+  };
+
+  const handleImport = () => {
+    if (!importText.trim()) { toast('ไม่มีข้อมูล'); return; }
+    const lines = importText.trim().split('\n');
+    if (lines.length < 2) { toast('ต้องมีแถวหัวตารางและข้อมูลอย่างน้อย 1 แถว'); return; }
+    const headers = lines[0].split('\t').map(h => h.trim());
+    const existing = new Set((data.payables || []).map(r => r.vchno).filter(Boolean));
+    let added = 0, skipped = 0;
+    const newRows = [];
+    for (let i = 1; i < lines.length; i++) {
+      const cols = lines[i].split('\t');
+      if (cols.every(c => !c.trim())) continue;
+      const obj = { id: WTPData.newId() };
+      headers.forEach((h, j) => { obj[h] = cols[j] != null ? cols[j].trim() : ''; });
+      if (obj.vchno && existing.has(obj.vchno)) { skipped++; continue; }
+      if (obj.vchno) existing.add(obj.vchno);
+      newRows.push(obj);
+      added++;
+    }
+    if (newRows.length > 0) {
+      setData(d => ({ ...d, payables: [...(d.payables||[]), ...newRows] }));
+    }
+    setShowImport(false);
+    setImportText('');
+    toast(`นำเข้าแล้ว ${added} รายการ · ข้ามซ้ำ ${skipped} รายการ`);
+  };
+
+  const COLS = [
+    { key: 'vchdate',          label: 'วันที่',              w: 95  },
+    { key: 'vchno',            label: 'เลขที่ใบสำคัญ',      w: 165 },
+    { key: 'cust_name',        label: 'เจ้าหนี้ / Vendor',  w: 200 },
+    { key: 'dpt_code',         label: 'แผนก',               w: 85  },
+    { key: 'jobcode',          label: 'Job Code',             w: 100 },
+    { key: 'due2',             label: 'วันครบกำหนด',        w: 105 },
+    { key: '_overdue',         label: 'เกินกำหนด',          w: 88  },
+    { key: 'Amount',           label: 'Amount (฿)',           w: 120 },
+    { key: 'netpayment',       label: 'Net Pay (฿)',          w: 120 },
+    { key: 'Balance_Amount1',  label: 'คงค้าง (฿)',          w: 120 },
+    { key: 'remark',           label: 'หมายเหตุ',            w: 180 },
+  ];
+
+  return (
+    <div className="page">
+      {/* Page header */}
+      <div className="page-head anim-in">
+        <div>
+          <h1 className="page-title">DATA AP Outstanding · ใบแจ้งหนี้เจ้าหนี้คงค้าง</h1>
+          <div className="page-sub">RAW_AP_OUTSTANDING · 54 คอลัมน์ · วางข้อมูล RAW ได้เลย</div>
+        </div>
+        <div className="page-head-r">
+          <button className="btn btn-ghost" onClick={() => setShowImport(true)}>
+            <Icon name="upload" size={14} /> นำเข้า Excel
+          </button>
+        </div>
+      </div>
+
+      {/* KPI tiles */}
+      <div className="grid grid-4 anim-stagger" style={{ marginBottom: 16 }}>
+        <KpiTile label="จำนวนรายการ" value={rows.length} unit=" รายการ" digits={0} accent="var(--brand-500)" icon="invoice" />
+        <KpiTile label="Amount รวม" value={kpiAmt} unit="บาท" digits={2} accent="oklch(70% 0.16 75)" icon="money" />
+        <KpiTile label="Net Payment รวม" value={kpiNet} unit="บาท" digits={2} accent="var(--bad)" icon="arrow_up" />
+        <KpiTile label="คงค้าง (Balance)" value={kpiBal} unit="บาท" digits={2} accent="oklch(55% 0.18 30)" icon="coin"
+          delta={overdue > 0 ? `${overdue} รายการเกินกำหนด` : undefined}
+          deltaKind={overdue > 0 ? 'bad' : 'neu'} />
+      </div>
+
+      {/* Filter + search bar */}
+      <div className="card" style={{ padding: '10px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        {/* Doc-type tabs */}
+        <div className="tabnav">
+          <button className={docFilter === 'all' ? 'active' : ''} onClick={() => setDocFilter('all')}>ทั้งหมด ({rows.length})</button>
+          {['APO','APS','APV'].map(t => (
+            <button key={t} className={docFilter === t ? 'active' : ''} onClick={() => setDocFilter(t)}>
+              {t} ({dtCount[t]||0})
+            </button>
+          ))}
+        </div>
+
+        {/* Dept dropdown */}
+        <select className="select input" value={dptFilter} onChange={e => setDptFilter(e.target.value)}
+          style={{ height: 34, fontSize: 13, minWidth: 160 }}>
+          <option value="all">แผนก: ทั้งหมด</option>
+          {dptCodes.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+
+        {/* Search with autocomplete */}
+        <div style={{ position: 'relative', marginLeft: 'auto', width: 300 }}>
+          <div className="tb-search">
+            <Icon name="search" size={14} />
+            <input
+              value={query}
+              onChange={e => { setQuery(e.target.value); setShowSug(true); }}
+              onFocus={() => setShowSug(true)}
+              onBlur={() => setTimeout(() => setShowSug(false), 180)}
+              placeholder="ค้นหา cust_name / vchno…"
+            />
+            {query && (
+              <button style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 6px', color: 'var(--ink-400)', lineHeight: 1 }}
+                onClick={() => setQuery('')}>✕</button>
+            )}
+          </div>
+          {showSug && suggestions.length > 0 && (
+            <div style={{
+              position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200,
+              background: 'var(--surface)', border: '1px solid var(--ink-100)',
+              borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.13)', marginTop: 4,
+              maxHeight: 230, overflowY: 'auto',
+            }}>
+              {suggestions.map((s, i) => (
+                <div key={i}
+                  style={{ padding: '8px 13px', cursor: 'pointer', fontSize: 13, borderBottom: i < suggestions.length-1 ? '1px solid var(--ink-50)' : 'none' }}
+                  onMouseDown={() => { setQuery(s); setShowSug(false); }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--brand-50)'}
+                  onMouseLeave={e => e.currentTarget.style.background = ''}
+                >{s}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="card anim-in" style={{ padding: 0, overflow: 'hidden' }}>
+        <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 370px)' }}>
+          <table className="tbl" style={{ minWidth: 1200 }}>
+            <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--surface)' }}>
+              <tr>
+                {COLS.map(c => (
+                  <th key={c.key}
+                    style={{ width: c.w, minWidth: c.w, cursor: c.key !== '_overdue' ? 'pointer' : 'default', userSelect: 'none', whiteSpace: 'nowrap' }}
+                    onClick={() => c.key !== '_overdue' && toggleSort(c.key)}>
+                    {c.label}{c.key !== '_overdue' && <SI k={c.key} />}
+                  </th>
+                ))}
+                <th style={{ width: 50 }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 && (
+                <tr><td colSpan={12} style={{ padding: 40, textAlign: 'center' }} className="muted">ไม่พบข้อมูล</td></tr>
+              )}
+              {filtered.map(row => {
+                const due = parseDue(row.due2 || row.due);
+                const days = due ? Math.ceil((due - new Date()) / 86400000) : null;
+                const dueColor = days === null ? 'var(--ink-400)' : days < 0 ? 'var(--bad)' : days < 7 ? 'oklch(60% 0.16 75)' : days < 30 ? 'oklch(70% 0.16 60)' : 'var(--ink-400)';
+                return (
+                  <tr key={row.id}>
+                    {/* vchdate */}
+                    <td style={{ fontSize: 12, whiteSpace: 'nowrap', color: 'var(--ink-600)' }}>{row.vchdate || '—'}</td>
+                    {/* vchno */}
+                    <td>
+                      <div style={{ fontWeight: 600, color: 'var(--brand-700)', fontFamily: 'ui-monospace', fontSize: 12 }}>{row.vchno || '—'}</div>
+                      {row.docno && <div className="muted" style={{ fontSize: 10 }}>{row.docno}</div>}
+                    </td>
+                    {/* cust_name */}
+                    <td>
+                      <div style={{ fontWeight: 500, fontSize: 13 }}>{row.cust_name || '—'}</div>
+                      {row.acct_no && <div className="muted" style={{ fontSize: 10.5, fontFamily: 'ui-monospace' }}>{row.acct_no}</div>}
+                    </td>
+                    {/* dpt_code */}
+                    <td>{row.dpt_code ? <Badge kind="b-blue" dot={false}>{row.dpt_code}</Badge> : <span className="muted">—</span>}</td>
+                    {/* jobcode */}
+                    <td>
+                      <div style={{ fontFamily: 'ui-monospace', fontSize: 12 }}>{row.jobcode || <span className="muted">—</span>}</div>
+                      {row.jobname && <div className="muted" style={{ fontSize: 10 }}>{row.jobname.length > 18 ? row.jobname.slice(0,18)+'…' : row.jobname}</div>}
+                    </td>
+                    {/* due date */}
+                    <td style={{ fontSize: 12, whiteSpace: 'nowrap', color: dueColor }}>{row.due2 || row.due || <span className="muted">—</span>}</td>
+                    {/* overdue days */}
+                    <td style={{ textAlign: 'center' }}>
+                      {days === null ? <span className="muted">—</span>
+                        : days < 0
+                          ? <span style={{ background: 'var(--bad)', color: '#fff', borderRadius: 5, padding: '2px 6px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>{Math.abs(days)} วัน</span>
+                          : days === 0
+                            ? <span style={{ color: 'var(--bad)', fontWeight: 700, fontSize: 11 }}>วันนี้!</span>
+                            : <span style={{ color: dueColor, fontSize: 11 }}>อีก {days}d</span>
+                      }
+                    </td>
+                    {/* Amount */}
+                    <td className="num" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtNum(Number(row.Amount||0), 2)}</td>
+                    {/* netpayment */}
+                    <td className="num" style={{ fontWeight: 700, color: 'var(--bad)' }}>{fmtNum(Number(row.netpayment||0), 2)}</td>
+                    {/* Balance */}
+                    <td className="num" style={{ fontWeight: 600, color: Number(row.Balance_Amount1||0) > 0 ? 'oklch(55% 0.18 30)' : 'var(--ink-500)' }}>
+                      {fmtNum(Number(row.Balance_Amount1||0), 2)}
+                    </td>
+                    {/* remark */}
+                    <td className="muted" style={{ fontSize: 12, maxWidth: 180 }}>
+                      <span title={row.remark||''}>{row.remark ? (row.remark.length > 32 ? row.remark.slice(0,32)+'…' : row.remark) : '—'}</span>
+                    </td>
+                    {/* edit only (no trash) */}
+                    <td>
+                      <button className="btn-icon" onClick={() => setEdit(row)} title="แก้ไข"><Icon name="edit" size={14} /></button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr style={{ background: 'var(--brand-50)', fontWeight: 700 }}>
+                <td colSpan={7} style={{ padding: '8px 14px', fontSize: 12, color: 'var(--brand-700)' }}>รวม {filtered.length} รายการ</td>
+                <td className="num" style={{ padding: '8px 14px' }}>{fmtNum(fAmt, 2)}</td>
+                <td className="num" style={{ padding: '8px 14px', color: 'var(--bad)' }}>{fmtNum(fNet, 2)}</td>
+                <td className="num" style={{ padding: '8px 14px', color: 'oklch(55% 0.18 30)' }}>{fmtNum(fBal, 2)}</td>
+                <td colSpan={2} />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      {/* Import modal */}
+      {showImport && (
+        <Modal open={showImport} title="นำเข้า Excel · AP Outstanding" maxWidth={680}
+          onClose={() => { setShowImport(false); setImportText(''); }}
+          footer={<>
+            <button className="btn btn-ghost" onClick={() => { setShowImport(false); setImportText(''); }}>ยกเลิก</button>
+            <button className="btn btn-primary" onClick={handleImport}><Icon name="upload" size={13} /> นำเข้า</button>
+          </>}>
+          <div style={{ fontSize: 13, color: 'var(--ink-600)', marginBottom: 10, lineHeight: 1.6 }}>
+            คัดลอกข้อมูลจาก Excel <strong>พร้อมแถวหัวตาราง</strong> แล้ววางในช่องด้านล่าง<br />
+            รายการที่ <strong>vchno ซ้ำ</strong>กับข้อมูลที่มีอยู่แล้วจะถูกข้ามโดยอัตโนมัติ — เฉพาะแถวใหม่เท่านั้นที่จะถูกเพิ่ม
+          </div>
+          <textarea
+            className="input"
+            rows={14}
+            value={importText}
+            onChange={e => setImportText(e.target.value)}
+            placeholder={"วางข้อมูล TSV จาก Excel ที่นี่…\n(เลือกทั้งหมดใน Excel → Ctrl+C → วางที่นี่)"}
+            style={{ fontFamily: 'ui-monospace', fontSize: 11.5, width: '100%', resize: 'vertical' }}
+          />
+        </Modal>
+      )}
+
+      {/* Edit / view modal */}
+      <APEditModal row={edit} onClose={() => setEdit(null)} onSave={save} onDelete={remove} />
+    </div>
   );
 }
 
