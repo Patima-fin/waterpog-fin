@@ -553,7 +553,7 @@ function APEditModal({ row, onClose, onSave, onDelete }) {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px 16px' }}>
           <Hdr label="ข้อมูลเอกสาร" icon="invoice" />
           <F fkey="vchno"   label="vchno · ใบสำคัญ"         required hint="APO2026040181" />
-          <F fkey="docno"   label="docno · เลขที่เอกสาร"     hint="เลขเอกสาร (col B)" />
+          <F fkey="docno"   label="docno (col B)" />
           <F fkey="vchdate" label="วันที่ใบสำคัญ"             type="date" />
           <F fkey="due2"    label="วันครบกำหนด"               hint="dd/MM/yyyy" />
           <F fkey="refno"   label="refno · เลขที่อ้างอิง"    hint="เลขอ้างอิง (col E)" />
