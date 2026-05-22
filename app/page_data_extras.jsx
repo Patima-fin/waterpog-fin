@@ -143,9 +143,9 @@ function DataCrudPage({ data, setData, toast, config }) {
 }
 
 function GenericEditModal({ row, onClose, onSave, fields, title, header }) {
-  const [draft, setDraft] = dxState(row);
-  dxEffect(() => { setDraft(row); }, [row]);
-  if (!row) return null;
+  const [draft, setDraft] = dxState(null);
+  dxEffect(() => { setDraft(row ? { ...row } : null); }, [row]);
+  if (!row || !draft) return null;   // wait for draft to be populated
   const set = (k, v) => setDraft(d => ({ ...d, [k]: v }));
 
   // Group fields by `section` markers so we can render visual sub-headers.
