@@ -837,7 +837,7 @@ function DataPayablePage({ data, setData, toast }) {
             </thead>
             <tbody>
               {filtered.length === 0 && (
-                <tr><td colSpan={9} style={{ padding: 40, textAlign: 'center' }} className="muted">ไม่พบข้อมูล</td></tr>
+                <tr><td colSpan={8} style={{ padding: 40, textAlign: 'center' }} className="muted">ไม่พบข้อมูล</td></tr>
               )}
               {filtered.map(row => {
                 const due = parseDue(row.due2 || row.due);
@@ -849,7 +849,6 @@ function DataPayablePage({ data, setData, toast }) {
                   <tr key={row.id} onClick={() => setEdit(row)} style={{ cursor: 'pointer' }}>
                     <td style={{ ...vt, fontSize: 12, whiteSpace: 'nowrap', color: 'var(--ink-600)' }}>{row.vchdate || '—'}</td>
                     <td style={vt}><span style={{ fontWeight: 600, color: 'var(--brand-700)', fontFamily: 'ui-monospace', fontSize: 12 }}>{row.vchno || '—'}</span></td>
-                    <td style={vt}>{row.docno ? <span style={{ fontFamily: 'ui-monospace', fontSize: 12, color: 'var(--ink-700)' }}>{row.docno}</span> : <span className="muted" style={{ fontSize: 11 }}>(ไม่มี)</span>}</td>
                     <td style={{ ...vt, fontSize: 13 }}>{row.cust_name || <span className="muted">—</span>}</td>
                     <td style={vt}>{row.dpt_code ? <Badge kind="b-blue" dot={false}>{row.dpt_code}</Badge> : <span className="muted">—</span>}</td>
                     <td style={{ ...vt, fontSize: 12, whiteSpace: 'nowrap', color: dueColor }}>{row.due2 || row.due || <span className="muted">—</span>}</td>
@@ -867,7 +866,7 @@ function DataPayablePage({ data, setData, toast }) {
             </tbody>
             <tfoot>
               <tr style={{ background: 'var(--brand-50)', fontWeight: 700 }}>
-                <td colSpan={7} style={{ padding: '8px 14px', fontSize: 12, color: 'var(--brand-700)' }}>รวม {filtered.length} รายการ</td>
+                <td colSpan={6} style={{ padding: '8px 14px', fontSize: 12, color: 'var(--brand-700)' }}>รวม {filtered.length} รายการ</td>
                 <td className="num" style={{ padding: '8px 14px', color: 'var(--bad)' }}>{fmtNum(fNet, 2)}</td>
                 <td />
               </tr>
