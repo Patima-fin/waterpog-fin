@@ -58,10 +58,10 @@ function InvoicesPage({ data, setData, toast }) {
     paid:               rows.filter(r => r.status === 'paid').length,
   };
   const sums = {
-    balance: rows.reduce((s, r) => s + (r.balance || 0), 0),
-    debt:    rows.reduce((s, r) => s + (r.debt || 0), 0),
-    net:     rows.reduce((s, r) => s + (r.netExpected || 0), 0),
-    pendingNet: rows.filter(r => r.status !== 'paid').reduce((s, r) => s + (r.netExpected || 0), 0),
+    balance:    rows.reduce((s, r) => s + (Number(r.balance) || 0), 0),
+    debt:       rows.reduce((s, r) => s + (Number(r.debt) || 0), 0),
+    net:        rows.reduce((s, r) => s + (Number(r.netExpected) || 0), 0),
+    pendingNet: rows.filter(r => r.status !== 'paid').reduce((s, r) => s + (Number(r.netExpected) || 0), 0),
   };
 
   const save = (iv) => {
@@ -106,7 +106,6 @@ function InvoicesPage({ data, setData, toast }) {
         </div>
         <div className="page-head-r">
           <button className="btn btn-ghost" onClick={() => setShowImport(true)}><Icon name="upload" size={14} /> วาง RAW_IV_OUTSTANDING</button>
-          <button className="btn btn-primary" onClick={newInvoice}><Icon name="plus" size={14} /> เพิ่มใบ IV</button>
         </div>
       </div>
 
@@ -135,17 +134,16 @@ function InvoicesPage({ data, setData, toast }) {
         <table className="tbl">
           <thead>
             <tr>
-              <SortHeader label="Job no"          sortKey="jobNo"       sort={sort} toggle={toggle} width={130} />
-              <SortHeader label="เลขที่ IV"       sortKey="ivNo"        sort={sort} toggle={toggle} width={130} />
-              <SortHeader label="วันที่ IV"        sortKey="invoiceDate" sort={sort} toggle={toggle} width={105} />
-              <SortHeader label="ชื่อโครงการ"     sortKey="projectName" sort={sort} toggle={toggle} />
-              <SortHeader label="Balance"        sortKey="balance"     sort={sort} toggle={toggle} align="right" width={130} />
-              <SortHeader label="ผู้รับโอนสิทธิ"   sortKey="assignee"    sort={sort} toggle={toggle} width={130} />
-              <SortHeader label="ภาระหนี้"        sortKey="debt"        sort={sort} toggle={toggle} align="right" width={130} />
-              <SortHeader label="คาดรับสุทธิ"     sortKey="netExpected" sort={sort} toggle={toggle} align="right" width={130} />
-              <SortHeader label="คาดรับเงิน"      sortKey="expectedReceive" sort={sort} toggle={toggle} width={110} />
-              <th style={{ width: 160 }}>สถานะ</th>
-              <th style={{ width: 80 }}></th>
+              <SortHeader label="Job no"         sortKey="jobNo"           sort={sort} toggle={toggle} align="center" width={90} />
+              <SortHeader label="เลขที่ IV"      sortKey="ivNo"            sort={sort} toggle={toggle} align="center" width={110} />
+              <SortHeader label="วันที่ IV"       sortKey="invoiceDate"     sort={sort} toggle={toggle} align="center" width={95} />
+              <SortHeader label="ชื่อโครงการ"    sortKey="projectName"     sort={sort} toggle={toggle} align="center" />
+              <SortHeader label="Balance"        sortKey="balance"         sort={sort} toggle={toggle} align="right"  width={115} />
+              <SortHeader label="ผู้รับโอนสิทธิ"  sortKey="assignee"        sort={sort} toggle={toggle} align="center" width={110} />
+              <SortHeader label="ภาระหนี้"       sortKey="debt"            sort={sort} toggle={toggle} align="right"  width={100} />
+              <SortHeader label="คาดรับสุทธิ"    sortKey="netExpected"     sort={sort} toggle={toggle} align="right"  width={115} />
+              <SortHeader label="คาดรับเงิน"     sortKey="expectedReceive" sort={sort} toggle={toggle} align="center" width={95} />
+              <th style={{ width: 150, textAlign: 'center' }}>สถานะ</th>
             </tr>
           </thead>
           <tbody>
@@ -184,23 +182,17 @@ function InvoicesPage({ data, setData, toast }) {
                     options={Object.entries(WTPData.IV_STATUS_META).map(([k, v]) => ({ value: k, label: v.label, kind: v.badge }))}
                   />
                 </td>
-                <td onClick={(e) => e.stopPropagation()}>
-                  <div className="row-act">
-                    <button className="btn-icon" onClick={() => setDetail(iv)} title="ดูรายละเอียด/ติดตาม"><Icon name="search" size={14} /></button>
-                    <button className="btn-icon danger" onClick={() => remove(iv.id)} title="ลบ"><Icon name="trash" size={14} /></button>
-                  </div>
-                </td>
               </tr>
             ))}
           </tbody>
           <tfoot>
             <tr>
               <td colSpan={4}>รวม ({sorted.length} ใบ)</td>
-              <td className="num strong">{fmtNum(sorted.reduce((s,r)=>s+(r.balance||0), 0), 0)}</td>
+              <td className="num strong">{fmtNum(sorted.reduce((s,r)=>s+(Number(r.balance)||0), 0), 0)}</td>
               <td></td>
-              <td className="num" style={{ color: 'var(--bad)' }}>-{fmtNum(sorted.reduce((s,r)=>s+(r.debt||0), 0), 0)}</td>
-              <td className="num" style={{ color: 'var(--good)' }}>{fmtNum(sorted.reduce((s,r)=>s+(r.netExpected||0), 0), 0)}</td>
-              <td colSpan={3}></td>
+              <td className="num" style={{ color: 'var(--bad)' }}>-{fmtNum(sorted.reduce((s,r)=>s+(Number(r.debt)||0), 0), 0)}</td>
+              <td className="num" style={{ color: 'var(--good)' }}>{fmtNum(sorted.reduce((s,r)=>s+(Number(r.netExpected)||0), 0), 0)}</td>
+              <td colSpan={2}></td>
             </tr>
           </tfoot>
         </table>
