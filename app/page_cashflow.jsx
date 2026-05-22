@@ -42,10 +42,19 @@ function CashFlowDashboard({ data, setData, toast }) {
 
   const [editEntry, setEditEntry] = cfState(null);
 
-  // Forecast-entries summary
-  const upcomingEntries = data.forecastEntries.slice().sort((a, b) => a.date.localeCompare(b.date));
-  const upcomingInflow  = upcomingEntries.filter(e => e.amount > 0).reduce((s, e) => s + e.amount, 0);
-  const upcomingOutflow = upcomingEntries.filter(e => e.amount < 0).reduce((s, e) => s + e.amount, 0);
+  // Forecast-entries summary (support both old lowercase & new uppercase field names)
+  const upcomingEntries = data.forecastEntries.slice().sort((a, b) => {
+    const da = a.DATE || a.date || '';
+    const db = b.DATE || b.date || '';
+    return da.localeCompare(db);
+  });
+  const upcomingInflow  = upcomingEntries.filter(e => Number(e.AMOUNT ?? e.amount ?? 0) > 0).reduce((s, e) => s + Number(e.AMOUNT ?? e.amount ?? 0), 0);
+  const upcomingOutflow = upcomingEntries.filter(e => Number(e.AMOUNT ?? e.amount ?? 0) < 0).reduce((s, e) => s + Number(e.AMOUNT ?? e.amount ?? 0), 0);
+
+  // Bank balance (from DATA BANK)
+  const bankAccounts   = data.bankAccounts || [];
+  const totalBankBal   = bankAccounts.reduce((s, r) => s + Number(r.BALANCE ?? r.balance ?? 0), 0);
+  const totalAvailable = bankAccounts.reduce((s, r) => s + Number(r.AVAILABLE_BALANCE ?? 0), 0);
 
   const saveEntry = (entry) => {
     setData(d => ({
@@ -101,6 +110,32 @@ function CashFlowDashboard({ data, setData, toast }) {
         <BalanceCard tone="bf" label="เงินสดคงเหลือยกมา (B/F)" value={cf.bf} hint="ต้นเดือน · พฤษภาคม 2026" icon="coin" />
         <BalanceCard tone={cf.finalNet < 0 ? 'bad' : 'good'} label="คงเหลือสุทธิปัจจุบัน (Net Position)" value={cf.finalNet} hint={cf.finalNet < 0 ? 'ติดลบ — ต้องการเงินกู้/รับเงินเพิ่ม' : 'อยู่ในเกณฑ์ปลอดภัย'} icon={cf.finalNet < 0 ? 'arrow_down' : 'arrow_up'} />
       </div>
+
+      {/* Bank balance strip (from DATA BANK) */}
+      {bankAccounts.length > 0 && (
+        <div className="card anim-in" style={{ marginBottom: 14, padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', background: 'linear-gradient(90deg, color-mix(in oklch, var(--brand-500) 8%, transparent), transparent)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '0 0 auto' }}>
+            <div style={{ width: 36, height: 36, borderRadius: 9, background: 'var(--brand-100)', color: 'var(--brand-700)', display: 'grid', placeItems: 'center' }}><Icon name="bank" size={18} /></div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--ink-500)' }}>ยอดเงินในธนาคารจริง (DATA BANK · {bankAccounts.length} บัญชี)</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: totalBankBal < 0 ? 'var(--bad)' : 'var(--good)' }}>{fmtNum(totalBankBal, 2)} <span style={{ fontSize: 12, color: 'var(--ink-500)' }}>฿</span></div>
+            </div>
+          </div>
+          <div style={{ flex: 1, display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+            {bankAccounts.map((b, i) => (
+              <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>{b.BANK_NAME || b.bankName}</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: Number(b.BALANCE ?? b.balance ?? 0) < 0 ? 'var(--bad)' : 'var(--ink-900)', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(Number(b.BALANCE ?? b.balance ?? 0), 0)}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ textAlign: 'right', flex: '0 0 auto' }}>
+            <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>AVAILABLE รวม</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'oklch(60% 0.18 295)' }}>{fmtNum(totalAvailable, 2)} ฿</div>
+            <a href="#data_bank" style={{ fontSize: 11, color: 'var(--brand-600)', textDecoration: 'none' }}>→ แก้ไขยอด</a>
+          </div>
+        </div>
+      )}
 
       {/* 3 Plan-vs-Actual comparison cards */}
       <div className="grid grid-3 anim-stagger" style={{ marginBottom: 22 }}>
