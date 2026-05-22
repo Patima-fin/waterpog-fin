@@ -487,7 +487,7 @@ function DataPVPage({ data, setData, toast }) {
         Before_WHT: 0, WHT: 0, Less_Other: 0, Total: 0, Minus_Other: 0, Net_Amount: 0,
       },
       readOnlyRows: true,
-      tableMaxHeight: 'min(420px, calc(100vh - 460px))',
+      tableMaxHeight: 'min(480px, calc(100vh - 400px))',
       columns: [
         { key: 'Pmt_Date',   label: 'วันที่จ่าย',   type: 'date',  width: 100, align: 'center' },
         { key: 'PL_PV_No',   label: 'เลขที่ PV',    width: 120, mono: true, align: 'center' },
