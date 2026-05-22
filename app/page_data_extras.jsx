@@ -539,8 +539,18 @@ function APEditModal({ row, onClose, onSave, onDelete }) {
   const fetchSheetForRow = () => {
     if (!draft?.vchno || !window.WTPData?.fetchSheetRows) return;
     setLoading(true);
-    window.WTPData.fetchSheetRows('payables', r => r.vchno === draft.vchno)
-      .then(rows => setSheetRow(rows[0] || { _notfound: true }))
+    // Fetch both the parsed object AND the raw row (position-preserving)
+    Promise.all([
+      window.WTPData.fetchSheetRows('payables', r => r.vchno === draft.vchno),
+      window.WTPData.fetchSheetRowRaw ? window.WTPData.fetchSheetRowRaw('payables', 'vchno', draft.vchno) : Promise.resolve(null),
+    ])
+      .then(([rows, raw]) => {
+        if (rows[0]) {
+          setSheetRow({ ...rows[0], _raw: raw });
+        } else {
+          setSheetRow({ _notfound: true, _raw: raw });
+        }
+      })
       .catch(err => setSheetRow({ _error: err.message }))
       .finally(() => setLoading(false));
   };
@@ -650,6 +660,56 @@ function APEditModal({ row, onClose, onSave, onDelete }) {
                 <div style={{ fontSize: 11, fontWeight: 700, color: '#8a6b00', marginBottom: 6 }}>
                   📊 ค่าจริงใน Sheet (vchno={draft.vchno})
                 </div>
+
+                {/* Raw CSV view — shows ALL columns in order, highlighting duplicates */}
+                {sheetRow._raw && sheetRow._raw.headers && (() => {
+                  const headers = sheetRow._raw.headers || [];
+                  const rawRow  = sheetRow._raw.row || [];
+                  // Count occurrences of each header
+                  const counts = {};
+                  headers.forEach(h => { if (h) counts[h] = (counts[h] || 0) + 1; });
+                  const dupes = Object.keys(counts).filter(h => counts[h] > 1);
+                  return (
+                    <div style={{ marginBottom: 10, padding: 8, background: dupes.length ? 'rgba(255,99,71,0.08)' : 'rgba(0,128,0,0.04)', borderRadius: 5, border: '1px dashed ' + (dupes.length ? 'var(--bad)' : 'var(--good)') }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: dupes.length ? 'var(--bad)' : 'var(--good)', marginBottom: 6 }}>
+                        {dupes.length
+                          ? `⚠ พบ column ซ้ำ ${dupes.length} ตัว: ${dupes.join(', ')}`
+                          : '✓ ไม่มี column ซ้ำ (' + headers.length + ' columns)'}
+                      </div>
+                      {rawRow && rawRow.length > 0 && (
+                        <div style={{ maxHeight: 220, overflowY: 'auto', fontSize: 10.5, fontFamily: 'ui-monospace' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead>
+                              <tr style={{ borderBottom: '1px solid rgba(0,0,0,0.1)' }}>
+                                <th style={{ textAlign: 'left', padding: '2px 6px 2px 0', width: 30, color: '#666' }}>#</th>
+                                <th style={{ textAlign: 'left', padding: '2px 6px', width: 30, color: '#666' }}>col</th>
+                                <th style={{ textAlign: 'left', padding: '2px 8px', color: '#666' }}>header</th>
+                                <th style={{ textAlign: 'left', padding: '2px 0', color: '#666' }}>value</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {headers.map((h, idx) => {
+                                const isDupe = h && counts[h] > 1;
+                                const val = rawRow[idx];
+                                const empty = val == null || val === '';
+                                const colLetter = idx < 26 ? String.fromCharCode(65+idx) : String.fromCharCode(65+Math.floor(idx/26)-1) + String.fromCharCode(65+(idx%26));
+                                return (
+                                  <tr key={idx} style={{ background: isDupe ? 'rgba(255,99,71,0.1)' : 'transparent', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
+                                    <td style={{ padding: '2px 6px 2px 0', color: '#999' }}>{idx+1}</td>
+                                    <td style={{ padding: '2px 6px', color: '#999', fontWeight: 600 }}>{colLetter}</td>
+                                    <td style={{ padding: '2px 8px', fontWeight: isDupe ? 700 : 500, color: isDupe ? 'var(--bad)' : 'var(--brand-700)' }}>{h || '(blank)'}{isDupe && ' ×' + counts[h]}</td>
+                                    <td style={{ padding: '2px 0', color: empty ? '#bbb' : '#222', fontStyle: empty ? 'italic' : 'normal', wordBreak: 'break-all' }}>{empty ? '(empty)' : String(val)}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {sheetRow._notfound ? (
                   <div style={{ fontSize: 12, color: 'var(--bad)' }}>⚠ ไม่พบแถวที่ตรงกับ vchno นี้ใน Sheet — แปลว่าแถวนี้ยังไม่ได้ push เข้า Sheet หรือถูกลบไปแล้ว</div>
                 ) : sheetRow._error ? (
@@ -664,7 +724,7 @@ function APEditModal({ row, onClose, onSave, onDelete }) {
                       </tr>
                     </thead>
                     <tbody>
-                      {Object.keys(sheetRow).sort().map(k => {
+                      {Object.keys(sheetRow).filter(k => !k.startsWith('_')).sort().map(k => {
                         const appVal = draft[k];
                         const sheetVal = sheetRow[k];
                         const appEmpty = appVal == null || appVal === '';

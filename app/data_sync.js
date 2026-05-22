@@ -80,6 +80,20 @@
   function rowsToObjects(rows, jsonFields) {
     if (!rows || rows.length < 2) return [];
     var headers = rows[0];
+
+    // Detect duplicate column headers — warn once so users can find/rename them.
+    var seen = {};
+    var dupes = [];
+    headers.forEach(function (h) {
+      if (!h) return;
+      if (seen[h]) { if (dupes.indexOf(h) < 0) dupes.push(h); }
+      seen[h] = true;
+    });
+    if (dupes.length) {
+      console.warn('[WTP Sync] พบ header ซ้ำใน sheet:', dupes.join(', '),
+        '— จะใช้ค่าที่ไม่ว่างเปล่าเป็นหลัก (ถ้ามีหลายคอลัมน์ชื่อเดียวกัน)');
+    }
+
     var out = [];
     for (var i = 1; i < rows.length; i++) {
       var r = rows[i];
@@ -92,6 +106,13 @@
         if (jsonFields && jsonFields.indexOf(h) >= 0 && typeof v === 'string' && v.length > 1) {
           try { v = JSON.parse(v); } catch (_) {}
         }
+        // Don't let an empty value overwrite a previously-set non-empty value.
+        // Handles duplicate column headers (e.g. two columns named `docno` where
+        // only one has data) — keeps the populated one as the canonical value.
+        var existing = obj[h];
+        var existingHasVal = existing != null && existing !== '';
+        var newIsEmpty    = v == null || v === '';
+        if (existingHasVal && newIsEmpty) return;
         obj[h] = v;
       });
       out.push(obj);
@@ -417,6 +438,24 @@
       var jsonFields = ENTITY_JSON_FIELDS[entity] || null;
       var objs = rowsToObjects(rows, jsonFields);
       return predicate ? objs.filter(predicate) : objs;
+    });
+  };
+
+  // Diagnostic: fetch RAW header+row pairs (position-preserving, includes duplicates).
+  // Returns { headers: [...], row: [...] } for the first row matching predicate.
+  // This bypasses rowsToObjects so duplicate headers are visible.
+  WTPData.fetchSheetRowRaw = function (entity, matchCol, matchVal) {
+    return fetchSheet(entity).then(function (rows) {
+      if (!rows.length) return null;
+      var headers = rows[0];
+      var colIdx = headers.indexOf(matchCol);
+      if (colIdx < 0) return { headers: headers, row: null, error: 'ไม่พบคอลัมน์ ' + matchCol };
+      for (var i = 1; i < rows.length; i++) {
+        if (rows[i][colIdx] === matchVal) {
+          return { headers: headers, row: rows[i] };
+        }
+      }
+      return { headers: headers, row: null };
     });
   };
 
