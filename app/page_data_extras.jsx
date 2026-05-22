@@ -647,15 +647,9 @@ function DataPayablePage({ data, setData, toast }) {
     return out.slice(0, 8);
   }, [rows, query]);
 
-  // KPI — parseNum handles comma-formatted strings from CSV ("2,000.00" → 2000)
-  const kpiAmt  = rows.reduce((s, r) => s + parseNum(r.Amount), 0);
-  const kpiNet  = rows.reduce((s, r) => s + parseNum(r.netpayment), 0);
-  const kpiBal  = rows.reduce((s, r) => s + parseNum(r.Balance_Amount1), 0);
-  const overdue = rows.filter(r => { const d = parseDue(r.due2||r.due); return d && d < new Date(); }).length;
-
-  const fAmt = filtered.reduce((s, r) => s + parseNum(r.Amount), 0);
-  const fNet = filtered.reduce((s, r) => s + parseNum(r.netpayment), 0);
-  const fBal = filtered.reduce((s, r) => s + parseNum(r.Balance_Amount1), 0);
+  // KPI — computed from filtered rows so cards always match the table
+  const fBal    = filtered.reduce((s, r) => s + parseNum(r.Balance_Amount1), 0);
+  const overdue = filtered.filter(r => { const d = parseDue(r.due2||r.due); return d && d < new Date(); }).length;
 
   // Doc-type counts
   const dtCount = { APO: 0, APS: 0, APV: 0 };
@@ -718,10 +712,8 @@ function DataPayablePage({ data, setData, toast }) {
     { key: 'dpt_code',        label: 'แผนก',              w: 80  },
     { key: 'due2',            label: 'วันครบกำหนด',       w: 105 },
     { key: '_overdue',        label: 'เกินกำหนด',         w: 88  },
-    { key: 'Amount',          label: 'Amount (฿)',          w: 118 },
-    { key: 'netpayment',      label: 'Net Pay (฿)',         w: 118 },
-    { key: 'Balance_Amount1', label: 'คงค้าง (฿)',         w: 118 },
-    { key: 'remark',          label: 'หมายเหตุ',           w: 180 },
+    { key: 'Balance_Amount1', label: 'Net Payment (฿)',   w: 148 },
+    { key: 'remark',          label: 'หมายเหตุ',           w: 300 },
   ];
 
   return (
@@ -739,12 +731,10 @@ function DataPayablePage({ data, setData, toast }) {
         </div>
       </div>
 
-      {/* KPI tiles — animate=false bypasses useCountUp bug with large number strings */}
-      <div className="grid grid-4 anim-stagger" style={{ marginBottom: 16 }}>
-        <KpiTile label="จำนวนรายการ"     value={rows.length} unit=" รายการ" digits={0} accent="var(--brand-500)"    icon="invoice"  animate={false} />
-        <KpiTile label="Amount รวม"      value={kpiAmt}      unit=" ฿"      digits={2} accent="oklch(70% 0.16 75)" icon="money"    animate={false} />
-        <KpiTile label="Net Payment รวม" value={kpiNet}      unit=" ฿"      digits={2} accent="var(--bad)"          icon="arrow_up" animate={false} />
-        <KpiTile label="คงค้าง (Balance)" value={kpiBal}     unit=" ฿"      digits={2} accent="oklch(55% 0.18 30)" icon="coin"     animate={false}
+      {/* KPI — 2 cards, values follow filtered table */}
+      <div className="grid grid-2 anim-stagger" style={{ marginBottom: 16 }}>
+        <KpiTile label="จำนวนรายการ (ตามตาราง)" value={filtered.length} unit=" รายการ" digits={0} accent="var(--brand-500)" icon="invoice" animate={false} />
+        <KpiTile label="Net Payment รวม (ตามตาราง)" value={fBal} unit=" ฿" digits={2} accent="oklch(55% 0.18 30)" icon="coin" animate={false}
           delta={overdue > 0 ? `${overdue} รายการเกินกำหนด` : undefined} deltaKind={overdue > 0 ? 'bad' : 'neu'} />
       </div>
 
@@ -779,7 +769,7 @@ function DataPayablePage({ data, setData, toast }) {
               {query && <button style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 4px', color: 'var(--ink-400)' }} onClick={() => setQuery('')}>✕</button>}
             </div>
             {showSug && suggestions.length > 0 && (
-              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200, background: 'var(--surface)', border: '1px solid var(--ink-100)', borderRadius: 8, boxShadow: '0 6px 20px rgba(0,0,0,0.13)', marginTop: 4, maxHeight: 230, overflowY: 'auto' }}>
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 200, background: '#ffffff', border: '1px solid var(--ink-150)', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.18)', marginTop: 4, maxHeight: 230, overflowY: 'auto' }}>
                 {suggestions.map((s, i) => (
                   <div key={i} style={{ padding: '8px 13px', cursor: 'pointer', fontSize: 13, borderBottom: i < suggestions.length-1 ? '1px solid var(--ink-50)' : 'none' }}
                     onMouseDown={() => { setQuery(s); setShowSug(false); }}
@@ -795,7 +785,7 @@ function DataPayablePage({ data, setData, toast }) {
       {/* Table */}
       <div className="card anim-in" style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 370px)' }}>
-          <table className="tbl" style={{ minWidth: 1200 }}>
+          <table className="tbl" style={{ minWidth: 1050 }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--surface)' }}>
               <tr>
                 {COLS.map(c => (
@@ -805,17 +795,17 @@ function DataPayablePage({ data, setData, toast }) {
                     {c.label}{c.key !== '_overdue' && <SI k={c.key} />}
                   </th>
                 ))}
-                <th style={{ width: 50 }}></th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 && (
-                <tr><td colSpan={10} style={{ padding: 40, textAlign: 'center' }} className="muted">ไม่พบข้อมูล</td></tr>
+                <tr><td colSpan={8} style={{ padding: 40, textAlign: 'center' }} className="muted">ไม่พบข้อมูล</td></tr>
               )}
               {filtered.map(row => {
                 const due = parseDue(row.due2 || row.due);
                 const days = due ? Math.ceil((due - new Date()) / 86400000) : null;
                 const dueColor = days === null ? 'var(--ink-400)' : days < 0 ? 'var(--bad)' : days < 7 ? 'oklch(60% 0.16 75)' : days < 30 ? 'oklch(70% 0.16 60)' : 'var(--ink-400)';
+                const bal = parseNum(row.Balance_Amount1);
                 return (
                   <tr key={row.id} onClick={() => setEdit(row)} style={{ cursor: 'pointer' }}>
                     <td style={{ fontSize: 12, whiteSpace: 'nowrap', color: 'var(--ink-600)' }}>{row.vchdate || '—'}</td>
@@ -829,10 +819,8 @@ function DataPayablePage({ data, setData, toast }) {
                         : days === 0 ? <span style={{ color: 'var(--bad)', fontWeight: 700, fontSize: 11 }}>วันนี้!</span>
                         : <span style={{ color: dueColor, fontSize: 11 }}>อีก {days}d</span>}
                     </td>
-                    <td className="num">{fmtNum(parseNum(row.Amount), 2)}</td>
-                    <td className="num" style={{ fontWeight: 700, color: 'var(--bad)' }}>{fmtNum(parseNum(row.netpayment), 2)}</td>
-                    <td className="num" style={{ fontWeight: 600, color: parseNum(row.Balance_Amount1) > 0 ? 'oklch(55% 0.18 30)' : 'var(--ink-500)' }}>{fmtNum(parseNum(row.Balance_Amount1), 2)}</td>
-                    <td className="muted" style={{ fontSize: 12 }}><span title={row.remark||''}>{row.remark ? (row.remark.length > 30 ? row.remark.slice(0,30)+'…' : row.remark) : '—'}</span></td>
+                    <td className="num" style={{ fontWeight: 700, color: bal > 0 ? 'oklch(55% 0.18 30)' : 'var(--ink-500)' }}>{fmtNum(bal, 2)}</td>
+                    <td style={{ fontSize: 12, color: 'var(--ink-600)', maxWidth: 300 }}><span title={row.remark||''}>{row.remark || <span className="muted">—</span>}</span></td>
                   </tr>
                 );
               })}
@@ -840,8 +828,6 @@ function DataPayablePage({ data, setData, toast }) {
             <tfoot>
               <tr style={{ background: 'var(--brand-50)', fontWeight: 700 }}>
                 <td colSpan={6} style={{ padding: '8px 14px', fontSize: 12, color: 'var(--brand-700)' }}>รวม {filtered.length} รายการ</td>
-                <td className="num" style={{ padding: '8px 14px' }}>{fmtNum(fAmt, 2)}</td>
-                <td className="num" style={{ padding: '8px 14px', color: 'var(--bad)' }}>{fmtNum(fNet, 2)}</td>
                 <td className="num" style={{ padding: '8px 14px', color: 'oklch(55% 0.18 30)' }}>{fmtNum(fBal, 2)}</td>
                 <td />
               </tr>
