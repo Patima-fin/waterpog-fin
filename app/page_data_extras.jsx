@@ -130,40 +130,94 @@ function DataCrudPage({ data, setData, toast, config }) {
         </table>
       </div>
 
-      <GenericEditModal row={edit} onClose={() => setEdit(null)} onSave={save} fields={config.modalFields} title={edit?.id ? `แก้ไข ${config.singular || 'รายการ'}` : `เพิ่ม ${config.singular || 'รายการ'}ใหม่`} />
+      <GenericEditModal
+        row={edit}
+        onClose={() => setEdit(null)}
+        onSave={save}
+        fields={config.modalFields}
+        header={config.modalHeader}
+        title={edit?.id ? `แก้ไข ${config.singular || 'รายการ'}` : `เพิ่ม ${config.singular || 'รายการ'}ใหม่`}
+      />
     </div>
   );
 }
 
-function GenericEditModal({ row, onClose, onSave, fields, title }) {
+function GenericEditModal({ row, onClose, onSave, fields, title, header }) {
   const [draft, setDraft] = dxState(row);
   dxEffect(() => { setDraft(row); }, [row]);
   if (!row) return null;
   const set = (k, v) => setDraft(d => ({ ...d, [k]: v }));
+
+  // Group fields by `section` markers so we can render visual sub-headers.
+  const groups = [];
+  let current = { title: null, icon: null, fields: [] };
+  fields.forEach((f) => {
+    if (f.type === 'section') {
+      if (current.fields.length || current.title) groups.push(current);
+      current = { title: f.label, icon: f.icon, fields: [] };
+    } else {
+      current.fields.push(f);
+    }
+  });
+  if (current.fields.length) groups.push(current);
+
+  const renderField = (f, i) => {
+    const v = draft[f.key];
+    const hasSuffix = !!f.suffix;
+    const inputEl =
+      f.type === 'select' ? (
+        <select className="select input" value={v || ''} onChange={(e) => set(f.key, e.target.value)}>
+          {f.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      ) : f.type === 'textarea' ? (
+        <textarea className="input" rows={f.rows || 2} value={v || ''} onChange={(e) => set(f.key, e.target.value)} placeholder={f.placeholder} />
+      ) : (
+        <input
+          className="input"
+          type={f.type || 'text'}
+          value={v ?? ''}
+          onChange={(e) => set(f.key, f.type === 'number' ? Number(e.target.value) : e.target.value)}
+          placeholder={f.placeholder}
+          style={hasSuffix ? { paddingRight: 36, textAlign: f.type === 'number' ? 'right' : undefined } : (f.type === 'number' ? { textAlign: 'right' } : undefined)}
+        />
+      );
+    return (
+      <div className="field" key={i} style={{ gridColumn: f.full ? '1 / -1' : 'auto' }}>
+        <label>{f.label}{f.required && <span style={{ color: 'var(--bad)', marginLeft: 4 }}>*</span>}</label>
+        {hasSuffix ? (
+          <div style={{ position: 'relative' }}>
+            {inputEl}
+            <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--ink-500)', fontSize: 12, pointerEvents: 'none' }}>{f.suffix}</span>
+          </div>
+        ) : inputEl}
+        {f.hint && <div className="muted" style={{ fontSize: 11.5, marginTop: 4 }}>{f.hint}</div>}
+      </div>
+    );
+  };
+
   return (
-    <Modal open={!!row} title={title} onClose={onClose} footer={<>
+    <Modal open={!!row} title={title} maxWidth={720} onClose={onClose} footer={<>
       <button className="btn btn-ghost" onClick={onClose}>ยกเลิก</button>
       <button className="btn btn-primary" onClick={() => onSave(draft)}><Icon name="check" size={14} /> บันทึก</button>
     </>}>
-      <div style={{ display: 'grid', gap: 12, gridTemplateColumns: '1fr 1fr' }}>
-        {fields.map((f, i) => (
-          <div className="field" key={i} style={{ gridColumn: f.full ? '1 / -1' : 'auto' }}>
-            <label>{f.label}</label>
-            {f.type === 'select' ? (
-              <select className="select input" value={draft[f.key] || ''} onChange={(e) => set(f.key, e.target.value)}>
-                {f.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            ) : f.type === 'textarea' ? (
-              <textarea className="input" rows={2} value={draft[f.key] || ''} onChange={(e) => set(f.key, e.target.value)} />
-            ) : (
-              <input
-                className="input"
-                type={f.type || 'text'}
-                value={draft[f.key] ?? ''}
-                onChange={(e) => set(f.key, f.type === 'number' ? Number(e.target.value) : e.target.value)}
-                placeholder={f.placeholder}
-              />
+      {header && <div style={{ marginBottom: 18 }}>{header(draft)}</div>}
+      <div style={{ display: 'grid', gap: 20 }}>
+        {groups.map((g, gi) => (
+          <div key={gi}>
+            {g.title && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                fontSize: 11.5, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase',
+                color: 'var(--brand-700)', marginBottom: 10,
+                paddingBottom: 6, borderBottom: '1px solid var(--ink-100)',
+              }}>
+                {g.icon && <Icon name={g.icon} size={14} />}
+                {g.title}
+              </div>
             )}
+            <div style={{ display: 'grid', gap: 12, gridTemplateColumns: '1fr 1fr' }}>
+              {g.fields.map(renderField)}
+            </div>
           </div>
         ))}
       </div>
@@ -269,14 +323,66 @@ function DataBankPage({ data, setData, toast }) {
         { key: 'DATE',               label: 'DATE', type: 'date', width: 110 },
         { key: 'NOTE',               label: 'NOTE' },
       ],
+      modalHeader: (draft) => {
+        const bal   = Number(draft.BALANCE ?? 0);
+        const avail = Number(draft.AVAILABLE_BALANCE ?? 0);
+        const hold  = Number(draft.HOLD_AMOUNT ?? 0);
+        const bank  = draft.BANK_NAME || '—';
+        const ac    = draft.Bank_AC || '—';
+        return (
+          <div style={{
+            padding: '16px 18px',
+            borderRadius: 12,
+            background: bal >= 0
+              ? 'linear-gradient(135deg, color-mix(in oklch, var(--brand-500) 12%, transparent), color-mix(in oklch, var(--good) 8%, transparent))'
+              : 'linear-gradient(135deg, color-mix(in oklch, var(--bad) 12%, transparent), color-mix(in oklch, var(--bad) 4%, transparent))',
+            border: '1px solid var(--ink-100)',
+            display: 'grid', gap: 10,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{
+                width: 38, height: 38, borderRadius: 10,
+                background: 'color-mix(in oklch, var(--brand-500) 18%, transparent)',
+                color: 'var(--brand-700)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}><Icon name="bank" size={20} /></div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--brand-700)' }}>{bank}</div>
+                <div className="muted" style={{ fontFamily: 'ui-monospace', fontSize: 12 }}>{ac}</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div className="muted" style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>BALANCE</div>
+                <div style={{ fontWeight: 700, fontSize: 20, color: bal < 0 ? 'var(--bad)' : 'var(--good)' }}>
+                  {fmtNum(bal, 2)} <span style={{ fontSize: 12, color: 'var(--ink-500)' }}>฿</span>
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, paddingTop: 6, borderTop: '1px dashed var(--ink-100)' }}>
+              <div>
+                <div className="muted" style={{ fontSize: 10.5 }}>AVAILABLE</div>
+                <div style={{ fontWeight: 600, fontSize: 13 }}>{fmtNum(avail, 2)}</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div className="muted" style={{ fontSize: 10.5 }}>HOLD</div>
+                <div style={{ fontWeight: 600, fontSize: 13 }}>{fmtNum(hold, 2)}</div>
+              </div>
+            </div>
+          </div>
+        );
+      },
       modalFields: [
-        { key: 'DATE',              label: 'DATE', type: 'date' },
-        { key: 'BANK_NAME',         label: 'BANK_NAME', type: 'text' },
-        { key: 'Bank_AC',           label: 'Bank_AC (เลขที่บัญชี)', type: 'text' },
-        { key: 'BALANCE',           label: 'BALANCE (บาท)', type: 'number' },
-        { key: 'AVAILABLE_BALANCE', label: 'AVAILABLE_BALANCE', type: 'number' },
-        { key: 'HOLD_AMOUNT',       label: 'HOLD_AMOUNT', type: 'number' },
-        { key: 'NOTE',              label: 'NOTE', type: 'textarea', full: true },
+        { type: 'section', label: 'ข้อมูลบัญชี', icon: 'bank' },
+        { key: 'BANK_NAME',         label: 'ชื่อธนาคาร',           type: 'text',   required: true, placeholder: 'เช่น SCB, KBANK, KTB', hint: 'รหัสย่อของธนาคาร' },
+        { key: 'Bank_AC',           label: 'เลขที่บัญชี (Bank_AC)', type: 'text',   required: true, placeholder: '0000000000', hint: 'ไม่ต้องใส่ขีดคั่น' },
+
+        { type: 'section', label: 'ยอดเงิน', icon: 'coin' },
+        { key: 'BALANCE',           label: 'BALANCE (ยอดคงเหลือ)', type: 'number', suffix: '฿', required: true, hint: 'ยอดบัญชีรวม — ติดลบหมายถึง OD' },
+        { key: 'AVAILABLE_BALANCE', label: 'AVAILABLE (ใช้ได้)',    type: 'number', suffix: '฿', hint: 'ยอดที่เบิกใช้ได้จริง' },
+        { key: 'HOLD_AMOUNT',       label: 'HOLD (ติด hold)',       type: 'number', suffix: '฿', hint: 'จำนวนที่ถูก hold ไว้' },
+
+        { type: 'section', label: 'อื่นๆ', icon: 'edit' },
+        { key: 'DATE',              label: 'DATE (วันที่อัปเดต)',  type: 'date',   hint: 'วันที่ดึงยอดล่าสุด' },
+        { key: 'NOTE',              label: 'NOTE (หมายเหตุ)',       type: 'textarea', full: true, rows: 2, placeholder: 'บันทึกเพิ่มเติม เช่น OD Limit, วงเงิน L/C ...' },
       ],
       summary: (rows) => {
         const bal  = rows.reduce((s, r) => s + Number(r.BALANCE ?? r.balance ?? 0), 0);
