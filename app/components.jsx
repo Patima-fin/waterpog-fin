@@ -24,12 +24,16 @@ function fmtMoney(n, opts = {}) {
 function fmtDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso);
-  return d.toLocaleDateString(TH_LOCALE, { day: '2-digit', month: '2-digit', year: 'numeric' });
+  if (isNaN(d)) return '—';
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `${dd}/${mm}/${d.getFullYear()}`;
 }
 function fmtDateLong(iso) {
   if (!iso) return '—';
   const d = new Date(iso);
-  return d.toLocaleDateString(TH_LOCALE, { day: 'numeric', month: 'long', year: 'numeric' });
+  if (isNaN(d)) return '—';
+  return d.toLocaleDateString('th-TH-u-ca-gregory', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
 // ─── Animated number counter ─────────────────────────────────────────────────
@@ -225,7 +229,7 @@ function SortHeader({ label, sortKey, sort, toggle, align = 'left', width }) {
   const active = sort.key === sortKey;
   return (
     <th style={{ width, textAlign: align, cursor: 'pointer', userSelect: 'none' }} onClick={() => toggle(sortKey)}>
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: align === 'right' ? 'flex-end' : 'flex-start', width: '100%' }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: align === 'right' ? 'flex-end' : align === 'center' ? 'center' : 'flex-start', width: '100%' }}>
         {label}
         <span style={{ opacity: active ? 1 : 0.25, fontSize: 9, lineHeight: 1, display: 'inline-flex', flexDirection: 'column' }}>
           <span style={{ color: active && sort.dir === 'asc' ? 'var(--brand-600)' : 'inherit' }}>▲</span>

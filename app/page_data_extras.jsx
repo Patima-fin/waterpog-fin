@@ -8,6 +8,8 @@ function DataCrudPage({ data, setData, toast, config }) {
   const [edit, setEdit] = dxState(null);
   const [query, setQuery] = dxState('');
   const [filter, setFilter] = dxState('all');
+  const [sortKey, setSortKey] = dxState(null);
+  const [sortDir, setSortDir] = dxState('asc');
 
   const rows = data[config.dataKey] || [];
 
@@ -22,6 +24,27 @@ function DataCrudPage({ data, setData, toast, config }) {
     }
     return xs;
   }, [rows, filter, query]);
+
+  const sortedFiltered = dxMemo(() => {
+    if (!sortKey) return filtered;
+    const col = config.columns.find(c => c.key === sortKey);
+    const getVal = col?.sortValue ? col.sortValue : (r) => r[sortKey];
+    return [...filtered].sort((a, b) => {
+      const av = getVal(a), bv = getVal(b);
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      if (typeof av === 'number' && typeof bv === 'number') return sortDir === 'asc' ? av - bv : bv - av;
+      const as = String(av).toLowerCase(), bs = String(bv).toLowerCase();
+      return sortDir === 'asc' ? as.localeCompare(bs, 'th') : bs.localeCompare(as, 'th');
+    });
+  }, [filtered, sortKey, sortDir]);
+
+  const toggleSort = (key) => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(key); setSortDir('asc'); }
+  };
+  const sort = { key: sortKey, dir: sortDir };
 
   const save = (row) => {
     setData(d => ({
@@ -95,7 +118,8 @@ function DataCrudPage({ data, setData, toast, config }) {
             <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--surface)' }}>
               <tr>
                 {config.columns.map((c, i) => (
-                  <th key={i} style={{ width: c.width, textAlign: c.headerAlign || 'center' }}>{c.label}</th>
+                  <SortHeader key={i} label={c.label} sortKey={c.key} sort={sort} toggle={toggleSort}
+                    align={c.headerAlign || 'center'} width={c.width} />
                 ))}
                 {!config.readOnlyRows && <th style={{ width: 80 }}></th>}
               </tr>
@@ -104,7 +128,7 @@ function DataCrudPage({ data, setData, toast, config }) {
               {filtered.length === 0 && (
                 <tr><td colSpan={config.columns.length + (config.readOnlyRows ? 0 : 1)} style={{ padding: 36, textAlign: 'center' }} className="muted">ไม่พบข้อมูล</td></tr>
               )}
-              {filtered.map(row => (
+              {sortedFiltered.map(row => (
                 <tr key={row.id}
                   style={{ cursor: config.readOnlyRows ? 'pointer' : 'default' }}
                   onClick={config.readOnlyRows ? () => setEdit(row) : undefined}>
@@ -493,7 +517,7 @@ function DataPVPage({ data, setData, toast }) {
         { key: 'PL_PV_No',   label: 'เลขที่ PV',    width: 120, mono: true, align: 'center' },
         { key: 'AP_No',      label: 'เลขที่ AP',    width: 120, mono: true, align: 'center' },
         { key: 'Payee',      label: 'ผู้รับเงิน' },
-        { key: 'Net_Amount', label: 'ยอดสุทธิ (฿)', align: 'right', headerAlign: 'right', width: 130,
+        { key: 'Net_Amount', label: 'ยอดสุทธิ (฿)', align: 'right', headerAlign: 'right', width: 130, sortValue: r => parseNum(r.Net_Amount),
           render: r => <span style={{ fontWeight: 700, color: parseNum(r.Net_Amount) < 0 ? 'var(--bad)' : 'var(--ink-800)', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(parseNum(r.Net_Amount), 2)}</span> },
         { key: 'cc_remark',  label: 'หมายเหตุ' },
       ],
@@ -750,9 +774,7 @@ function DataPayablePage({ data, setData, toast }) {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
     else { setSortKey(key); setSortDir('asc'); }
   };
-  const SI = ({ k }) => sortKey !== k
-    ? <span style={{ opacity: 0.25, fontSize: 10, marginLeft: 2 }}>⇅</span>
-    : <span style={{ fontSize: 10, marginLeft: 2 }}>{sortDir === 'asc' ? '↑' : '↓'}</span>;
+  const apSort = { key: sortKey, dir: sortDir };
 
   const save = (row) => {
     setData(d => ({
@@ -797,14 +819,14 @@ function DataPayablePage({ data, setData, toast }) {
   };
 
   const COLS = [
-    { key: 'vchdate',    label: 'วันที่',            w: 90  },
-    { key: 'vchno',      label: 'เลขที่ใบสำคัญ',    w: 140 },
-    { key: 'cust_name',  label: 'เจ้าหนี้ / Vendor', w: 260 },
-    { key: 'dpt_code',   label: 'แผนก',              w: 76  },
-    { key: 'due2',       label: 'วันครบกำหนด',       w: 105 },
-    { key: '_overdue',   label: 'เกินกำหนด',         w: 88  },
-    { key: 'netpayment', label: 'Net Payment (฿)',   w: 148 },
-    { key: 'remark',     label: 'หมายเหตุ',           w: 280 },
+    { key: 'vchdate',    label: 'วันที่',            w: 90                           },
+    { key: 'vchno',      label: 'เลขที่ใบสำคัญ',    w: 140                          },
+    { key: 'cust_name',  label: 'เจ้าหนี้ / Vendor', w: 260                         },
+    { key: 'dpt_code',   label: 'แผนก',              w: 76,  align: 'center'        },
+    { key: 'due2',       label: 'วันครบกำหนด',       w: 105                         },
+    { key: '_overdue',   label: 'เกินกำหนด',         w: 88,  noSort: true, align: 'center' },
+    { key: 'netpayment', label: 'Net Payment (฿)',   w: 148, align: 'right'         },
+    { key: 'remark',     label: 'หมายเหตุ',           w: 280                         },
   ];
 
   return (
@@ -891,13 +913,10 @@ function DataPayablePage({ data, setData, toast }) {
           <table className="tbl" style={{ minWidth: 1300 }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--surface)' }}>
               <tr>
-                {COLS.map(c => (
-                  <th key={c.key}
-                    style={{ width: c.w, minWidth: c.w, cursor: c.key !== '_overdue' ? 'pointer' : 'default', userSelect: 'none', whiteSpace: 'nowrap' }}
-                    onClick={() => c.key !== '_overdue' && toggleSort(c.key)}>
-                    {c.label}{c.key !== '_overdue' && <SI k={c.key} />}
-                  </th>
-                ))}
+                {COLS.map(c => c.noSort
+                  ? <th key={c.key} style={{ width: c.w, minWidth: c.w, whiteSpace: 'nowrap', textAlign: c.align || 'center' }}>{c.label}</th>
+                  : <SortHeader key={c.key} label={c.label} sortKey={c.key} sort={apSort} toggle={toggleSort} align={c.align || 'left'} width={c.w} />
+                )}
               </tr>
             </thead>
             <tbody>
@@ -912,11 +931,11 @@ function DataPayablePage({ data, setData, toast }) {
                 const vt = { verticalAlign: 'top', paddingTop: 10, paddingBottom: 10 };
                 return (
                   <tr key={row.id} onClick={() => setEdit(row)} style={{ cursor: 'pointer' }}>
-                    <td style={{ ...vt, fontSize: 12, whiteSpace: 'nowrap', color: 'var(--ink-600)' }}>{row.vchdate || '—'}</td>
-                    <td style={vt}><span style={{ fontWeight: 600, color: 'var(--brand-700)', fontFamily: 'ui-monospace', fontSize: 12 }}>{row.vchno || '—'}</span></td>
-                    <td style={{ ...vt, fontSize: 13 }}>{row.cust_name || <span className="muted">—</span>}</td>
+                    <td style={{ ...vt, whiteSpace: 'nowrap', color: 'var(--ink-600)' }}>{row.vchdate || '—'}</td>
+                    <td style={vt}><span style={{ fontWeight: 600, color: 'var(--brand-700)', fontFamily: 'ui-monospace' }}>{row.vchno || '—'}</span></td>
+                    <td style={vt}>{row.cust_name || <span className="muted">—</span>}</td>
                     <td style={vt}>{row.dpt_code ? <Badge kind="b-blue" dot={false}>{row.dpt_code}</Badge> : <span className="muted">—</span>}</td>
-                    <td style={{ ...vt, fontSize: 12, whiteSpace: 'nowrap', color: dueColor }}>{row.due2 || row.due || <span className="muted">—</span>}</td>
+                    <td style={{ ...vt, whiteSpace: 'nowrap', color: dueColor }}>{row.due2 || row.due || <span className="muted">—</span>}</td>
                     <td style={{ ...vt, textAlign: 'center' }}>
                       {days === null ? <span className="muted">—</span>
                         : days < 0 ? <span style={{ background: 'var(--bad)', color: '#fff', borderRadius: 5, padding: '2px 6px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>{Math.abs(days)} วัน</span>
@@ -924,7 +943,7 @@ function DataPayablePage({ data, setData, toast }) {
                         : <span style={{ color: dueColor, fontSize: 11 }}>อีก {days}d</span>}
                     </td>
                     <td style={{ ...vt, textAlign: 'right', fontWeight: 700, color: 'var(--bad)', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(netPay, 2)}</td>
-                    <td style={{ ...vt, fontSize: 12, color: 'var(--ink-600)' }}><span title={row.remark||''}>{row.remark || <span className="muted">—</span>}</span></td>
+                    <td style={{ ...vt, color: 'var(--ink-600)' }}><span title={row.remark||''}>{row.remark || <span className="muted">—</span>}</span></td>
                   </tr>
                 );
               })}
