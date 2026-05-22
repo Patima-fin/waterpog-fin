@@ -514,9 +514,6 @@ function AmountInput({ value, onChange, label, required }) {
 function APEditModal({ row, onClose, onSave, onDelete }) {
   const [draft, setDraft]             = dxState(null);
   const [confirmDelete, setConfirm]   = dxState(false);
-  const [showDebug, setShowDebug] = dxState(false);
-  const [sheetRow, setSheetRow]   = dxState(null);
-  const [loadingSheet, setLoading] = dxState(false);
   dxEffect(() => {
     if (row) {
       const d = { ...row };
@@ -532,28 +529,7 @@ function APEditModal({ row, onClose, onSave, onDelete }) {
       setDraft(null);
     }
     setConfirm(false);
-    setShowDebug(false);
-    setSheetRow(null);
   }, [row]);
-
-  const fetchSheetForRow = () => {
-    if (!draft?.vchno || !window.WTPData?.fetchSheetRows) return;
-    setLoading(true);
-    // Fetch both the parsed object AND the raw row (position-preserving)
-    Promise.all([
-      window.WTPData.fetchSheetRows('payables', r => r.vchno === draft.vchno),
-      window.WTPData.fetchSheetRowRaw ? window.WTPData.fetchSheetRowRaw('payables', 'vchno', draft.vchno) : Promise.resolve(null),
-    ])
-      .then(([rows, raw]) => {
-        if (rows[0]) {
-          setSheetRow({ ...rows[0], _raw: raw });
-        } else {
-          setSheetRow({ _notfound: true, _raw: raw });
-        }
-      })
-      .catch(err => setSheetRow({ _error: err.message }))
-      .finally(() => setLoading(false));
-  };
   if (!row || !draft) return null;
   const set = (k, v) => setDraft(d => ({ ...d, [k]: v }));
 
@@ -618,132 +594,6 @@ function APEditModal({ row, onClose, onSave, onDelete }) {
 
           <Hdr label="หมายเหตุ" icon="edit" />
           <F fkey="remark" label="remark · คำอธิบาย" type="textarea" span={4} />
-
-          {/* Debug — เห็น field ทั้งหมดของ row นี้ พร้อมเปรียบเทียบกับค่าจริงใน Sheet */}
-          <div style={{ gridColumn: '1 / -1', marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--ink-100)' }}>
-            <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-              <button type="button"
-                onClick={() => setShowDebug(s => !s)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-500)', fontSize: 11, padding: '4px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ transform: showDebug ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 150ms', display: 'inline-block' }}>▶</span>
-                <span>ดูข้อมูล raw ในแอป ({Object.keys(draft).length} ฟิลด์)</span>
-              </button>
-              <button type="button"
-                onClick={fetchSheetForRow}
-                disabled={loadingSheet}
-                style={{ background: loadingSheet ? 'var(--ink-100)' : 'var(--brand-50)', border: '1px solid var(--ink-150)', borderRadius: 6, padding: '4px 10px', fontSize: 11, color: 'var(--brand-700)', cursor: loadingSheet ? 'wait' : 'pointer', fontWeight: 600 }}>
-                {loadingSheet ? 'กำลังดึง…' : '🔍 ตรวจสอบจาก Sheet โดยตรง'}
-              </button>
-            </div>
-
-            {showDebug && (
-              <div style={{ marginTop: 8, padding: 10, background: 'var(--ink-50, #f5f7fa)', borderRadius: 6, maxHeight: 240, overflowY: 'auto', border: '1px solid var(--ink-100)' }}>
-                <table style={{ width: '100%', fontSize: 11, fontFamily: 'ui-monospace', borderCollapse: 'collapse' }}>
-                  <tbody>
-                    {Object.entries(draft).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => {
-                      const isEmpty = v == null || v === '';
-                      const valStr = isEmpty ? '(empty)' : (typeof v === 'object' ? JSON.stringify(v) : String(v));
-                      return (
-                        <tr key={k} style={{ borderBottom: '1px solid var(--ink-100)' }}>
-                          <td style={{ padding: '3px 8px 3px 0', color: 'var(--brand-700)', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'top', width: 140 }}>{k}</td>
-                          <td style={{ padding: '3px 0', color: isEmpty ? 'var(--ink-300)' : 'var(--ink-800)', wordBreak: 'break-all', fontStyle: isEmpty ? 'italic' : 'normal' }}>{valStr}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {sheetRow && (
-              <div style={{ marginTop: 8, padding: 10, background: '#fff8e6', borderRadius: 6, border: '1px solid #f3d97b' }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#8a6b00', marginBottom: 6 }}>
-                  📊 ค่าจริงใน Sheet (vchno={draft.vchno})
-                </div>
-
-                {/* Raw CSV view — shows ALL columns in order, highlighting duplicates */}
-                {sheetRow._raw && sheetRow._raw.headers && (() => {
-                  const headers = sheetRow._raw.headers || [];
-                  const rawRow  = sheetRow._raw.row || [];
-                  // Count occurrences of each header
-                  const counts = {};
-                  headers.forEach(h => { if (h) counts[h] = (counts[h] || 0) + 1; });
-                  const dupes = Object.keys(counts).filter(h => counts[h] > 1);
-                  return (
-                    <div style={{ marginBottom: 10, padding: 8, background: dupes.length ? 'rgba(255,99,71,0.08)' : 'rgba(0,128,0,0.04)', borderRadius: 5, border: '1px dashed ' + (dupes.length ? 'var(--bad)' : 'var(--good)') }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: dupes.length ? 'var(--bad)' : 'var(--good)', marginBottom: 6 }}>
-                        {dupes.length
-                          ? `⚠ พบ column ซ้ำ ${dupes.length} ตัว: ${dupes.join(', ')}`
-                          : '✓ ไม่มี column ซ้ำ (' + headers.length + ' columns)'}
-                      </div>
-                      {rawRow && rawRow.length > 0 && (
-                        <div style={{ maxHeight: 220, overflowY: 'auto', fontSize: 10.5, fontFamily: 'ui-monospace' }}>
-                          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                            <thead>
-                              <tr style={{ borderBottom: '1px solid rgba(0,0,0,0.1)' }}>
-                                <th style={{ textAlign: 'left', padding: '2px 6px 2px 0', width: 30, color: '#666' }}>#</th>
-                                <th style={{ textAlign: 'left', padding: '2px 6px', width: 30, color: '#666' }}>col</th>
-                                <th style={{ textAlign: 'left', padding: '2px 8px', color: '#666' }}>header</th>
-                                <th style={{ textAlign: 'left', padding: '2px 0', color: '#666' }}>value</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {headers.map((h, idx) => {
-                                const isDupe = h && counts[h] > 1;
-                                const val = rawRow[idx];
-                                const empty = val == null || val === '';
-                                const colLetter = idx < 26 ? String.fromCharCode(65+idx) : String.fromCharCode(65+Math.floor(idx/26)-1) + String.fromCharCode(65+(idx%26));
-                                return (
-                                  <tr key={idx} style={{ background: isDupe ? 'rgba(255,99,71,0.1)' : 'transparent', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
-                                    <td style={{ padding: '2px 6px 2px 0', color: '#999' }}>{idx+1}</td>
-                                    <td style={{ padding: '2px 6px', color: '#999', fontWeight: 600 }}>{colLetter}</td>
-                                    <td style={{ padding: '2px 8px', fontWeight: isDupe ? 700 : 500, color: isDupe ? 'var(--bad)' : 'var(--brand-700)' }}>{h || '(blank)'}{isDupe && ' ×' + counts[h]}</td>
-                                    <td style={{ padding: '2px 0', color: empty ? '#bbb' : '#222', fontStyle: empty ? 'italic' : 'normal', wordBreak: 'break-all' }}>{empty ? '(empty)' : String(val)}</td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
-
-                {sheetRow._notfound ? (
-                  <div style={{ fontSize: 12, color: 'var(--bad)' }}>⚠ ไม่พบแถวที่ตรงกับ vchno นี้ใน Sheet — แปลว่าแถวนี้ยังไม่ได้ push เข้า Sheet หรือถูกลบไปแล้ว</div>
-                ) : sheetRow._error ? (
-                  <div style={{ fontSize: 12, color: 'var(--bad)' }}>เกิด error: {sheetRow._error}</div>
-                ) : (
-                  <table style={{ width: '100%', fontSize: 11, fontFamily: 'ui-monospace', borderCollapse: 'collapse' }}>
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid #f3d97b' }}>
-                        <th style={{ textAlign: 'left', padding: '3px 8px 3px 0', width: 140, color: '#8a6b00' }}>ฟิลด์</th>
-                        <th style={{ textAlign: 'left', padding: '3px 8px', color: '#8a6b00' }}>ค่าในแอป</th>
-                        <th style={{ textAlign: 'left', padding: '3px 0', color: '#8a6b00' }}>ค่าใน Sheet</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Object.keys(sheetRow).filter(k => !k.startsWith('_')).sort().map(k => {
-                        const appVal = draft[k];
-                        const sheetVal = sheetRow[k];
-                        const appEmpty = appVal == null || appVal === '';
-                        const sheetEmpty = sheetVal == null || sheetVal === '';
-                        const mismatch = String(appVal ?? '') !== String(sheetVal ?? '');
-                        return (
-                          <tr key={k} style={{ borderBottom: '1px solid rgba(243,217,123,0.4)', background: mismatch ? 'rgba(255,99,71,0.06)' : 'transparent' }}>
-                            <td style={{ padding: '3px 8px 3px 0', color: 'var(--brand-700)', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'top' }}>{k}</td>
-                            <td style={{ padding: '3px 8px', color: appEmpty ? 'var(--ink-300)' : 'var(--ink-800)', fontStyle: appEmpty ? 'italic' : 'normal', wordBreak: 'break-all', verticalAlign: 'top' }}>{appEmpty ? '(empty)' : String(appVal)}</td>
-                            <td style={{ padding: '3px 0', color: sheetEmpty ? 'var(--ink-300)' : 'var(--ink-800)', fontStyle: sheetEmpty ? 'italic' : 'normal', fontWeight: !appEmpty || sheetEmpty ? 400 : 700, wordBreak: 'break-all', verticalAlign: 'top' }}>{sheetEmpty ? '(empty)' : String(sheetVal)}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            )}
-          </div>
         </div>
       </Modal>
 
