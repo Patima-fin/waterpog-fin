@@ -139,7 +139,10 @@
 
   /* ── fetch one sheet as CSV rows ─────────────────────────────────── */
   function fetchSheet(name) {
-    return fetch(BASE + encodeURIComponent(name))
+    // Add cache-busting timestamp so we always get the latest Sheet state.
+    // Without this, Google's gviz endpoint may serve stale CSV for several minutes.
+    var url = BASE + encodeURIComponent(name) + '&_t=' + Date.now();
+    return fetch(url, { cache: 'no-store' })
       .then(function (r) {
         if (!r.ok) throw new Error(name + ': HTTP ' + r.status);
         return r.text();
