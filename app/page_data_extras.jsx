@@ -514,7 +514,28 @@ function AmountInput({ value, onChange, label, required }) {
 function APEditModal({ row, onClose, onSave, onDelete }) {
   const [draft, setDraft]             = dxState(null);
   const [confirmDelete, setConfirm]   = dxState(false);
-  dxEffect(() => { setDraft(row ? { ...row } : null); setConfirm(false); }, [row]);
+  const [showDebug, setShowDebug] = dxState(false);
+  dxEffect(() => {
+    if (row) {
+      const d = { ...row };
+      // Normalise docno: case-insensitive / underscore-insensitive lookup
+      if (!d.docno || d.docno === '') {
+        const norm = (s) => String(s).toLowerCase().replace(/[_\s-]/g, '');
+        const candidates = ['docno', 'documentno', 'docnum', 'document'];
+        const k = Object.keys(d).find(key => candidates.includes(norm(key)));
+        if (k && d[k]) d.docno = d[k];
+      }
+      // Debug log to console for diagnosis
+      if (typeof console !== 'undefined') {
+        console.log('[AP Edit] vchno:', d.vchno, '| docno:', d.docno, '| all keys:', Object.keys(d));
+      }
+      setDraft(d);
+    } else {
+      setDraft(null);
+    }
+    setConfirm(false);
+    setShowDebug(false);
+  }, [row]);
   if (!row || !draft) return null;
   const set = (k, v) => setDraft(d => ({ ...d, [k]: v }));
 
@@ -579,6 +600,34 @@ function APEditModal({ row, onClose, onSave, onDelete }) {
 
           <Hdr label="หมายเหตุ" icon="edit" />
           <F fkey="remark" label="remark · คำอธิบาย" type="textarea" span={4} />
+
+          {/* Debug — เห็น field ทั้งหมดของ row นี้ (ช่วย diagnose docno) */}
+          <div style={{ gridColumn: '1 / -1', marginTop: 10, paddingTop: 10, borderTop: '1px dashed var(--ink-100)' }}>
+            <button type="button"
+              onClick={() => setShowDebug(s => !s)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-500)', fontSize: 11, padding: '4px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ transform: showDebug ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 150ms', display: 'inline-block' }}>▶</span>
+              <span>ดูข้อมูล raw ทั้งหมด ({Object.keys(draft).length} ฟิลด์) — ช่วย debug ว่า field ไหนมีค่า</span>
+            </button>
+            {showDebug && (
+              <div style={{ marginTop: 8, padding: 10, background: 'var(--ink-50, #f5f7fa)', borderRadius: 6, maxHeight: 240, overflowY: 'auto', border: '1px solid var(--ink-100)' }}>
+                <table style={{ width: '100%', fontSize: 11, fontFamily: 'ui-monospace', borderCollapse: 'collapse' }}>
+                  <tbody>
+                    {Object.entries(draft).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => {
+                      const isEmpty = v == null || v === '';
+                      const valStr = isEmpty ? '(empty)' : (typeof v === 'object' ? JSON.stringify(v) : String(v));
+                      return (
+                        <tr key={k} style={{ borderBottom: '1px solid var(--ink-100)' }}>
+                          <td style={{ padding: '3px 8px 3px 0', color: 'var(--brand-700)', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'top', width: 140 }}>{k}</td>
+                          <td style={{ padding: '3px 0', color: isEmpty ? 'var(--ink-300)' : 'var(--ink-800)', wordBreak: 'break-all', fontStyle: isEmpty ? 'italic' : 'normal' }}>{valStr}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       </Modal>
 
@@ -727,12 +776,13 @@ function DataPayablePage({ data, setData, toast }) {
   const COLS = [
     { key: 'vchdate',    label: 'วันที่',            w: 90  },
     { key: 'vchno',      label: 'เลขที่ใบสำคัญ',    w: 140 },
-    { key: 'cust_name',  label: 'เจ้าหนี้ / Vendor', w: 260 },
+    { key: 'docno',      label: 'docno (col B)',     w: 140 },
+    { key: 'cust_name',  label: 'เจ้าหนี้ / Vendor', w: 240 },
     { key: 'dpt_code',   label: 'แผนก',              w: 76  },
     { key: 'due2',       label: 'วันครบกำหนด',       w: 105 },
     { key: '_overdue',   label: 'เกินกำหนด',         w: 88  },
     { key: 'netpayment', label: 'Net Payment (฿)',   w: 148 },
-    { key: 'remark',     label: 'หมายเหตุ',           w: 300 },
+    { key: 'remark',     label: 'หมายเหตุ',           w: 260 },
   ];
 
   return (
@@ -744,6 +794,18 @@ function DataPayablePage({ data, setData, toast }) {
           <div className="page-sub">RAW_AP_OUTSTANDING · 54 คอลัมน์ · วางข้อมูล RAW ได้เลย</div>
         </div>
         <div className="page-head-r">
+          <button className="btn btn-ghost"
+            onClick={() => {
+              if (window.WTPData && typeof window.WTPData.refreshFromServer === 'function') {
+                window.WTPData.refreshFromServer();
+                toast('กำลังดึงข้อมูลใหม่จาก Sheet…');
+              } else {
+                toast('Sync ไม่พร้อมใช้งาน (offline mode)');
+              }
+            }}
+            title="ดึงข้อมูลใหม่จาก Google Sheet">
+            <Icon name="refresh" size={14} /> รีเฟรชจาก Sheet
+          </button>
           <button className="btn btn-ghost" onClick={() => setShowImport(true)}>
             <Icon name="upload" size={14} /> นำเข้า Excel
           </button>
@@ -804,7 +866,7 @@ function DataPayablePage({ data, setData, toast }) {
       {/* Table */}
       <div className="card anim-in" style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 370px)' }}>
-          <table className="tbl" style={{ minWidth: 1050 }}>
+          <table className="tbl" style={{ minWidth: 1300 }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--surface)' }}>
               <tr>
                 {COLS.map(c => (
@@ -818,7 +880,7 @@ function DataPayablePage({ data, setData, toast }) {
             </thead>
             <tbody>
               {filtered.length === 0 && (
-                <tr><td colSpan={8} style={{ padding: 40, textAlign: 'center' }} className="muted">ไม่พบข้อมูล</td></tr>
+                <tr><td colSpan={9} style={{ padding: 40, textAlign: 'center' }} className="muted">ไม่พบข้อมูล</td></tr>
               )}
               {filtered.map(row => {
                 const due = parseDue(row.due2 || row.due);
@@ -830,6 +892,7 @@ function DataPayablePage({ data, setData, toast }) {
                   <tr key={row.id} onClick={() => setEdit(row)} style={{ cursor: 'pointer' }}>
                     <td style={{ ...vt, fontSize: 12, whiteSpace: 'nowrap', color: 'var(--ink-600)' }}>{row.vchdate || '—'}</td>
                     <td style={vt}><span style={{ fontWeight: 600, color: 'var(--brand-700)', fontFamily: 'ui-monospace', fontSize: 12 }}>{row.vchno || '—'}</span></td>
+                    <td style={vt}>{row.docno ? <span style={{ fontFamily: 'ui-monospace', fontSize: 12, color: 'var(--ink-700)' }}>{row.docno}</span> : <span className="muted" style={{ fontSize: 11 }}>(ไม่มี)</span>}</td>
                     <td style={{ ...vt, fontSize: 13 }}>{row.cust_name || <span className="muted">—</span>}</td>
                     <td style={vt}>{row.dpt_code ? <Badge kind="b-blue" dot={false}>{row.dpt_code}</Badge> : <span className="muted">—</span>}</td>
                     <td style={{ ...vt, fontSize: 12, whiteSpace: 'nowrap', color: dueColor }}>{row.due2 || row.due || <span className="muted">—</span>}</td>
@@ -847,7 +910,7 @@ function DataPayablePage({ data, setData, toast }) {
             </tbody>
             <tfoot>
               <tr style={{ background: 'var(--brand-50)', fontWeight: 700 }}>
-                <td colSpan={6} style={{ padding: '8px 14px', fontSize: 12, color: 'var(--brand-700)' }}>รวม {filtered.length} รายการ</td>
+                <td colSpan={7} style={{ padding: '8px 14px', fontSize: 12, color: 'var(--brand-700)' }}>รวม {filtered.length} รายการ</td>
                 <td className="num" style={{ padding: '8px 14px', color: 'var(--bad)' }}>{fmtNum(fNet, 2)}</td>
                 <td />
               </tr>
