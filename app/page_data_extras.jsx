@@ -486,13 +486,13 @@ function parseNum(v) {
 }
 
 // Amount input: formatted display (2,000.00) when not focused; raw number when editing
-function AmountInput({ value, onChange, label, required }) {
+function AmountInput({ value, onChange, label, required, hint, wrapperStyle }) {
   const [focused, setFocused] = dxState(false);
   const [raw, setRaw] = dxState('');
   const numVal = parseNum(value);
   const display = numVal === 0 && (value == null || value === '') ? '' : fmtNum(numVal, 2);
   return (
-    <div className="field">
+    <div className="field" style={wrapperStyle}>
       <label style={{ fontSize: 12 }}>{label}{required && <span style={{ color: 'var(--bad)', marginLeft: 4 }}>*</span>}</label>
       <div style={{ position: 'relative' }}>
         <input
@@ -506,18 +506,20 @@ function AmountInput({ value, onChange, label, required }) {
         />
         <span style={{ position: 'absolute', right: 9, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: 'var(--ink-400)', pointerEvents: 'none' }}>฿</span>
       </div>
+      {hint && <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{hint}</div>}
     </div>
   );
 }
 
-// ─── AP Edit Modal — wide landscape, 4-col grid, styled delete confirm ───────
+// ─── AP Edit Modal — landscape split: read-only (left) + user-fillable (right) ─
 function APEditModal({ row, onClose, onSave, onDelete }) {
-  const [draft, setDraft]             = dxState(null);
-  const [confirmDelete, setConfirm]   = dxState(false);
+  const [draft, setDraft]           = dxState(null);
+  const [confirmDelete, setConfirm] = dxState(false);
+  const [saveError, setSaveError]   = dxState('');
+
   dxEffect(() => {
     if (row) {
       const d = { ...row };
-      // Normalise docno: case-insensitive / underscore-insensitive lookup
       if (!d.docno || d.docno === '') {
         const norm = (s) => String(s).toLowerCase().replace(/[_\s-]/g, '');
         const candidates = ['docno', 'documentno', 'docnum', 'document'];
@@ -529,23 +531,90 @@ function APEditModal({ row, onClose, onSave, onDelete }) {
       setDraft(null);
     }
     setConfirm(false);
+    setSaveError('');
   }, [row]);
+
   if (!row || !draft) return null;
   const set = (k, v) => setDraft(d => ({ ...d, [k]: v }));
 
-  const Hdr = ({ label, icon }) => (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'var(--brand-700)', paddingBottom: 6, borderBottom: '1px solid var(--ink-100)', gridColumn: '1 / -1', marginTop: 4 }}>
-      <Icon name={icon} size={13} />{label}
-    </div>
-  );
+  // Status & computed values
+  const isReceived = draft['สถานะ'] === 'ได้รับเงินแล้ว';
+  const netCash = (() => {
+    const r = parseNum(draft['การรับเงินจริง']);
+    const b = parseNum(draft['ค่าธรรมเนียมธนาคาร']);
+    const o = parseNum(draft['ค่าอื่นๆ']);
+    return r - b - o;
+  })();
+  const hasReceivedAmt = parseNum(draft['การรับเงินจริง']) !== 0;
 
-  const F = ({ fkey, label, type, hint, required, placeholder, span }) => {
+  const handleSave = () => {
+    if (isReceived && !parseNum(draft['การรับเงินจริง'])) {
+      setSaveError('กรุณากรอก "การรับเงินจริง" เนื่องจากสถานะเป็น "ได้รับเงินแล้ว"');
+      return;
+    }
+    setSaveError('');
+    onSave(draft);
+  };
+
+  // ── Sub-components ──────────────────────────────────────────────────────────
+
+  // Read-only text display
+  const ROField = ({ fkey, label, mono, span, cols }) => {
+    const v = draft[fkey];
+    const display = v != null && v !== '' ? String(v) : '—';
+    const isEmpty = !v;
+    return (
+      <div className="field" style={{ gridColumn: span ? `span ${span}` : (cols ? `span ${cols}` : 'auto') }}>
+        <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'flex', alignItems: 'center', gap: 3 }}>
+          <span style={{ fontSize: 10, opacity: 0.55 }}>🔒</span>{label}
+        </label>
+        <div style={{
+          height: 32, borderRadius: 7, border: '1px solid var(--ink-100)',
+          background: 'var(--ink-50, #f7f8fa)', padding: '0 9px',
+          display: 'flex', alignItems: 'center',
+          fontFamily: mono ? 'ui-monospace' : undefined,
+          fontSize: mono ? 11.5 : 12.5,
+          color: isEmpty ? 'var(--ink-300)' : mono ? 'var(--brand-700)' : 'var(--ink-800)',
+          fontWeight: mono ? 600 : undefined,
+          overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
+          userSelect: 'text', cursor: 'default',
+        }} title={isEmpty ? '' : String(v)}>{display}</div>
+      </div>
+    );
+  };
+
+  // Read-only amount display
+  const ROAmount = ({ fkey, label }) => {
+    const v = parseNum(draft[fkey]);
+    return (
+      <div className="field">
+        <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'flex', alignItems: 'center', gap: 3 }}>
+          <span style={{ fontSize: 10, opacity: 0.55 }}>🔒</span>{label}
+        </label>
+        <div style={{
+          height: 32, borderRadius: 7, border: '1px solid var(--ink-100)',
+          background: 'var(--ink-50, #f7f8fa)',
+          padding: '0 24px 0 8px', position: 'relative',
+          display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+          fontFamily: 'ui-monospace', fontSize: 12,
+          color: v < 0 ? 'var(--bad)' : v === 0 ? 'var(--ink-300)' : 'var(--ink-800)',
+          fontWeight: 600, cursor: 'default',
+        }}>
+          {v === 0 ? '—' : fmtNum(v, 2)}
+          <span style={{ position: 'absolute', right: 7, fontSize: 10, color: 'var(--ink-400)', fontWeight: 400 }}>฿</span>
+        </div>
+      </div>
+    );
+  };
+
+  // Editable text field
+  const F = ({ fkey, label, type, hint, required, placeholder }) => {
     const v = draft[fkey];
     return (
-      <div className="field" style={{ gridColumn: span ? `span ${span}` : 'auto' }}>
+      <div className="field">
         <label style={{ fontSize: 12 }}>{label}{required && <span style={{ color: 'var(--bad)', marginLeft: 4 }}>*</span>}</label>
         {type === 'textarea'
-          ? <textarea className="input" rows={2} value={v || ''} onChange={e => set(fkey, e.target.value)} placeholder={placeholder} style={{ resize: 'vertical' }} />
+          ? <textarea className="input" rows={4} value={v || ''} onChange={e => set(fkey, e.target.value)} placeholder={placeholder} style={{ resize: 'none' }} />
           : <input className="input" type={type || 'text'} value={v ?? ''} onChange={e => set(fkey, e.target.value)} placeholder={placeholder} />
         }
         {hint && <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{hint}</div>}
@@ -553,47 +622,170 @@ function APEditModal({ row, onClose, onSave, onDelete }) {
     );
   };
 
+  // Section divider
+  const SectionHdr = ({ label, icon, muted }) => (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 6,
+      fontSize: 10.5, fontWeight: 700, letterSpacing: 0.65, textTransform: 'uppercase',
+      color: muted ? 'var(--ink-500)' : 'var(--brand-700)',
+      paddingBottom: 5, borderBottom: `1px solid ${muted ? 'var(--ink-100)' : 'color-mix(in oklch, var(--brand-500) 20%, transparent)'}`,
+      marginBottom: 10,
+    }}>
+      <Icon name={icon} size={11} />{label}
+    </div>
+  );
+
+  const STATUS_OPTIONS = ['รอดำเนินการ', 'กำลังติดตาม', 'นัดชำระ', 'ได้รับเงินแล้ว', 'พักชำระ'];
+
   return (
     <>
-      <Modal open={!!row} title={draft.id ? `แก้ไข AP · ${draft.vchno || '—'}` : 'เพิ่ม AP ใหม่'}
-        maxWidth={1160} onClose={onClose}
+      <Modal
+        open={!!row}
+        title={draft.id ? `แก้ไข AP · ${draft.vchno || '—'}` : 'เพิ่ม AP ใหม่'}
+        maxWidth={1340}
+        onClose={onClose}
         footer={<>
-          {draft.id && <button className="btn btn-ghost" style={{ color: 'var(--bad)', marginRight: 'auto' }}
-            onClick={() => setConfirm(true)}>
-            <Icon name="trash" size={13} /> ลบรายการ
-          </button>}
+          {draft.id && (
+            <button className="btn btn-ghost" style={{ color: 'var(--bad)', marginRight: 'auto' }}
+              onClick={() => setConfirm(true)}>
+              <Icon name="trash" size={13} /> ลบรายการ
+            </button>
+          )}
           <button className="btn btn-ghost" onClick={onClose}>ยกเลิก</button>
-          <button className="btn btn-primary" onClick={() => onSave(draft)}><Icon name="check" size={13} /> บันทึก</button>
-        </>}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px 16px' }}>
-          <Hdr label="ข้อมูลเอกสาร" icon="invoice" />
-          <F fkey="vchno"   label="vchno · ใบสำคัญ"         required hint="APO2026040181" />
-          <F fkey="docno"   label="docno (col B)" />
-          <F fkey="vchdate" label="วันที่ใบสำคัญ"             type="date" />
-          <F fkey="due2"    label="วันครบกำหนด"               hint="dd/MM/yyyy" />
-          <F fkey="refno"   label="refno · เลขที่อ้างอิง"    hint="เลขอ้างอิง (col E)" />
-          <F fkey="refcode" label="refcode"                    hint="รหัสอ้างอิง" />
+          <button className="btn btn-primary" onClick={handleSave}><Icon name="check" size={13} /> บันทึก</button>
+        </>}
+      >
+        {/* Validation error banner */}
+        {saveError && (
+          <div style={{
+            background: 'color-mix(in oklch, var(--bad) 8%, transparent)',
+            border: '1px solid color-mix(in oklch, var(--bad) 28%, transparent)',
+            borderRadius: 8, padding: '7px 13px', marginBottom: 12,
+            fontSize: 13, color: 'var(--bad)', fontWeight: 500,
+          }}>⚠️ {saveError}</div>
+        )}
 
-          <Hdr label="เจ้าหนี้ (Vendor)" icon="money" />
-          <F fkey="cust_name" label="ชื่อเจ้าหนี้" required span={3} />
-          <F fkey="acct_no"   label="รหัสเจ้าหนี้" />
+        {/* ── Main two-column layout ─────────────────────────────────────────── */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 14, alignItems: 'start' }}>
 
-          <Hdr label="แผนก / โครงการ" icon="forecast" />
-          <F fkey="dpt_code" label="รหัสแผนก" hint="HRD / MNG / FIN / ITD" />
-          <F fkey="dpt_name" label="ชื่อแผนก" />
-          <F fkey="jobcode"  label="Job Code" />
-          <F fkey="jobname"  label="ชื่องาน" />
+          {/* ── LEFT: Read-only (accounting system data) ──────────────────── */}
+          <div style={{
+            background: 'var(--ink-25, #f9fafb)', borderRadius: 12,
+            border: '1px solid var(--ink-100)', padding: '13px 15px',
+          }}>
+            <SectionHdr label="ข้อมูลจากระบบบัญชี — แก้ไขไม่ได้" icon="lock" muted />
 
-          <Hdr label="ยอดเงิน (Amounts)" icon="coin" />
-          <AmountInput value={draft.Amount}     onChange={v => set('Amount', v)}     label="Amount · ยอดก่อนหัก"      required />
-          <AmountInput value={draft.VAT}        onChange={v => set('VAT', v)}        label="VAT · ภาษีมูลค่าเพิ่ม" />
-          <AmountInput value={draft.net_new}    onChange={v => set('net_new', v)}    label="net_new · รวม VAT" />
-          <AmountInput value={draft.Less_Ret}   onChange={v => set('Less_Ret', v)}   label="Less_Ret · หักประกัน" />
-          <AmountInput value={draft.WHT_EXT}    onChange={v => set('WHT_EXT', v)}    label="WHT_EXT · ภาษีหัก ณ จ่าย" />
-          <AmountInput value={draft.netpayment} onChange={v => set('netpayment', v)} label="netpayment · ยอดสุทธิ"    required />
+            {/* Row 1: document identifiers */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '7px 10px', marginBottom: 8 }}>
+              <ROField fkey="vchno"   label="ใบสำคัญ (vchno)"   mono />
+              <ROField fkey="docno"   label="เลขเอกสาร (docno)" mono />
+              <ROField fkey="vchdate" label="วันที่เอกสาร" />
+              <ROField fkey="due2"    label="วันครบกำหนด" />
+              <ROField fkey="refno"   label="refno" mono />
+              <ROField fkey="refcode" label="refcode" />
+            </div>
 
-          <Hdr label="หมายเหตุ" icon="edit" />
-          <F fkey="remark" label="remark · คำอธิบาย" type="textarea" span={4} />
+            {/* Row 2: vendor */}
+            <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '7px 10px', marginBottom: 8 }}>
+              <ROField fkey="acct_no"   label="รหัสเจ้าหนี้" mono />
+              <ROField fkey="cust_name" label="ชื่อเจ้าหนี้ / Vendor" />
+            </div>
+
+            {/* Row 3: dept / project */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '7px 10px', marginBottom: 8 }}>
+              <ROField fkey="dpt_code" label="รหัสแผนก" />
+              <ROField fkey="dpt_name" label="ชื่อแผนก" />
+              <ROField fkey="jobcode"  label="Job Code" mono />
+              <ROField fkey="jobname"  label="ชื่องาน" />
+            </div>
+
+            {/* Row 4: amounts */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '7px 10px' }}>
+              <ROAmount fkey="Amount"     label="Amount" />
+              <ROAmount fkey="VAT"        label="VAT" />
+              <ROAmount fkey="net_new"    label="net_new" />
+              <ROAmount fkey="Less_Ret"   label="Less_Ret" />
+              <ROAmount fkey="WHT_EXT"    label="WHT_EXT" />
+              <ROAmount fkey="netpayment" label="Net Payment" />
+            </div>
+          </div>
+
+          {/* ── RIGHT: User-fillable tracking fields ──────────────────────── */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <SectionHdr label="ข้อมูลติดตาม — กรอกได้" icon="edit" />
+
+            {/* งวดที่ + สถานะ side-by-side */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 10px' }}>
+              <F fkey="งวดที่" label="งวดที่" placeholder="เช่น 1, 2, 3…" />
+              <div className="field">
+                <label style={{ fontSize: 12 }}>สถานะ</label>
+                <select
+                  className="select input"
+                  value={draft['สถานะ'] || ''}
+                  onChange={e => { set('สถานะ', e.target.value); setSaveError(''); }}
+                >
+                  <option value="">— เลือกสถานะ —</option>
+                  {STATUS_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              </div>
+            </div>
+
+            {/* การรับเงินจริง — highlighted when status = ได้รับเงินแล้ว */}
+            <div style={isReceived ? {
+              background: 'color-mix(in oklch, var(--good) 7%, transparent)',
+              border: '1px solid color-mix(in oklch, var(--good) 22%, transparent)',
+              borderRadius: 9, padding: '8px 10px', margin: '0 -2px',
+            } : {}}>
+              {isReceived && (
+                <div style={{ fontSize: 11, color: 'var(--good)', fontWeight: 600, marginBottom: 5, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Icon name="check" size={11} /> จำเป็นต้องระบุสำหรับสถานะนี้
+                </div>
+              )}
+              <AmountInput
+                value={draft['การรับเงินจริง']}
+                onChange={v => { set('การรับเงินจริง', v); setSaveError(''); }}
+                label="การรับเงินจริง"
+                required={isReceived}
+              />
+            </div>
+
+            {/* ค่าธรรมเนียมธนาคาร + ค่าอื่นๆ */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 10px' }}>
+              <AmountInput
+                value={draft['ค่าธรรมเนียมธนาคาร']}
+                onChange={v => set('ค่าธรรมเนียมธนาคาร', v)}
+                label="ค่าธรรมเนียมธนาคาร"
+              />
+              <AmountInput
+                value={draft['ค่าอื่นๆ']}
+                onChange={v => set('ค่าอื่นๆ', v)}
+                label="ค่าอื่นๆ"
+              />
+            </div>
+
+            {/* เงินเข้าบัญชีสุทธิ — computed display */}
+            <div className="field">
+              <label style={{ fontSize: 12, color: 'var(--ink-600)' }}>
+                เงินเข้าบัญชีสุทธิ
+                <span style={{ fontSize: 10.5, color: 'var(--ink-400)', marginLeft: 5, fontWeight: 400 }}>(คำนวณอัตโนมัติ)</span>
+              </label>
+              <div style={{
+                height: 36, borderRadius: 8, position: 'relative',
+                background: !hasReceivedAmt ? 'var(--ink-50)' : netCash >= 0 ? 'color-mix(in oklch, var(--good) 10%, transparent)' : 'color-mix(in oklch, var(--bad) 8%, transparent)',
+                border: `1px solid ${!hasReceivedAmt ? 'var(--ink-100)' : netCash >= 0 ? 'color-mix(in oklch, var(--good) 22%, transparent)' : 'color-mix(in oklch, var(--bad) 18%, transparent)'}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+                padding: '0 26px 0 10px',
+                fontFamily: 'ui-monospace', fontSize: 14, fontWeight: 700,
+                color: !hasReceivedAmt ? 'var(--ink-400)' : netCash < 0 ? 'var(--bad)' : 'var(--good)',
+              }}>
+                {!hasReceivedAmt ? '—' : fmtNum(netCash, 2)}
+                <span style={{ position: 'absolute', right: 9, fontSize: 11, color: 'var(--ink-400)', fontWeight: 400 }}>฿</span>
+              </div>
+            </div>
+
+            {/* หมายเหตุ */}
+            <F fkey="remark" label="หมายเหตุ (remark)" type="textarea" placeholder="คำอธิบาย / หมายเหตุ…" />
+          </div>
         </div>
       </Modal>
 
