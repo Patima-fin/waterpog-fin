@@ -430,18 +430,20 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
               </div>
             </div>
 
-            {/* Row 3: Project info card */}
-            {(draft.projectName || draft.remark || draft.customer || draft.productType) && (
-              <div style={{ borderRadius: 8, background: '#f0f6ff', border: '1px solid var(--brand-100, #c0d8f0)', padding: '10px 12px', borderLeft: '3px solid var(--brand-400)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', marginBottom: 4 }}>
-                  {draft.productType && <span style={{ fontSize: 10.5, fontWeight: 700, background: 'oklch(94% 0.06 250)', color: 'oklch(35% 0.12 250)', borderRadius: 4, padding: '1px 6px' }}>{draft.productType}</span>}
-                  {draft.contractRef && draft.contractRef !== draft.jobNo && <span style={{ fontSize: 11, color: 'var(--ink-400)', fontFamily: 'ui-monospace' }}>ref: {draft.contractRef}</span>}
-                </div>
-                {draft.projectName && <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink-800)', marginBottom: 2 }}>{draft.projectName}</div>}
-                {draft.remark && <div style={{ fontSize: 12, color: 'var(--ink-600)', marginBottom: 2 }}><span style={{ fontWeight: 600 }}>หมายเหตุ: </span>{draft.remark}</div>}
-                {draft.customer && <div style={{ fontSize: 11.5, color: 'var(--ink-400)' }}><span style={{ fontWeight: 500 }}>ลูกค้า: </span>{draft.customer}</div>}
+            {/* Row 3: หมายเหตุ / บันทึก — user-editable */}
+            <div style={{ marginTop: 6, borderTop: '1px dashed var(--ink-150)', paddingTop: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6, fontSize: 11, fontWeight: 700, color: 'var(--brand-600)', letterSpacing: 0.4, textTransform: 'uppercase' }}>
+                <Icon name="edit" size={11} /> หมายเหตุ / บันทึก
               </div>
-            )}
+              <textarea
+                className="input"
+                rows={3}
+                value={draft.remark || ''}
+                onChange={(e) => set('remark', e.target.value)}
+                placeholder="บันทึกหมายเหตุเกี่ยวกับใบแจ้งหนี้นี้…"
+                style={{ resize: 'none', fontSize: 13, width: '100%', boxSizing: 'border-box' }}
+              />
+            </div>
           </div>
 
           {/* ── RIGHT: User-fillable tracking ───────────────────────────── */}
@@ -544,6 +546,13 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
                         <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: 'var(--ink-400)' }}>฿</span>
                       </div>
                     </div>
+                  </div>
+                  {/* รายละเอียดค่าอื่นๆ */}
+                  <div className="field">
+                    <label style={{ fontSize: 11.5 }}>รายละเอียดค่าอื่นๆ</label>
+                    <input className="input" value={ar.otherFeeNote || ''}
+                      onChange={(e) => setReceive({ otherFeeNote: e.target.value })}
+                      placeholder="เช่น หักชำระ PS2026-014 / ค่าปรับ / หักเงินกู้…" />
                   </div>
                   {/* เงินเข้าบัญชีสุทธิ computed */}
                   <div className="field">
