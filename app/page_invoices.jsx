@@ -443,22 +443,37 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
 
           {/* ── ข้อมูลติดตาม ───────────────────────────────────────────────── */}
           <div style={{ gridColumn: '1/-1' }}><SectionHdr label="ข้อมูลติดตาม — กรอกได้" icon="edit" /></div>
-          <div className="field"><label style={{ fontSize: 12 }}>งวดที่</label>
-            <input className="input" type="number" value={draft.period || 1} onChange={(e) => set('period', Number(e.target.value))} style={{ textAlign: 'center' }} />
+
+          {/* แถว 1 — งวดที่ · สถานะ · วันที่คาดรับเงิน (3 ฟิลด์หลัก) */}
+          <div className="field" style={{ gridColumn: 'span 1' }}>
+            <label style={{ fontSize: 12 }}>งวดที่</label>
+            <input className="input" type="number" min="1" value={draft.period || 1}
+              onChange={(e) => set('period', Number(e.target.value))}
+              style={{ textAlign: 'center', fontWeight: 700, fontSize: 15 }} />
           </div>
-          <div className="field"><label style={{ fontSize: 12 }}>สถานะ</label>
-            <select className="select input" value={draft.status} onChange={(e) => { set('status', e.target.value); setSaveError(''); }}>
+          <div className="field" style={{ gridColumn: 'span 1' }}>
+            <label style={{ fontSize: 12 }}>สถานะ</label>
+            <select className="select input" value={draft.status}
+              onChange={(e) => { set('status', e.target.value); setSaveError(''); }}>
               {Object.entries(WTPData.IV_STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
             </select>
           </div>
-          <div className="field"><label style={{ fontSize: 12 }}>ชื่อผู้ติดต่อ</label>
-            <input className="input" value={draft.contactName || ''} onChange={(e) => set('contactName', e.target.value)} placeholder="เช่น คุณสมหญิง" />
+          <div className="field" style={{ gridColumn: 'span 2' }}>
+            <label style={{ fontSize: 12 }}>วันที่คาดรับเงิน</label>
+            <input className="input" type="date" value={draft.expectedReceive || ''}
+              onChange={(e) => set('expectedReceive', e.target.value)} />
           </div>
-          <div className="field"><label style={{ fontSize: 12 }}>เบอร์โทร</label>
-            <input className="input" value={draft.contactPhone || ''} onChange={(e) => set('contactPhone', e.target.value)} placeholder="0XX-XXX-XXXX" />
+
+          {/* แถว 2 — ข้อมูลผู้ติดต่อ */}
+          <div className="field" style={{ gridColumn: 'span 2' }}>
+            <label style={{ fontSize: 12 }}>ชื่อผู้ติดต่อ</label>
+            <input className="input" value={draft.contactName || ''}
+              onChange={(e) => set('contactName', e.target.value)} placeholder="เช่น คุณสมหญิง" />
           </div>
-          <div className="field"><label style={{ fontSize: 12 }}>วันที่คาดรับเงิน</label>
-            <input className="input" type="date" value={draft.expectedReceive || ''} onChange={(e) => set('expectedReceive', e.target.value)} />
+          <div className="field" style={{ gridColumn: 'span 2' }}>
+            <label style={{ fontSize: 12 }}>เบอร์โทร</label>
+            <input className="input" value={draft.contactPhone || ''}
+              onChange={(e) => set('contactPhone', e.target.value)} placeholder="0XX-XXX-XXXX" />
           </div>
 
           {/* ── ประวัติติดตาม ──────────────────────────────────────────────── */}
