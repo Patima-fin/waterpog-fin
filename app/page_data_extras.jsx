@@ -510,10 +510,11 @@ function AmountInput({ value, onChange, label, required }) {
   );
 }
 
-// ─── AP Edit Modal — wide landscape, 4-col grid, no scroll ───────────────────
+// ─── AP Edit Modal — wide landscape, 4-col grid, styled delete confirm ───────
 function APEditModal({ row, onClose, onSave, onDelete }) {
-  const [draft, setDraft] = dxState(null);
-  dxEffect(() => { setDraft(row ? { ...row } : null); }, [row]);
+  const [draft, setDraft]             = dxState(null);
+  const [confirmDelete, setConfirm]   = dxState(false);
+  dxEffect(() => { setDraft(row ? { ...row } : null); setConfirm(false); }, [row]);
   if (!row || !draft) return null;
   const set = (k, v) => setDraft(d => ({ ...d, [k]: v }));
 
@@ -538,49 +539,67 @@ function APEditModal({ row, onClose, onSave, onDelete }) {
   };
 
   return (
-    <Modal open={!!row} title={draft.id ? `แก้ไข AP · ${draft.vchno || '—'}` : 'เพิ่ม AP ใหม่'}
-      maxWidth={1160} onClose={onClose}
-      footer={<>
-        {draft.id && <button className="btn btn-ghost" style={{ color: 'var(--bad)', marginRight: 'auto' }}
-          onClick={() => { if (confirm('ยืนยันการลบ ' + (draft.vchno||'') + '?')) { onDelete(draft.id); onClose(); } }}>
-          <Icon name="trash" size={13} /> ลบรายการ
-        </button>}
-        <button className="btn btn-ghost" onClick={onClose}>ยกเลิก</button>
-        <button className="btn btn-primary" onClick={() => onSave(draft)}><Icon name="check" size={13} /> บันทึก</button>
-      </>}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px 16px' }}>
-        <Hdr label="ข้อมูลเอกสาร" icon="invoice" />
-        <F fkey="vchno"   label="vchno · ใบสำคัญ"      required hint="APO2026040181" />
-        <F fkey="docno"   label="docno · เลขที่เอกสาร"  hint="20260001155" />
-        <F fkey="vchdate" label="วันที่ใบสำคัญ"          type="date" />
-        <F fkey="due2"    label="วันครบกำหนด"            hint="dd/MM/yyyy" />
-        <F fkey="taxinv"  label="taxinv"                 hint="Y / N" />
-        <F fkey="refcode" label="refcode"                hint="รหัสอ้างอิง" />
+    <>
+      <Modal open={!!row} title={draft.id ? `แก้ไข AP · ${draft.vchno || '—'}` : 'เพิ่ม AP ใหม่'}
+        maxWidth={1160} onClose={onClose}
+        footer={<>
+          {draft.id && <button className="btn btn-ghost" style={{ color: 'var(--bad)', marginRight: 'auto' }}
+            onClick={() => setConfirm(true)}>
+            <Icon name="trash" size={13} /> ลบรายการ
+          </button>}
+          <button className="btn btn-ghost" onClick={onClose}>ยกเลิก</button>
+          <button className="btn btn-primary" onClick={() => onSave(draft)}><Icon name="check" size={13} /> บันทึก</button>
+        </>}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px 16px' }}>
+          <Hdr label="ข้อมูลเอกสาร" icon="invoice" />
+          <F fkey="vchno"   label="vchno · ใบสำคัญ"         required hint="APO2026040181" />
+          <F fkey="docno"   label="docno · เลขที่เอกสาร"     hint="เลขเอกสาร (col B)" />
+          <F fkey="vchdate" label="วันที่ใบสำคัญ"             type="date" />
+          <F fkey="due2"    label="วันครบกำหนด"               hint="dd/MM/yyyy" />
+          <F fkey="refno"   label="refno · เลขที่อ้างอิง"    hint="เลขอ้างอิง (col E)" />
+          <F fkey="refcode" label="refcode"                    hint="รหัสอ้างอิง" />
 
-        <Hdr label="เจ้าหนี้ (Vendor)" icon="money" />
-        <F fkey="cust_name"    label="ชื่อเจ้าหนี้"   required span={2} />
-        <F fkey="acct_no"      label="รหัสเจ้าหนี้" />
-        <F fkey="vendor_group" label="vendor_group"    hint="Vendor : (XXXXX)" />
+          <Hdr label="เจ้าหนี้ (Vendor)" icon="money" />
+          <F fkey="cust_name" label="ชื่อเจ้าหนี้" required span={3} />
+          <F fkey="acct_no"   label="รหัสเจ้าหนี้" />
 
-        <Hdr label="แผนก / โครงการ" icon="forecast" />
-        <F fkey="dpt_code" label="รหัสแผนก" hint="HRD / MNG / FIN / ITD" />
-        <F fkey="dpt_name" label="ชื่อแผนก" />
-        <F fkey="jobcode"  label="Job Code" />
-        <F fkey="jobname"  label="ชื่องาน" />
+          <Hdr label="แผนก / โครงการ" icon="forecast" />
+          <F fkey="dpt_code" label="รหัสแผนก" hint="HRD / MNG / FIN / ITD" />
+          <F fkey="dpt_name" label="ชื่อแผนก" />
+          <F fkey="jobcode"  label="Job Code" />
+          <F fkey="jobname"  label="ชื่องาน" />
 
-        <Hdr label="ยอดเงิน (Amounts)" icon="coin" />
-        <AmountInput value={draft.Amount}          onChange={v => set('Amount', v)}          label="Amount · ยอดก่อนหัก"         required />
-        <AmountInput value={draft.VAT}             onChange={v => set('VAT', v)}             label="VAT · ภาษีมูลค่าเพิ่ม" />
-        <AmountInput value={draft.net_new}         onChange={v => set('net_new', v)}         label="net_new · รวม VAT" />
-        <AmountInput value={draft.Less_Ret}        onChange={v => set('Less_Ret', v)}        label="Less_Ret · หักประกัน" />
-        <AmountInput value={draft.WHT_EXT}         onChange={v => set('WHT_EXT', v)}         label="WHT_EXT · ภาษีหัก ณ จ่าย" />
-        <AmountInput value={draft.Balance_Amount1} onChange={v => set('Balance_Amount1', v)} label="Balance_Amount1 · คงค้าง" />
-        <AmountInput value={draft.netpayment}      onChange={v => set('netpayment', v)}      label="netpayment · ยอดสุทธิ"       required />
+          <Hdr label="ยอดเงิน (Amounts)" icon="coin" />
+          <AmountInput value={draft.Amount}     onChange={v => set('Amount', v)}     label="Amount · ยอดก่อนหัก"      required />
+          <AmountInput value={draft.VAT}        onChange={v => set('VAT', v)}        label="VAT · ภาษีมูลค่าเพิ่ม" />
+          <AmountInput value={draft.net_new}    onChange={v => set('net_new', v)}    label="net_new · รวม VAT" />
+          <AmountInput value={draft.Less_Ret}   onChange={v => set('Less_Ret', v)}   label="Less_Ret · หักประกัน" />
+          <AmountInput value={draft.WHT_EXT}    onChange={v => set('WHT_EXT', v)}    label="WHT_EXT · ภาษีหัก ณ จ่าย" />
+          <AmountInput value={draft.netpayment} onChange={v => set('netpayment', v)} label="netpayment · ยอดสุทธิ"    required />
 
-        <Hdr label="หมายเหตุ" icon="edit" />
-        <F fkey="remark" label="remark · คำอธิบาย" type="textarea" span={4} />
-      </div>
-    </Modal>
+          <Hdr label="หมายเหตุ" icon="edit" />
+          <F fkey="remark" label="remark · คำอธิบาย" type="textarea" span={4} />
+        </div>
+      </Modal>
+
+      {/* Delete confirmation modal */}
+      <Modal open={confirmDelete} title="ยืนยันการลบรายการ" maxWidth={400} onClose={() => setConfirm(false)}
+        footer={<>
+          <button className="btn btn-ghost" onClick={() => setConfirm(false)}>ยกเลิก</button>
+          <button className="btn btn-primary" style={{ background: 'var(--bad)', borderColor: 'var(--bad)' }}
+            onClick={() => { onDelete(draft.id); setConfirm(false); onClose(); }}>
+            <Icon name="trash" size={13} /> ยืนยันลบ
+          </button>
+        </>}>
+        <div style={{ textAlign: 'center', padding: '20px 8px' }}>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>🗑️</div>
+          <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>ต้องการลบรายการนี้?</div>
+          <div style={{ fontFamily: 'ui-monospace', fontWeight: 700, color: 'var(--brand-700)', fontSize: 14, marginBottom: 6 }}>{draft.vchno}</div>
+          {draft.cust_name && <div style={{ fontSize: 13, color: 'var(--ink-500)', marginBottom: 10 }}>{draft.cust_name}</div>}
+          <div style={{ fontSize: 12, color: 'var(--bad)', fontWeight: 500 }}>การลบไม่สามารถย้อนกลับได้</div>
+        </div>
+      </Modal>
+    </>
   );
 }
 
@@ -647,8 +666,8 @@ function DataPayablePage({ data, setData, toast }) {
     return out.slice(0, 8);
   }, [rows, query]);
 
-  // KPI — computed from filtered rows so cards always match the table
-  const fBal    = filtered.reduce((s, r) => s + parseNum(r.Balance_Amount1), 0);
+  // KPI — netpayment (col Q) tracks filtered rows
+  const fNet    = filtered.reduce((s, r) => s + parseNum(r.netpayment), 0);
   const overdue = filtered.filter(r => { const d = parseDue(r.due2||r.due); return d && d < new Date(); }).length;
 
   // Doc-type counts
@@ -706,14 +725,14 @@ function DataPayablePage({ data, setData, toast }) {
   };
 
   const COLS = [
-    { key: 'vchdate',         label: 'วันที่',            w: 95  },
-    { key: 'vchno',           label: 'เลขที่ใบสำคัญ',    w: 165 },
-    { key: 'cust_name',       label: 'เจ้าหนี้ / Vendor', w: 220 },
-    { key: 'dpt_code',        label: 'แผนก',              w: 80  },
-    { key: 'due2',            label: 'วันครบกำหนด',       w: 105 },
-    { key: '_overdue',        label: 'เกินกำหนด',         w: 88  },
-    { key: 'Balance_Amount1', label: 'Net Payment (฿)',   w: 148 },
-    { key: 'remark',          label: 'หมายเหตุ',           w: 300 },
+    { key: 'vchdate',    label: 'วันที่',            w: 90  },
+    { key: 'vchno',      label: 'เลขที่ใบสำคัญ',    w: 140 },
+    { key: 'cust_name',  label: 'เจ้าหนี้ / Vendor', w: 260 },
+    { key: 'dpt_code',   label: 'แผนก',              w: 76  },
+    { key: 'due2',       label: 'วันครบกำหนด',       w: 105 },
+    { key: '_overdue',   label: 'เกินกำหนด',         w: 88  },
+    { key: 'netpayment', label: 'Net Payment (฿)',   w: 148 },
+    { key: 'remark',     label: 'หมายเหตุ',           w: 300 },
   ];
 
   return (
@@ -734,7 +753,7 @@ function DataPayablePage({ data, setData, toast }) {
       {/* KPI — 2 cards, values follow filtered table */}
       <div className="grid grid-2 anim-stagger" style={{ marginBottom: 16 }}>
         <KpiTile label="จำนวนรายการ (ตามตาราง)" value={filtered.length} unit=" รายการ" digits={0} accent="var(--brand-500)" icon="invoice" animate={false} />
-        <KpiTile label="Net Payment รวม (ตามตาราง)" value={fBal} unit=" ฿" digits={2} accent="oklch(55% 0.18 30)" icon="coin" animate={false}
+        <KpiTile label="Net Payment รวม (ตามตาราง)" value={fNet} unit=" ฿" digits={2} accent="oklch(55% 0.18 30)" icon="coin" animate={false}
           delta={overdue > 0 ? `${overdue} รายการเกินกำหนด` : undefined} deltaKind={overdue > 0 ? 'bad' : 'neu'} />
       </div>
 
@@ -805,22 +824,23 @@ function DataPayablePage({ data, setData, toast }) {
                 const due = parseDue(row.due2 || row.due);
                 const days = due ? Math.ceil((due - new Date()) / 86400000) : null;
                 const dueColor = days === null ? 'var(--ink-400)' : days < 0 ? 'var(--bad)' : days < 7 ? 'oklch(60% 0.16 75)' : days < 30 ? 'oklch(70% 0.16 60)' : 'var(--ink-400)';
-                const bal = parseNum(row.Balance_Amount1);
+                const netPay = parseNum(row.netpayment);
+                const vt = { verticalAlign: 'top', paddingTop: 10, paddingBottom: 10 };
                 return (
                   <tr key={row.id} onClick={() => setEdit(row)} style={{ cursor: 'pointer' }}>
-                    <td style={{ fontSize: 12, whiteSpace: 'nowrap', color: 'var(--ink-600)' }}>{row.vchdate || '—'}</td>
-                    <td><div style={{ fontWeight: 600, color: 'var(--brand-700)', fontFamily: 'ui-monospace', fontSize: 12 }}>{row.vchno || '—'}</div></td>
-                    <td><div style={{ fontWeight: 500, fontSize: 13 }}>{row.cust_name || '—'}</div></td>
-                    <td>{row.dpt_code ? <Badge kind="b-blue" dot={false}>{row.dpt_code}</Badge> : <span className="muted">—</span>}</td>
-                    <td style={{ fontSize: 12, whiteSpace: 'nowrap', color: dueColor }}>{row.due2 || row.due || <span className="muted">—</span>}</td>
-                    <td style={{ textAlign: 'center' }}>
+                    <td style={{ ...vt, fontSize: 12, whiteSpace: 'nowrap', color: 'var(--ink-600)' }}>{row.vchdate || '—'}</td>
+                    <td style={vt}><span style={{ fontWeight: 600, color: 'var(--brand-700)', fontFamily: 'ui-monospace', fontSize: 12 }}>{row.vchno || '—'}</span></td>
+                    <td style={{ ...vt, fontSize: 13 }}>{row.cust_name || <span className="muted">—</span>}</td>
+                    <td style={vt}>{row.dpt_code ? <Badge kind="b-blue" dot={false}>{row.dpt_code}</Badge> : <span className="muted">—</span>}</td>
+                    <td style={{ ...vt, fontSize: 12, whiteSpace: 'nowrap', color: dueColor }}>{row.due2 || row.due || <span className="muted">—</span>}</td>
+                    <td style={{ ...vt, textAlign: 'center' }}>
                       {days === null ? <span className="muted">—</span>
                         : days < 0 ? <span style={{ background: 'var(--bad)', color: '#fff', borderRadius: 5, padding: '2px 6px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>{Math.abs(days)} วัน</span>
                         : days === 0 ? <span style={{ color: 'var(--bad)', fontWeight: 700, fontSize: 11 }}>วันนี้!</span>
                         : <span style={{ color: dueColor, fontSize: 11 }}>อีก {days}d</span>}
                     </td>
-                    <td className="num" style={{ fontWeight: 700, color: bal > 0 ? 'oklch(55% 0.18 30)' : 'var(--ink-500)' }}>{fmtNum(bal, 2)}</td>
-                    <td style={{ fontSize: 12, color: 'var(--ink-600)', maxWidth: 300 }}><span title={row.remark||''}>{row.remark || <span className="muted">—</span>}</span></td>
+                    <td style={{ ...vt, textAlign: 'right', fontWeight: 700, color: 'var(--bad)', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(netPay, 2)}</td>
+                    <td style={{ ...vt, fontSize: 12, color: 'var(--ink-600)' }}><span title={row.remark||''}>{row.remark || <span className="muted">—</span>}</span></td>
                   </tr>
                 );
               })}
@@ -828,7 +848,7 @@ function DataPayablePage({ data, setData, toast }) {
             <tfoot>
               <tr style={{ background: 'var(--brand-50)', fontWeight: 700 }}>
                 <td colSpan={6} style={{ padding: '8px 14px', fontSize: 12, color: 'var(--brand-700)' }}>รวม {filtered.length} รายการ</td>
-                <td className="num" style={{ padding: '8px 14px', color: 'oklch(55% 0.18 30)' }}>{fmtNum(fBal, 2)}</td>
+                <td className="num" style={{ padding: '8px 14px', color: 'var(--bad)' }}>{fmtNum(fNet, 2)}</td>
                 <td />
               </tr>
             </tfoot>
