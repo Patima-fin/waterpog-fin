@@ -17,14 +17,16 @@ function InvoicesPage({ data, setData, toast }) {
 
   // Joined rows: invoice + project name + finance (assignee, debt)
   const rows = ivMemo(() => data.invoices.map(iv => {
-    const p = projectByCode[iv.jobNo] || {};
-    const f = financeByCode[iv.jobNo] || {};
+    // lookup ด้วย jobNo (Project No. เช่น PP064) → fallback ด้วย contractRef (Ref.code เช่น 6901-01)
+    const p = projectByCode[iv.jobNo] || projectByCode[iv.contractRef] || {};
+    const f = financeByCode[iv.jobNo] || financeByCode[iv.contractRef] || {};
     // Support both old schema (f.debt, f.assignee) and new RAW schema (p['ภาระหนี้'], p['ผู้รับโอนสิทธิ์'])
     const debt     = Number(f.debt ?? f['ภาระหนี้'] ?? 0);
     const assignee = f.assignee || f['ผู้รับโอนสิทธิ์'] || '—';
     return {
       ...iv,
-      projectName: p['พื้นที่'] || p.name || '—',
+      // fallback ลำดับ: project lookup (พื้นที่) → iv.projectName (parse จาก proj_dpt ตอน import) → '—'
+      projectName: p['พื้นที่'] || p.name || iv.projectName || '—',
       assignee,
       debt,
       netExpected: (iv.balance || 0) - debt,
@@ -154,7 +156,14 @@ function InvoicesPage({ data, setData, toast }) {
                 <td><span style={{ fontFamily: 'ui-monospace', fontWeight: 600, fontSize: 12.5 }}>{iv.ivNo}</span></td>
                 <td>{fmtDate(iv.invoiceDate)}</td>
                 <td>
-                  <div style={{ fontSize: 12.5, lineHeight: 1.35 }}>{iv.projectName}</div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
+                    {iv.productType && (
+                      <span style={{ fontSize: 10, fontWeight: 700, background: 'var(--brand-100,#e0f0ff)', color: 'var(--brand-700)', borderRadius: 4, padding: '1px 5px', letterSpacing: '0.03em', flexShrink: 0 }}>
+                        {iv.productType}
+                      </span>
+                    )}
+                    <span style={{ fontSize: 12.5, lineHeight: 1.35 }}>{iv.projectName}</span>
+                  </div>
                   {iv.followUps && iv.followUps.length > 0 && (
                     <div className="muted" style={{ fontSize: 10.5, marginTop: 2 }}>📞 ติดตาม {iv.followUps.length} ครั้ง · ล่าสุด {fmtDate(iv.followUps[iv.followUps.length - 1].date)}</div>
                   )}
@@ -211,10 +220,23 @@ function InvoicesPage({ data, setData, toast }) {
         open={showImport}
         onClose={() => setShowImport(false)}
         existing={data.invoices}
-        onImport={(newRows) => {
-          setData(d => ({ ...d, invoices: [...newRows.map(r => ({ ...r, id: WTPData.newId() })), ...d.invoices] }));
+        onImport={({ newRows, patchRows }) => {
+          setData(d => {
+            let invoices = d.invoices;
+            if (patchRows.length > 0) {
+              const patchById = Object.fromEntries(patchRows.map(p => [p.id, p]));
+              invoices = invoices.map(iv => patchById[iv.id] ? { ...iv, ...patchById[iv.id] } : iv);
+            }
+            if (newRows.length > 0) {
+              invoices = [...newRows.map(r => ({ ...r, id: WTPData.newId() })), ...invoices];
+            }
+            return { ...d, invoices };
+          });
           setShowImport(false);
-          toast(`นำเข้าใบใหม่ ${newRows.length} ใบ`);
+          const msgs = [];
+          if (newRows.length) msgs.push(`นำเข้าใบใหม่ ${newRows.length} ใบ`);
+          if (patchRows.length) msgs.push(`อัปเดตข้อมูล ${patchRows.length} ใบ`);
+          toast(msgs.join(' · ') || 'ไม่มีการเปลี่ยนแปลง');
         }}
       />
     </div>
@@ -222,33 +244,107 @@ function InvoicesPage({ data, setData, toast }) {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Detail modal: full IV editing + follow-up log + actual receive
+// Detail modal: landscape split — read-only system data (left) + tracking (right)
 // ────────────────────────────────────────────────────────────────────────────
 function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, financeByCode, projectByCode }) {
-  const [draft, setDraft] = ivState(iv);
-  const [newFollowUp, setNewFollowUp] = ivState({ date: new Date().toISOString().slice(0, 10), note: '', by: '' });
+  const [draft, setDraft]         = ivState(iv);
+  const [newLog, setNewLog]       = ivState({ date: new Date().toISOString().slice(0, 10), note: '' });
+  const [saveError, setSaveError] = ivState('');
+
   React.useEffect(() => {
     setDraft(iv);
-    setNewFollowUp({ date: new Date().toISOString().slice(0, 10), note: '', by: '' });
+    setNewLog({ date: new Date().toISOString().slice(0, 10), note: '' });
+    setSaveError('');
   }, [iv]);
+
   if (!iv || !draft) return null;
 
   const set = (k, v) => setDraft(d => ({ ...d, [k]: v }));
-  const setReceive = (patch) => setDraft(d => ({ ...d, actualReceive: { ...(d.actualReceive || {}), ...patch } }));
+  const setReceive = (patch) => {
+    if (patch === null) { setDraft(d => ({ ...d, actualReceive: null })); return; }
+    setDraft(d => ({ ...d, actualReceive: { ...(d.actualReceive || {}), ...patch } }));
+  };
 
-  const project = projectByCode[draft.jobNo];
-  const finance = financeByCode[draft.jobNo];
-  const debt = finance?.debt || 0;
+  const isNew    = !draft.id;
+  const isPaid   = draft.status === 'paid';
+  const project  = projectByCode[draft.jobNo];
+  const finance  = financeByCode[draft.jobNo];
+  const debt     = finance?.debt || 0;
   const netExpected = (draft.balance || 0) - debt;
 
-  const addFollowUp = () => {
-    if (!newFollowUp.note.trim()) return;
-    setDraft(d => ({ ...d, followUps: [...(d.followUps || []), { ...newFollowUp }] }));
-    setNewFollowUp({ date: new Date().toISOString().slice(0, 10), note: '', by: newFollowUp.by });
+  // Computed: เงินเข้าบัญชีสุทธิ
+  const ar       = draft.actualReceive;
+  const netCash  = ar ? (ar.amount || 0) - (ar.bankFee || 0) - (ar.otherFee || 0) : 0;
+
+  const addLog = () => {
+    if (!newLog.note.trim()) return;
+    setDraft(d => ({ ...d, followUps: [...(d.followUps || []), { ...newLog }] }));
+    setNewLog(s => ({ ...s, note: '' }));
   };
-  const removeFollowUp = (idx) => setDraft(d => ({ ...d, followUps: d.followUps.filter((_, i) => i !== idx) }));
+  const removeLog = (idx) => setDraft(d => ({ ...d, followUps: d.followUps.filter((_, i) => i !== idx) }));
+
+  const handleSave = () => {
+    if (isPaid && (!ar || !ar.amount)) {
+      setSaveError('กรุณากรอก "จำนวนเงินที่ได้รับจริง" เนื่องจากสถานะเป็น "รับชำระแล้ว"');
+      return;
+    }
+    setSaveError('');
+    onSave(draft);
+  };
 
   const s = WTPData.IV_STATUS_META[draft.status];
+
+  // ── Sub-components ──────────────────────────────────────────────────────────
+  const ROField = ({ fkey, label, mono }) => {
+    const v = draft[fkey];
+    return (
+      <div className="field">
+        <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'flex', alignItems: 'center', gap: 3 }}>
+          <span style={{ fontSize: 10, opacity: 0.5 }}>🔒</span>{label}
+        </label>
+        <div style={{
+          height: 32, borderRadius: 7, border: '1px solid var(--ink-100)',
+          background: 'var(--ink-50, #f7f8fa)', padding: '0 9px',
+          display: 'flex', alignItems: 'center',
+          fontFamily: mono ? 'ui-monospace' : undefined,
+          fontSize: mono ? 11.5 : 12.5,
+          color: !v ? 'var(--ink-300)' : mono ? 'var(--brand-700)' : 'var(--ink-800)',
+          fontWeight: mono && v ? 600 : undefined,
+          overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
+          cursor: 'default', userSelect: 'text',
+        }} title={v ? String(v) : ''}>{v || '—'}</div>
+      </div>
+    );
+  };
+
+  const RONum = ({ value, label, negative }) => (
+    <div className="field">
+      <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'flex', alignItems: 'center', gap: 3 }}>
+        <span style={{ fontSize: 10, opacity: 0.5 }}>🔒</span>{label}
+      </label>
+      <div style={{
+        height: 32, borderRadius: 7, border: '1px solid var(--ink-100)',
+        background: 'var(--ink-50, #f7f8fa)', padding: '0 22px 0 9px', position: 'relative',
+        display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+        fontFamily: 'ui-monospace', fontSize: 12, fontWeight: 600, cursor: 'default',
+        color: !value ? 'var(--ink-300)' : negative ? 'var(--bad)' : 'var(--ink-800)',
+      }}>
+        {!value ? '—' : (negative ? '-' : '') + fmtNum(Math.abs(value), 0)}
+        {!!value && <span style={{ position: 'absolute', right: 7, fontSize: 10, color: 'var(--ink-400)', fontWeight: 400 }}>฿</span>}
+      </div>
+    </div>
+  );
+
+  const SectionHdr = ({ label, icon, muted }) => (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10,
+      fontSize: 10.5, fontWeight: 700, letterSpacing: 0.65, textTransform: 'uppercase',
+      color: muted ? 'var(--ink-500)' : 'var(--brand-700)',
+      paddingBottom: 5, borderBottom: `1px solid ${muted ? 'var(--ink-100)' : 'color-mix(in oklch, var(--brand-500) 20%, transparent)'}`,
+    }}>
+      <Icon name={icon} size={11} />{label}
+    </div>
+  );
 
   return (
     <Modal
@@ -257,17 +353,27 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <span style={{ fontFamily: 'ui-monospace', fontSize: 14, color: 'var(--brand-700)' }}>{draft.ivNo || 'IV ใหม่'}</span>
           <Badge kind={s.badge}>{s.label}</Badge>
-          <span style={{ fontSize: 13, fontWeight: 500 }}>· {project?.name || '—'}</span>
+          <span style={{ fontSize: 13, fontWeight: 500 }}>· {project?.['พื้นที่'] || project?.name || '—'}</span>
         </div>
       }
+      maxWidth={isNew ? 720 : 1300}
       onClose={onClose}
       footer={<>
         <button className="btn btn-ghost" onClick={onClose}>ยกเลิก</button>
-        <button className="btn btn-primary" onClick={() => onSave(draft)}><Icon name="check" size={14} /> บันทึก</button>
+        <button className="btn btn-primary" onClick={handleSave}><Icon name="check" size={14} /> บันทึก</button>
       </>}
     >
-      {/* TOP — basic IV info */}
-      <div className="card" style={{ padding: 14, marginBottom: 14, background: '#f8fafc' }}>
+      {saveError && (
+        <div style={{
+          background: 'color-mix(in oklch, var(--bad) 8%, transparent)',
+          border: '1px solid color-mix(in oklch, var(--bad) 28%, transparent)',
+          borderRadius: 8, padding: '7px 13px', marginBottom: 12,
+          fontSize: 13, color: 'var(--bad)', fontWeight: 500,
+        }}>⚠️ {saveError}</div>
+      )}
+
+      {isNew ? (
+        /* ── NEW INVOICE: compact single-column editable ─────────────────── */
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
           <div className="field"><label>Job no</label>
             <select className="select input" value={draft.jobNo || ''} onChange={(e) => set('jobNo', e.target.value)}>
@@ -280,124 +386,197 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
           <div className="field"><label>งวดที่</label><input className="input" type="number" value={draft.period || 1} onChange={(e) => set('period', Number(e.target.value))} /></div>
           <div className="field"><label>Balance (บาท)</label><input className="input" type="number" value={draft.balance || 0} onChange={(e) => set('balance', Number(e.target.value))} /></div>
           <div className="field"><label>สถานะ</label>
-            <select className="select input" value={draft.status} onChange={(e) => set('status', e.target.value)}>
+            <select className="select input" value={draft.status} onChange={(e) => { set('status', e.target.value); setSaveError(''); }}>
               {Object.entries(WTPData.IV_STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
             </select>
           </div>
-        </div>
-      </div>
-
-      {/* Computed: assignee, debt, net */}
-      <div className="grid grid-3" style={{ marginBottom: 14 }}>
-        <InfoCard label="ผู้รับโอนสิทธิ (จาก RAW_PROJECT_FINANCE)" value={finance?.assignee || 'ไม่โอน'} />
-        <InfoCard label="ภาระหนี้" value={debt ? '-' + fmtNum(debt, 0) : '—'} unit={debt ? 'บาท' : ''} negative={!!debt} />
-        <InfoCard label="คาดรับสุทธิ" value={fmtNum(netExpected, 0)} unit="บาท" highlight />
-      </div>
-
-      {/* CONTACT */}
-      <div className="card" style={{ padding: 14, marginBottom: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontWeight: 600, color: 'var(--brand-700)' }}>
-          <Icon name="settings" size={14} /> ข้อมูลผู้ติดต่อ / กำหนดรับ
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
           <div className="field"><label>ชื่อผู้ติดต่อ</label><input className="input" value={draft.contactName || ''} onChange={(e) => set('contactName', e.target.value)} placeholder="เช่น คุณสมหญิง" /></div>
           <div className="field"><label>เบอร์โทร</label><input className="input" value={draft.contactPhone || ''} onChange={(e) => set('contactPhone', e.target.value)} placeholder="0XX-XXX-XXXX" /></div>
           <div className="field"><label>วันที่คาดว่าจะได้รับเงิน</label><input className="input" type="date" value={draft.expectedReceive || ''} onChange={(e) => set('expectedReceive', e.target.value)} /></div>
         </div>
-      </div>
+      ) : (
+        /* ── EXISTING INVOICE: landscape two-column layout ───────────────── */
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 330px', gap: 14, alignItems: 'start' }}>
 
-      {/* FOLLOW-UPS */}
-      <div className="card" style={{ padding: 0, marginBottom: 14, overflow: 'hidden' }}>
-        <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ fontWeight: 600, color: 'var(--brand-700)', display: 'flex', alignItems: 'center', gap: 8 }}>
-            📞 ประวัติติดตาม · {draft.followUps?.length || 0} ครั้ง
-          </div>
-        </div>
-        <div style={{ maxHeight: 180, overflowY: 'auto' }}>
-          {(!draft.followUps || draft.followUps.length === 0) ? (
-            <div className="muted" style={{ padding: 16, fontSize: 12.5, textAlign: 'center' }}>ยังไม่มีการติดตาม</div>
-          ) : (
-            <table className="tbl" style={{ fontSize: 12.5 }}>
-              <thead>
-                <tr>
-                  <th style={{ width: 110 }}>วันที่</th>
-                  <th>หมายเหตุการติดตาม</th>
-                  <th style={{ width: 120 }}>ผู้ติดตาม</th>
-                  <th style={{ width: 40 }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {draft.followUps.map((f, i) => (
-                  <tr key={i}>
-                    <td>{fmtDate(f.date)}</td>
-                    <td>{f.note}</td>
-                    <td>{f.by || <span className="muted">—</span>}</td>
-                    <td><button className="btn-icon danger" onClick={() => removeFollowUp(i)} title="ลบ"><Icon name="trash" size={12} /></button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-        {/* Add follow-up form */}
-        <div style={{ borderTop: '1px solid var(--line)', padding: 12, background: 'var(--brand-50, #f0f6ff)' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr 120px 80px', gap: 8, alignItems: 'end' }}>
-            <input className="input input-cell" type="date" value={newFollowUp.date} onChange={(e) => setNewFollowUp(s => ({ ...s, date: e.target.value }))} />
-            <input className="input input-cell" placeholder="เช่น โทรตามแล้ว เจ้าหน้าที่บอกรอเซ็น…" value={newFollowUp.note} onChange={(e) => setNewFollowUp(s => ({ ...s, note: e.target.value }))} />
-            <input className="input input-cell" placeholder="ผู้ติดตาม" value={newFollowUp.by} onChange={(e) => setNewFollowUp(s => ({ ...s, by: e.target.value }))} />
-            <button className="btn btn-primary btn-sm" onClick={addFollowUp} disabled={!newFollowUp.note.trim()}>
-              <Icon name="plus" size={12} /> บันทึก
-            </button>
-          </div>
-        </div>
-      </div>
+          {/* ── LEFT: Read-only system data ─────────────────────────────── */}
+          <div style={{ background: 'var(--ink-25, #f9fafb)', borderRadius: 12, border: '1px solid var(--ink-100)', padding: '13px 15px' }}>
+            <SectionHdr label="ข้อมูลจากระบบ — แก้ไขไม่ได้" icon="lock" muted />
 
-      {/* ACTUAL RECEIVE */}
-      <div className="card" style={{ padding: 14, background: draft.status === 'paid' ? '#f0fdf4' : '#fffbeb' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-          <div style={{ fontWeight: 600, color: draft.status === 'paid' ? 'var(--good)' : 'oklch(60% 0.16 75)', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Icon name="coin" size={14} /> การรับเงินจริง
-          </div>
-          {!draft.actualReceive && draft.status !== 'paid' && (
-            <button className="btn btn-sm" onClick={() => setReceive({ date: new Date().toISOString().slice(0, 10), amount: draft.balance, bankAccount: '', feeNote: '' })}>
-              <Icon name="plus" size={12} /> บันทึกการรับเงิน
-            </button>
-          )}
-        </div>
-        {draft.actualReceive ? (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-            <div className="field"><label>วันที่รับจริง</label>
-              <input className="input" type="date" value={draft.actualReceive.date || ''} onChange={(e) => setReceive({ date: e.target.value })} />
+            {/* Row 1: IV identifiers + balance */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '7px 10px', marginBottom: 8 }}>
+              <ROField fkey="jobNo"       label="Job no"    mono />
+              <ROField fkey="ivNo"        label="เลขที่ IV"  mono />
+              <ROField fkey="invoiceDate" label="วันที่ IV" />
+              <RONum   value={draft.balance} label="Balance" />
             </div>
-            <div className="field"><label>จำนวนเงินที่ได้รับจริง (บาท)</label>
-              <input className="input" type="number" value={draft.actualReceive.amount || 0} onChange={(e) => setReceive({ amount: Number(e.target.value) })} />
-            </div>
-            <div className="field"><label>เข้าบัญชี</label>
-              <select className="select input" value={draft.actualReceive.bankAccount || ''} onChange={(e) => setReceive({ bankAccount: e.target.value })}>
-                <option value="">— เลือกบัญชี —</option>
-                {(bankAccounts || []).map(b => <option key={b.id} value={`${b.BANK_NAME || b.bankName} ${b.Bank_AC || b.accountNo}`}>{b.BANK_NAME || b.bankName} · {b.Bank_AC || b.accountNo}</option>)}
-              </select>
-            </div>
-            <div className="field" style={{ gridColumn: '1 / -1' }}>
-              <label>หมายเหตุ (เช่น หักค่าธรรมเนียม / หักเงินกู้)</label>
-              <input className="input" value={draft.actualReceive.feeNote || ''} onChange={(e) => setReceive({ feeNote: e.target.value })} placeholder="เช่น หักค่าธรรมเนียมโอน 30 บาท · หักชำระ PS2026-014 1,500,000" />
-            </div>
-            <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8, borderTop: '1px dashed var(--line)' }}>
-              <div className="muted" style={{ fontSize: 12 }}>
-                ส่วนต่างจาก Balance:&nbsp;
-                <strong style={{ color: (draft.actualReceive.amount - draft.balance) < 0 ? 'var(--bad)' : 'var(--good)' }}>
-                  {(draft.actualReceive.amount - draft.balance) > 0 ? '+' : ''}{fmtNum(draft.actualReceive.amount - draft.balance, 0)} บาท
-                </strong>
+
+            {/* Row 2: Finance data */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '7px 10px', marginBottom: 8 }}>
+              <div className="field">
+                <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'flex', alignItems: 'center', gap: 3 }}>
+                  <span style={{ fontSize: 10, opacity: 0.5 }}>🔒</span>ผู้รับโอนสิทธิ
+                </label>
+                <div style={{ height: 32, borderRadius: 7, border: '1px solid var(--ink-100)', background: 'var(--ink-50)', padding: '0 9px', display: 'flex', alignItems: 'center', fontSize: 12.5, color: finance?.assignee ? 'var(--ink-800)' : 'var(--ink-300)', cursor: 'default' }}>
+                  {finance?.assignee || '—'}
+                </div>
               </div>
-              <button className="btn btn-ghost btn-sm" onClick={() => setReceive(null) || set('actualReceive', null)}>
-                <Icon name="trash" size={12} /> ลบบันทึกรับเงิน
-              </button>
+              <RONum value={debt} label="ภาระหนี้" negative />
+              <div className="field">
+                <label style={{ fontSize: 11, color: 'var(--ink-600)' }}>คาดรับสุทธิ <span style={{ fontSize: 10, opacity: 0.6 }}>(คำนวณ)</span></label>
+                <div style={{ height: 32, borderRadius: 7, padding: '0 22px 0 9px', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', background: 'color-mix(in oklch, var(--good) 10%, transparent)', border: '1px solid color-mix(in oklch, var(--good) 25%, transparent)', fontFamily: 'ui-monospace', fontSize: 13, fontWeight: 700, color: 'var(--good)' }}>
+                  {fmtNum(netExpected, 0)}
+                  <span style={{ position: 'absolute', right: 7, fontSize: 10, color: 'var(--ink-400)', fontWeight: 400 }}>฿</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Row 3: Project info card */}
+            {(draft.projectName || draft.remark || draft.customer || draft.productType) && (
+              <div style={{ borderRadius: 8, background: '#f0f6ff', border: '1px solid var(--brand-100, #c0d8f0)', padding: '10px 12px', borderLeft: '3px solid var(--brand-400)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', marginBottom: 4 }}>
+                  {draft.productType && <span style={{ fontSize: 10.5, fontWeight: 700, background: 'oklch(94% 0.06 250)', color: 'oklch(35% 0.12 250)', borderRadius: 4, padding: '1px 6px' }}>{draft.productType}</span>}
+                  {draft.contractRef && draft.contractRef !== draft.jobNo && <span style={{ fontSize: 11, color: 'var(--ink-400)', fontFamily: 'ui-monospace' }}>ref: {draft.contractRef}</span>}
+                </div>
+                {draft.projectName && <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink-800)', marginBottom: 2 }}>{draft.projectName}</div>}
+                {draft.remark && <div style={{ fontSize: 12, color: 'var(--ink-600)', marginBottom: 2 }}><span style={{ fontWeight: 600 }}>หมายเหตุ: </span>{draft.remark}</div>}
+                {draft.customer && <div style={{ fontSize: 11.5, color: 'var(--ink-400)' }}><span style={{ fontWeight: 500 }}>ลูกค้า: </span>{draft.customer}</div>}
+              </div>
+            )}
+          </div>
+
+          {/* ── RIGHT: User-fillable tracking ───────────────────────────── */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <SectionHdr label="ข้อมูลติดตาม — กรอกได้" icon="edit" />
+
+            {/* งวดที่ + สถานะ */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 10px' }}>
+              <div className="field"><label style={{ fontSize: 12 }}>งวดที่</label>
+                <input className="input" type="number" value={draft.period || 1} onChange={(e) => set('period', Number(e.target.value))} style={{ textAlign: 'center' }} />
+              </div>
+              <div className="field"><label style={{ fontSize: 12 }}>สถานะ</label>
+                <select className="select input" value={draft.status} onChange={(e) => { set('status', e.target.value); setSaveError(''); }}>
+                  {Object.entries(WTPData.IV_STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                </select>
+              </div>
+            </div>
+
+            {/* Contact */}
+            <div className="field"><label style={{ fontSize: 12 }}>ชื่อผู้ติดต่อ</label>
+              <input className="input" value={draft.contactName || ''} onChange={(e) => set('contactName', e.target.value)} placeholder="เช่น คุณสมหญิง" />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 10px' }}>
+              <div className="field"><label style={{ fontSize: 12 }}>เบอร์โทร</label>
+                <input className="input" value={draft.contactPhone || ''} onChange={(e) => set('contactPhone', e.target.value)} placeholder="0XX-XXX-XXXX" />
+              </div>
+              <div className="field"><label style={{ fontSize: 12 }}>วันที่คาดรับเงิน</label>
+                <input className="input" type="date" value={draft.expectedReceive || ''} onChange={(e) => set('expectedReceive', e.target.value)} />
+              </div>
+            </div>
+
+            {/* Follow-up log (compact, no ผู้ติดตาม column) */}
+            <div style={{ border: '1px solid var(--ink-100)', borderRadius: 9, overflow: 'hidden' }}>
+              <div style={{ padding: '7px 10px', background: 'var(--brand-50, #f0f6ff)', borderBottom: '1px solid var(--ink-100)', fontSize: 11.5, fontWeight: 600, color: 'var(--brand-700)' }}>
+                📞 ประวัติติดตาม · {draft.followUps?.length || 0} ครั้ง
+              </div>
+              <div style={{ maxHeight: 120, overflowY: 'auto' }}>
+                {(!draft.followUps || draft.followUps.length === 0) ? (
+                  <div className="muted" style={{ padding: '9px 12px', fontSize: 12 }}>ยังไม่มีการติดตาม</div>
+                ) : (
+                  <table className="tbl" style={{ fontSize: 11.5 }}>
+                    <thead><tr><th style={{ width: 88 }}>วันที่</th><th>หมายเหตุ</th><th style={{ width: 30 }}></th></tr></thead>
+                    <tbody>
+                      {draft.followUps.map((f, i) => (
+                        <tr key={i}>
+                          <td style={{ fontSize: 11 }}>{fmtDate(f.date)}</td>
+                          <td>{f.note}</td>
+                          <td><button className="btn-icon danger" onClick={() => removeLog(i)}><Icon name="trash" size={11} /></button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+              <div style={{ borderTop: '1px solid var(--ink-100)', padding: '7px 8px', background: 'var(--brand-50, #f0f6ff)', display: 'grid', gridTemplateColumns: '88px 1fr 52px', gap: 6, alignItems: 'end' }}>
+                <input className="input input-cell" type="date" value={newLog.date} onChange={(e) => setNewLog(s => ({ ...s, date: e.target.value }))} style={{ fontSize: 11.5 }} />
+                <input className="input input-cell" placeholder="บันทึกการติดตาม…" value={newLog.note} onChange={(e) => setNewLog(s => ({ ...s, note: e.target.value }))} style={{ fontSize: 11.5 }}
+                  onKeyDown={(e) => e.key === 'Enter' && addLog()} />
+                <button className="btn btn-primary btn-sm" onClick={addLog} disabled={!newLog.note.trim()} style={{ fontSize: 11 }}>+ บันทึก</button>
+              </div>
+            </div>
+
+            {/* การรับเงินจริง */}
+            <div style={{
+              border: `1px solid ${isPaid ? 'color-mix(in oklch, var(--good) 25%, transparent)' : 'var(--ink-100)'}`,
+              borderRadius: 9, overflow: 'hidden',
+            }}>
+              <div style={{ padding: '7px 10px', borderBottom: '1px solid var(--ink-100)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: isPaid ? 'color-mix(in oklch, var(--good) 8%, transparent)' : 'var(--ink-25, #f9fafb)', fontSize: 11.5, fontWeight: 600, color: isPaid ? 'var(--good)' : 'oklch(60% 0.16 75)' }}>
+                <span><Icon name="coin" size={12} style={{ marginRight: 5 }} /> การรับเงินจริง{isPaid && <span style={{ color: 'var(--bad)', marginLeft: 3 }}>*</span>}</span>
+                {!ar && <button className="btn btn-sm" style={{ fontSize: 11, padding: '2px 8px' }}
+                  onClick={() => setReceive({ date: new Date().toISOString().slice(0, 10), amount: draft.balance, bankAccount: '', bankFee: 0, otherFee: 0 })}>
+                  + บันทึก
+                </button>}
+              </div>
+              {ar ? (
+                <div style={{ padding: '10px 10px 8px', display: 'flex', flexDirection: 'column', gap: 7 }}>
+                  {/* วันที่ + จำนวนที่ได้รับ */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 8px' }}>
+                    <div className="field"><label style={{ fontSize: 11.5 }}>วันที่รับจริง</label>
+                      <input className="input" type="date" value={ar.date || ''} onChange={(e) => setReceive({ date: e.target.value })} />
+                    </div>
+                    <div className="field"><label style={{ fontSize: 11.5 }}>จำนวนที่ได้รับ{isPaid && <span style={{ color: 'var(--bad)', marginLeft: 3 }}>*</span>}</label>
+                      <div style={{ position: 'relative' }}>
+                        <input className="input" type="number" value={ar.amount || ''} onChange={(e) => { setReceive({ amount: Number(e.target.value) }); setSaveError(''); }} style={{ textAlign: 'right', paddingRight: 24, fontWeight: 600, fontFamily: 'ui-monospace' }} />
+                        <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: 'var(--ink-400)' }}>฿</span>
+                      </div>
+                    </div>
+                  </div>
+                  {/* ค่าธรรมเนียม 2 ช่อง */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 8px' }}>
+                    <div className="field"><label style={{ fontSize: 11.5 }}>ค่าธรรมเนียมธนาคาร</label>
+                      <div style={{ position: 'relative' }}>
+                        <input className="input" type="number" value={ar.bankFee || ''} onChange={(e) => setReceive({ bankFee: Number(e.target.value) })} style={{ textAlign: 'right', paddingRight: 24 }} placeholder="0" />
+                        <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: 'var(--ink-400)' }}>฿</span>
+                      </div>
+                    </div>
+                    <div className="field"><label style={{ fontSize: 11.5 }}>ค่าอื่นๆ</label>
+                      <div style={{ position: 'relative' }}>
+                        <input className="input" type="number" value={ar.otherFee || ''} onChange={(e) => setReceive({ otherFee: Number(e.target.value) })} style={{ textAlign: 'right', paddingRight: 24 }} placeholder="0" />
+                        <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: 'var(--ink-400)' }}>฿</span>
+                      </div>
+                    </div>
+                  </div>
+                  {/* เงินเข้าบัญชีสุทธิ computed */}
+                  <div className="field">
+                    <label style={{ fontSize: 11.5, color: 'var(--ink-600)' }}>เงินเข้าบัญชีสุทธิ <span style={{ fontSize: 10.5, color: 'var(--ink-400)', fontWeight: 400 }}>(คำนวณอัตโนมัติ)</span></label>
+                    <div style={{ height: 34, borderRadius: 7, position: 'relative', background: 'color-mix(in oklch, var(--good) 10%, transparent)', border: '1px solid color-mix(in oklch, var(--good) 22%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '0 24px 0 10px', fontFamily: 'ui-monospace', fontSize: 14, fontWeight: 700, color: netCash < 0 ? 'var(--bad)' : 'var(--good)' }}>
+                      {fmtNum(netCash, 0)}
+                      <span style={{ position: 'absolute', right: 7, fontSize: 10, color: 'var(--ink-400)', fontWeight: 400 }}>฿</span>
+                    </div>
+                  </div>
+                  {/* เข้าบัญชี */}
+                  <div className="field"><label style={{ fontSize: 11.5 }}>เข้าบัญชี</label>
+                    <select className="select input" value={ar.bankAccount || ''} onChange={(e) => setReceive({ bankAccount: e.target.value })}>
+                      <option value="">— เลือกบัญชี —</option>
+                      {(bankAccounts || []).map(b => <option key={b.id} value={`${b.BANK_NAME || b.bankName} ${b.Bank_AC || b.accountNo}`}>{b.BANK_NAME || b.bankName} · {b.Bank_AC || b.accountNo}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--bad)' }} onClick={() => setReceive(null)}>
+                      <Icon name="trash" size={11} /> ลบบันทึก
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="muted" style={{ padding: '9px 12px', fontSize: 12 }}>
+                  {isPaid
+                    ? <span style={{ color: 'var(--bad)', fontWeight: 500 }}>⚠️ กรุณาบันทึกการรับเงิน — สถานะ "รับชำระแล้ว"</span>
+                    : 'ยังไม่มีบันทึกรับเงิน — กด "+ บันทึก" เมื่อเงินเข้าจริง'}
+                </div>
+              )}
             </div>
           </div>
-        ) : (
-          <div className="muted" style={{ fontSize: 12.5 }}>ยังไม่มีบันทึกรับเงินจริง — เมื่อเงินเข้าจริงแล้วให้กดปุ่ม "บันทึกการรับเงิน"</div>
-        )}
-      </div>
+        </div>
+      )}
     </Modal>
   );
 }
@@ -418,9 +597,28 @@ function ImportRawIvModal({ open, onClose, existing, onImport }) {
     const updated = [];
     all.forEach(r => {
       const ex = existingByIv[r.ivNo];
-      if (!ex) new_.push(r);
-      else if ((ex.balance || 0) !== (r.balance || 0)) updated.push({ ...ex, balance: r.balance, _oldBalance: ex.balance });
-      else existingList.push(ex);
+      if (!ex) {
+        new_.push(r);
+      } else {
+        const balanceChanged = (ex.balance || 0) !== (r.balance || 0);
+        const needsMetaUpdate = (!ex.projectName && r.projectName) || (!ex.productType && r.productType)
+          || (!ex.remark && r.remark) || (!ex.customer && r.customer);
+        if (balanceChanged || needsMetaUpdate) {
+          updated.push({
+            ...ex,
+            balance: r.balance,
+            projectName: r.projectName || ex.projectName || '',
+            productType: r.productType || ex.productType || '',
+            contractRef: r.contractRef || ex.contractRef || '',
+            remark: r.remark || ex.remark || '',
+            customer: r.customer || ex.customer || '',
+            _oldBalance: ex.balance,
+            _metaUpdated: needsMetaUpdate && !balanceChanged,
+          });
+        } else {
+          existingList.push(ex);
+        }
+      }
     });
     setParsed({ all, existing: existingList, updated, new_ });
   }, [raw]);
@@ -428,14 +626,27 @@ function ImportRawIvModal({ open, onClose, existing, onImport }) {
   if (!open) return null;
 
   const importNow = () => {
-    const rows = parsed.new_.map(r => ({
+    const newRows = parsed.new_.map(r => ({
       ivNo: r.ivNo, jobNo: r.jobNo, invoiceDate: r.invoiceDate,
       balance: r.balance, period: r.period || 1,
+      productType: r.productType || '',
+      projectName: r.projectName || '',
+      contractRef: r.contractRef || '',
+      remark: r.remark || '', customer: r.customer || '',
       status: 'pending_inspection', expectedReceive: '',
       contactName: '', contactPhone: '',
       followUps: [], actualReceive: null,
     }));
-    onImport(rows);
+    const patchRows = parsed.updated.map(r => ({
+      id: r.id,
+      balance: r.balance,
+      projectName: r.projectName || '',
+      productType: r.productType || '',
+      contractRef: r.contractRef || '',
+      remark: r.remark || '',
+      customer: r.customer || '',
+    }));
+    onImport({ newRows, patchRows });
     setRaw('');
   };
 
@@ -446,14 +657,19 @@ function ImportRawIvModal({ open, onClose, existing, onImport }) {
       onClose={onClose}
       footer={<>
         <button className="btn btn-ghost" onClick={onClose}>ยกเลิก</button>
-        <button className="btn btn-primary" disabled={parsed.new_.length === 0} onClick={importNow}>
-          <Icon name="upload" size={14} /> นำเข้าใบใหม่ ({parsed.new_.length})
+        <button className="btn btn-primary" disabled={parsed.new_.length === 0 && parsed.updated.length === 0} onClick={importNow}>
+          <Icon name="upload" size={14} /> นำเข้า
+          {parsed.new_.length > 0 && ` ${parsed.new_.length} ใบใหม่`}
+          {parsed.new_.length > 0 && parsed.updated.length > 0 && ' ·'}
+          {parsed.updated.length > 0 && ` อัปเดต ${parsed.updated.length} ใบ`}
         </button>
       </>}
     >
       <div style={{ fontSize: 12.5, marginBottom: 8, color: 'var(--ink-500)' }}>
         วางข้อมูลใบแจ้งหนี้คงค้างที่ดึงจากระบบ (รูปแบบ TSV จาก Excel หรือ JSON). คอลัมน์ที่ใช้:&nbsp;
-        <strong>proj_dpt</strong>, <strong>invno</strong>, <strong>invdate</strong>, <strong>Balance</strong>, <strong>period</strong> (ถ้ามี)
+        <strong>refcode</strong> (Job/Contract code), <strong>invno</strong>, <strong>invdate</strong>, <strong>Balance</strong>
+        <br />
+        งวด (period) จะดึงจาก <strong>remark</strong> อัตโนมัติ เช่น "งวดที่ 2" → period = 2
         <br />
         ระบบจะเปรียบเทียบกับใบในตาราง — เฉพาะใบที่ <strong>ไม่ซ้ำ</strong> จะถูกนำเข้า
       </div>
@@ -461,11 +677,11 @@ function ImportRawIvModal({ open, onClose, existing, onImport }) {
       <textarea
         className="input"
         rows={8}
-        placeholder={`ตัวอย่าง (วางจาก Excel ได้เลย):
+        placeholder={`ตัวอย่าง (วางจาก Excel RAW_IV_OUTSTANDING ได้เลย):
 
-proj_dpt\tinvno\tinvdate\tBalance\tperiod
-PP064-STIIS\tIV2026-077\t2026-05-10\t231525\t1
-PP073-AYT\tIV2026-076\t2026-05-05\t4200000\t2
+refcode\tinvno\tinvdate\tBalance\tremark\tCustomer
+6802-01\tIV2603-031\t11/03/2026\t5,395,000.00\tระบบผลิตน้ำประปาขนาดใหญ่\tที่ทำการปกครองอำเภอเขาย้อย
+6901-01\tIV2604-025\t28/04/2026\t3,240,000.00\tระบบผลิตน้ำประปา-งวดที่ 2 (60%)\tองค์การบริหารส่วนตำบลบ้านนา
 …`}
         value={raw}
         onChange={(e) => setRaw(e.target.value)}
@@ -481,8 +697,12 @@ PP073-AYT\tIV2026-076\t2026-05-05\t4200000\t2
               <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--good)' }}>{parsed.new_.length}</div>
             </div>
             <div style={{ padding: 10, borderRadius: 8, background: '#fffbeb', border: '1px solid #fde68a' }}>
-              <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>ใบเก่า — มูลค่าเปลี่ยน</div>
+              <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>ใบเก่า — อัปเดต</div>
               <div style={{ fontSize: 22, fontWeight: 700, color: 'oklch(60% 0.16 75)' }}>{parsed.updated.length}</div>
+              <div style={{ fontSize: 10, color: 'var(--ink-400)' }}>
+                {parsed.updated.filter(r => !r._metaUpdated).length > 0 && `${parsed.updated.filter(r => !r._metaUpdated).length} มูลค่า`}
+                {parsed.updated.filter(r => r._metaUpdated).length > 0 && ` ${parsed.updated.filter(r => r._metaUpdated).length} ข้อมูลโครงการ`}
+              </div>
             </div>
             <div style={{ padding: 10, borderRadius: 8, background: '#f1f5f9', border: '1px solid var(--line)' }}>
               <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>ใบเก่า — ไม่เปลี่ยน</div>
@@ -515,8 +735,51 @@ PP073-AYT\tIV2026-076\t2026-05-05\t4200000\t2
   );
 }
 
+// ─── parse proj_dpt ──────────────────────────────────────────────────────────
+// Format: "Project No. : (INTERNAL_NO) JOBNO-PRODUCTTYPE-ชื่อโครงการ (REFCODE) (Owner : ...)"
+// ผลลัพธ์:
+//   jobNo       = PP064, TTI040, STR067, MA-926, 979 (code ก่อน product type)
+//   productType = STIIS, PDH, PL, PM  (ตัวพิมพ์ใหญ่ระหว่าง JOBNO กับชื่อ)
+//   projectName = บ้านพรุกง ม.2 ต.วังใหญ่... (ชื่อจริงหลัง productType)
+//   contractRef = 6901-01 (refcode ในวงเล็บสุดท้าย ก่อน Owner)
+function parseProjDpt(projDpt) {
+  if (!projDpt) return { jobNo: '', productType: '', projectName: '', contractRef: '' };
+  // 1) ลบ prefix
+  let s = projDpt.replace(/^Project\s+No\.\s*:\s*/i, '').trim();
+  // 2) ตัดส่วน (Owner: ...)
+  const ownerIdx = s.indexOf('(Owner');
+  if (ownerIdx >= 0) s = s.slice(0, ownerIdx).trim();
+  // 3) ดึง contractRef จาก () สุดท้าย (เช่น 6901-01)
+  const lastParen = s.match(/\(([^()]+)\)\s*$/);
+  const contractRef = lastParen ? lastParen[1].trim() : '';
+  if (lastParen) s = s.slice(0, s.lastIndexOf('(')).trim();
+  // 4) ลบ (INTERNAL_NO) แรก → เหลือ description
+  const desc = s.replace(/^\([^)]*\)\s*/, '').trim();
+  // 5) parse JOBNO-PRODUCTTYPE-ชื่อโครงการ
+  //    PRODUCTTYPE = ตัวพิมพ์ใหญ่ล้วน 2-6 ตัว (STIIS, PDH, PL, PM, PD, PDH)
+  //    JOBNO = ทุกอย่างก่อน PRODUCTTYPE (PP064, TTI040, MA-926, 979 ฯลฯ)
+  const codeMatch = desc.match(/^(.+?)-([A-Z]{2,6})-(.+)$/);
+  if (codeMatch) {
+    return {
+      jobNo:       codeMatch[1].trim(),
+      productType: codeMatch[2].trim(),
+      projectName: codeMatch[3].trim(),
+      contractRef,
+    };
+  }
+  // ไม่เจอ code pattern → ชื่อโครงการ = desc ทั้งหมด, ใช้ contractRef เป็น jobNo
+  return { jobNo: contractRef, productType: '', projectName: desc, contractRef };
+}
+
 // Parse TSV/CSV from RAW_IV_OUTSTANDING
-// Expected columns (case-insensitive): proj_dpt, invno, invdate, balance, period
+// Expected columns (case-insensitive):
+//   jobNo / refcode / proj_dpt → jobNo  (proj_dpt จะถูก parse ด้วย parseProjDpt)
+//   projectName → ชื่อโครงการ (ถ้าไม่มี จะ parse จาก proj_dpt)
+//   invno → ivNo
+//   invdate → invoiceDate
+//   balance → balance
+//   remark → remark (period extracted automatically จาก "งวดที่ N")
+//   period → override period (optional)
 function parseRawIv(text) {
   // Try JSON first
   const t = text.trim();
@@ -536,12 +799,35 @@ function parseRawIv(text) {
   const out = [];
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split(delim);
+    const remark  = (cols[idx('remark')] || cols[idx('vch_remark')] || '').trim();
+    const rawPeriod = parseNum(cols[idx('period')]);
+
+    // ลำดับ priority: jobno column → parse จาก proj_dpt
+    let jobNo       = (cols[idx('jobno')] || cols[idx('job no')] || '').trim();
+    let productType = (cols[idx('producttype')] || cols[idx('product_type')] || '').trim();
+    let projectName = (cols[idx('projectname')] || cols[idx('project_name')] || '').trim();
+    let contractRef = (cols[idx('contractref')] || cols[idx('contract_ref')] || cols[idx('refcode')] || '').trim();
+    const rawProjDpt = (cols[idx('proj_dpt')] || '').trim();
+    if (rawProjDpt) {
+      const parsed = parseProjDpt(rawProjDpt);
+      if (!jobNo)       jobNo       = parsed.jobNo;
+      if (!productType) productType = parsed.productType;
+      if (!projectName) projectName = parsed.projectName;
+      if (!contractRef) contractRef = parsed.contractRef;
+    }
+
     const row = {
-      jobNo:       (cols[idx('proj_dpt')] || cols[idx('jobno')] || cols[idx('job no')] || '').trim(),
+      jobNo,
+      productType,
+      projectName,
+      contractRef,
       ivNo:        (cols[idx('invno')] || cols[idx('iv no')] || cols[idx('iv_no')] || '').trim(),
       invoiceDate: normalizeDate((cols[idx('invdate')] || cols[idx('inv date')] || cols[idx('date')] || '').trim()),
       balance:     parseNum(cols[idx('balance')]),
-      period:      parseNum(cols[idx('period')]) || 1,
+      remark,
+      customer:    (cols[idx('customer')] || '').trim(),
+      overDue:     parseNum(cols[idx('over_due')]),
+      period:      rawPeriod || extractPeriodFromRemark(remark),
     };
     if (row.ivNo) out.push(row);
   }
@@ -551,13 +837,40 @@ function normalizeIvRow(r) {
   const get = (...keys) => { for (const k of keys) { const lk = k.toLowerCase(); for (const rk of Object.keys(r)) { if (rk.toLowerCase() === lk) return r[rk]; } } return null; };
   const ivNo = (get('invno', 'iv no', 'iv_no') || '').toString().trim();
   if (!ivNo) return null;
+  const remark = (get('remark', 'vch_remark') || '').toString().trim();
+  const rawPeriod = parseNum(get('period'));
+  // jobNo: priority = jobNo column → parse จาก proj_dpt
+  let jobNo       = (get('jobno', 'job no') || '').toString().trim();
+  let productType = (get('producttype', 'product_type') || '').toString().trim();
+  let projectName = (get('projectname', 'project_name') || '').toString().trim();
+  let contractRef = (get('contractref', 'contract_ref', 'refcode') || '').toString().trim();
+  const rawProjDpt = (get('proj_dpt') || '').toString().trim();
+  if (rawProjDpt) {
+    const parsed = parseProjDpt(rawProjDpt);
+    if (!jobNo)       jobNo       = parsed.jobNo;
+    if (!productType) productType = parsed.productType;
+    if (!projectName) projectName = parsed.projectName;
+    if (!contractRef) contractRef = parsed.contractRef;
+  }
   return {
-    jobNo: (get('proj_dpt', 'jobno') || '').toString().trim(),
+    jobNo,
+    productType,
+    projectName,
+    contractRef,
     ivNo,
     invoiceDate: normalizeDate((get('invdate', 'inv date', 'date') || '').toString().trim()),
-    balance: parseNum(get('balance')),
-    period: parseNum(get('period')) || 1,
+    balance:     parseNum(get('balance')),
+    remark,
+    customer:    (get('customer') || '').toString().trim(),
+    overDue:     parseNum(get('over_due')),
+    period:      rawPeriod || extractPeriodFromRemark(remark),
   };
+}
+// ดึงเลขงวดจาก remark เช่น "งวดที่ 2 (60%)" → 2
+function extractPeriodFromRemark(remark) {
+  if (!remark) return 1;
+  const m = remark.match(/งวดที่\s*(\d+)/);
+  return m ? (parseInt(m[1]) || 1) : 1;
 }
 function parseNum(s) {
   if (s == null || s === '') return 0;
