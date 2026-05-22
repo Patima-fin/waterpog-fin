@@ -12,6 +12,7 @@ function InvoicesPage({ data, setData, toast }) {
   const [query, setQuery] = ivState('');
   const [detail, setDetail] = ivState(null);
   const [showImport, setShowImport] = ivState(false);
+  const [payModal, setPayModal] = ivState(null); // { iv, draft } สำหรับ QuickPayModal
 
   const { projectByCode, financeByCode } = ivMemo(() => WTPData.buildLookups(data), [data.projects, data.projectFinance]);
 
@@ -90,11 +91,21 @@ function InvoicesPage({ data, setData, toast }) {
 
   // Status quick-set on each row (table-level)
   const updateStatus = (iv, newStatus) => {
-    const patch = { ...iv, status: newStatus };
-    if (newStatus === 'paid' && !patch.actualReceive) {
-      patch.actualReceive = { date: new Date().toISOString().slice(0, 10), amount: iv.balance, bankAccount: '', feeNote: '' };
+    if (newStatus === 'paid') {
+      // เปิด QuickPayModal แทนบันทึกทันที
+      setPayModal({
+        iv,
+        draft: {
+          date: new Date().toISOString().slice(0, 10),
+          amount: iv.balance,
+          bankAccount: '',
+          bankFee: 0,
+          otherFee: 0,
+        },
+      });
+      return;
     }
-    save(patch);
+    save({ ...iv, status: newStatus });
   };
 
   return (
@@ -206,6 +217,19 @@ function InvoicesPage({ data, setData, toast }) {
         projects={data.projects}
         financeByCode={financeByCode}
         projectByCode={projectByCode}
+      />
+
+      <QuickPayModal
+        open={!!payModal}
+        iv={payModal?.iv}
+        draft={payModal?.draft}
+        bankAccounts={data.bankAccounts}
+        onChangeDraft={(patch) => setPayModal(pm => pm ? { ...pm, draft: { ...pm.draft, ...patch } } : pm)}
+        onConfirm={(ar) => {
+          save({ ...payModal.iv, status: 'paid', actualReceive: ar });
+          setPayModal(null);
+        }}
+        onCancel={() => setPayModal(null)}
       />
 
       <ImportRawIvModal
@@ -542,6 +566,85 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
+// QuickPayModal — popup รับข้อมูลชำระเงิน เมื่อเลือก "รับชำระแล้ว" จาก dropdown
+// ────────────────────────────────────────────────────────────────────────────
+function QuickPayModal({ open, iv, draft, bankAccounts, onChangeDraft, onConfirm, onCancel }) {
+  if (!open || !iv || !draft) return null;
+
+  const netCash = (draft.amount || 0) - (draft.bankFee || 0) - (draft.otherFee || 0);
+
+  return (
+    <div className="modal-back" onClick={onCancel}>
+      <div className="modal" style={{ maxWidth: 480, width: '95vw' }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-hd">
+          <div>
+            <div className="modal-title" style={{ fontSize: 16 }}>บันทึกรับชำระเงิน</div>
+            <div style={{ fontSize: 12, color: 'var(--ink-400)', marginTop: 2 }}>
+              {iv.ivNo} · {iv.projectName} · Balance {fmtNum(iv.balance, 0)} ฿
+            </div>
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={onCancel}><Icon name="x" size={16} /></button>
+        </div>
+
+        <div className="modal-body" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 16px', padding: '20px 24px' }}>
+
+          <div className="field" style={{ gridColumn: '1/-1' }}>
+            <label>วันที่รับจริง</label>
+            <input className="input" type="date" value={draft.date || ''} onChange={(e) => onChangeDraft({ date: e.target.value })} />
+          </div>
+
+          <div className="field" style={{ gridColumn: '1/-1' }}>
+            <label>จำนวนเงินที่ได้รับจริง (฿)</label>
+            <input className="input" type="number" value={draft.amount ?? ''} onChange={(e) => onChangeDraft({ amount: Number(e.target.value) })} style={{ fontFamily: 'ui-monospace', textAlign: 'right' }} />
+          </div>
+
+          <div className="field">
+            <label>ค่าธรรมเนียมธนาคาร (฿)</label>
+            <input className="input" type="number" value={draft.bankFee ?? 0} onChange={(e) => onChangeDraft({ bankFee: Number(e.target.value) })} style={{ fontFamily: 'ui-monospace', textAlign: 'right' }} />
+          </div>
+
+          <div className="field">
+            <label>ค่าใช้จ่ายอื่น ๆ (฿)</label>
+            <input className="input" type="number" value={draft.otherFee ?? 0} onChange={(e) => onChangeDraft({ otherFee: Number(e.target.value) })} style={{ fontFamily: 'ui-monospace', textAlign: 'right' }} />
+          </div>
+
+          <div className="field" style={{ gridColumn: '1/-1' }}>
+            <label>เข้าบัญชี</label>
+            <select className="select input" value={draft.bankAccount || ''} onChange={(e) => onChangeDraft({ bankAccount: e.target.value })}>
+              <option value="">— เลือกบัญชี —</option>
+              {(bankAccounts || []).map(b => (
+                <option key={b.id} value={`${b.BANK_NAME || b.bankName} ${b.Bank_AC || b.accountNo}`}>
+                  {b.BANK_NAME || b.bankName} · {b.Bank_AC || b.accountNo}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* สรุปยอดสุทธิ */}
+          <div style={{ gridColumn: '1/-1', background: 'color-mix(in oklch, var(--good) 9%, transparent)', border: '1px solid color-mix(in oklch, var(--good) 22%, transparent)', borderRadius: 9, padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 12, color: 'var(--ink-400)' }}>เงินเข้าบัญชีสุทธิ</span>
+            <span style={{ fontFamily: 'ui-monospace', fontWeight: 700, fontSize: 16, color: netCash < 0 ? 'var(--bad)' : 'var(--good)' }}>
+              {fmtNum(netCash, 0)} ฿
+            </span>
+          </div>
+        </div>
+
+        <div className="modal-foot">
+          <button className="btn btn-ghost" onClick={onCancel}>ยกเลิก</button>
+          <button
+            className="btn btn-primary"
+            onClick={() => onConfirm(draft)}
+            disabled={!draft.date || !draft.amount}
+          >
+            <Icon name="check" size={13} /> ยืนยันรับชำระแล้ว
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Import RAW_IV_OUTSTANDING — paste TSV/CSV → auto-detect new IVs vs existing
 // ────────────────────────────────────────────────────────────────────────────
 function ImportRawIvModal({ open, onClose, existing, onImport }) {
