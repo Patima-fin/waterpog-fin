@@ -10,7 +10,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
   const todayStr   = new Date().toISOString().slice(0, 10);
   const thisMonth  = todayStr.slice(0, 7);
   const thisYear   = todayStr.slice(0, 4);
-  const todayLabel = new Date(todayStr + 'T00:00:00').toLocaleDateString('th-TH', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
+  const todayLabel = new Date(todayStr + 'T00:00:00').toLocaleDateString('th-TH-u-ca-gregory', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
 
   const [drillModal, setDrillModal] = dRState(null); // { title, list }
 
@@ -47,7 +47,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: 11, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '.1em' }}>วันที่</div>
             <div style={{ fontSize: 28, fontWeight: 700, marginTop: 2, letterSpacing: '.02em' }}>
-              {new Date(todayStr + 'T00:00:00').toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+              {fmtDate(todayStr)}
             </div>
           </div>
         </div>

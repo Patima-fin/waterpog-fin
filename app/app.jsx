@@ -273,7 +273,7 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
 
 function Topbar({ route, routes, data, onReset }) {
   const r = routes[route] || routes.daily;
-  const today = new Date().toLocaleDateString('th-TH', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
+  const today = new Date().toLocaleDateString('th-TH-u-ca-gregory', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
   const isPresentation = ['daily', 'warroom1', 'warroom2', 'cashflow'].includes(route);
   return (
     <div className="topbar">

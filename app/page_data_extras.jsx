@@ -931,11 +931,11 @@ function DataPayablePage({ data, setData, toast }) {
                 const vt = { verticalAlign: 'top', paddingTop: 10, paddingBottom: 10 };
                 return (
                   <tr key={row.id} onClick={() => setEdit(row)} style={{ cursor: 'pointer' }}>
-                    <td style={{ ...vt, whiteSpace: 'nowrap', color: 'var(--ink-600)' }}>{row.vchdate || '—'}</td>
+                    <td style={{ ...vt, whiteSpace: 'nowrap', color: 'var(--ink-600)' }}>{fmtDate(row.vchdate) || row.vchdate || '—'}</td>
                     <td style={vt}><span style={{ fontWeight: 600, color: 'var(--brand-700)', fontFamily: 'ui-monospace' }}>{row.vchno || '—'}</span></td>
                     <td style={vt}>{row.cust_name || <span className="muted">—</span>}</td>
                     <td style={vt}>{row.dpt_code ? <Badge kind="b-blue" dot={false}>{row.dpt_code}</Badge> : <span className="muted">—</span>}</td>
-                    <td style={{ ...vt, whiteSpace: 'nowrap', color: dueColor }}>{row.due2 || row.due || <span className="muted">—</span>}</td>
+                    <td style={{ ...vt, whiteSpace: 'nowrap', color: dueColor }}>{fmtDate(row.due2 || row.due) || row.due2 || row.due || <span className="muted">—</span>}</td>
                     <td style={{ ...vt, textAlign: 'center' }}>
                       {days === null ? <span className="muted">—</span>
                         : days < 0 ? <span style={{ background: 'var(--bad)', color: '#fff', borderRadius: 5, padding: '2px 6px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>{Math.abs(days)} วัน</span>
