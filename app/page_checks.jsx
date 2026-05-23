@@ -18,9 +18,20 @@ const CHECKS_STATUS_META = {
   cancelled: { label:'ยกเลิก',    color:'b-gray' },
 };
 
-const ChecksPage = () => {
-  const data = WTPData.load();
-  const checks = data.checks || [];
+// Normalize Thai status values (imported from RAW) → internal status codes
+function normStatus(s) {
+  if (!s) return 'pending';
+  if (s === 'จ่ายแล้ว' || s === 'ขึ้นเงินแล้ว' || s.indexOf('ได้รับคืน') >= 0 || s.indexOf('ได้รับเช็คคืน') >= 0) return 'cleared';
+  if (s.indexOf('รอ') >= 0) return 'clearing';
+  if (s.indexOf('ยกเลิก') >= 0 || s.indexOf('เด้ง') >= 0) return 'cancelled';
+  return 'pending';
+}
+
+const ChecksPage = ({ data: propData }) => {
+  const data = propData || WTPData.load();
+  const rawChecks = data.checks || [];
+  // Normalize status so existing tabs/filters work with imported Thai-status data
+  const checks = React.useMemo(() => rawChecks.map(c => ({ ...c, status: normStatus(c.status) })), [rawChecks]);
   const today  = new Date().toISOString().slice(0, 10);
   const in7    = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
 

@@ -141,7 +141,7 @@ function App() {
     case 'bank_diary':     page = <BankDiaryPage data={data} setData={setData} toast={pushToast} />; break;
     case 'interest_calc':  page = <InterestCalcPage data={data} />; break;
     case 'sts_calc':       page = <StsCalcPage data={data} />; break;
-    case 'checks':         page = <ChecksPage />; break;
+    case 'checks':         page = <ChecksPage data={data} />; break;
     case 'data_forecast':  page = <ForecastEntriesPage data={data} setData={setData} toast={pushToast} />; break;
     case 'data_bank':      page = <DataBankPage data={data} setData={setData} toast={pushToast} />; break;
     case 'data_pv':        page = <DataPVPage data={data} setData={setData} toast={pushToast} />; break;
