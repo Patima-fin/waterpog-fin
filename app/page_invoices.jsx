@@ -259,6 +259,30 @@ function InvoicesPage({ data, setData, toast }) {
   );
 }
 
+/* ── Formatted money input — shows xx,xxx.xx when not focused ───────────── */
+function IvAmountInput({ value, onChange }) {
+  const [focused, setFocused] = ivState(false);
+  const [raw, setRaw]         = ivState('');
+  const numVal = (value == null || value === '') ? 0 : (typeof value === 'number' ? value : parseFloat(String(value).replace(/,/g, '')) || 0);
+  const display = numVal === 0 ? '' : fmtNum(numVal, 2);
+  return (
+    <div style={{ position: 'relative' }}>
+      <input
+        className="input"
+        type="text"
+        inputMode="decimal"
+        value={focused ? raw : display}
+        onChange={e => setRaw(e.target.value)}
+        onFocus={e => { setFocused(true); setRaw(numVal === 0 ? '' : String(numVal)); setTimeout(() => e.target.select(), 0); }}
+        onBlur={() => { const n = parseFloat(String(raw).replace(/,/g, '')) || 0; onChange(n); setFocused(false); }}
+        placeholder="0.00"
+        style={{ textAlign: 'right', paddingRight: 24, fontFamily: 'ui-monospace', fontWeight: 600 }}
+      />
+      <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: 'var(--ink-400)', pointerEvents: 'none' }}>฿</span>
+    </div>
+  );
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Detail modal: landscape split — read-only system data (left) + tracking (right)
 // ────────────────────────────────────────────────────────────────────────────
@@ -365,7 +389,14 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
   return (
     <Modal
       open={!!iv}
-      title={<span style={{ fontFamily: 'ui-monospace', fontWeight: 700 }}>{draft.ivNo || 'IV ใหม่'}</span>}
+      title={isNew ? 'IV ใหม่' : (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <Badge kind={s.badge}>{s.label}</Badge>
+          <span style={{ fontFamily: 'ui-monospace', fontWeight: 700, color: 'var(--brand-700)', fontSize: 13 }}>{draft.jobNo || '—'}</span>
+          <span style={{ color: 'var(--ink-300)', fontSize: 12 }}>·</span>
+          <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink-700)' }}>{project?.['พื้นที่'] || project?.name || iv.projectName || '—'}</span>
+        </div>
+      )}
       maxWidth={920}
       onClose={onClose}
       footer={<>
@@ -407,14 +438,6 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
       ) : (
         /* ── EXISTING INVOICE: flex layout — each field sized to content ─────── */
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-
-          {/* ── Top summary strip ──────────────────────────────────────────── */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', background: 'var(--brand-50, #eef5ff)', borderRadius: 9, border: '1px solid color-mix(in oklch, var(--brand-500) 15%, transparent)', flexWrap: 'wrap' }}>
-            <Badge kind={s.badge}>{s.label}</Badge>
-            <span style={{ fontFamily: 'ui-monospace', fontWeight: 700, color: 'var(--brand-700)', fontSize: 13, letterSpacing: '0.02em' }}>{draft.jobNo || '—'}</span>
-            <span style={{ color: 'var(--ink-300)', fontSize: 13 }}>·</span>
-            <span style={{ fontSize: 13, color: 'var(--ink-700)', fontWeight: 500, lineHeight: 1.3 }}>{project?.['พื้นที่'] || project?.name || iv.projectName || '—'}</span>
-          </div>
 
           {/* ── ข้อมูลจากระบบ ──────────────────────────────────────────────── */}
           <div>
@@ -501,7 +524,7 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
                   </table>
                 )}
               </div>
-              <div style={{ borderTop: '1px solid var(--ink-100)', padding: '7px 8px', background: 'var(--brand-50, #f0f6ff)', display: 'grid', gridTemplateColumns: '100px 1fr 60px', gap: 6, alignItems: 'end' }}>
+              <div style={{ borderTop: '1px solid var(--ink-100)', padding: '7px 8px', background: 'var(--brand-50, #f0f6ff)', display: 'grid', gridTemplateColumns: '135px 1fr 60px', gap: 6, alignItems: 'end' }}>
                 <input className="input input-cell" type="date" value={newLog.date} onChange={(e) => setNewLog(s => ({ ...s, date: e.target.value }))} style={{ fontSize: 11.5 }} />
                 <input className="input input-cell" placeholder="บันทึกการติดตาม…" value={newLog.note} onChange={(e) => setNewLog(s => ({ ...s, note: e.target.value }))} style={{ fontSize: 11.5 }}
                   onKeyDown={(e) => e.key === 'Enter' && addLog()} />
@@ -524,23 +547,14 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
                 <div className="field" style={{ width: 128 }}><label style={{ fontSize: 12 }}>วันที่รับจริง</label>
                   <input className="input" type="date" value={ar.date || ''} onChange={(e) => setReceive({ date: e.target.value })} />
                 </div>
-                <div className="field" style={{ width: 140 }}><label style={{ fontSize: 12 }}>จำนวนที่ได้รับ{isPaid && <span style={{ color: 'var(--bad)', marginLeft: 3 }}>*</span>}</label>
-                  <div style={{ position: 'relative' }}>
-                    <input className="input" type="number" value={ar.amount || ''} onChange={(e) => { setReceive({ amount: Number(e.target.value) }); setSaveError(''); }} style={{ textAlign: 'right', paddingRight: 24, fontWeight: 600, fontFamily: 'ui-monospace' }} />
-                    <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: 'var(--ink-400)' }}>฿</span>
-                  </div>
+                <div className="field" style={{ width: 148 }}><label style={{ fontSize: 12 }}>จำนวนที่ได้รับ{isPaid && <span style={{ color: 'var(--bad)', marginLeft: 3 }}>*</span>}</label>
+                  <IvAmountInput value={ar.amount} onChange={(n) => { setReceive({ amount: n }); setSaveError(''); }} />
                 </div>
                 <div className="field" style={{ width: 148 }}><label style={{ fontSize: 12 }}>ค่าธรรมเนียมธนาคาร</label>
-                  <div style={{ position: 'relative' }}>
-                    <input className="input" type="number" value={ar.bankFee || ''} onChange={(e) => setReceive({ bankFee: Number(e.target.value) })} style={{ textAlign: 'right', paddingRight: 24, fontFamily: 'ui-monospace' }} placeholder="0" />
-                    <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: 'var(--ink-400)' }}>฿</span>
-                  </div>
+                  <IvAmountInput value={ar.bankFee} onChange={(n) => setReceive({ bankFee: n })} />
                 </div>
                 <div className="field" style={{ width: 110 }}><label style={{ fontSize: 12 }}>ค่าอื่นๆ</label>
-                  <div style={{ position: 'relative' }}>
-                    <input className="input" type="number" value={ar.otherFee || ''} onChange={(e) => setReceive({ otherFee: Number(e.target.value) })} style={{ textAlign: 'right', paddingRight: 24, fontFamily: 'ui-monospace' }} placeholder="0" />
-                    <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: 'var(--ink-400)' }}>฿</span>
-                  </div>
+                  <IvAmountInput value={ar.otherFee} onChange={(n) => setReceive({ otherFee: n })} />
                 </div>
                 {/* row 2 */}
                 <div style={{ width: '100%', height: 0 }} />
