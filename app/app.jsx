@@ -193,6 +193,9 @@ function App() {
 }
 
 function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, currentUser, onLogout }) {
+  const [sec, setSec] = aState({ dash: true, reports: true, manage: true });
+  const tog = k => setSec(p => ({ ...p, [k]: !p[k] }));
+
   const syncLabel = (() => {
     if (!syncInfo || syncInfo.status === 'offline') return 'Offline — ใช้ข้อมูล Local';
     if (syncInfo.status === 'syncing') return 'กำลัง sync…';
@@ -223,8 +226,31 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
     interest_calc: null,
     checks:        data.checks?.filter(c => c.status === 'pending' || c.status === 'clearing').length || null,
   };
+
+  const secHdrStyle = {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    cursor: 'pointer', userSelect: 'none', WebkitUserSelect: 'none',
+  };
+  const chevron = (open) => (
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round"
+      style={{ transform: open ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 180ms ease', flexShrink: 0, opacity: 0.55 }}>
+      <polyline points="6 9 12 15 18 9"/>
+    </svg>
+  );
+
+  const navItems = (items) => items.map(([key, label, icon]) => (
+    <button key={key} className={`sb-link ${route === key ? 'active' : ''}`} onClick={() => go(key)}>
+      <Icon name={icon} className="sb-icon" />
+      <span>{label}</span>
+      {counts[key] != null && <span className="sb-pill">{counts[key]}</span>}
+    </button>
+  ));
+
   return (
-    <aside className="sb" style={sidebarStyle === 'minimal' ? { background: 'transparent', borderRight: '1px solid var(--line)' } : {}}>
+    <aside className="sb" style={{
+      ...(sidebarStyle === 'minimal' ? { background: 'transparent', borderRight: '1px solid var(--line)' } : {}),
+      display: 'flex', flexDirection: 'column',
+    }}>
       <div className="sb-brand">
         <div className="sb-logo">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
@@ -237,59 +263,51 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
         </div>
       </div>
 
-      <div>
-        <div className="sb-section">แดชบอร์ด</div>
-        {[
-          ['daily',    'รายงานรับเงินรายวัน',    'daily'],
-          ['warroom1', 'War Room · รายรับ',       'receivables'],
-          ['warroom2', 'War Room · รายปี',        'forecast'],
-          ['cashflow', 'กระแสเงินสดรายสัปดาห์', 'chart'],
-        ].map(([key, label, icon]) => (
-          <button key={key} className={`sb-link ${route === key ? 'active' : ''}`} onClick={() => go(key)}>
-            <Icon name={icon} className="sb-icon" />
-            <span>{label}</span>
-            {counts[key] != null && <span className="sb-pill">{counts[key]}</span>}
-          </button>
-        ))}
-      </div>
+      {/* ── Scrollable nav area ── */}
+      <nav style={{ flex: 1, overflowY: 'auto', minHeight: 0, paddingBottom: 6 }}>
+        <div>
+          <div className="sb-section" style={secHdrStyle} onClick={() => tog('dash')}>
+            <span>แดชบอร์ด</span>{chevron(sec.dash)}
+          </div>
+          {sec.dash && navItems([
+            ['daily',    'รายงานรับเงินรายวัน',    'daily'],
+            ['warroom1', 'War Room · รายรับ',       'receivables'],
+            ['warroom2', 'War Room · รายปี',        'forecast'],
+            ['cashflow', 'กระแสเงินสดรายสัปดาห์', 'chart'],
+          ])}
+        </div>
 
-      <div>
-        <div className="sb-section">รายงาน / วิเคราะห์</div>
-        {[
-          ['debt',        'ภาระหนี้ทั้งหมด',       'money'],
-          ['debt_ledger', 'Debt Ledger · ดอกเบี้ย','money'],
-          ['iv_report',   'รายงานติดตาม IV',       'invoice'],
-          ['receipts',    'ประวัติรับเงิน',         'receivables'],
-          ['bank_diary',    'Bank Diary',             'bank'],
-          ['interest_calc', 'คำนวณดอกเบี้ย',        'money'],
-        ].map(([key, label, icon]) => (
-          <button key={key} className={`sb-link ${route === key ? 'active' : ''}`} onClick={() => go(key)}>
-            <Icon name={icon} className="sb-icon" />
-            <span>{label}</span>
-            {counts[key] != null && <span className="sb-pill">{counts[key]}</span>}
-          </button>
-        ))}
-      </div>
+        <div>
+          <div className="sb-section" style={secHdrStyle} onClick={() => tog('reports')}>
+            <span>รายงาน / วิเคราะห์</span>{chevron(sec.reports)}
+          </div>
+          {sec.reports && navItems([
+            ['debt',          'ภาระหนี้ทั้งหมด',       'money'],
+            ['debt_ledger',   'Debt Ledger · ดอกเบี้ย','money'],
+            ['iv_report',     'รายงานติดตาม IV',       'invoice'],
+            ['receipts',      'ประวัติรับเงิน',         'receivables'],
+            ['bank_diary',    'Bank Diary',             'bank'],
+            ['interest_calc', 'คำนวณดอกเบี้ย',         'money'],
+          ])}
+        </div>
 
-      <div>
-        <div className="sb-section">จัดการข้อมูล</div>
-        {[
-          ['projects',      'โครงการ',          'projects'],
-          ['invoices',      'ลูกหนี้คงค้าง',    'invoice'],
-          ['checks',        'เช็คจ่ายล่วงหน้า', 'money'],
-          ['data_forecast', 'ประมาณการรายจ่าย', 'forecast'],
-          ['data_bank',     'บัญชีธนาคาร',      'bank'],
-          ['data_pv',       'ใบสำคัญจ่าย',      'money'],
-          ['data_payable',  'เจ้าหนี้คงค้าง',   'arrow_up'],
-        ].map(([key, label, icon]) => (
-          <button key={key} className={`sb-link ${route === key ? 'active' : ''}`} onClick={() => go(key)}>
-            <Icon name={icon} className="sb-icon" />
-            <span>{label}</span>
-            {counts[key] != null && <span className="sb-pill">{counts[key]}</span>}
-          </button>
-        ))}
-      </div>
+        <div>
+          <div className="sb-section" style={secHdrStyle} onClick={() => tog('manage')}>
+            <span>จัดการข้อมูล</span>{chevron(sec.manage)}
+          </div>
+          {sec.manage && navItems([
+            ['projects',      'โครงการ',          'projects'],
+            ['invoices',      'ลูกหนี้คงค้าง',    'invoice'],
+            ['checks',        'เช็คจ่ายล่วงหน้า', 'money'],
+            ['data_forecast', 'ประมาณการรายจ่าย', 'forecast'],
+            ['data_bank',     'บัญชีธนาคาร',      'bank'],
+            ['data_pv',       'ใบสำคัญจ่าย',      'money'],
+            ['data_payable',  'เจ้าหนี้คงค้าง',   'arrow_up'],
+          ])}
+        </div>
+      </nav>
 
+      {/* ── Pinned user / logout ── */}
       <div className="sb-user">
         <div className="sb-avatar">{currentUser ? currentUser.displayName.slice(0,2) : 'FA'}</div>
         <div style={{ flex: 1, minWidth: 0 }}>
