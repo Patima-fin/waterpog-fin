@@ -32,13 +32,13 @@
                        'bankAccounts', 'pvVouchers', 'payables',
                        'debtLedger', 'receipts', 'bankEntries', 'checks',
                        'debtMaster', 'bankTransfers',
-                       'stsServiceFee', 'stsPendingCalc', 'stsCalcResult'];
+                       'stsServiceFee', 'stsPendingCalc', 'stsCalcResult',
+                       'debtEvents'];
 
   // jsonFields per entity — for proper rowsToObjects parsing during safety re-fetch
   var ENTITY_JSON_FIELDS = {
     invoices:      ['followUps', 'actualReceive'],
     stsCalcResult: ['debtIds'],
-    debtMaster:    ['drawdowns','repayments'],
   };
 
   /* ── state ──────────────────────────────────────────────────────── */
@@ -173,6 +173,7 @@
       'debtLedger', 'receipts', 'bankEntries', 'checks',
       'debtMaster', 'bankTransfers',
       'stsServiceFee', 'stsPendingCalc', 'stsCalcResult',
+      'debtEvents',
     ];
 
     return Promise.all(sheetOrder.map(fetchSheet)).then(function (results) {
@@ -201,11 +202,12 @@
       var receipts        = rowsToObjects(results[i++]);
       var bankEntries     = rowsToObjects(results[i++]);
       var checks          = rowsToObjects(results[i++]);
-      var debtMaster      = rowsToObjects(results[i++], ['drawdowns','repayments']);
+      var debtMaster      = rowsToObjects(results[i++]);
       var bankTransfers   = rowsToObjects(results[i++]);
       var stsServiceFee   = rowsToObjects(results[i++]);
       var stsPendingCalc  = rowsToObjects(results[i++]);
       var stsCalcResult   = rowsToObjects(results[i++], ['debtIds']);
+      var debtEvents      = rowsToObjects(results[i++]);
 
       var data = {
         meta: {
@@ -297,6 +299,7 @@
         stsServiceFee:   stsServiceFee,
         stsPendingCalc:  stsPendingCalc,
         stsCalcResult:   stsCalcResult,
+        debtEvents:      debtEvents,
       };
 
       // Cache snapshots so the next save doesn't re-push unchanged entities

@@ -48,6 +48,7 @@ var SHEETS = {
   STS_SERVICE_FEE:  'stsServiceFee',
   STS_PENDING_CALC: 'stsPendingCalc',
   STS_CALC_RESULT:  'stsCalcResult',
+  DEBT_EVENTS:      'debtEvents',
 };
 
 /* ── 1. WEB APP ENDPOINTS ───────────────────────────────────────── */
@@ -131,6 +132,7 @@ function getAll() {
     stsServiceFee:         readTable(SHEETS.STS_SERVICE_FEE),
     stsPendingCalc:        readTable(SHEETS.STS_PENDING_CALC),
     stsCalcResult:         readTable(SHEETS.STS_CALC_RESULT),
+    debtEvents:            readTable(SHEETS.DEBT_EVENTS),
   };
 }
 
@@ -161,6 +163,7 @@ function getEntity(name) {
     case 'stsServiceFee':         return readTable(SHEETS.STS_SERVICE_FEE);
     case 'stsPendingCalc':        return readTable(SHEETS.STS_PENDING_CALC);
     case 'stsCalcResult':         return readTable(SHEETS.STS_CALC_RESULT);
+    case 'debtEvents':            return readTable(SHEETS.DEBT_EVENTS);
   }
   return { error: 'unknown entity: ' + name };
 }
@@ -178,7 +181,8 @@ var JSON_FIELDS = {
   receipts:        [],
   bankEntries:     [],
   checks:          [],
-  debtMaster:      ['drawdowns','repayments'],
+  debtMaster:      [],
+  debtEvents:      [],
   bankTransfers:   [],
   stsServiceFee:   [],
   stsPendingCalc:  [],
@@ -434,12 +438,12 @@ var ENTITY_HEADERS = {
     'receiveDate','payDate',
     'principalIn','principalOut','balance',
     'projectCode','projectName','note',
-    // v2.1: multi-drawdown + multi-repayment per contract (JSON arrays)
-    // drawdowns:  [{"date":"YYYY-MM-DD","amount":N,"note":""}, ...]  เงินกู้เพิ่มครั้งที่ 2+
-    // repayments: [{"date":"YYYY-MM-DD","amount":N,"note":""}, ...]  การคืนเงินกู้
-    // (primary drawdown is in receiveDate + principalAmount above;
-    //  outstanding = principalAmount + sum(drawdowns) − sum(repayments))
-    'drawdowns','repayments'
+    // Note: multi-drawdown + multi-repayment ย้ายไปอยู่ตาราง debtEvents
+    // 1 contract = 1 row here; ทุก event (drawdown/repayment) = row ในตาราง debtEvents
+    // (primary drawdown ครั้งที่ 1 ยังอยู่ใน receiveDate + principalAmount เพื่อ backward-compat)
+  ],
+  debtEvents: [
+    'id','contractId','contractNo','eventType','eventDate','amount','note'
   ],
   bankTransfers: [
     'id','maincode','acct_no','PL_PV_No','paytype','Type_of_Pmt',
@@ -479,6 +483,7 @@ function _entitySheet(entity) {
     stsServiceFee:   SHEETS.STS_SERVICE_FEE,
     stsPendingCalc:  SHEETS.STS_PENDING_CALC,
     stsCalcResult:   SHEETS.STS_CALC_RESULT,
+    debtEvents:      SHEETS.DEBT_EVENTS,
   };
   if (!map[entity]) throw new Error('CRUD ไม่รองรับ entity: ' + entity);
   return { name: map[entity], headers: ENTITY_HEADERS[entity] };
@@ -649,6 +654,7 @@ function ensureV2Headers() {
     stsServiceFee:   SHEETS.STS_SERVICE_FEE,
     stsPendingCalc:  SHEETS.STS_PENDING_CALC,
     stsCalcResult:   SHEETS.STS_CALC_RESULT,
+    debtEvents:      SHEETS.DEBT_EVENTS,
   };
   var results = [];
   Object.keys(entityMap).forEach(function (entity) {

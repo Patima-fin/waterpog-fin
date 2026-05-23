@@ -21,25 +21,20 @@ function simpleInterest(p, r, days) {
 function bMoney(n) { return (Number(n) || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
 function bMoney2(n) { return (Number(n) || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
-// Expand a debtMaster row into a list of {date, amount, rate, note} drawdowns.
-// Includes the primary (receiveDate + principalAmount) AND any rows in the
-// drawdowns JSON column.
-function expandDrawdowns(row) {
+// Expand a debtMaster row into a list of drawdown legs:
+// (a) the primary drawdown (receiveDate + principalAmount), plus
+// (b) every debtEvents row with type='drawdown' for this contract.
+function expandDrawdowns(row, allEvents) {
   const out = [];
   const rate = Number(row.interestRate) || 0;
   if (row.receiveDate && Number(row.principalAmount)) {
     out.push({ date: row.receiveDate, amount: Number(row.principalAmount), rate, note: 'ครั้งที่ 1' });
   }
-  // drawdowns may be already-parsed array, or a JSON string
-  let extras = row.drawdowns;
-  if (typeof extras === 'string' && extras.length > 1) {
-    try { extras = JSON.parse(extras); } catch { extras = []; }
-  }
-  if (Array.isArray(extras)) {
-    extras.forEach(d => {
-      if (d && d.amount) out.push({ date: d.date, amount: Number(d.amount), rate, note: d.note || '' });
-    });
-  }
+  (allEvents || []).filter(e =>
+    e.eventType === 'drawdown' && (e.contractId === row.id || e.contractNo === row.contractNo)
+  ).forEach(e => {
+    out.push({ date: e.eventDate, amount: Number(e.amount), rate, note: e.note || '' });
+  });
   return out;
 }
 
@@ -91,21 +86,21 @@ function legInterest(drawdownDate, receiveDate, principal, rate) {
 }
 
 // Compute full STS calc — STS leg(s) + WCI-Project legs combined
-// match = { sts, stsAll, wciList, jobNo }
-function computeStsRow(receipt, match, params) {
+// match = { sts, wci, jobNo }; debtEvents from data
+function computeStsRow(receipt, match, params, debtEvents) {
   const mgmtRate    = Number(params.mgmtRate) || DEFAULT_MGMT_FEE_RATE;
   const whtMgmt     = Number(params.whtMgmt) || DEFAULT_WHT_MGMT;
   const whtInt      = Number(params.whtInterest) || DEFAULT_WHT_INTEREST;
   const receiveDate = receipt.receiptDate;
   const baseAmount  = Number(receipt.grossAmount) || 0;
 
-  // STS legs (primary + JSON drawdowns)
-  const stsDraws = match.sts ? expandDrawdowns(match.sts) : [];
+  // STS legs (primary + debtEvents drawdowns)
+  const stsDraws = match.sts ? expandDrawdowns(match.sts, debtEvents) : [];
   const stsLegs = stsDraws.map(d =>
     legInterest(d.date, receiveDate, d.amount, d.rate || DEFAULT_STS_INT_RATE)
   );
   // WCI legs
-  const wciDraws = match.wci ? expandDrawdowns(match.wci) : [];
+  const wciDraws = match.wci ? expandDrawdowns(match.wci, debtEvents) : [];
   const wciLegs = wciDraws.map(d =>
     legInterest(d.date, receiveDate, d.amount, d.rate || 0.10)
   );
@@ -137,7 +132,7 @@ function computeStsRow(receipt, match, params) {
 }
 
 // ── Drawer for a single receipt ───────────────────────────────────────────
-function StsCalcDrawer({ receipt, match, calcResult, isOpen, onClose, onConfirm, params, setParams }) {
+function StsCalcDrawer({ receipt, match, calcResult, isOpen, onClose, onConfirm, params, setParams, debtEvents }) {
   if (!isOpen) return null;
   const contract = match?.sts;
   if (!contract) {
@@ -156,7 +151,7 @@ function StsCalcDrawer({ receipt, match, calcResult, isOpen, onClose, onConfirm,
       </div>
     );
   }
-  const c = computeStsRow(receipt, match, params);
+  const c = computeStsRow(receipt, match, params, debtEvents);
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
       <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, width: 'min(880px, 95vw)', maxHeight: '90vh', overflow: 'auto' }}>
@@ -274,6 +269,7 @@ function StsCalcDrawer({ receipt, match, calcResult, isOpen, onClose, onConfirm,
 function StsWorkflowPage({ data, setData, toast }) {
   const receipts     = data?.receipts || [];
   const debtMaster   = data?.debtMaster || [];
+  const debtEvents   = data?.debtEvents || [];
   const invoices     = data?.invoices || [];
   const calcResults  = data?.stsCalcResult || [];
   const [params, setParams] = React.useState({
@@ -307,7 +303,7 @@ function StsWorkflowPage({ data, setData, toast }) {
   const doneCount    = matched.filter(m =>  m.result).length;
   let totalSts = 0, totalWci = 0, totalEncompass = 0;
   matched.forEach(m => {
-    const c = computeStsRow(m.receipt, m.match, params);
+    const c = computeStsRow(m.receipt, m.match, params, debtEvents);
     totalSts      += c.stsInterest;
     totalWci      += c.wciInterest;
     totalEncompass+= c.encompassPayable;
@@ -401,11 +397,11 @@ function StsWorkflowPage({ data, setData, toast }) {
               </thead>
               <tbody>
                 {filtered.map(m => {
-                  const c = computeStsRow(m.receipt, m.match, params);
+                  const c = computeStsRow(m.receipt, m.match, params, debtEvents);
                   const isDone = !!m.result;
                   const sts = m.match.sts;
-                  const wciCount = m.match.wci ? expandDrawdowns(m.match.wci).length : 0;
-                  const stsCount = sts ? expandDrawdowns(sts).length : 0;
+                  const wciCount = m.match.wci ? expandDrawdowns(m.match.wci, debtEvents).length : 0;
+                  const stsCount = sts ? expandDrawdowns(sts, debtEvents).length : 0;
                   return (
                     <tr key={m.receipt.id} onClick={() => setOpenReceiptId(m.receipt.id)} style={{ cursor: 'pointer', background: isDone ? '#f0fdf4' : undefined }}>
                       <td>{fmtDate(m.receipt.receiptDate)}</td>
@@ -447,6 +443,7 @@ function StsWorkflowPage({ data, setData, toast }) {
         onConfirm={handleConfirm}
         params={params}
         setParams={setParams}
+        debtEvents={debtEvents}
       />
     </div>
   );
