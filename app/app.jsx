@@ -232,8 +232,8 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
     cursor: 'pointer', userSelect: 'none', WebkitUserSelect: 'none',
   };
   const chevron = (open) => (
-    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round"
-      style={{ transform: open ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 180ms ease', flexShrink: 0, opacity: 0.55 }}>
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
+      style={{ transform: open ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 180ms ease', flexShrink: 0, color: 'var(--ink-400)' }}>
       <polyline points="6 9 12 15 18 9"/>
     </svg>
   );
