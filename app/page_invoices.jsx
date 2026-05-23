@@ -372,7 +372,7 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
           <span style={{ fontSize: 13, fontWeight: 500 }}>· {project?.['พื้นที่'] || project?.name || '—'}</span>
         </div>
       }
-      maxWidth={760}
+      maxWidth={920}
       onClose={onClose}
       footer={<>
         <button className="btn btn-ghost" onClick={onClose}>ยกเลิก</button>
@@ -414,14 +414,21 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
         /* ── EXISTING INVOICE: flex layout — each field sized to content ─────── */
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
+          {/* ── Top summary strip ──────────────────────────────────────────── */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', background: 'var(--brand-50, #eef5ff)', borderRadius: 9, border: '1px solid color-mix(in oklch, var(--brand-500) 15%, transparent)', flexWrap: 'wrap' }}>
+            <Badge kind={s.badge}>{s.label}</Badge>
+            <span style={{ fontFamily: 'ui-monospace', fontWeight: 700, color: 'var(--brand-700)', fontSize: 13, letterSpacing: '0.02em' }}>{draft.jobNo || '—'}</span>
+            <span style={{ color: 'var(--ink-300)', fontSize: 13 }}>·</span>
+            <span style={{ fontSize: 13, color: 'var(--ink-700)', fontWeight: 500, lineHeight: 1.3 }}>{project?.['พื้นที่'] || project?.name || iv.projectName || '—'}</span>
+          </div>
+
           {/* ── ข้อมูลจากระบบ ──────────────────────────────────────────────── */}
           <div>
             <SectionHdr label="ข้อมูลจากระบบ — แก้ไขไม่ได้" icon="lock" muted />
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 14px' }}>
-              <ROField fkey="jobNo"       label="Job no"   mono style={{ width: 110 }} />
-              <ROField fkey="ivNo"        label="เลขที่ IV" mono style={{ width: 148 }} />
-              <ROField fkey="invoiceDate" label="วันที่ IV"      style={{ width: 128 }} />
-              <RONum   value={draft.balance} label="Balance"     style={{ width: 148 }} />
+              <ROField fkey="invoiceDate" label="วันที่ IV"       style={{ width: 128 }} />
+              <ROField fkey="ivNo"        label="เลขที่ IV"  mono style={{ width: 148 }} />
+              <RONum   value={draft.balance} label="Balance"      style={{ width: 148 }} />
               {/* row 2 */}
               <div style={{ width: '100%', height: 0 }} />
               <div className="field" style={{ width: 138 }}>
@@ -535,13 +542,13 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
                 </div>
                 <div className="field" style={{ width: 148 }}><label style={{ fontSize: 12 }}>ค่าธรรมเนียมธนาคาร</label>
                   <div style={{ position: 'relative' }}>
-                    <input className="input" type="number" value={ar.bankFee || ''} onChange={(e) => setReceive({ bankFee: Number(e.target.value) })} style={{ textAlign: 'right', paddingRight: 24 }} placeholder="0" />
+                    <input className="input" type="number" value={ar.bankFee || ''} onChange={(e) => setReceive({ bankFee: Number(e.target.value) })} style={{ textAlign: 'right', paddingRight: 24, fontFamily: 'ui-monospace' }} placeholder="0" />
                     <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: 'var(--ink-400)' }}>฿</span>
                   </div>
                 </div>
                 <div className="field" style={{ width: 110 }}><label style={{ fontSize: 12 }}>ค่าอื่นๆ</label>
                   <div style={{ position: 'relative' }}>
-                    <input className="input" type="number" value={ar.otherFee || ''} onChange={(e) => setReceive({ otherFee: Number(e.target.value) })} style={{ textAlign: 'right', paddingRight: 24 }} placeholder="0" />
+                    <input className="input" type="number" value={ar.otherFee || ''} onChange={(e) => setReceive({ otherFee: Number(e.target.value) })} style={{ textAlign: 'right', paddingRight: 24, fontFamily: 'ui-monospace' }} placeholder="0" />
                     <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: 'var(--ink-400)' }}>฿</span>
                   </div>
                 </div>
