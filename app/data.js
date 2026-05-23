@@ -604,7 +604,14 @@
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return seed();
-      return JSON.parse(raw);
+      const loaded = JSON.parse(raw);
+      /* Auto-merge any new top-level keys from seed (e.g. debtLedger, receipts, bankEntries
+         added after this user's localStorage was first written) so older sessions don't break. */
+      const fresh = seed();
+      Object.keys(fresh).forEach(function(k){
+        if (!(k in loaded) || loaded[k] == null) loaded[k] = fresh[k];
+      });
+      return loaded;
     } catch (_) { return seed(); }
   }
   function save(data) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (_) {} }
