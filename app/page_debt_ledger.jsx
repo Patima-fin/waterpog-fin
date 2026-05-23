@@ -103,8 +103,17 @@ function DebtLedgerRow({ master, summary, onOpen }) {
 }
 
 // Monthly schedule popup ────────────────────────────────────────────────────
-function InterestSchedulePopup({ master, ledgerRows, onClose }) {
+function InterestSchedulePopup({ master, ledgerRows, events, onClose }) {
   if (!master) return null;
+  // Filter events for this contract (by contractId OR contractNo)
+  const myEvents = (events || []).filter(e =>
+    e.contractId === master.id || e.contractNo === master.contractNo
+  ).sort((a, b) => (a.eventDate || '').localeCompare(b.eventDate || ''));
+  const drawdownsExtra = myEvents.filter(e => e.eventType === 'drawdown');
+  const repaymentsAll  = myEvents.filter(e => e.eventType === 'repayment');
+  const principalIn  = (Number(master.principalAmount) || 0) + drawdownsExtra.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const principalOut = repaymentsAll.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const principalNet = principalIn - principalOut;
   const sortedRows = [...ledgerRows].sort((a, b) =>
     (Number(a.year) || 0) - (Number(b.year) || 0) ||
     (Number(a.month) || 0) - (Number(b.month) || 0)
@@ -135,23 +144,65 @@ function InterestSchedulePopup({ master, ledgerRows, onClose }) {
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: 'var(--ink-400)' }}>×</button>
         </div>
 
-        <div style={{ padding: '12px 20px', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, background: 'var(--brand-50, #f0f6ff)' }}>
+        <div style={{ padding: '12px 20px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, background: 'var(--brand-50, #f0f6ff)' }}>
+          <div>
+            <div style={{ fontSize: 10.5, color: 'var(--ink-400)' }}>เงินต้นรวม</div>
+            <div style={{ fontWeight: 700, fontSize: 16, fontVariantNumeric: 'tabular-nums' }}>{fmtNum(principalIn, 0)}</div>
+            {drawdownsExtra.length > 0 && <div style={{ fontSize: 10, color: 'var(--ink-400)' }}>+{drawdownsExtra.length} drawdown</div>}
+          </div>
+          <div>
+            <div style={{ fontSize: 10.5, color: 'var(--ink-400)' }}>คืนเงินต้น</div>
+            <div style={{ fontWeight: 700, fontSize: 16, fontVariantNumeric: 'tabular-nums', color: 'var(--good)' }}>{fmtNum(principalOut, 0)}</div>
+            {repaymentsAll.length > 0 && <div style={{ fontSize: 10, color: 'var(--ink-400)' }}>{repaymentsAll.length} ครั้ง</div>}
+          </div>
           <div>
             <div style={{ fontSize: 10.5, color: 'var(--ink-400)' }}>ดอกเบี้ยรวม</div>
             <div style={{ fontWeight: 700, fontSize: 16, fontVariantNumeric: 'tabular-nums' }}>{fmtNum(totalInterest, 0)}</div>
+            <div style={{ fontSize: 10, color: 'var(--good)' }}>จ่ายแล้ว {fmtNum(totalPaid, 0)}</div>
           </div>
           <div>
-            <div style={{ fontSize: 10.5, color: 'var(--ink-400)' }}>จ่ายแล้ว</div>
-            <div style={{ fontWeight: 700, fontSize: 16, fontVariantNumeric: 'tabular-nums', color: 'var(--good)' }}>{fmtNum(totalPaid, 0)}</div>
-          </div>
-          <div>
-            <div style={{ fontSize: 10.5, color: 'var(--ink-400)' }}>ค้างจ่าย</div>
+            <div style={{ fontSize: 10.5, color: 'var(--ink-400)' }}>ดอกเบี้ยค้างจ่าย</div>
             <div style={{ fontWeight: 700, fontSize: 18, fontVariantNumeric: 'tabular-nums',
                           color: outstanding > 0 ? 'var(--bad)' : 'var(--ink-300)' }}>
               {fmtNum(outstanding, 0)}
             </div>
           </div>
         </div>
+
+        {myEvents.length > 0 && (
+          <div style={{ padding: '8px 20px 0', borderTop: '1px solid var(--line)' }}>
+            <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--ink-700)', marginBottom: 6 }}>
+              📋 รายการรับ/คืนเงินกู้ ({myEvents.length} events)
+            </div>
+            <table className="tbl" style={{ width: '100%', fontSize: 11.5, marginBottom: 10 }}>
+              <thead>
+                <tr>
+                  <th style={{ width: 90 }}>วันที่</th>
+                  <th style={{ width: 100 }}>ประเภท</th>
+                  <th style={{ textAlign: 'right', width: 140 }}>จำนวนเงิน</th>
+                  <th>หมายเหตุ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {myEvents.map(e => (
+                  <tr key={e.id} style={{ background: e.eventType === 'repayment' ? '#f0fdf4' : '#fff7ed' }}>
+                    <td>{fmtDate(e.eventDate)}</td>
+                    <td>
+                      <Badge kind={e.eventType === 'repayment' ? 'b-green' : 'b-amber'} dot={false}>
+                        {e.eventType === 'repayment' ? 'คืนเงิน' : 'รับเงินกู้'}
+                      </Badge>
+                    </td>
+                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600,
+                                 color: e.eventType === 'repayment' ? 'var(--good)' : '#9a3412' }}>
+                      {e.eventType === 'repayment' ? '−' : '+'}{fmtNum(Number(e.amount), 0)}
+                    </td>
+                    <td style={{ fontSize: 11, color: 'var(--ink-500)' }}>{e.note || ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
         <div style={{ overflow: 'auto', flex: 1 }}>
           <table className="tbl" style={{ width: '100%', fontSize: 12 }}>
@@ -201,6 +252,7 @@ function InterestSchedulePopup({ master, ledgerRows, onClose }) {
 function DebtLedgerPage({ data }) {
   const masters    = data?.debtMaster || [];
   const allLedger  = data?.debtLedger || [];
+  const allEvents  = data?.debtEvents || [];
   const today      = new Date().toISOString().slice(0, 10);
 
   const summaryByContract = React.useMemo(() => buildInterestByContract(allLedger), [allLedger]);
@@ -347,7 +399,7 @@ function DebtLedgerPage({ data }) {
         </div>
       )}
 
-      <InterestSchedulePopup master={selectedMaster} ledgerRows={selectedLedger} onClose={() => setSelectedMaster(null)} />
+      <InterestSchedulePopup master={selectedMaster} ledgerRows={selectedLedger} events={allEvents} onClose={() => setSelectedMaster(null)} />
     </div>
   );
 }
