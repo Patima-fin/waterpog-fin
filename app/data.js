@@ -4,7 +4,7 @@
 //     and renamed psNotes → pvVouchers (Payment Voucher).
 
 (function () {
-  const STORAGE_KEY = 'wtp-fin-data-v6';
+  const STORAGE_KEY = 'wtp-fin-data-v8';
 
   const id = (() => { let n = 1000; return () => 'id_' + (++n).toString(36); })();
 
@@ -370,6 +370,234 @@
       { id: id(), creditorName: 'บริษัท นาคา ปั๊มน้ำ จำกัด',      invoiceNo: 'NK2026-302',  amount: 540000.00,  dueDate: '2026-06-10', category: 'วัสดุ',       status: 'pending',  note: 'ปั๊มน้ำ + อะไหล่' },
       { id: id(), creditorName: 'สำนักงานบัญชี เอกชน จำกัด',   invoiceNo: 'AC2026-05',  amount: 35000.00,   dueDate: '2026-05-20', category: 'บริการ',      status: 'paid',     note: 'ค่าบัญชีเดือน พ.ค.' },
     ],
+
+    // ────────────────────────────────────────────────────────────────────────
+    // DEBT LEDGER — ภาระหนี้ทั้งหมด
+    //   debtType: transfer_rights | od | pn | term_loan | internal | lc
+    //   interestBasis: per_annum | per_month | fee_pct
+    //   status: active | pending_approval | closed | overdue
+    //   ดอกเบี้ยค้างคำนวณ real-time ผ่าน WTPData.calcInterest(record, asOfDate)
+    // ────────────────────────────────────────────────────────────────────────
+    debtLedger: [
+      // ── โอนสิทธิรับเงิน (Transfer of Rights) — linked กับโครงการ ─────
+      { id: id(), debtNo: 'DL-TR-001', debtType: 'transfer_rights', linkedProjectCode: 'PP073-AYT',
+        bankName: 'ธ.กสิกรไทย', accountRef: 'OD สาขาสีลม',
+        principalAmount: 4200000, drawdownDate: '2026-03-15', maturityDate: '2026-07-01',
+        interestRate: 7.5, interestBasis: 'per_annum',
+        outstandingBalance: 4200000, collateral: 'โอนสิทธิรับเงินโครงการ PP073',
+        status: 'active', note: 'โอนสิทธิเข้า OD วงเงิน 5M' },
+      { id: id(), debtNo: 'DL-TR-002', debtType: 'transfer_rights', linkedProjectCode: 'PP081-NKM',
+        bankName: 'ธ.กรุงเทพ', accountRef: 'PN PS2026-014',
+        principalAmount: 3500000, drawdownDate: '2026-04-01', maturityDate: '2026-08-30',
+        interestRate: 6.75, interestBasis: 'per_annum',
+        outstandingBalance: 3500000, collateral: 'โอนสิทธิรับเงินโครงการ PP081',
+        status: 'active', note: 'PN ฉบับที่ PS2026-014' },
+      { id: id(), debtNo: 'DL-TR-003', debtType: 'transfer_rights', linkedProjectCode: 'PP088-MTK',
+        bankName: 'ธ.ไทยพาณิชย์', accountRef: 'PN PS2026-016',
+        principalAmount: 11366800, drawdownDate: '2026-03-01', maturityDate: '2026-09-30',
+        interestRate: 7.25, interestBasis: 'per_annum',
+        outstandingBalance: 11366800, collateral: 'โอนสิทธิรับเงินโครงการ PP088',
+        status: 'active', note: 'PN ฉบับที่ PS2026-016' },
+      { id: id(), debtNo: 'DL-TR-004', debtType: 'transfer_rights', linkedProjectCode: 'PP091-CRI',
+        bankName: 'ธ.กสิกรไทย', accountRef: 'สินเชื่อโครงการ',
+        principalAmount: 6500000, drawdownDate: '2026-04-15', maturityDate: '2026-09-30',
+        interestRate: 7.5, interestBasis: 'per_annum',
+        outstandingBalance: 6500000, collateral: 'โอนสิทธิรับเงินโครงการ PP091',
+        status: 'active', note: '' },
+      { id: id(), debtNo: 'DL-TR-005', debtType: 'transfer_rights', linkedProjectCode: 'PP094-PYO',
+        bankName: 'ธ.กรุงไทย', accountRef: 'สินเชื่อโครงการ',
+        principalAmount: 3240000, drawdownDate: '2026-04-20', maturityDate: '2026-10-15',
+        interestRate: 6.5, interestBasis: 'per_annum',
+        outstandingBalance: 3240000, collateral: 'โอนสิทธิรับเงินโครงการ PP094',
+        status: 'active', note: '' },
+      { id: id(), debtNo: 'DL-TR-006', debtType: 'transfer_rights', linkedProjectCode: 'PP097-SKW',
+        bankName: 'ธ.กรุงเทพ', accountRef: 'L/C ค้ำประกัน',
+        principalAmount: 9720000, drawdownDate: '2026-04-05', maturityDate: '2026-11-05',
+        interestRate: 7.0, interestBasis: 'per_annum',
+        outstandingBalance: 9720000, collateral: 'L/C ค้ำประกันโครงการ PP097',
+        status: 'active', note: 'L/C ค้ำ' },
+      { id: id(), debtNo: 'DL-TR-007', debtType: 'transfer_rights', linkedProjectCode: 'PP101-PTL',
+        bankName: 'ธ.กสิกรไทย', accountRef: 'รออนุมัติ',
+        principalAmount: 13420000, drawdownDate: null, maturityDate: null,
+        interestRate: 7.5, interestBasis: 'per_annum',
+        outstandingBalance: 13420000, collateral: 'โอนสิทธิรับเงินโครงการ PP101',
+        status: 'pending_approval', note: 'รออนุมัติสินเชื่อ' },
+      // ── สินเชื่อภายใน (Internal) — linked กับโครงการ ──────────────────
+      { id: id(), debtNo: 'DL-IN-001', debtType: 'internal', linkedProjectCode: 'PP084-SKN',
+        bankName: '—', accountRef: 'สินเชื่อภายใน',
+        principalAmount: 1800000, drawdownDate: '2026-02-01', maturityDate: '2026-08-30',
+        interestRate: 5.0, interestBasis: 'per_annum',
+        outstandingBalance: 1800000, collateral: '—',
+        status: 'active', note: 'กู้ภายใน บจก.' },
+      { id: id(), debtNo: 'DL-IN-002', debtType: 'internal', linkedProjectCode: 'PP103-NSN',
+        bankName: '—', accountRef: 'สินเชื่อภายใน',
+        principalAmount: 3229500, drawdownDate: '2026-02-15', maturityDate: '2026-11-22',
+        interestRate: 5.0, interestBasis: 'per_annum',
+        outstandingBalance: 3229500, collateral: '—',
+        status: 'active', note: 'กู้ภายใน บจก.' },
+      // ── เงินกู้ OD / PN Standalone — ไม่ tied กับโครงการเดียว ─────────
+      { id: id(), debtNo: 'DL-OD-001', debtType: 'od', linkedProjectCode: null,
+        bankName: 'ธ.กสิกรไทย', accountRef: '987-6-54321-0 (วงเงิน 3M)',
+        principalAmount: 3000000, drawdownDate: '2025-07-01', maturityDate: '2026-06-30',
+        interestRate: 7.875, interestBasis: 'per_annum',
+        outstandingBalance: 1200000, collateral: 'สินทรัพย์บริษัท',
+        status: 'active', note: 'OD วงเงิน 3,000,000 — ใช้ไป 1,200,000' },
+      { id: id(), debtNo: 'DL-PN-001', debtType: 'pn', linkedProjectCode: null,
+        bankName: 'ธ.กรุงเทพ', accountRef: 'PN-BGK-2025-011',
+        principalAmount: 15000000, drawdownDate: '2025-10-01', maturityDate: '2026-09-30',
+        interestRate: 6.5, interestBasis: 'per_annum',
+        outstandingBalance: 15000000, collateral: 'ที่ดิน + สิทธิรับเงินรวม',
+        status: 'active', note: 'PN สายทุน ต่ออายุทุก 12 เดือน' },
+      { id: id(), debtNo: 'DL-PN-002', debtType: 'pn', linkedProjectCode: null,
+        bankName: 'ธ.ไทยพาณิชย์', accountRef: 'PN-SCB-2026-003',
+        principalAmount: 12000000, drawdownDate: '2026-01-15', maturityDate: '2026-07-15',
+        interestRate: 7.0, interestBasis: 'per_annum',
+        outstandingBalance: 11321800, collateral: 'สิทธิรับเงินโครงการ + ที่ดิน',
+        status: 'active', note: 'PN หมุนเวียน 6 เดือน' },
+      // รวม outstandingBalance: 84,498,100 ตรงกับ pipeline.totalDebt
+    ],
+
+    // ────────────────────────────────────────────────────────────────────────
+    // RECEIPTS — ประวัติรับเงิน (invoices ที่รับชำระแล้ว)
+    //   grossAmount       = ยอดตามใบแจ้งหนี้
+    //   transferDeduction = ยอดที่ธนาคารหัก (เนื่องจากโอนสิทธิ)
+    //   netReceived       = เงินที่ WTP ได้รับจริง (gross − deduction)
+    //   ผลรวมแต่ละเดือน match ytdRevenue gross/debt/net
+    // ────────────────────────────────────────────────────────────────────────
+    receipts: [
+      // ── มกราคม 2569 (gross 35,644,984.34 / transfer 0 / net 35,644,984.34) ─
+      { id: id(), receiptNo: 'RC2026-001', receiptDate: '2026-01-05',
+        invoiceNo: 'IV2026-001', projectCode: 'PP041-KKN', projectName: 'ระบบประปา ต.โคกเคียน อ.เมือง จ.นราธิวาส', period: 2,
+        grossAmount: 9000000, transferDeduction: 0, netReceived: 9000000, bankAccount: 'กรุงเทพ 123-4-56789-0', note: '' },
+      { id: id(), receiptNo: 'RC2026-002', receiptDate: '2026-01-10',
+        invoiceNo: 'IV2026-005', projectCode: 'PP043-CMI', projectName: 'ก่อสร้างประปา ต.ช้างเผือก อ.เมือง จ.เชียงใหม่', period: 1,
+        grossAmount: 8644984.34, transferDeduction: 0, netReceived: 8644984.34, bankAccount: 'กรุงเทพ 123-4-56789-0', note: '' },
+      { id: id(), receiptNo: 'RC2026-003', receiptDate: '2026-01-15',
+        invoiceNo: 'IV2026-010', projectCode: 'PP081-NKM', projectName: 'ระบบประปา ต.นาคำ อ.เมือง จ.หนองคาย', period: 1,
+        grossAmount: 3750000, transferDeduction: 0, netReceived: 3750000, bankAccount: 'กรุงเทพ 123-4-56789-0', note: 'งวด 1 — ยังไม่โอนสิทธิ ณ ขณะรับเงิน' },
+      { id: id(), receiptNo: 'RC2026-004', receiptDate: '2026-01-22',
+        invoiceNo: 'IV2026-015', projectCode: 'PP046-PCB', projectName: 'ระบบส่งน้ำ ต.พระชนก อ.บางระกำ จ.พิษณุโลก', period: 2,
+        grossAmount: 7500000, transferDeduction: 0, netReceived: 7500000, bankAccount: 'กรุงเทพ 123-4-56789-0', note: '' },
+      { id: id(), receiptNo: 'RC2026-005', receiptDate: '2026-01-28',
+        invoiceNo: 'IV2026-020', projectCode: 'PP048-TRT', projectName: 'ปรับปรุงระบบประปา ต.ท่าโรง อ.วิเชียรบุรี จ.เพชรบูรณ์', period: 1,
+        grossAmount: 6750000, transferDeduction: 0, netReceived: 6750000, bankAccount: 'กรุงเทพ 123-4-56789-0', note: '' },
+      // ── กุมภาพันธ์ 2569 (gross 26,170,400 / transfer 8,898,400 / net 17,272,000) ─
+      { id: id(), receiptNo: 'RC2026-006', receiptDate: '2026-02-05',
+        invoiceNo: 'IV2026-022', projectCode: 'PP050-MKN', projectName: 'ระบบประปาหมู่บ้าน ต.โมกข์ อ.บ้านนา จ.นครนายก', period: 2,
+        grossAmount: 6500000, transferDeduction: 2000000, netReceived: 4500000, bankAccount: 'กรุงเทพ 123-4-56789-0', note: 'หักโอนสิทธิ ธ.กรุงเทพ' },
+      { id: id(), receiptNo: 'RC2026-007', receiptDate: '2026-02-12',
+        invoiceNo: 'IV2026-025', projectCode: 'PP052-SBR', projectName: 'ก่อสร้างประปา ต.สิบเอ็ด อ.บ้านแพ้ว จ.สมุทรสาคร', period: 1,
+        grossAmount: 9120400, transferDeduction: 4898400, netReceived: 4222000, bankAccount: 'กรุงเทพ 123-4-56789-0', note: 'หักโอนสิทธิ ธ.กสิกรไทย' },
+      { id: id(), receiptNo: 'RC2026-008', receiptDate: '2026-02-19',
+        invoiceNo: 'IV2026-028', projectCode: 'PP054-NKB', projectName: 'ระบบส่งน้ำดิบ ต.นิคมบ้าน อ.นาทวี จ.สงขลา', period: 2,
+        grossAmount: 5050000, transferDeduction: 2000000, netReceived: 3050000, bankAccount: 'กรุงเทพ 123-4-56789-0', note: 'หักโอนสิทธิ ธ.ไทยพาณิชย์' },
+      { id: id(), receiptNo: 'RC2026-009', receiptDate: '2026-02-26',
+        invoiceNo: 'IV2026-031', projectCode: 'PP056-RNG', projectName: 'ปรับปรุงท่อน้ำ ต.ระนอง อ.เมือง จ.ระนอง', period: 1,
+        grossAmount: 5500000, transferDeduction: 0, netReceived: 5500000, bankAccount: 'กรุงเทพ 123-4-56789-0', note: '' },
+      // ── มีนาคม 2569 (gross 32,846,184.32 / transfer 13,363,100 / net 19,483,084.32) ─
+      { id: id(), receiptNo: 'RC2026-010', receiptDate: '2026-03-04',
+        invoiceNo: 'IV2026-035', projectCode: 'PP058-LPG', projectName: 'ระบบประปา ต.ลำปาง อ.เมือง จ.ลำปาง', period: 2,
+        grossAmount: 8346184.32, transferDeduction: 3863100, netReceived: 4483084.32, bankAccount: 'กรุงเทพ 123-4-56789-0', note: 'หักโอนสิทธิ ธ.กรุงไทย' },
+      { id: id(), receiptNo: 'RC2026-011', receiptDate: '2026-03-12',
+        invoiceNo: 'IV2026-038', projectCode: 'PP060-SKN', projectName: 'ก่อสร้างประปาหมู่บ้าน ต.สักงาม อ.คลองลาน จ.กำแพงเพชร', period: 1,
+        grossAmount: 9500000, transferDeduction: 5500000, netReceived: 4000000, bankAccount: 'กรุงเทพ 123-4-56789-0', note: 'หักโอนสิทธิ ธ.กสิกรไทย' },
+      { id: id(), receiptNo: 'RC2026-012', receiptDate: '2026-03-22',
+        invoiceNo: 'IV2026-041', projectCode: 'PP062-PTY', projectName: 'ระบบส่งน้ำ ต.พัทยา อ.บางละมุง จ.ชลบุรี', period: 3,
+        grossAmount: 9750000, transferDeduction: 4000000, netReceived: 5750000, bankAccount: 'กรุงเทพ 123-4-56789-0', note: 'หักโอนสิทธิ ธ.ไทยพาณิชย์' },
+      { id: id(), receiptNo: 'RC2026-013', receiptDate: '2026-03-28',
+        invoiceNo: 'IV2026-044', projectCode: 'PP081-NKM', projectName: 'ระบบประปา ต.นาคำ อ.เมือง จ.หนองคาย', period: 2,
+        grossAmount: 5250000, transferDeduction: 0, netReceived: 5250000, bankAccount: 'กรุงเทพ 123-4-56789-0', note: 'งวด 2 — สิทธิโอนเข้าแล้ว แต่หักที่งวด 3' },
+      // ── เมษายน 2569 (gross 42,952,000 / transfer 8,818,806.05 / net 34,133,193.95) ─
+      { id: id(), receiptNo: 'RC2026-014', receiptDate: '2026-04-02',
+        invoiceNo: 'IV2026-048', projectCode: 'PP073-AYT', projectName: 'อาคารสำนักงาน เทศบาลตำบลอ่าวยาง จ.พังงา', period: 1,
+        grossAmount: 9450000, transferDeduction: 3818806.05, netReceived: 5631193.95, bankAccount: 'กรุงเทพ 123-4-56789-0', note: 'หักโอนสิทธิ ธ.กสิกรไทย งวด 1' },
+      { id: id(), receiptNo: 'RC2026-015', receiptDate: '2026-04-08',
+        invoiceNo: 'IV2026-052', projectCode: 'PP066-STL', projectName: 'ระบบประปา ต.สตึก อ.สตึก จ.บุรีรัมย์', period: 2,
+        grossAmount: 7200000, transferDeduction: 0, netReceived: 7200000, bankAccount: 'กรุงเทพ 123-4-56789-0', note: '' },
+      { id: id(), receiptNo: 'RC2026-016', receiptDate: '2026-04-14',
+        invoiceNo: 'IV2026-056', projectCode: 'PP068-PMB', projectName: 'ปรับปรุงระบบประปา ต.พิมาย อ.พิมาย จ.นครราชสีมา', period: 1,
+        grossAmount: 8502000, transferDeduction: 2500000, netReceived: 6002000, bankAccount: 'กรุงเทพ 123-4-56789-0', note: 'หักโอนสิทธิ ธ.กสิกรไทย' },
+      { id: id(), receiptNo: 'RC2026-017', receiptDate: '2026-04-21',
+        invoiceNo: 'IV2026-060', projectCode: 'PP070-YST', projectName: 'ก่อสร้างประปา ต.ยะรัง อ.ยะรัง จ.ปัตตานี', period: 2,
+        grossAmount: 9800000, transferDeduction: 0, netReceived: 9800000, bankAccount: 'กรุงเทพ 123-4-56789-0', note: '' },
+      { id: id(), receiptNo: 'RC2026-018', receiptDate: '2026-04-28',
+        invoiceNo: 'IV2026-064', projectCode: 'PP072-CMB', projectName: 'ระบบส่งน้ำ ต.ชะอม อ.แก่งคอย จ.สระบุรี', period: 3,
+        grossAmount: 8000000, transferDeduction: 2500000, netReceived: 5500000, bankAccount: 'กรุงเทพ 123-4-56789-0', note: 'หักโอนสิทธิ ธ.กรุงเทพ' },
+      // ── พฤษภาคม 2569 (gross 10,814,000 / transfer 5,963,196.05 / net 4,850,803.95) ─
+      { id: id(), receiptNo: 'RC2026-019', receiptDate: '2026-05-03',
+        invoiceNo: 'IV2026-068', projectCode: 'PP074-CPN', projectName: 'ระบบประปาหมู่บ้าน ต.โชคชัย อ.โชคชัย จ.นครราชสีมา', period: 1,
+        grossAmount: 4200000, transferDeduction: 2500000, netReceived: 1700000, bankAccount: 'กรุงเทพ 123-4-56789-0', note: 'หักโอนสิทธิ ธ.ไทยพาณิชย์' },
+      { id: id(), receiptNo: 'RC2026-020', receiptDate: '2026-05-08',
+        invoiceNo: 'IV2026-070', projectCode: 'PP076-NPN', projectName: 'ก่อสร้างประปา ต.นิพนธ์ อ.บ้านแพ้ว จ.สมุทรสาคร', period: 2,
+        grossAmount: 3850475, transferDeduction: 1963196.05, netReceived: 1887278.95, bankAccount: 'กรุงเทพ 123-4-56789-0', note: 'หักโอนสิทธิ ธ.กสิกรไทย' },
+      { id: id(), receiptNo: 'RC2026-021', receiptDate: '2026-05-12',
+        invoiceNo: 'IV2026-073', projectCode: 'PP078-CHR', projectName: 'ปรับปรุงท่อน้ำ ต.ชะอวด อ.ชะอวด จ.นครศรีธรรมราช', period: 1,
+        grossAmount: 2532000, transferDeduction: 1500000, netReceived: 1032000, bankAccount: 'กรุงเทพ 123-4-56789-0', note: 'หักโอนสิทธิ ธ.กรุงเทพ' },
+      { id: id(), receiptNo: 'RC2026-022', receiptDate: '2026-05-15',
+        invoiceNo: 'IV2026-077', projectCode: 'PP064-STIIS', projectName: 'บ้านพรุกง ม.2 ต.วังใหญ่ อ.เทพา จ.สงขลา', period: 1,
+        grossAmount: 231525, transferDeduction: 0, netReceived: 231525, bankAccount: 'กรุงเทพ 123-4-56789-0', note: '' },
+    ],
+
+    // ────────────────────────────────────────────────────────────────────────
+    // BANK ENTRIES — แผนการเงินต่อบัญชี (inflow + outflow + inter-transfer)
+    //   type: inflow_project | inflow_loan | inflow_transfer |
+    //         outflow_check | outflow_salary | outflow_loan_interest |
+    //         outflow_transfer | outflow_misc
+    //   transferRef: ID ร่วมสำหรับ paired inter-account transfer
+    //   status: confirmed | estimate | planned | completed
+    // ────────────────────────────────────────────────────────────────────────
+    bankEntries: [
+      // ── กรุงเทพ 123-4-56789-0 (Main) ────────────────────────────────────
+      { id: id(), entryDate: '2026-05-25', bankName: 'กรุงเทพ', accountNo: '123-4-56789-0', entryType: 'outflow_check',
+        description: 'ค.ชจ.ชำระ ท่อพีวีซีไทย (PO-2026-088)', amount: -350000, referenceNo: 'CHQ-2026-001', transferRef: null, linkedProjectCode: 'PP088-MTK', status: 'confirmed', note: '' },
+      { id: id(), entryDate: '2026-05-25', bankName: 'กรุงเทพ', accountNo: '123-4-56789-0', entryType: 'outflow_check',
+        description: 'ค.ชจ.รับเหมา ก.วิศวกรรม PP091', amount: -1200000, referenceNo: 'CHQ-2026-002', transferRef: null, linkedProjectCode: 'PP091-CRI', status: 'confirmed', note: '' },
+      { id: id(), entryDate: '2026-05-29', bankName: 'กรุงเทพ', accountNo: '123-4-56789-0', entryType: 'outflow_transfer',
+        description: 'โอนให้ ไทยพาณิชย์ (เงินเดือน พ.ค.)', amount: -3000000, referenceNo: 'TRF-2026-001', transferRef: 'TRF-2026-001', linkedProjectCode: null, status: 'planned', note: 'โอนเพื่อเตรียมจ่ายเงินเดือน' },
+      { id: id(), entryDate: '2026-05-30', bankName: 'กรุงเทพ', accountNo: '123-4-56789-0', entryType: 'inflow_loan',
+        description: 'เบิกสินเชื่อหมุนเวียน PN-BGK-2025-011', amount: 3200000, referenceNo: 'PN-BGK-2025-011', transferRef: null, linkedProjectCode: null, status: 'planned', note: '' },
+      { id: id(), entryDate: '2026-05-31', bankName: 'กรุงเทพ', accountNo: '123-4-56789-0', entryType: 'outflow_loan_interest',
+        description: 'ดอกเบี้ย PN-BGK-2025-011 (เดือน พ.ค.)', amount: -81250, referenceNo: 'INT-BGK-0526', transferRef: null, linkedProjectCode: null, status: 'planned', note: '' },
+      { id: id(), entryDate: '2026-05-31', bankName: 'กรุงเทพ', accountNo: '123-4-56789-0', entryType: 'outflow_check',
+        description: 'ค.ชจ.เจ้าหนี้รอบสิ้นเดือน พ.ค.', amount: -2500000, referenceNo: 'CHQ-2026-004', transferRef: null, linkedProjectCode: null, status: 'planned', note: '' },
+      { id: id(), entryDate: '2026-06-05', bankName: 'กรุงเทพ', accountNo: '123-4-56789-0', entryType: 'outflow_misc',
+        description: 'ค.ชจ.นาคาปั๊มน้ำ + ขนส่งยูไนเต็ด', amount: -635000, referenceNo: 'CHQ-2026-006', transferRef: null, linkedProjectCode: null, status: 'planned', note: '' },
+      // ── ไทยพาณิชย์ 456-7-89012-3 (Payroll) ──────────────────────────────
+      { id: id(), entryDate: '2026-05-29', bankName: 'ไทยพาณิชย์', accountNo: '456-7-89012-3', entryType: 'inflow_transfer',
+        description: 'รับโอนจาก กรุงเทพ (เงินเดือน พ.ค.)', amount: 3000000, referenceNo: 'TRF-2026-001', transferRef: 'TRF-2026-001', linkedProjectCode: null, status: 'planned', note: 'คู่ TRF-2026-001' },
+      { id: id(), entryDate: '2026-05-30', bankName: 'ไทยพาณิชย์', accountNo: '456-7-89012-3', entryType: 'outflow_salary',
+        description: 'เงินเดือนพนักงาน Payroll 05/2026', amount: -2850000, referenceNo: 'PAYROLL-0526', transferRef: null, linkedProjectCode: null, status: 'planned', note: '' },
+      // ── กสิกรไทย 987-6-54321-0 (OD) ─────────────────────────────────────
+      { id: id(), entryDate: '2026-05-31', bankName: 'กสิกรไทย', accountNo: '987-6-54321-0', entryType: 'outflow_loan_interest',
+        description: 'ดอกเบี้ย OD เดือน พ.ค. (7.875%/pa)', amount: -7875, referenceNo: 'INT-KSK-0526', transferRef: null, linkedProjectCode: null, status: 'planned', note: '' },
+      { id: id(), entryDate: '2026-06-30', bankName: 'กสิกรไทย', accountNo: '987-6-54321-0', entryType: 'outflow_check',
+        description: 'ชำระ OD บางส่วน', amount: -500000, referenceNo: 'CHQ-2026-009', transferRef: null, linkedProjectCode: null, status: 'planned', note: '' },
+    ],
+
+    // ────────────────────────────────────────────────────────────────────────
+    // CHECKS — เช็คจ่ายล่วงหน้า / เช็คค้างจ่าย
+    //   status: pending | clearing | cleared | cancelled
+    // ────────────────────────────────────────────────────────────────────────
+    checks: [
+      { id: id(), checkNo: 'CHQ-2026-001', checkDate: '2026-05-25', payee: 'บริษัท ท่อพีวีซีไทย จำกัด',
+        amount: 350000, bankName: 'กรุงเทพ', accountNo: '123-4-56789-0', status: 'clearing', referenceNo: 'PO-2026-088', linkedProjectCode: 'PP088-MTK', note: 'ค่าท่อ PP088' },
+      { id: id(), checkNo: 'CHQ-2026-002', checkDate: '2026-05-25', payee: 'หจก. รับเหมา ก.วิศวกรรม',
+        amount: 1200000, bankName: 'กรุงเทพ', accountNo: '123-4-56789-0', status: 'pending', referenceNo: 'AP-PP091', linkedProjectCode: 'PP091-CRI', note: 'งานก่อสร้าง PP091' },
+      { id: id(), checkNo: 'CHQ-2026-003', checkDate: '2026-05-31', payee: 'ธ.กรุงเทพ ดอกเบี้ย PN',
+        amount: 81250, bankName: 'กรุงเทพ', accountNo: '123-4-56789-0', status: 'pending', referenceNo: 'PN-BGK-011', linkedProjectCode: null, note: 'ดอกเบี้ย PN-BGK-2025-011' },
+      { id: id(), checkNo: 'CHQ-2026-004', checkDate: '2026-05-31', payee: 'AP รอบสิ้นเดือน (รวม)',
+        amount: 2500000, bankName: 'กรุงเทพ', accountNo: '123-4-56789-0', status: 'pending', referenceNo: 'AP-MAY31', linkedProjectCode: null, note: 'รวมค่าใช้จ่าย AP' },
+      { id: id(), checkNo: 'CHQ-2026-005', checkDate: '2026-05-31', payee: 'ธ.กสิกรไทย ดอกเบี้ย OD',
+        amount: 7875, bankName: 'กสิกรไทย', accountNo: '987-6-54321-0', status: 'pending', referenceNo: 'OD-KSK-001', linkedProjectCode: null, note: 'ดอกเบี้ย OD พ.ค.' },
+      { id: id(), checkNo: 'CHQ-2026-006', checkDate: '2026-06-05', payee: 'บริษัท นาคาปั๊มน้ำ จำกัด',
+        amount: 540000, bankName: 'กรุงเทพ', accountNo: '123-4-56789-0', status: 'pending', referenceNo: 'PO-2026-096', linkedProjectCode: 'PP094-PYO', note: 'ค่าปั๊มน้ำ PP094' },
+      { id: id(), checkNo: 'CHQ-2026-007', checkDate: '2026-06-05', payee: 'บริษัท ขนส่งยูไนเต็ด จำกัด',
+        amount: 95000, bankName: 'กรุงเทพ', accountNo: '123-4-56789-0', status: 'pending', referenceNo: 'TR-2026-033', linkedProjectCode: 'PP088-MTK', note: 'ค่าขนส่งวัสดุ' },
+      { id: id(), checkNo: 'CHQ-2026-008', checkDate: '2026-05-06', payee: 'การไฟฟ้าส่วนภูมิภาค',
+        amount: 48000, bankName: 'ไทยพาณิชย์', accountNo: '456-7-89012-3', status: 'cleared', referenceNo: 'PEA-0526', linkedProjectCode: null, note: 'ค่าไฟ พ.ค.' },
+      { id: id(), checkNo: 'CHQ-2026-009', checkDate: '2026-05-10', payee: 'บัญชีเอกชน (สำรองจ่าย)',
+        amount: 35000, bankName: 'กรุงเทพ', accountNo: '123-4-56789-0', status: 'cleared', referenceNo: 'MISC-010', linkedProjectCode: null, note: 'เงินสำรองจ่าย' },
+    ],
   });
 
   function load() {
@@ -414,21 +642,83 @@
 
   // Helpers for cross-source lookups
   const buildLookups = (data) => {
-    // projects ใช้ 'Contract No.' เป็น key, fallback ไป .code (ข้อมูลเก่า)
-    const projectByCode = Object.fromEntries(
-      (data.projects || []).map(p => [p['Contract No.'] || p.code, p])
-    );
-    // financeByCode: ใช้ projectFinance ถ้ามีข้อมูล, ไม่งั้น fallback ไป projects
-    const financeByCode = (data.projectFinance || []).length > 0
-      ? Object.fromEntries((data.projectFinance).map(f => [f.code, f]))
-      : projectByCode;
+    // projectByCode: key ด้วย Project No. (เช่น PP064), Contract No., Ref.code, และ .code (เก่า)
+    // → invoice.jobNo จาก parseProjDpt = Project No. (PP064, TTI040, MA-926 ฯลฯ) → lookup เจอ → ได้ p['พื้นที่']
+    const projectByCode = {};
+    (data.projects || []).forEach(p => {
+      const k1 = p['Contract No.'] || p.code;
+      const k2 = p['Ref.code'];
+      const k3 = p['Project No.'];
+      if (k1) projectByCode[k1] = p;
+      if (k2 && k2 !== k1) projectByCode[k2] = p;
+      if (k3 && k3 !== k1 && k3 !== k2) projectByCode[k3] = p;
+    });
+    // financeByCode: aggregate หลายแถวต่อ 1 โครงการ (LIT + กู้ยืม + อื่น ๆ)
+    // → debt รวม = sum(balance), assignee = list ที่ unique
+    const financeByCode = {};
+    if ((data.projectFinance || []).length > 0) {
+      (data.projectFinance).forEach(f => {
+        const code = f.code || f['JOB No.'] || f.jobNo;
+        if (!code) return;
+        if (!financeByCode[code]) {
+          financeByCode[code] = {
+            code,
+            debt: 0,
+            'ภาระหนี้': 0,
+            assignees: new Set(),
+            debtRows: [],
+          };
+        }
+        const slot = financeByCode[code];
+        const bal = Number(f.balance ?? f['ภาระหนี้'] ?? f.debt ?? 0) || 0;
+        slot.debt += bal;
+        slot['ภาระหนี้'] += bal;
+        const a = f.assignee || f['ผู้รับโอนสิทธิ์'] || '';
+        if (a) slot.assignees.add(a);
+        slot.debtRows.push(f);
+      });
+      // convert Set → comma-joined string for display
+      Object.keys(financeByCode).forEach(k => {
+        const list = Array.from(financeByCode[k].assignees);
+        financeByCode[k].assignee = list.join(', ') || '—';
+        financeByCode[k]['ผู้รับโอนสิทธิ์'] = financeByCode[k].assignee;
+      });
+    } else {
+      // fallback: use projectByCode
+      Object.assign(financeByCode, projectByCode);
+    }
     return { projectByCode, financeByCode };
   };
+  // คำนวณดอกเบี้ยค้างชำระ ณ วันที่กำหนด (ส่ง record จาก debtLedger)
+  const calcInterest = (debt, asOfDate) => {
+    if (!debt || !debt.interestRate || !debt.drawdownDate) return 0;
+    if (debt.status !== 'active' && debt.status !== 'overdue') return 0;
+    const days = daysBetween(debt.drawdownDate, asOfDate || new Date().toISOString().slice(0, 10));
+    if (!days || days <= 0) return 0;
+    const rate = debt.interestRate / 100;
+    const bal  = debt.outstandingBalance || 0;
+    if (debt.interestBasis === 'per_month') return Math.round(bal * rate * (days / 30.44));
+    if (debt.interestBasis === 'fee_pct')   return Math.round((debt.principalAmount || bal) * rate * (days / 365));
+    return Math.round(bal * rate * (days / 365)); // per_annum (default)
+  };
+
+  // สรุปภาระหนี้แยกประเภท (คืน object { transfer_rights, od, pn, ... })
+  const debtSummary = (debtLedger) => {
+    const out = {};
+    (debtLedger || []).forEach(d => {
+      if (d.status !== 'active' && d.status !== 'overdue') return;
+      out[d.debtType] = (out[d.debtType] || 0) + (d.outstandingBalance || 0);
+    });
+    return out;
+  };
+
   window.WTPData = {
     load, save, reset, seed,
     STATUS_META, DELIVERY_META, IV_STATUS_META, PAY_STATUS_META,
     newId: id,
     daysBetween,
     buildLookups,
+    calcInterest,
+    debtSummary,
   };
 })();

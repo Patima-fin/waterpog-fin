@@ -38,6 +38,10 @@ var SHEETS = {
   BANK:          'bankAccounts',
   PV_VOUCHERS:   'pvVouchers',
   PAYABLES:      'payables',
+  DEBT_LEDGER:   'debtLedger',
+  RECEIPTS:      'receipts',
+  BANK_ENTRIES:  'bankEntries',
+  CHECKS:        'checks',
 };
 
 /* ── 1. WEB APP ENDPOINTS ───────────────────────────────────────── */
@@ -112,6 +116,10 @@ function getAll() {
     bankAccounts:          readTable(SHEETS.BANK),
     pvVouchers:            readTable(SHEETS.PV_VOUCHERS),
     payables:              readTable(SHEETS.PAYABLES),
+    debtLedger:            readTable(SHEETS.DEBT_LEDGER),
+    receipts:              readTable(SHEETS.RECEIPTS),
+    bankEntries:           readTable(SHEETS.BANK_ENTRIES),
+    checks:                readTable(SHEETS.CHECKS),
   };
 }
 
@@ -133,6 +141,10 @@ function getEntity(name) {
     case 'bankAccounts':          return readTable(SHEETS.BANK);
     case 'pvVouchers':            return readTable(SHEETS.PV_VOUCHERS);
     case 'payables':              return readTable(SHEETS.PAYABLES);
+    case 'debtLedger':            return readTable(SHEETS.DEBT_LEDGER);
+    case 'receipts':              return readTable(SHEETS.RECEIPTS);
+    case 'bankEntries':           return readTable(SHEETS.BANK_ENTRIES);
+    case 'checks':                return readTable(SHEETS.CHECKS);
   }
   return { error: 'unknown entity: ' + name };
 }
@@ -146,6 +158,10 @@ var JSON_FIELDS = {
   pvVouchers:      [],
   payables:        [],
   projectFinance:  [],
+  debtLedger:      [],
+  receipts:        [],
+  bankEntries:     [],
+  checks:          [],
 };
 
 function readTable(name) {
@@ -334,7 +350,12 @@ var ENTITY_HEADERS = {
     'สถานะโครงการ','ผู้รับโอนสิทธิ์','ภาระหนี้','Remark',
     'status','expectedPay1','expectedPay2',
   ],
-  projectFinance: ['id','code','assignee','transferRights','debt','debtNote','transferDate','note'],
+  projectFinance: [
+    'id','code','debtType','debtorRef','status','startDate','endDate','totalDebt',
+    'period1Date','period1Amount','period1Status',
+    'period2Date','period2Amount','period2Status',
+    'totalPaid','balance','assignee','bank','remark'
+  ],
   invoices: [
     'id','ivNo','jobNo','period','invoiceDate','balance',
     'status','expectedReceive','contactName','contactPhone',
@@ -359,6 +380,24 @@ var ENTITY_HEADERS = {
     'Less_Ret','Balance_Amount1','netpayment','refcode','jobcode',
     'jobname','dpt_code','dpt_name','acct_no','cust_name','vendor_group','vendor_group2'
   ],
+  debtLedger: [
+    'id','debtNo','debtType','linkedProjectCode','bankName','accountRef',
+    'principalAmount','drawdownDate','maturityDate',
+    'interestRate','interestBasis','outstandingBalance',
+    'collateral','status','note'
+  ],
+  receipts: [
+    'id','receiptNo','receiptDate','invoiceNo','projectCode','projectName','period',
+    'grossAmount','transferDeduction','netReceived','bankAccount','note'
+  ],
+  bankEntries: [
+    'id','entryDate','bankName','accountNo','entryType','description',
+    'amount','referenceNo','transferRef','linkedProjectCode','status','note'
+  ],
+  checks: [
+    'id','checkNo','checkDate','payee','amount','bankName','accountNo',
+    'referenceNo','linkedProjectCode','status','note'
+  ],
 };
 
 function _entitySheet(entity) {
@@ -370,6 +409,10 @@ function _entitySheet(entity) {
     bankAccounts:    SHEETS.BANK,
     pvVouchers:      SHEETS.PV_VOUCHERS,
     payables:        SHEETS.PAYABLES,
+    debtLedger:      SHEETS.DEBT_LEDGER,
+    receipts:        SHEETS.RECEIPTS,
+    bankEntries:     SHEETS.BANK_ENTRIES,
+    checks:          SHEETS.CHECKS,
   };
   if (!map[entity]) throw new Error('CRUD ไม่รองรับ entity: ' + entity);
   return { name: map[entity], headers: ENTITY_HEADERS[entity] };

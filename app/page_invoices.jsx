@@ -12,7 +12,8 @@ function InvoicesPage({ data, setData, toast }) {
   const [query, setQuery] = ivState('');
   const [detail, setDetail] = ivState(null);
   const [showImport, setShowImport] = ivState(false);
-  const [payModal, setPayModal] = ivState(null); // { iv, draft } สำหรับ QuickPayModal
+  const [payModal, setPayModal] = ivState(null);
+  const [viewMode, setViewMode] = ivState('table'); // 'table' | 'report'
 
   const { projectByCode, financeByCode } = ivMemo(() => WTPData.buildLookups(data), [data.projects, data.projectFinance]);
 
@@ -115,7 +116,23 @@ function InvoicesPage({ data, setData, toast }) {
           <h1 className="page-title">ใบแจ้งหนี้คงค้าง</h1>
           <div className="page-sub">RAW_IV_OUTSTANDING · {rows.length} ใบ · ผู้ดูแล: ฝ่ายติดตามรับเงิน</div>
         </div>
-        <div className="page-head-r">
+        <div className="page-head-r" style={{ display:'flex', gap: 8, alignItems:'center' }}>
+          <div style={{ display:'flex', borderRadius: 8, overflow:'hidden', border:'1px solid var(--line)' }}>
+            <button
+              onClick={() => setViewMode('table')}
+              style={{ padding:'5px 12px', fontSize: 12, fontWeight: 600, cursor:'pointer',
+                       background: viewMode==='table' ? 'var(--brand-600,#2a6fdb)' : '#fff',
+                       color: viewMode==='table' ? '#fff' : 'var(--ink-600)', border:'none' }}>
+              ตาราง
+            </button>
+            <button
+              onClick={() => setViewMode('report')}
+              style={{ padding:'5px 12px', fontSize: 12, fontWeight: 600, cursor:'pointer',
+                       background: viewMode==='report' ? 'var(--brand-600,#2a6fdb)' : '#fff',
+                       color: viewMode==='report' ? '#fff' : 'var(--ink-600)', border:'none', borderLeft:'1px solid var(--line)' }}>
+              Report
+            </button>
+          </div>
           <button className="btn btn-ghost" onClick={() => setShowImport(true)}><Icon name="upload" size={14} /> วาง RAW_IV_OUTSTANDING</button>
         </div>
       </div>
@@ -127,7 +144,7 @@ function InvoicesPage({ data, setData, toast }) {
         <KpiTile label="ติดปัญหา"          value={counts.issue} unit=" ใบ" digits={0} accent="oklch(60% 0.22 25)" icon="invoice" />
       </div>
 
-      <div className="card" style={{ padding: 14, marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+      {viewMode === 'table' && <div className="card" style={{ padding: 14, marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <div className="tabnav">
           <button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>ทั้งหมด ({counts.all})</button>
           <button className={filter === 'pending_inspection' ? 'active' : ''} onClick={() => setFilter('pending_inspection')}>รอใบตรวจรับ ({counts.pending_inspection})</button>
@@ -139,9 +156,9 @@ function InvoicesPage({ data, setData, toast }) {
           <Icon name="search" size={14} />
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ค้นหา IV / Job no / ชื่อโครงการ / ผู้ติดต่อ…" />
         </div>
-      </div>
+      </div>}
 
-      <div className="card anim-in" style={{ padding: 0, overflow: 'auto' }}>
+      {viewMode === 'table' && <div className="card anim-in" style={{ padding: 0, overflow: 'auto' }}>
         <table className="tbl">
           <thead>
             <tr>
@@ -207,7 +224,11 @@ function InvoicesPage({ data, setData, toast }) {
             </tr>
           </tfoot>
         </table>
-      </div>
+      </div>}
+
+      {viewMode === 'report' && (
+        <IvReportView rows={rows} onOpen={setDetail} />
+      )}
 
       <InvoiceDetailModal
         iv={detail}
@@ -255,6 +276,119 @@ function InvoicesPage({ data, setData, toast }) {
           toast(msgs.join(' · ') || 'ไม่มีการเปลี่ยนแปลง');
         }}
       />
+    </div>
+  );
+}
+
+/* ── IV Report View — date-grouped sections ─────────────────────────────── */
+function IvReportView({ rows, onOpen }) {
+  const today    = new Date().toISOString().slice(0, 10);
+  const weekEnd  = new Date(Date.now() + (6 - new Date().getDay()) * 86400000).toISOString().slice(0, 10);
+  const nextWeekStart = new Date(Date.now() + (7 - new Date().getDay()) * 86400000).toISOString().slice(0, 10);
+  const nextWeekEnd   = new Date(Date.now() + (13 - new Date().getDay()) * 86400000).toISOString().slice(0, 10);
+
+  const sections = [
+    {
+      key: 'today',
+      label: 'รับเงินแล้ววันนี้',
+      color: '#276749', bg: '#f0fdf4', border: '#68d391',
+      rows: rows.filter(iv =>
+        iv.status === 'paid' &&
+        iv.actualReceive?.date === today
+      ),
+    },
+    {
+      key: 'this_week',
+      label: 'คาดรับสัปดาห์นี้',
+      color: '#2a6fdb', bg: '#ebf8ff', border: '#63b3ed',
+      rows: rows.filter(iv =>
+        iv.status === 'tracking' &&
+        iv.expectedReceive >= today &&
+        iv.expectedReceive <= weekEnd
+      ),
+    },
+    {
+      key: 'next_week',
+      label: 'คาดรับสัปดาห์หน้า',
+      color: '#6b46c1', bg: '#faf5ff', border: '#b794f4',
+      rows: rows.filter(iv =>
+        iv.status === 'tracking' &&
+        iv.expectedReceive >= nextWeekStart &&
+        iv.expectedReceive <= nextWeekEnd
+      ),
+    },
+    {
+      key: 'issue',
+      label: 'ติดปัญหา',
+      color: '#c53030', bg: '#fff5f5', border: '#fc8181',
+      rows: rows.filter(iv => iv.status === 'issue'),
+    },
+    {
+      key: 'tracking',
+      label: 'กำลังติดตาม (นอกสัปดาห์)',
+      color: '#dd6b20', bg: '#fffbeb', border: '#f6ad55',
+      rows: rows.filter(iv =>
+        iv.status === 'tracking' &&
+        !(iv.expectedReceive >= today && iv.expectedReceive <= nextWeekEnd)
+      ),
+    },
+    {
+      key: 'pending',
+      label: 'รอใบตรวจรับ',
+      color: '#718096', bg: '#f7fafc', border: '#cbd5e0',
+      rows: rows.filter(iv => iv.status === 'pending_inspection'),
+    },
+  ];
+
+  const IvMiniRow = ({ iv }) => (
+    <div
+      onClick={() => onOpen(iv)}
+      style={{
+        display:'grid', gridTemplateColumns:'100px 1fr 120px 90px',
+        gap: '4px 12px', padding:'8px 14px', cursor:'pointer',
+        borderBottom:'1px solid #f0f4f8', alignItems:'start',
+        transition:'background 120ms',
+      }}
+      onMouseEnter={e => e.currentTarget.style.background='#f8fafc'}
+      onMouseLeave={e => e.currentTarget.style.background=''}
+    >
+      <div style={{ fontSize: 11, fontFamily:'ui-monospace', fontWeight: 700, color:'var(--brand-700,#2a6fdb)' }}>{iv.jobNo}</div>
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 500 }}>{iv.projectName}</div>
+        <div style={{ fontSize: 11, color:'#718096' }}>{iv.ivNo} · งวด {iv.period}</div>
+        {iv.contactName && <div style={{ fontSize: 11, color:'#718096' }}>📞 {iv.contactName} {iv.contactPhone}</div>}
+      </div>
+      <div style={{ textAlign:'right', fontVariantNumeric:'tabular-nums' }}>
+        <div style={{ fontWeight: 700, fontSize: 13 }}>{fmtNum(iv.balance, 0)}</div>
+        {iv.netExpected !== iv.balance && <div style={{ fontSize: 11, color:'#276749' }}>สุทธิ {fmtNum(iv.netExpected, 0)}</div>}
+      </div>
+      <div style={{ textAlign:'right', fontSize: 11, color:'#4a5568' }}>
+        {iv.expectedReceive && <div>คาดรับ {fmtDate(iv.expectedReceive)}</div>}
+        {iv.status === 'paid' && iv.actualReceive?.date && <div style={{ color:'#276749' }}>รับ {fmtDate(iv.actualReceive.date)}</div>}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap: 14 }}>
+      {sections.map(sec => (
+        <div key={sec.key} className="card" style={{ padding: 0, overflow:'hidden', border:`1.5px solid ${sec.border}` }}>
+          <div style={{
+            background: sec.bg, padding:'10px 14px',
+            display:'flex', justifyContent:'space-between', alignItems:'center',
+            borderBottom:`1px solid ${sec.border}`
+          }}>
+            <span style={{ fontWeight: 700, fontSize: 13, color: sec.color }}>{sec.label}</span>
+            <span style={{ fontSize: 12, color: sec.color }}>
+              {sec.rows.length} ใบ · {fmtNum(sec.rows.reduce((s,r)=>s+(Number(r.balance)||0),0),0)} ฿
+            </span>
+          </div>
+          {sec.rows.length === 0
+            ? <div style={{ padding:'10px 14px', color:'#a0aec0', fontSize: 12 }}>ไม่มีรายการ</div>
+            : sec.rows.map(iv => <IvMiniRow key={iv.id} iv={iv} />)
+          }
+        </div>
+      ))}
     </div>
   );
 }

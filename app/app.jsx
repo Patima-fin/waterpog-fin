@@ -111,8 +111,11 @@ function App() {
     warroom1: { label: 'War Room — รายรับ (หน้า 1)', title: 'Revenue Collection', icon: 'receivables' },
     warroom2: { label: 'War Room — รายปี (หน้า 2)', title: 'Annual Cash Flow', icon: 'forecast' },
     cashflow: { label: 'แผนประมาณการจ่ายรายสัปดาห์', title: 'Weekly Cash Flow', icon: 'chart' },
+    debt:      { label: 'ภาระหนี้ทั้งหมด', title: 'Debt Register', icon: 'money' },
+    bank_diary:{ label: 'Bank Diary', title: 'Bank Diary', icon: 'bank' },
     projects: { label: 'จัดการโครงการ', title: 'Projects', icon: 'projects' },
     invoices: { label: 'ใบแจ้งหนี้', title: 'Invoices', icon: 'invoice' },
+    checks:    { label: 'เช็คจ่ายล่วงหน้า', title: 'Checks', icon: 'money' },
     data_forecast: { label: 'ประมาณการนอกระบบ', title: 'Forecast Entries', icon: 'forecast' },
     data_bank:     { label: 'DATA BANK', title: 'Bank Accounts', icon: 'bank' },
     data_pv:       { label: 'DATA PV', title: 'Payment Vouchers', icon: 'money' },
@@ -126,6 +129,9 @@ function App() {
     case 'cashflow':       page = <CashFlowDashboard data={data} setData={setData} toast={pushToast} />; break;
     case 'projects':       page = <ProjectsPage data={data} setData={setData} toast={pushToast} />; break;
     case 'invoices':       page = <InvoicesPage data={data} setData={setData} toast={pushToast} />; break;
+    case 'debt':           page = <DebtPage data={data} />; break;
+    case 'bank_diary':     page = <BankDiaryPage />; break;
+    case 'checks':         page = <ChecksPage />; break;
     case 'data_forecast':  page = <ForecastEntriesPage data={data} setData={setData} toast={pushToast} />; break;
     case 'data_bank':      page = <DataBankPage data={data} setData={setData} toast={pushToast} />; break;
     case 'data_pv':        page = <DataPVPage data={data} setData={setData} toast={pushToast} />; break;
@@ -201,6 +207,9 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
     data_bank:     data.bankAccounts?.length || 0,
     data_pv:       data.pvVouchers?.length || 0,
     data_payable:  data.payables?.length || 0,
+    debt:          data.projectFinance?.filter(r => r.debtType && r.status === 'Active').length || null,
+    bank_diary:    null,
+    checks:        data.checks?.filter(c => c.status === 'pending' || c.status === 'clearing').length || null,
   };
   return (
     <aside className="sb" style={sidebarStyle === 'minimal' ? { background: 'transparent', borderRight: '1px solid var(--line)' } : {}}>
@@ -233,10 +242,25 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
       </div>
 
       <div>
+        <div className="sb-section">รายงาน / วิเคราะห์</div>
+        {[
+          ['debt',       'ภาระหนี้ทั้งหมด', 'money'],
+          ['bank_diary', 'Bank Diary',       'bank'],
+        ].map(([key, label, icon]) => (
+          <button key={key} className={`sb-link ${route === key ? 'active' : ''}`} onClick={() => go(key)}>
+            <Icon name={icon} className="sb-icon" />
+            <span>{label}</span>
+            {counts[key] != null && <span className="sb-pill">{counts[key]}</span>}
+          </button>
+        ))}
+      </div>
+
+      <div>
         <div className="sb-section">จัดการข้อมูล</div>
         {[
           ['projects',      'โครงการ',          'projects'],
           ['invoices',      'ลูกหนี้คงค้าง',    'invoice'],
+          ['checks',        'เช็คจ่ายล่วงหน้า', 'money'],
           ['data_forecast', 'ประมาณการรายจ่าย', 'forecast'],
           ['data_bank',     'บัญชีธนาคาร',      'bank'],
           ['data_pv',       'ใบสำคัญจ่าย',      'money'],
