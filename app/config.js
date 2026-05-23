@@ -15,7 +15,7 @@ window.WTP_CONFIG = {
 
   // Apps Script URL — ใช้สำหรับ WRITE กลับเข้า Sheet (CRUD)
   // Deploy จาก standalone script ของ Gmail ส่วนตัว (bypass Workspace policy)
-  APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbz455HjIIIryMwKMfElalQ2Mj0s9sBiRuVP3LVAD_LTtiCjYoi_UYOduDJFdjEAHoymNA/exec',
+  APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbwhTJTHy0jywsICM4W5BFpMkyV26Ha0_mm520W09FwtAybPgzZZd51NVkE14bfg7BH2pQ/exec',
 
   // ตั้งเวลา auto-refresh จากเซิร์ฟเวอร์ (มิลลิวินาที, 0 = ปิด)
   AUTO_REFRESH_MS: 300000,  // 5 นาที
