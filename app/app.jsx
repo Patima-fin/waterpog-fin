@@ -132,7 +132,7 @@ function App() {
     case 'invoices':       page = <InvoicesPage data={data} setData={setData} toast={pushToast} />; break;
     case 'debt':           page = <DebtPage data={data} />; break;
     case 'iv_report':      page = <IvReportStandalonePage data={data} setData={setData} toast={pushToast} />; break;
-    case 'bank_diary':     page = <BankDiaryPage />; break;
+    case 'bank_diary':     page = <BankDiaryPage data={data} setData={setData} toast={pushToast} />; break;
     case 'checks':         page = <ChecksPage />; break;
     case 'data_forecast':  page = <ForecastEntriesPage data={data} setData={setData} toast={pushToast} />; break;
     case 'data_bank':      page = <DataBankPage data={data} setData={setData} toast={pushToast} />; break;
