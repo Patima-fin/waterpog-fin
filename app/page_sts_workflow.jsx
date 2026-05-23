@@ -21,25 +21,40 @@ function simpleInterest(p, r, days) {
 function bMoney(n) { return (Number(n) || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
 function bMoney2(n) { return (Number(n) || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
-// Build matching index: jobNo → STS row(s) + paired WCI-Project rows
+// Expand a debtMaster row into a list of {date, amount, rate, note} drawdowns.
+// Includes the primary (receiveDate + principalAmount) AND any rows in the
+// drawdowns JSON column.
+function expandDrawdowns(row) {
+  const out = [];
+  const rate = Number(row.interestRate) || 0;
+  if (row.receiveDate && Number(row.principalAmount)) {
+    out.push({ date: row.receiveDate, amount: Number(row.principalAmount), rate, note: 'ครั้งที่ 1' });
+  }
+  // drawdowns may be already-parsed array, or a JSON string
+  let extras = row.drawdowns;
+  if (typeof extras === 'string' && extras.length > 1) {
+    try { extras = JSON.parse(extras); } catch { extras = []; }
+  }
+  if (Array.isArray(extras)) {
+    extras.forEach(d => {
+      if (d && d.amount) out.push({ date: d.date, amount: Number(d.amount), rate, note: d.note || '' });
+    });
+  }
+  return out;
+}
+
+// Build matching index: jobNo → primary STS row + WCI-Project row
 function buildStsIndex(debtMaster) {
-  const sts  = {};   // jobNo → first STS contract (primary)
-  const stsAll = {}; // jobNo → array of all STS rows (for multi-drawdown)
-  const wci  = {};   // jobNo → array of WCI-Project rows
+  const sts = {};   // jobNo → STS contract
+  const wci = {};   // jobNo → WCI-Project contract
   (debtMaster || []).forEach(d => {
     const cat = d.debtCategory;
     const job = d.projectCode;
     if (!job) return;
-    if (cat === 'STS') {
-      if (!sts[job]) sts[job] = d;
-      if (!stsAll[job]) stsAll[job] = [];
-      stsAll[job].push(d);
-    } else if (cat === 'WCI-Project') {
-      if (!wci[job]) wci[job] = [];
-      wci[job].push(d);
-    }
+    if (cat === 'STS' && !sts[job])         sts[job] = d;
+    if (cat === 'WCI-Project' && !wci[job]) wci[job] = d;
   });
-  return { sts, stsAll, wci };
+  return { sts, wci };
 }
 
 // Find STS+WCI contracts matching a receipt → { sts, wciList, jobNo }
@@ -64,8 +79,7 @@ function matchStsContract(receipt, idx, invoices) {
   return {
     jobNo,
     sts: idx.sts[jobNo],
-    stsAll: idx.stsAll[jobNo] || [],
-    wciList: idx.wci[jobNo] || [],
+    wci: idx.wci[jobNo],
   };
 }
 
@@ -85,13 +99,15 @@ function computeStsRow(receipt, match, params) {
   const receiveDate = receipt.receiptDate;
   const baseAmount  = Number(receipt.grossAmount) || 0;
 
-  // STS legs (1 or 2 drawdowns)
-  const stsLegs = (match.stsAll || [match.sts]).filter(Boolean).map(c =>
-    legInterest(c.receiveDate || c.startDate, receiveDate, c.principalAmount, Number(c.interestRate) || DEFAULT_STS_INT_RATE)
+  // STS legs (primary + JSON drawdowns)
+  const stsDraws = match.sts ? expandDrawdowns(match.sts) : [];
+  const stsLegs = stsDraws.map(d =>
+    legInterest(d.date, receiveDate, d.amount, d.rate || DEFAULT_STS_INT_RATE)
   );
-  // WCI legs (each WCI-Project row = 1 drawdown)
-  const wciLegs = (match.wciList || []).map(w =>
-    legInterest(w.receiveDate || w.startDate, receiveDate, w.principalAmount, Number(w.interestRate) || 0.10)
+  // WCI legs
+  const wciDraws = match.wci ? expandDrawdowns(match.wci) : [];
+  const wciLegs = wciDraws.map(d =>
+    legInterest(d.date, receiveDate, d.amount, d.rate || 0.10)
   );
 
   const stsInterest = stsLegs.reduce((s, l) => s + l.interest, 0);
@@ -303,10 +319,7 @@ function StsWorkflowPage({ data, setData, toast }) {
     if (!openReceiptId) return;
     const m = matched.find(x => x.receipt.id === openReceiptId);
     if (!m) return;
-    const debtIds = [].concat(
-      m.match.stsAll.map(d => d.id),
-      m.match.wciList.map(d => d.id)
-    );
+    const debtIds = [m.match.sts?.id, m.match.wci?.id].filter(Boolean);
     const newResult = {
       id: 'cr_' + Math.random().toString(36).slice(2, 10),
       pendingCalcId: m.receipt.id,
@@ -391,8 +404,8 @@ function StsWorkflowPage({ data, setData, toast }) {
                   const c = computeStsRow(m.receipt, m.match, params);
                   const isDone = !!m.result;
                   const sts = m.match.sts;
-                  const wciCount = m.match.wciList.length;
-                  const stsCount = m.match.stsAll.length;
+                  const wciCount = m.match.wci ? expandDrawdowns(m.match.wci).length : 0;
+                  const stsCount = sts ? expandDrawdowns(sts).length : 0;
                   return (
                     <tr key={m.receipt.id} onClick={() => setOpenReceiptId(m.receipt.id)} style={{ cursor: 'pointer', background: isDone ? '#f0fdf4' : undefined }}>
                       <td>{fmtDate(m.receipt.receiptDate)}</td>

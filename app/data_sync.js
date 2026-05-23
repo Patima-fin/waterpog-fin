@@ -38,6 +38,7 @@
   var ENTITY_JSON_FIELDS = {
     invoices:      ['followUps', 'actualReceive'],
     stsCalcResult: ['debtIds'],
+    debtMaster:    ['drawdowns'],
   };
 
   /* ── state ──────────────────────────────────────────────────────── */
@@ -200,7 +201,7 @@
       var receipts        = rowsToObjects(results[i++]);
       var bankEntries     = rowsToObjects(results[i++]);
       var checks          = rowsToObjects(results[i++]);
-      var debtMaster      = rowsToObjects(results[i++]);
+      var debtMaster      = rowsToObjects(results[i++], ['drawdowns']);
       var bankTransfers   = rowsToObjects(results[i++]);
       var stsServiceFee   = rowsToObjects(results[i++]);
       var stsPendingCalc  = rowsToObjects(results[i++]);

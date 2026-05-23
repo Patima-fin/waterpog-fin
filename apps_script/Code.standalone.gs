@@ -178,7 +178,7 @@ var JSON_FIELDS = {
   receipts:        [],
   bankEntries:     [],
   checks:          [],
-  debtMaster:      [],
+  debtMaster:      ['drawdowns'],
   bankTransfers:   [],
   stsServiceFee:   [],
   stsPendingCalc:  [],
@@ -433,7 +433,11 @@ var ENTITY_HEADERS = {
     'principalAmount','interestRate','currency',
     'receiveDate','payDate',
     'principalIn','principalOut','balance',
-    'projectCode','projectName','note'
+    'projectCode','projectName','note',
+    // v2.1: support multi-drawdown per contract (JSON array)
+    // [{"date":"YYYY-MM-DD","amount":N,"note":""}, ...] for additional drawdowns
+    // (the primary drawdown is in receiveDate + principalAmount above)
+    'drawdowns'
   ],
   bankTransfers: [
     'id','maincode','acct_no','PL_PV_No','paytype','Type_of_Pmt',
