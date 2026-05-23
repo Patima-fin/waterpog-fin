@@ -249,7 +249,7 @@ function ReconcilePanel({ transferPairs, bankAccounts, onReconcile }) {
 
 /* ── Main Page ───────────────────────────────────────────────────────── */
 const BankDiaryPage = ({ data: propData, setData, toast }) => {
-  const { bankAccounts = [], bankEntries = [] } = propData || WTPData.load();
+  const { bankAccounts = [], bankEntries = [], bankTransfers = [] } = propData || WTPData.load();
   const today = new Date().toISOString().slice(0, 10);
 
   const [showAddTransfer, setShowAddTransfer] = React.useState(false);
@@ -479,6 +479,55 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
           );
         })}
       </div>
+
+      {/* ── Historical bank transfers (from RAW_BANK_TRANSFER import) ── */}
+      {bankTransfers.length > 0 && (
+        <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 20 }}>
+          <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--line)', background: '#fafbfc' }}>
+            <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink-700)' }}>
+              ประวัติการโอนระหว่างบัญชี (จากระบบ)
+              <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--ink-400)', fontWeight: 400 }}>
+                {bankTransfers.length} รายการ
+              </span>
+            </div>
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="tbl" style={{ minWidth: 1100, fontSize: 12 }}>
+              <thead>
+                <tr>
+                  <th style={{ width: 90 }}>วันที่</th>
+                  <th style={{ width: 110 }}>PV No.</th>
+                  <th>ผู้รับ</th>
+                  <th style={{ width: 100 }}>Document No.</th>
+                  <th style={{ width: 90 }}>เลขที่เช็ค</th>
+                  <th style={{ width: 130 }}>บัญชี (Bank_AC)</th>
+                  <th style={{ textAlign: 'right', width: 120 }}>ยอดเงิน</th>
+                  <th style={{ minWidth: 220 }}>หมายเหตุ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...bankTransfers]
+                  .sort((a, b) => (b.paydate || '').localeCompare(a.paydate || ''))
+                  .map(t => (
+                    <tr key={t.id}>
+                      <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(t.paydate) || '—'}</td>
+                      <td style={{ fontFamily: 'ui-monospace', fontSize: 11 }}>{t.PL_PV_No || '—'}</td>
+                      <td>{t.Payee || '—'}</td>
+                      <td style={{ fontFamily: 'ui-monospace', fontSize: 11 }}>{t.Document_No || '—'}</td>
+                      <td style={{ fontFamily: 'ui-monospace', fontSize: 11 }}>{t.Chq_No || '—'}</td>
+                      <td style={{ fontFamily: 'ui-monospace', fontSize: 11 }}>{t.Bank_AC || '—'}</td>
+                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600,
+                                   color: 'var(--brand-700)' }}>
+                        {fmtMoney(t.Net_Amount)}
+                      </td>
+                      <td style={{ fontSize: 11, color: 'var(--ink-500)' }}>{t.remark || ''}</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Add Transfer Modal */}
       {showAddTransfer && (

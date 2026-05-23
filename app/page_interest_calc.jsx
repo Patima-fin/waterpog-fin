@@ -124,22 +124,23 @@ function downloadCSV(rows, params) {
 }
 
 /* ── Sub-components ──────────────────────────────────────────────────── */
-function ParamForm({ params, setParams, debtLedger, onCalc }) {
+function ParamForm({ params, setParams, debtLedger, debtMaster, onCalc }) {
   var inp = { width:'100%', padding:'8px 11px', boxSizing:'border-box', border:'1.5px solid #e2e8f0', borderRadius:8, fontSize:13, fontFamily:'inherit', outline:'none' };
   var lbl = { fontSize:12, fontWeight:600, color:'#475569', marginBottom:4, display:'block' };
 
   function setP(k, v) { setParams(function(prev){ return Object.assign({}, prev, { [k]: v }); }); }
 
-  function handleLedgerPick(e) {
+  // v2 picker — sources contracts from debtMaster (debtLedger is now monthly rows)
+  function handleMasterPick(e) {
     var id = e.target.value;
     if (!id) return;
-    var debt = (debtLedger||[]).find(function(d){ return d.id===id||d.debtNo===id; });
+    var debt = (debtMaster||[]).find(function(d){ return d.id===id||d.contractNo===id; });
     if (!debt) return;
     setParams(function(prev){ return Object.assign({}, prev, {
-      loanLabel:   debt.debtNo + ' · ' + (debt.linkedProjectCode||'Standalone') + ' — ' + debt.bankName,
-      principal:   debt.outstandingBalance || debt.principalAmount || '',
-      rate:        debt.interestRate || '',
-      startDate:   debt.drawdownDate || '',
+      loanLabel:   debt.contractNo + ' — ' + (debt.borrowerName || debt.debtCategory || ''),
+      principal:   debt.principalAmount || debt.balance || '',
+      rate:        debt.interestRate ? (Number(debt.interestRate) * 100) : '',
+      startDate:   debt.receiveDate || debt.startDate || '',
     }); });
   }
 
@@ -147,14 +148,15 @@ function ParamForm({ params, setParams, debtLedger, onCalc }) {
     <div className="card" style={{ padding:20, marginBottom:16 }}>
       <div style={{ fontWeight:700, fontSize:14, color:'#1a202c', marginBottom:16 }}>⚙ ตั้งค่าการคำนวณ</div>
 
-      {/* Quick-fill from debtLedger */}
-      {debtLedger && debtLedger.length > 0 && (
+      {/* Quick-fill from debtMaster contracts (v2) */}
+      {debtMaster && debtMaster.length > 0 && (
         <div style={{ marginBottom:14, padding:'10px 14px', background:'#f0f6ff', borderRadius:10, border:'1px solid #bfdbfe' }}>
-          <label style={lbl}>เลือกจาก Debt Ledger (optional)</label>
-          <select style={{ ...inp, background:'#fff' }} onChange={handleLedgerPick}>
-            <option value="">— กรอกเอง หรือเลือกจากรายการหนี้ —</option>
-            {(debtLedger||[]).filter(function(d){ return d.status==='active'||d.status==='overdue'; }).map(function(d,i){
-              return <option key={i} value={d.id||d.debtNo}>{d.debtNo} · {d.linkedProjectCode||'Standalone'} — {d.bankName} ({d.interestRate}%)</option>;
+          <label style={lbl}>เลือกจากสัญญา debtMaster (optional)</label>
+          <select style={{ ...inp, background:'#fff' }} onChange={handleMasterPick}>
+            <option value="">— กรอกเอง หรือเลือกจากสัญญา —</option>
+            {(debtMaster||[]).filter(function(d){ return d.status==='Active'; }).map(function(d,i){
+              var rate = d.interestRate ? (Number(d.interestRate)*100).toFixed(2) + '%' : '';
+              return <option key={i} value={d.id||d.contractNo}>{d.debtCategory} · {d.borrowerName} ({d.contractNo}) {rate}</option>;
             })}
           </select>
           {params.loanLabel && <div style={{ fontSize:11, color:'#2a6fdb', marginTop:6 }}>✓ {params.loanLabel}</div>}
@@ -418,6 +420,7 @@ const InterestCalcPage = function({ data }) {
         params={params}
         setParams={setParams}
         debtLedger={data.debtLedger}
+        debtMaster={data.debtMaster}
         onCalc={handleCalc}
       />
 

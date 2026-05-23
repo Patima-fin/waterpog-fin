@@ -1261,17 +1261,27 @@ function IvReportStandalonePage({ data, setData, toast }) {
     [data.projects, data.projectFinance]
   );
 
-  const rows = React.useMemo(() => data.invoices.map(iv => {
-    const p = projectByCode[iv.jobNo] || projectByCode[iv.contractRef] || {};
-    const f = financeByCode[iv.jobNo] || financeByCode[iv.contractRef] || {};
+  const rows = React.useMemo(() => (data.invoices || []).map(iv => {
+    const p = projectByCode[iv.jobNo] || projectByCode[iv.contractRef] || projectByCode[iv.projectCode] || {};
+    const f = financeByCode[iv.jobNo] || financeByCode[iv.contractRef] || financeByCode[iv.projectCode] || {};
     const debt     = Number(f.debt ?? f['ภาระหนี้'] ?? 0);
-    const assignee = f.assignee || f['ผู้รับโอนสิทธิ์'] || '—';
+    // Prefer existing fields, fall back to imported v2 fields
+    const assignee = iv.assignee || f.assignee || f['ผู้รับโอนสิทธิ์'] || '—';
+    const projectName = iv.projectName || p['พื้นที่'] || p.name || '—';
+    // Map v2 'pending' → 'tracking' so existing date-bucketed sections include it.
+    // Real 'paid' rows keep status='paid'.
+    const status = iv.status === 'pending' ? 'tracking' : iv.status;
+    // Map dueDate → expectedReceive for date filtering, prefer actualReceiveDate if set
+    const expectedReceive = iv.expectedReceive || iv.dueDate || iv.actualReceiveDate || null;
+    const balance = Number(iv.balance) || 0;
     return {
       ...iv,
-      projectName: p['พื้นที่'] || p.name || iv.projectName || '—',
+      status,
+      expectedReceive,
+      projectName,
       assignee,
       debt,
-      netExpected: (iv.balance || 0) - debt,
+      netExpected: balance - debt,
     };
   }), [data.invoices, projectByCode, financeByCode]);
 
