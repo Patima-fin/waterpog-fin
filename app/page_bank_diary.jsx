@@ -74,7 +74,7 @@ function AddTransferModal({ bankAccounts, onSave, onClose }) {
   ));
 
   return (
-    <Modal title="บันทึกการโอนเงินระหว่างบัญชี" onClose={onClose} width={500}>
+    <Modal open={true} title="บันทึกการโอนเงินระหว่างบัญชี" onClose={onClose} maxWidth={500}>
       {/* Arrow diagram */}
       <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:16, padding:'10px 14px', background:'#f8fafc', borderRadius:10, border:'1px solid #e2e8f0' }}>
         <div style={{ flex:1, textAlign:'center' }}>
