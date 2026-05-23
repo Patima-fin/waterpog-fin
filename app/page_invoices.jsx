@@ -365,13 +365,7 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
   return (
     <Modal
       open={!!iv}
-      title={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <span style={{ fontFamily: 'ui-monospace', fontSize: 14, color: 'var(--brand-700)' }}>{draft.ivNo || 'IV ใหม่'}</span>
-          <Badge kind={s.badge}>{s.label}</Badge>
-          <span style={{ fontSize: 13, fontWeight: 500 }}>· {project?.['พื้นที่'] || project?.name || '—'}</span>
-        </div>
-      }
+      title={<span style={{ fontFamily: 'ui-monospace', fontWeight: 700 }}>{draft.ivNo || 'IV ใหม่'}</span>}
       maxWidth={920}
       onClose={onClose}
       footer={<>
@@ -426,12 +420,10 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
           <div>
             <SectionHdr label="ข้อมูลจากระบบ — แก้ไขไม่ได้" icon="lock" muted />
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 14px' }}>
-              <ROField fkey="invoiceDate" label="วันที่ IV"       style={{ width: 128 }} />
-              <ROField fkey="ivNo"        label="เลขที่ IV"  mono style={{ width: 148 }} />
-              <RONum   value={draft.balance} label="Balance"      style={{ width: 148 }} />
-              {/* row 2 */}
-              <div style={{ width: '100%', height: 0 }} />
-              <div className="field" style={{ width: 138 }}>
+              <ROField fkey="invoiceDate" label="วันที่ IV"       style={{ width: 105 }} />
+              <ROField fkey="ivNo"        label="เลขที่ IV"  mono style={{ width: 128 }} />
+              <RONum   value={draft.balance} label="Balance"      style={{ width: 128 }} />
+              <div className="field" style={{ width: 115 }}>
                 <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'flex', alignItems: 'center', gap: 3 }}>
                   <span style={{ fontSize: 10, opacity: 0.5 }}>🔒</span>ผู้รับโอนสิทธิ
                 </label>
@@ -439,8 +431,8 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
                   {finance?.assignee || '—'}
                 </div>
               </div>
-              <RONum value={debt} label="ภาระหนี้" negative style={{ width: 128 }} />
-              <div className="field" style={{ width: 155 }}>
+              <RONum value={debt} label="ภาระหนี้" negative style={{ width: 110 }} />
+              <div className="field" style={{ width: 140 }}>
                 <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'flex', alignItems: 'center', gap: 3 }}>
                   <span style={{ fontSize: 10, opacity: 0.5 }}>🔒</span>คาดรับสุทธิ <span style={{ fontSize: 10, opacity: 0.6, marginLeft: 3 }}>(คำนวณ)</span>
                 </label>
@@ -474,8 +466,6 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
                 <input className="input" type="date" value={draft.expectedReceive || ''}
                   onChange={(e) => set('expectedReceive', e.target.value)} />
               </div>
-              {/* row 2 */}
-              <div style={{ width: '100%', height: 0 }} />
               <div className="field" style={{ width: 210 }}>
                 <label style={{ fontSize: 12 }}>ชื่อผู้ติดต่อ</label>
                 <input className="input" value={draft.contactName || ''}
