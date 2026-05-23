@@ -42,6 +42,12 @@ var SHEETS = {
   RECEIPTS:      'receipts',
   BANK_ENTRIES:  'bankEntries',
   CHECKS:        'checks',
+  // ── v2 schema (added 2026-05-23) ────────────────────────────────
+  DEBT_MASTER:      'debtMaster',
+  BANK_TRANSFERS:   'bankTransfers',
+  STS_SERVICE_FEE:  'stsServiceFee',
+  STS_PENDING_CALC: 'stsPendingCalc',
+  STS_CALC_RESULT:  'stsCalcResult',
 };
 
 /* ── 1. WEB APP ENDPOINTS ───────────────────────────────────────── */
@@ -120,6 +126,11 @@ function getAll() {
     receipts:              readTable(SHEETS.RECEIPTS),
     bankEntries:           readTable(SHEETS.BANK_ENTRIES),
     checks:                readTable(SHEETS.CHECKS),
+    debtMaster:            readTable(SHEETS.DEBT_MASTER),
+    bankTransfers:         readTable(SHEETS.BANK_TRANSFERS),
+    stsServiceFee:         readTable(SHEETS.STS_SERVICE_FEE),
+    stsPendingCalc:        readTable(SHEETS.STS_PENDING_CALC),
+    stsCalcResult:         readTable(SHEETS.STS_CALC_RESULT),
   };
 }
 
@@ -145,6 +156,11 @@ function getEntity(name) {
     case 'receipts':              return readTable(SHEETS.RECEIPTS);
     case 'bankEntries':           return readTable(SHEETS.BANK_ENTRIES);
     case 'checks':                return readTable(SHEETS.CHECKS);
+    case 'debtMaster':            return readTable(SHEETS.DEBT_MASTER);
+    case 'bankTransfers':         return readTable(SHEETS.BANK_TRANSFERS);
+    case 'stsServiceFee':         return readTable(SHEETS.STS_SERVICE_FEE);
+    case 'stsPendingCalc':        return readTable(SHEETS.STS_PENDING_CALC);
+    case 'stsCalcResult':         return readTable(SHEETS.STS_CALC_RESULT);
   }
   return { error: 'unknown entity: ' + name };
 }
@@ -162,6 +178,11 @@ var JSON_FIELDS = {
   receipts:        [],
   bankEntries:     [],
   checks:          [],
+  debtMaster:      [],
+  bankTransfers:   [],
+  stsServiceFee:   [],
+  stsPendingCalc:  [],
+  stsCalcResult:   ['debtIds'],
 };
 
 function readTable(name) {
@@ -359,7 +380,11 @@ var ENTITY_HEADERS = {
   invoices: [
     'id','ivNo','jobNo','period','invoiceDate','balance',
     'status','expectedReceive','contactName','contactPhone',
-    'followUps','actualReceive'
+    'followUps','actualReceive',
+    // v2 fields parsed from "Olddata IV" (added 2026-05-23)
+    'projectCode','projectName','customerCode','customerName',
+    'dueDate','assignee','contractor','category',
+    'actualReceiveDate','currentStatus','arNo','docType','refCode'
   ],
   forecastEntries: [
     'id','DATE','PAYMENT_DATE','EXPENSE_TYPE','DESCRIPTION','JOB_NO',
@@ -380,11 +405,13 @@ var ENTITY_HEADERS = {
     'Less_Ret','Balance_Amount1','netpayment','refcode','jobcode',
     'jobname','dpt_code','dpt_name','acct_no','cust_name','vendor_group','vendor_group2'
   ],
+  // debtLedger v2: ONE ROW PER MONTH PER CONTRACT (interest schedule rows)
+  // Contract-level info now lives in debtMaster.
   debtLedger: [
-    'id','debtNo','debtType','linkedProjectCode','bankName','accountRef',
-    'principalAmount','drawdownDate','maturityDate',
-    'interestRate','interestBasis','outstandingBalance',
-    'collateral','status','note'
+    'id','contractNo','year','month',
+    'principal','interestRate','days','interestAmount',
+    'installment','principalPaid','outstanding',
+    'paymentDate','note'
   ],
   receipts: [
     'id','receiptNo','receiptDate','invoiceNo','projectCode','projectName','period',
@@ -397,6 +424,34 @@ var ENTITY_HEADERS = {
   checks: [
     'id','checkNo','checkDate','payee','amount','bankName','accountNo',
     'referenceNo','linkedProjectCode','status','note'
+  ],
+  // ── v2 schemas (added 2026-05-23) ──────────────────────────────────
+  debtMaster: [
+    'id','debtCategory','contractNo','borrowerName','status',
+    'bankName','accountNo',
+    'startDate','endDate','termMonths','maturityDate',
+    'principalAmount','interestRate','currency',
+    'receiveDate','payDate',
+    'principalIn','principalOut','balance',
+    'projectCode','projectName','note'
+  ],
+  bankTransfers: [
+    'id','maincode','acct_no','PL_PV_No','paytype','Type_of_Pmt',
+    'Payee','paydate','Document_No','Chq_No','Chq_Date',
+    'Bank_AC','Net_Amount','exchange','data_ty','remark'
+  ],
+  stsServiceFee: [
+    'id','feeRate','effectiveFrom','note'
+  ],
+  stsPendingCalc: [
+    'id','receiptId','invoiceId','projectCode',
+    'amountReceived','receiveDate',
+    'status','calculatedBy','calculatedAt','note'
+  ],
+  stsCalcResult: [
+    'id','pendingCalcId','debtIds',
+    'interestTotal','serviceFeeFull','serviceFeeNet',
+    'encompassPayableId','note'
   ],
 };
 
@@ -413,6 +468,11 @@ function _entitySheet(entity) {
     receipts:        SHEETS.RECEIPTS,
     bankEntries:     SHEETS.BANK_ENTRIES,
     checks:          SHEETS.CHECKS,
+    debtMaster:      SHEETS.DEBT_MASTER,
+    bankTransfers:   SHEETS.BANK_TRANSFERS,
+    stsServiceFee:   SHEETS.STS_SERVICE_FEE,
+    stsPendingCalc:  SHEETS.STS_PENDING_CALC,
+    stsCalcResult:   SHEETS.STS_CALC_RESULT,
   };
   if (!map[entity]) throw new Error('CRUD ไม่รองรับ entity: ' + entity);
   return { name: map[entity], headers: ENTITY_HEADERS[entity] };
@@ -486,4 +546,140 @@ function testGetAll() {
 
 function getDeployUrl() {
   Logger.log('URL: ' + (ScriptApp.getService().getUrl() || 'ยังไม่ได้ Deploy'));
+}
+
+/* ── 9. V2 SETUP — create the 5 new sheets with headers ────────────
+ * Run this ONCE after deploying v2 code. Safe to re-run (skips existing).
+ * Also seeds stsServiceFee with default 6.5% row.
+ * ────────────────────────────────────────────────────────────────── */
+function setupV2Sheets() {
+  var newSheets = [
+    SHEETS.DEBT_MASTER,
+    SHEETS.BANK_TRANSFERS,
+    SHEETS.STS_SERVICE_FEE,
+    SHEETS.STS_PENDING_CALC,
+    SHEETS.STS_CALC_RESULT,
+  ];
+  var entityKeys = ['debtMaster', 'bankTransfers', 'stsServiceFee', 'stsPendingCalc', 'stsCalcResult'];
+  var ss = _ss();
+  var created = [];
+  var skipped = [];
+
+  newSheets.forEach(function (sheetName, idx) {
+    var existing = ss.getSheetByName(sheetName);
+    if (existing) {
+      skipped.push(sheetName);
+      return;
+    }
+    var sh = ss.insertSheet(sheetName);
+    var headers = ENTITY_HEADERS[entityKeys[idx]];
+    var headerRange = sh.getRange(1, 1, 1, headers.length);
+    headerRange.setValues([headers]);
+    headerRange.setFontWeight('bold').setBackground('#1a73e8').setFontColor('#ffffff');
+    headerRange.setFontSize(10);
+    sh.setFrozenRows(1);
+    created.push(sheetName);
+  });
+
+  // Seed default STS service fee row (6.5%) if empty
+  var feeSh = _ss().getSheetByName(SHEETS.STS_SERVICE_FEE);
+  if (feeSh && feeSh.getLastRow() < 2) {
+    feeSh.appendRow([newId_(), 0.065, '2020-01-01', 'อัตราเริ่มต้น 6.5% — เอนคอมพาส']);
+  }
+
+  // Migration: existing debtLedger had a different (contract-level) schema.
+  // The v2 schema is row-per-month. If the existing sheet has the OLD headers,
+  // rename it to debtLedger_v1_backup so the next replaceAll/import uses fresh.
+  var dl = _ss().getSheetByName(SHEETS.DEBT_LEDGER);
+  if (dl) {
+    var oldHeaders = dl.getRange(1, 1, 1, dl.getLastColumn()).getValues()[0];
+    if (oldHeaders.indexOf('debtNo') >= 0 || oldHeaders.indexOf('outstandingBalance') >= 0) {
+      var backupName = SHEETS.DEBT_LEDGER + '_v1_backup';
+      if (!_ss().getSheetByName(backupName)) {
+        dl.setName(backupName);
+      } else {
+        dl.setName(backupName + '_' + Date.now());
+      }
+      // Create fresh debtLedger with v2 headers
+      var fresh = _ss().insertSheet(SHEETS.DEBT_LEDGER);
+      var dlHeaders = ENTITY_HEADERS.debtLedger;
+      var range = fresh.getRange(1, 1, 1, dlHeaders.length);
+      range.setValues([dlHeaders]);
+      range.setFontWeight('bold').setBackground('#1a73e8').setFontColor('#ffffff');
+      fresh.setFrozenRows(1);
+      created.push(SHEETS.DEBT_LEDGER + ' (recreated; old data → ' + backupName + ')');
+    }
+  }
+
+  Logger.log('Created: ' + JSON.stringify(created));
+  Logger.log('Skipped (already existed): ' + JSON.stringify(skipped));
+  return { created: created, skipped: skipped };
+}
+
+/* ── 10. V2 HEADER MIGRATION — extend existing sheets' header row ───
+ * For sheets that EXISTED before v2 (invoices, checks) the header row
+ * is shorter than the v2 canonical schema. This function appends the
+ * new columns to the right of the existing headers so data rows pasted
+ * with the v2 column order will land in named columns.
+ *
+ * Safe to re-run. Existing data rows are NOT touched.
+ * ──────────────────────────────────────────────────────────────── */
+function ensureV2Headers() {
+  // Entity → sheet name map. Covers every entity that needs a flat-table sheet.
+  var entityMap = {
+    invoices:        SHEETS.INVOICES,
+    checks:          SHEETS.CHECKS,
+    debtLedger:      SHEETS.DEBT_LEDGER,
+    receipts:        SHEETS.RECEIPTS,
+    bankEntries:     SHEETS.BANK_ENTRIES,
+    payables:        SHEETS.PAYABLES,
+    projects:        SHEETS.PROJECTS,
+    projectFinance:  SHEETS.PROJECT_FIN,
+    bankAccounts:    SHEETS.BANK,
+    pvVouchers:      SHEETS.PV_VOUCHERS,
+    forecastEntries: SHEETS.FORECAST_E,
+    debtMaster:      SHEETS.DEBT_MASTER,
+    bankTransfers:   SHEETS.BANK_TRANSFERS,
+    stsServiceFee:   SHEETS.STS_SERVICE_FEE,
+    stsPendingCalc:  SHEETS.STS_PENDING_CALC,
+    stsCalcResult:   SHEETS.STS_CALC_RESULT,
+  };
+  var results = [];
+  Object.keys(entityMap).forEach(function (entity) {
+    var sheetName = entityMap[entity];
+    if (!sheetName) return;
+    var sh = _ss().getSheetByName(sheetName);
+    var canonical = ENTITY_HEADERS[entity];
+    // CREATE sheet if missing (covers user not having run v1 init for this entity)
+    if (!sh) {
+      sh = _ss().insertSheet(sheetName);
+      var headerRange = sh.getRange(1, 1, 1, canonical.length);
+      headerRange.setValues([canonical]);
+      headerRange.setFontWeight('bold').setBackground('#1a73e8').setFontColor('#ffffff');
+      headerRange.setFontSize(10);
+      sh.setFrozenRows(1);
+      results.push(entity + ': CREATED sheet with ' + canonical.length + ' headers');
+      return;
+    }
+    var lastCol = Math.max(sh.getLastColumn(), 1);
+    var current = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+    // If header row is empty, write the full canonical set
+    if (!current[0]) {
+      sh.getRange(1, 1, 1, canonical.length).setValues([canonical]);
+      sh.getRange(1, 1, 1, canonical.length).setFontWeight('bold')
+        .setBackground('#1a73e8').setFontColor('#ffffff');
+      sh.setFrozenRows(1);
+      results.push(entity + ': wrote ' + canonical.length + ' headers (was empty)');
+      return;
+    }
+    var missing = canonical.filter(function (h) { return current.indexOf(h) < 0; });
+    if (missing.length === 0) { results.push(entity + ': already up to date'); return; }
+    var startCol = current.length + 1;
+    sh.getRange(1, startCol, 1, missing.length).setValues([missing]);
+    sh.getRange(1, startCol, 1, missing.length).setFontWeight('bold')
+      .setBackground('#1a73e8').setFontColor('#ffffff');
+    results.push(entity + ': appended ' + missing.length + ' col(s): ' + missing.join(', '));
+  });
+  Logger.log(results.join('\n'));
+  return results;
 }

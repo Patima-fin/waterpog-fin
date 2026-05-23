@@ -29,11 +29,15 @@
 
   // Entities ที่รองรับ CRUD ผ่าน Apps Script POST
   var CRUD_ENTITIES = ['projects', 'projectFinance', 'invoices', 'forecastEntries',
-                       'bankAccounts', 'pvVouchers', 'payables'];
+                       'bankAccounts', 'pvVouchers', 'payables',
+                       'debtLedger', 'receipts', 'bankEntries', 'checks',
+                       'debtMaster', 'bankTransfers',
+                       'stsServiceFee', 'stsPendingCalc', 'stsCalcResult'];
 
   // jsonFields per entity — for proper rowsToObjects parsing during safety re-fetch
   var ENTITY_JSON_FIELDS = {
-    invoices: ['followUps', 'actualReceive'],
+    invoices:      ['followUps', 'actualReceive'],
+    stsCalcResult: ['debtIds'],
   };
 
   /* ── state ──────────────────────────────────────────────────────── */
@@ -164,6 +168,10 @@
       'daily_invoicesToday', 'cf_inflow', 'cf_outflow',
       'projects', 'projectFinance', 'invoices', 'forecastEntries',
       'bankAccounts', 'pvVouchers', 'payables',
+      // v2 additions
+      'debtLedger', 'receipts', 'bankEntries', 'checks',
+      'debtMaster', 'bankTransfers',
+      'stsServiceFee', 'stsPendingCalc', 'stsCalcResult',
     ];
 
     return Promise.all(sheetOrder.map(fetchSheet)).then(function (results) {
@@ -187,6 +195,16 @@
       var bankAccounts    = rowsToObjects(results[i++]);
       var pvVouchers      = rowsToObjects(results[i++]);
       var payables        = rowsToObjects(results[i++]);
+      // v2 additions
+      var debtLedger      = rowsToObjects(results[i++]);
+      var receipts        = rowsToObjects(results[i++]);
+      var bankEntries     = rowsToObjects(results[i++]);
+      var checks          = rowsToObjects(results[i++]);
+      var debtMaster      = rowsToObjects(results[i++]);
+      var bankTransfers   = rowsToObjects(results[i++]);
+      var stsServiceFee   = rowsToObjects(results[i++]);
+      var stsPendingCalc  = rowsToObjects(results[i++]);
+      var stsCalcResult   = rowsToObjects(results[i++], ['debtIds']);
 
       var data = {
         meta: {
@@ -268,6 +286,16 @@
         bankAccounts:    bankAccounts,
         pvVouchers:      pvVouchers,
         payables:        payables,
+        // v2 additions
+        debtLedger:      debtLedger,
+        receipts:        receipts,
+        bankEntries:     bankEntries,
+        checks:          checks,
+        debtMaster:      debtMaster,
+        bankTransfers:   bankTransfers,
+        stsServiceFee:   stsServiceFee,
+        stsPendingCalc:  stsPendingCalc,
+        stsCalcResult:   stsCalcResult,
       };
 
       // Cache snapshots so the next save doesn't re-push unchanged entities
