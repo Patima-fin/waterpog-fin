@@ -13,7 +13,6 @@ function InvoicesPage({ data, setData, toast }) {
   const [detail, setDetail] = ivState(null);
   const [showImport, setShowImport] = ivState(false);
   const [payModal, setPayModal] = ivState(null);
-  const [viewMode, setViewMode] = ivState('table'); // 'table' | 'report'
 
   const { projectByCode, financeByCode } = ivMemo(() => WTPData.buildLookups(data), [data.projects, data.projectFinance]);
 
@@ -116,23 +115,7 @@ function InvoicesPage({ data, setData, toast }) {
           <h1 className="page-title">ใบแจ้งหนี้คงค้าง</h1>
           <div className="page-sub">RAW_IV_OUTSTANDING · {rows.length} ใบ · ผู้ดูแล: ฝ่ายติดตามรับเงิน</div>
         </div>
-        <div className="page-head-r" style={{ display:'flex', gap: 8, alignItems:'center' }}>
-          <div style={{ display:'flex', borderRadius: 8, overflow:'hidden', border:'1px solid var(--line)' }}>
-            <button
-              onClick={() => setViewMode('table')}
-              style={{ padding:'5px 12px', fontSize: 12, fontWeight: 600, cursor:'pointer',
-                       background: viewMode==='table' ? 'var(--brand-600,#2a6fdb)' : '#fff',
-                       color: viewMode==='table' ? '#fff' : 'var(--ink-600)', border:'none' }}>
-              ตาราง
-            </button>
-            <button
-              onClick={() => setViewMode('report')}
-              style={{ padding:'5px 12px', fontSize: 12, fontWeight: 600, cursor:'pointer',
-                       background: viewMode==='report' ? 'var(--brand-600,#2a6fdb)' : '#fff',
-                       color: viewMode==='report' ? '#fff' : 'var(--ink-600)', border:'none', borderLeft:'1px solid var(--line)' }}>
-              Report
-            </button>
-          </div>
+        <div className="page-head-r">
           <button className="btn btn-ghost" onClick={() => setShowImport(true)}><Icon name="upload" size={14} /> วาง RAW_IV_OUTSTANDING</button>
         </div>
       </div>
@@ -144,7 +127,7 @@ function InvoicesPage({ data, setData, toast }) {
         <KpiTile label="ติดปัญหา"          value={counts.issue} unit=" ใบ" digits={0} accent="oklch(60% 0.22 25)" icon="invoice" />
       </div>
 
-      {viewMode === 'table' && <div className="card" style={{ padding: 14, marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+      <div className="card" style={{ padding: 14, marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <div className="tabnav">
           <button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>ทั้งหมด ({counts.all})</button>
           <button className={filter === 'pending_inspection' ? 'active' : ''} onClick={() => setFilter('pending_inspection')}>รอใบตรวจรับ ({counts.pending_inspection})</button>
@@ -158,7 +141,7 @@ function InvoicesPage({ data, setData, toast }) {
         </div>
       </div>}
 
-      {viewMode === 'table' && <div className="card anim-in" style={{ padding: 0, overflow: 'auto' }}>
+      <div className="card anim-in" style={{ padding: 0, overflow: 'auto' }}>
         <table className="tbl">
           <thead>
             <tr>
@@ -224,11 +207,7 @@ function InvoicesPage({ data, setData, toast }) {
             </tr>
           </tfoot>
         </table>
-      </div>}
-
-      {viewMode === 'report' && (
-        <IvReportView rows={rows} onOpen={setDetail} />
-      )}
+      </div>
 
       <InvoiceDetailModal
         iv={detail}
