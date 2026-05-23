@@ -442,20 +442,20 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
           {/* ── ข้อมูลจากระบบ ──────────────────────────────────────────────── */}
           <div>
             <SectionHdr label="ข้อมูลจากระบบ — แก้ไขไม่ได้" icon="lock" muted />
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 14px' }}>
-              <ROField fkey="invoiceDate" label="วันที่ IV"       style={{ width: 105 }} />
-              <ROField fkey="ivNo"        label="เลขที่ IV"  mono style={{ width: 128 }} />
-              <RONum   value={draft.balance} label="Balance"      style={{ width: 128 }} />
-              <div className="field" style={{ width: 115 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '108px 140px 130px 1fr 115px 152px', gap: '0 12px' }}>
+              <ROField fkey="invoiceDate" label="วันที่ IV" />
+              <ROField fkey="ivNo"        label="เลขที่ IV"  mono />
+              <RONum   value={draft.balance} label="Balance" />
+              <div className="field">
                 <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'flex', alignItems: 'center', gap: 3 }}>
                   <span style={{ fontSize: 10, opacity: 0.5 }}>🔒</span>ผู้รับโอนสิทธิ
                 </label>
-                <div style={{ height: 32, borderRadius: 7, border: '1px solid var(--ink-100)', background: 'var(--ink-50)', padding: '0 9px', display: 'flex', alignItems: 'center', fontSize: 12.5, color: finance?.assignee ? 'var(--ink-800)' : 'var(--ink-300)', cursor: 'default' }}>
+                <div style={{ height: 32, borderRadius: 7, border: '1px solid var(--ink-100)', background: 'var(--ink-50)', padding: '0 9px', display: 'flex', alignItems: 'center', fontSize: 12.5, color: finance?.assignee ? 'var(--ink-800)' : 'var(--ink-300)', cursor: 'default', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {finance?.assignee || '—'}
                 </div>
               </div>
-              <RONum value={debt} label="ภาระหนี้" negative style={{ width: 110 }} />
-              <div className="field" style={{ width: 140 }}>
+              <RONum value={debt} label="ภาระหนี้" negative />
+              <div className="field">
                 <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'flex', alignItems: 'center', gap: 3 }}>
                   <span style={{ fontSize: 10, opacity: 0.5 }}>🔒</span>คาดรับสุทธิ <span style={{ fontSize: 10, opacity: 0.6, marginLeft: 3 }}>(คำนวณ)</span>
                 </label>
@@ -470,31 +470,31 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
           {/* ── ข้อมูลติดตาม ───────────────────────────────────────────────── */}
           <div>
             <SectionHdr label="ข้อมูลติดตาม — กรอกได้" icon="edit" />
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 14px' }}>
-              <div className="field" style={{ width: 70 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '72px 160px 140px 1fr 155px', gap: '0 12px' }}>
+              <div className="field">
                 <label style={{ fontSize: 12 }}>งวดที่</label>
                 <input className="input" type="number" min="1" value={draft.period || 1}
                   onChange={(e) => set('period', Number(e.target.value))}
                   style={{ textAlign: 'center', fontWeight: 700, fontSize: 15 }} />
               </div>
-              <div className="field" style={{ width: 155 }}>
+              <div className="field">
                 <label style={{ fontSize: 12 }}>สถานะ</label>
                 <select className="select input" value={draft.status}
                   onChange={(e) => { set('status', e.target.value); setSaveError(''); }}>
                   {Object.entries(WTPData.IV_STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
                 </select>
               </div>
-              <div className="field" style={{ width: 148 }}>
+              <div className="field">
                 <label style={{ fontSize: 12 }}>วันที่คาดรับเงิน</label>
                 <input className="input" type="date" value={draft.expectedReceive || ''}
                   onChange={(e) => set('expectedReceive', e.target.value)} />
               </div>
-              <div className="field" style={{ width: 210 }}>
+              <div className="field">
                 <label style={{ fontSize: 12 }}>ชื่อผู้ติดต่อ</label>
                 <input className="input" value={draft.contactName || ''}
                   onChange={(e) => set('contactName', e.target.value)} placeholder="เช่น คุณสมหญิง" />
               </div>
-              <div className="field" style={{ width: 155 }}>
+              <div className="field">
                 <label style={{ fontSize: 12 }}>เบอร์โทร</label>
                 <input className="input" value={draft.contactPhone || ''}
                   onChange={(e) => set('contactPhone', e.target.value)} placeholder="0XX-XXX-XXXX" />
@@ -543,38 +543,43 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
               </button>}
             </div>
             {ar ? (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 14px' }}>
-                <div className="field" style={{ width: 128 }}><label style={{ fontSize: 12 }}>วันที่รับจริง</label>
-                  <input className="input" type="date" value={ar.date || ''} onChange={(e) => setReceive({ date: e.target.value })} />
-                </div>
-                <div className="field" style={{ width: 148 }}><label style={{ fontSize: 12 }}>จำนวนที่ได้รับ{isPaid && <span style={{ color: 'var(--bad)', marginLeft: 3 }}>*</span>}</label>
-                  <IvAmountInput value={ar.amount} onChange={(n) => { setReceive({ amount: n }); setSaveError(''); }} />
-                </div>
-                <div className="field" style={{ width: 148 }}><label style={{ fontSize: 12 }}>ค่าธรรมเนียมธนาคาร</label>
-                  <IvAmountInput value={ar.bankFee} onChange={(n) => setReceive({ bankFee: n })} />
-                </div>
-                <div className="field" style={{ width: 110 }}><label style={{ fontSize: 12 }}>ค่าอื่นๆ</label>
-                  <IvAmountInput value={ar.otherFee} onChange={(n) => setReceive({ otherFee: n })} />
-                </div>
-                {/* row 2 */}
-                <div style={{ width: '100%', height: 0 }} />
-                <div className="field" style={{ width: 230 }}><label style={{ fontSize: 12 }}>รายละเอียดค่าอื่นๆ</label>
-                  <input className="input" value={ar.otherFeeNote || ''} onChange={(e) => setReceive({ otherFeeNote: e.target.value })}
-                    placeholder="เช่น หักชำระ PS2026-014 / ค่าปรับ / หักเงินกู้…" />
-                </div>
-                <div className="field" style={{ width: 148 }}><label style={{ fontSize: 12, color: 'var(--ink-600)' }}>เงินเข้าบัญชีสุทธิ <span style={{ fontSize: 10, fontWeight: 400, color: 'var(--ink-400)' }}>(คำนวณ)</span></label>
-                  <div style={{ height: 34, borderRadius: 7, position: 'relative', background: 'color-mix(in oklch, var(--good) 10%, transparent)', border: '1px solid color-mix(in oklch, var(--good) 22%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '0 24px 0 10px', fontFamily: 'ui-monospace', fontSize: 14, fontWeight: 700, color: netCash < 0 ? 'var(--bad)' : 'var(--good)' }}>
-                    {fmtNum(netCash, 0)}
-                    <span style={{ position: 'absolute', right: 7, fontSize: 10, color: 'var(--ink-400)', fontWeight: 400 }}>฿</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {/* แถว 1: วันที่ + 3 ช่องเงิน */}
+                <div style={{ display: 'grid', gridTemplateColumns: '128px 1fr 1fr 1fr', gap: '0 12px' }}>
+                  <div className="field"><label style={{ fontSize: 12 }}>วันที่รับจริง</label>
+                    <input className="input" type="date" value={ar.date || ''} onChange={(e) => setReceive({ date: e.target.value })} />
+                  </div>
+                  <div className="field"><label style={{ fontSize: 12 }}>จำนวนที่ได้รับ{isPaid && <span style={{ color: 'var(--bad)', marginLeft: 3 }}>*</span>}</label>
+                    <IvAmountInput value={ar.amount} onChange={(n) => { setReceive({ amount: n }); setSaveError(''); }} />
+                  </div>
+                  <div className="field"><label style={{ fontSize: 12 }}>ค่าธรรมเนียมธนาคาร</label>
+                    <IvAmountInput value={ar.bankFee} onChange={(n) => setReceive({ bankFee: n })} />
+                  </div>
+                  <div className="field"><label style={{ fontSize: 12 }}>ค่าอื่นๆ</label>
+                    <IvAmountInput value={ar.otherFee} onChange={(n) => setReceive({ otherFee: n })} />
                   </div>
                 </div>
-                <div className="field" style={{ width: 175 }}><label style={{ fontSize: 12 }}>เข้าบัญชี</label>
-                  <select className="select input" value={ar.bankAccount || ''} onChange={(e) => setReceive({ bankAccount: e.target.value })}>
-                    <option value="">— เลือกบัญชี —</option>
-                    {(bankAccounts || []).map(b => <option key={b.id} value={`${b.BANK_NAME || b.bankName} ${b.Bank_AC || b.accountNo}`}>{b.BANK_NAME || b.bankName} · {b.Bank_AC || b.accountNo}</option>)}
-                  </select>
+                {/* แถว 2: รายละเอียด + สุทธิ + บัญชี */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 155px 185px', gap: '0 12px' }}>
+                  <div className="field"><label style={{ fontSize: 12 }}>รายละเอียดค่าอื่นๆ</label>
+                    <input className="input" value={ar.otherFeeNote || ''} onChange={(e) => setReceive({ otherFeeNote: e.target.value })}
+                      placeholder="เช่น หักชำระ PS2026-014 / ค่าปรับ / หักเงินกู้…" />
+                  </div>
+                  <div className="field"><label style={{ fontSize: 12, color: 'var(--ink-600)' }}>เงินเข้าบัญชีสุทธิ <span style={{ fontSize: 10, fontWeight: 400, color: 'var(--ink-400)' }}>(คำนวณ)</span></label>
+                    <div style={{ height: 34, borderRadius: 7, position: 'relative', background: 'color-mix(in oklch, var(--good) 10%, transparent)', border: '1px solid color-mix(in oklch, var(--good) 22%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '0 24px 0 10px', fontFamily: 'ui-monospace', fontSize: 14, fontWeight: 700, color: netCash < 0 ? 'var(--bad)' : 'var(--good)' }}>
+                      {fmtNum(netCash, 0)}
+                      <span style={{ position: 'absolute', right: 7, fontSize: 10, color: 'var(--ink-400)', fontWeight: 400 }}>฿</span>
+                    </div>
+                  </div>
+                  <div className="field"><label style={{ fontSize: 12 }}>เข้าบัญชี</label>
+                    <select className="select input" value={ar.bankAccount || ''} onChange={(e) => setReceive({ bankAccount: e.target.value })}>
+                      <option value="">— เลือกบัญชี —</option>
+                      {(bankAccounts || []).map(b => <option key={b.id} value={`${b.BANK_NAME || b.bankName} ${b.Bank_AC || b.accountNo}`}>{b.BANK_NAME || b.bankName} · {b.Bank_AC || b.accountNo}</option>)}
+                    </select>
+                  </div>
                 </div>
-                <div style={{ width: '100%', display: 'flex', justifyContent: 'flex-end' }}>
+                {/* ลบบันทึก */}
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                   <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--bad)' }} onClick={() => setReceive(null)}>
                     <Icon name="trash" size={11} /> ลบบันทึก
                   </button>
