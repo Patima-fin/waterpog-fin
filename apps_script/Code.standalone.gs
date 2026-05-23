@@ -178,7 +178,7 @@ var JSON_FIELDS = {
   receipts:        [],
   bankEntries:     [],
   checks:          [],
-  debtMaster:      ['drawdowns'],
+  debtMaster:      ['drawdowns','repayments'],
   bankTransfers:   [],
   stsServiceFee:   [],
   stsPendingCalc:  [],
@@ -434,10 +434,12 @@ var ENTITY_HEADERS = {
     'receiveDate','payDate',
     'principalIn','principalOut','balance',
     'projectCode','projectName','note',
-    // v2.1: support multi-drawdown per contract (JSON array)
-    // [{"date":"YYYY-MM-DD","amount":N,"note":""}, ...] for additional drawdowns
-    // (the primary drawdown is in receiveDate + principalAmount above)
-    'drawdowns'
+    // v2.1: multi-drawdown + multi-repayment per contract (JSON arrays)
+    // drawdowns:  [{"date":"YYYY-MM-DD","amount":N,"note":""}, ...]  เงินกู้เพิ่มครั้งที่ 2+
+    // repayments: [{"date":"YYYY-MM-DD","amount":N,"note":""}, ...]  การคืนเงินกู้
+    // (primary drawdown is in receiveDate + principalAmount above;
+    //  outstanding = principalAmount + sum(drawdowns) − sum(repayments))
+    'drawdowns','repayments'
   ],
   bankTransfers: [
     'id','maincode','acct_no','PL_PV_No','paytype','Type_of_Pmt',
