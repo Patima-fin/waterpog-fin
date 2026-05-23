@@ -268,17 +268,18 @@ function GenericEditModal({ row, onClose, onSave, fields, title, header }) {
 function GenericViewModal({ row, onClose, fields, title }) {
   if (!row) return null;
   const roStyle = { minHeight: 34, borderRadius: 7, border: '1px solid var(--ink-100)', background: 'var(--ink-25, #f9fafb)', padding: '6px 10px', fontSize: 13, color: 'var(--ink-700)', cursor: 'default', userSelect: 'text', lineHeight: 1.5, wordBreak: 'break-word' };
+  const roHighlight = { ...roStyle, background: 'color-mix(in oklch, var(--bad) 9%, transparent)', border: '1px solid color-mix(in oklch, var(--bad) 26%, transparent)', color: 'var(--bad)', fontWeight: 700, fontFamily: 'ui-monospace', fontSize: 14, textAlign: 'right', padding: '6px 14px' };
   return (
     <Modal open={!!row} title={title} maxWidth={760} onClose={onClose}
       footer={<button className="btn btn-ghost" onClick={onClose}>ปิด</button>}>
       <div style={{ display: 'grid', gap: 16 }}>
         {(() => {
           const groups = [];
-          let cur = { title: null, icon: null, fields: [] };
+          let cur = { title: null, icon: null, cols: 2, fields: [] };
           fields.forEach(f => {
             if (f.type === 'section') {
               if (cur.fields.length || cur.title) groups.push(cur);
-              cur = { title: f.label, icon: f.icon, fields: [] };
+              cur = { title: f.label, icon: f.icon, cols: f.cols || 2, fields: [] };
             } else { cur.fields.push(f); }
           });
           if (cur.fields.length) groups.push(cur);
@@ -289,17 +290,18 @@ function GenericViewModal({ row, onClose, fields, title }) {
                   {g.icon && <Icon name={g.icon} size={13} />}{g.title}
                 </div>
               )}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: `repeat(${g.cols}, 1fr)`, gap: 10 }}>
                 {g.fields.map((f, i) => {
                   const v = row[f.key];
                   const display = (v === null || v === undefined || v === '') ? '—'
                     : f.type === 'number' ? fmtNum(parseNum(v), 2)
                     : f.type === 'date'   ? (fmtDate(v) || String(v))
                     : String(v);
+                  const colStyle = f.full ? { gridColumn: '1 / -1' } : f.span ? { gridColumn: `span ${f.span}` } : f.gridColumn ? { gridColumn: f.gridColumn } : {};
                   return (
-                    <div key={i} className="field" style={{ gridColumn: f.full ? '1 / -1' : 'auto' }}>
+                    <div key={i} className="field" style={colStyle}>
                       <label style={{ fontSize: 12, color: 'var(--ink-500)' }}>{f.label}</label>
-                      <div style={roStyle}>{display}</div>
+                      <div style={f.highlight ? roHighlight : roStyle}>{display}</div>
                     </div>
                   );
                 })}
@@ -522,21 +524,26 @@ function DataPVPage({ data, setData, toast }) {
         { key: 'cc_remark',  label: 'หมายเหตุ' },
       ],
       modalFields: [
-        { type: 'section', label: 'ข้อมูลหลัก', icon: 'invoice' },
-        { key: 'Pmt_Date',    label: 'วันที่จ่าย',  type: 'date' },
-        { key: 'PL_PV_No',   label: 'เลขที่ PV',   type: 'text' },
-        { key: 'AP_No',      label: 'เลขที่ AP',   type: 'text' },
-        { key: 'Payee',      label: 'ผู้รับเงิน',   type: 'text', full: true },
-        { key: 'Ref_Code',   label: 'Ref Code',    type: 'text' },
-        { key: 'Type_of_Pmt',label: 'ประเภทการจ่าย', type: 'text' },
-        { key: 'Bank_AC',    label: 'บัญชีธนาคาร', type: 'text' },
-        { type: 'section', label: 'ยอดเงิน', icon: 'coin' },
-        { key: 'Net_Amount', label: 'ยอดสุทธิ',    type: 'number' },
+        { type: 'section', label: 'ข้อมูลหลัก', icon: 'invoice', cols: 3 },
+        // แถว 1: เลขที่ AP | เลขที่ PV | วันที่จ่าย
+        { key: 'AP_No',       label: 'เลขที่ AP',      type: 'text' },
+        { key: 'PL_PV_No',    label: 'เลขที่ PV',      type: 'text' },
+        { key: 'Pmt_Date',    label: 'วันที่จ่าย',     type: 'date' },
+        // แถว 2: ผู้รับเงิน (span 2) | Ref Code
+        { key: 'Payee',       label: 'ผู้รับเงิน',     type: 'text', span: 2 },
+        { key: 'Ref_Code',    label: 'Ref Code',       type: 'text' },
+        // แถว 3: บัญชีธนาคาร | ประเภทการจ่าย
+        { key: 'Bank_AC',     label: 'บัญชีธนาคาร',   type: 'text' },
+        { key: 'Type_of_Pmt', label: 'ประเภทการจ่าย', type: 'text' },
+        { type: 'section', label: 'ยอดเงิน', icon: 'coin', cols: 3 },
+        // แถว 1: Amount | WHT | VAT
         { key: 'Amount',     label: 'Amount (ก่อนหัก)', type: 'number' },
-        { key: 'WHT',        label: 'WHT',         type: 'number' },
-        { key: 'Vat',        label: 'VAT',         type: 'number' },
+        { key: 'WHT',        label: 'WHT',              type: 'number' },
+        { key: 'Vat',        label: 'VAT',              type: 'number' },
+        // แถว 2: ยอดสุทธิ มุมขวาล่าง (col 3) — highlight
+        { key: 'Net_Amount', label: 'ยอดสุทธิ', type: 'number', gridColumn: '3', highlight: true },
         { type: 'section', label: 'หมายเหตุ', icon: 'edit' },
-        { key: 'cc_remark',  label: 'หมายเหตุ',    type: 'textarea', full: true },
+        { key: 'cc_remark',  label: 'หมายเหตุ', type: 'text', full: true },
       ],
       summary: (rows) => {
         const total     = rows.reduce((s, r) => s + parseNum(r.Net_Amount), 0);
