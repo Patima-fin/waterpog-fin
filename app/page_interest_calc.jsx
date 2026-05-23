@@ -457,4 +457,4 @@ const InterestCalcPage = function({ data }) {
   );
 };
 
-Object.assign(window, { InterestCalcPage });
+Object.assign(window, { InterestCalcPage, buildSchedule, ScheduleTable, downloadCSV });

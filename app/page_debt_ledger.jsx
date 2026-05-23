@@ -76,7 +76,7 @@ function DLTypeCard({ debtType, rows, today }) {
   );
 }
 
-function DLRow({ r, today }) {
+function DLRow({ r, today, onSchedule }) {
   var isActive  = r.status==='active'||r.status==='overdue';
   var interest  = isActive?(WTPData.calcInterest(r,today)||0):0;
   var balance   = parseFloat(r.outstandingBalance)||0;
@@ -140,7 +140,170 @@ function DLRow({ r, today }) {
           title={r.note||''}>
         {r.note||''}
       </td>
+      <td style={{ padding:'6px 8px', textAlign:'center' }}>
+        {(r.status==='active'||r.status==='overdue')&&r.drawdownDate&&r.interestRate&&(
+          <button onClick={onSchedule}
+            title="ดูตารางดอกเบี้ย"
+            style={{ background:'#ebf8ff', border:'1px solid #63b3ed', color:'#2b6cb0',
+                     borderRadius:7, padding:'4px 9px', fontSize:11.5, fontWeight:600,
+                     cursor:'pointer', fontFamily:'inherit', whiteSpace:'nowrap' }}>
+            📊 ดอกเบี้ย
+          </button>
+        )}
+      </td>
     </tr>
+  );
+}
+
+/* ── Interest schedule modal (uses window.buildSchedule / window.ScheduleTable from page_interest_calc.jsx) ── */
+function DLInterestModal(props) {
+  var debt    = props.debt;
+  var onClose = props.onClose;
+  var today   = new Date().toISOString().slice(0,10);
+
+  var _p = React.useState({
+    principal: debt ? String(parseFloat(debt.outstandingBalance)||parseFloat(debt.principalAmount)||'') : '',
+    rate:      debt ? String(parseFloat(debt.interestRate)||'') : '',
+    startDate: debt ? (debt.drawdownDate||'') : '',
+    endDate:   today,
+    method:    'exact',
+    basis:     '365',
+  });
+  var params = _p[0]; var setParams = _p[1];
+
+  var _r = React.useState([]); var rows = _r[0]; var setRows = _r[1];
+  var _d = React.useState(false); var calcDone = _d[0]; var setCalcDone = _d[1];
+  var _e = React.useState('');   var errMsg   = _e[0]; var setErrMsg   = _e[1];
+
+  function doCalc() {
+    var bs = window.buildSchedule;
+    if (!bs) { setErrMsg('Interest Calculator ยังโหลดไม่เสร็จ'); return; }
+    setErrMsg('');
+    if (!params.principal||!params.rate||!params.startDate||!params.endDate) return;
+    if (params.startDate>=params.endDate){ setErrMsg('วันเริ่มต้องก่อนวันสิ้นสุด'); return; }
+    var sch = bs(params);
+    if (!sch.length){ setErrMsg('ไม่สามารถคำนวณได้'); return; }
+    setRows(sch); setCalcDone(true);
+  }
+
+  /* auto-calc on open */
+  React.useEffect(function(){ doCalc(); }, []);
+
+  /* lock body scroll */
+  React.useEffect(function(){
+    var prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return function(){ document.body.style.overflow = prev; };
+  }, []);
+
+  function handleExportCSV(){ if (window.downloadCSV&&rows.length) window.downloadCSV(rows,params); }
+  function handlePrint(){ window.print(); }
+
+  var fld = { padding:'6px 10px', border:'1.5px solid #e2e8f0', borderRadius:7, fontSize:12.5, fontFamily:'inherit', outline:'none', background:'#fff' };
+  var tm  = dlTypeMeta(debt ? debt.debtType : '');
+  var ST  = window.ScheduleTable;
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(15,23,42,0.55)', zIndex:9500,
+                  display:'flex', alignItems:'flex-start', justifyContent:'center',
+                  padding:'20px 12px', overflowY:'auto' }}
+         onClick={onClose}>
+      <div style={{ background:'#fff', borderRadius:16, width:'100%', maxWidth:960,
+                    boxShadow:'0 24px 64px rgba(0,0,0,0.22)', marginTop:8, marginBottom:32 }}
+           onClick={function(e){ e.stopPropagation(); }}>
+
+        {/* Header */}
+        <div style={{ padding:'14px 20px', borderBottom:'1px solid #e2e8f0', display:'flex',
+                      alignItems:'center', gap:12, background:'#f8fafc', borderRadius:'16px 16px 0 0' }}>
+          <div style={{ flex:1 }}>
+            <div style={{ fontWeight:700, fontSize:15, color:'#1a2236' }}>
+              📊 ตารางดอกเบี้ย — {debt&&debt.debtNo}
+            </div>
+            {debt&&(
+              <div style={{ fontSize:12, color:'#718096', marginTop:2 }}>
+                {tm.label||debt.debtType}
+                {debt.bankName ? ' · '+debt.bankName : ''}
+                {debt.accountRef ? ' ('+debt.accountRef+')' : ''}
+                {' · อัตรา '}{debt.interestRate}{'% p.a.'}
+              </div>
+            )}
+          </div>
+          <button onClick={onClose}
+            style={{ background:'none', border:'1px solid #e2e8f0', cursor:'pointer',
+                     color:'#718096', padding:'5px 12px', borderRadius:8, fontSize:13, fontFamily:'inherit' }}>
+            ✕ ปิด
+          </button>
+        </div>
+
+        {/* Param bar */}
+        <div style={{ padding:'12px 20px', background:'#f0f6ff', borderBottom:'1px solid #dbeafe',
+                      display:'flex', gap:10, flexWrap:'wrap', alignItems:'flex-end' }}>
+          <div>
+            <div style={{ fontSize:11, color:'#2563eb', marginBottom:3, fontWeight:600 }}>วงเงิน (บาท)</div>
+            <input style={{ ...fld, width:145, fontVariantNumeric:'tabular-nums' }}
+              value={params.principal}
+              onChange={function(e){ var v=e.target.value; setParams(function(p){ return Object.assign({},p,{principal:v}); }); }} />
+          </div>
+          <div>
+            <div style={{ fontSize:11, color:'#2563eb', marginBottom:3, fontWeight:600 }}>% ต่อปี</div>
+            <input style={{ ...fld, width:72 }} value={params.rate}
+              onChange={function(e){ var v=e.target.value; setParams(function(p){ return Object.assign({},p,{rate:v}); }); }} />
+          </div>
+          <div>
+            <div style={{ fontSize:11, color:'#2563eb', marginBottom:3, fontWeight:600 }}>วันที่เริ่มกู้</div>
+            <input type="date" style={{ ...fld, width:140 }} value={params.startDate}
+              onChange={function(e){ var v=e.target.value; setParams(function(p){ return Object.assign({},p,{startDate:v}); }); }} />
+          </div>
+          <div>
+            <div style={{ fontSize:11, color:'#2563eb', marginBottom:3, fontWeight:600 }}>คำนวณถึงวันที่</div>
+            <input type="date" style={{ ...fld, width:140 }} value={params.endDate}
+              onChange={function(e){ var v=e.target.value; setParams(function(p){ return Object.assign({},p,{endDate:v}); }); }} />
+          </div>
+          <div>
+            <div style={{ fontSize:11, color:'#2563eb', marginBottom:3, fontWeight:600 }}>วิธีคำนวณ</div>
+            <select style={{ ...fld, width:130 }} value={params.method}
+              onChange={function(e){ var v=e.target.value; setParams(function(p){ return Object.assign({},p,{method:v}); }); }}>
+              <option value="exact">Exact Days</option>
+              <option value="flat">Monthly Flat</option>
+              <option value="compound">Compound</option>
+            </select>
+          </div>
+          <div>
+            <div style={{ fontSize:11, color:'#2563eb', marginBottom:3, fontWeight:600 }}>ฐาน</div>
+            <select style={{ ...fld, width:68 }} value={params.basis}
+              onChange={function(e){ var v=e.target.value; setParams(function(p){ return Object.assign({},p,{basis:v}); }); }}>
+              <option value="365">365</option>
+              <option value="360">360</option>
+            </select>
+          </div>
+          <button onClick={doCalc}
+            style={{ padding:'7px 20px', background:'linear-gradient(135deg,#2a6fdb,#1a4490)', color:'#fff',
+                     border:'none', borderRadius:8, fontSize:13, fontWeight:700,
+                     cursor:'pointer', fontFamily:'inherit', whiteSpace:'nowrap' }}>
+            คำนวณใหม่
+          </button>
+        </div>
+
+        {errMsg&&(
+          <div style={{ margin:'10px 20px 0', padding:'9px 14px', background:'#fef2f2',
+                        border:'1px solid #fecaca', borderRadius:8, fontSize:13, color:'#dc2626' }}>
+            ⚠ {errMsg}
+          </div>
+        )}
+
+        <div style={{ paddingBottom:8 }}>
+          {calcDone&&rows.length>0&&ST
+            ? <ST rows={rows} params={params} onExportCSV={handleExportCSV} onPrint={handlePrint} />
+            : !errMsg&&(
+              <div style={{ textAlign:'center', padding:'40px 0', color:'#a0aec0' }}>
+                <div style={{ fontSize:38, marginBottom:10 }}>🧮</div>
+                <div style={{ fontSize:13 }}>กำลังคำนวณ...</div>
+              </div>
+            )
+          }
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -151,6 +314,7 @@ const DebtLedgerPage = function({ data }) {
   var [typeFilter,   setTypeFilter]   = React.useState('all');
   var [statusFilter, setStatusFilter] = React.useState('active');
   var [query,        setQuery]        = React.useState('');
+  var [selectedDebt, setSelectedDebt] = React.useState(null);
 
   var active = React.useMemo(function(){
     return ledger.filter(function(r){ return r.status==='active'||r.status==='overdue'; });
@@ -304,15 +468,15 @@ const DebtLedgerPage = function({ data }) {
           <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
             <thead>
               <tr style={{ background:'#f8fafc' }}>
-                {['เลขที่หนี้','ประเภท','โครงการ / อ้างอิง','ธนาคาร','อัตราดอก','วงเงินต้น','คงเหลือ','ดอกเบี้ยค้าง (real-time)','วันเบิก','ครบกำหนด','หลักประกัน','สถานะ','หมายเหตุ'].map(function(h,i){
+                {['เลขที่หนี้','ประเภท','โครงการ / อ้างอิง','ธนาคาร','อัตราดอก','วงเงินต้น','คงเหลือ','ดอกเบี้ยค้าง (real-time)','วันเบิก','ครบกำหนด','หลักประกัน','สถานะ','หมายเหตุ',''].map(function(h,i){
                   var right=i>=4&&i<=7;
                   return <th key={i} style={{ padding:'8px 12px', textAlign:right?'right':'left', fontWeight:600, color:'#475569', borderBottom:'1px solid #e2e8f0', whiteSpace:'nowrap', fontSize:11 }}>{h}</th>;
                 })}
               </tr>
             </thead>
             <tbody>
-              {sorted.length===0&&<tr><td colSpan={13} style={{ padding:32, textAlign:'center', color:'#a0aec0' }}>ไม่พบรายการ</td></tr>}
-              {sorted.map(function(r,i){ return <DLRow key={r.id||r.debtNo||i} r={r} today={today} />; })}
+              {sorted.length===0&&<tr><td colSpan={14} style={{ padding:32, textAlign:'center', color:'#a0aec0' }}>ไม่พบรายการ</td></tr>}
+              {sorted.map(function(r,i){ return <DLRow key={r.id||r.debtNo||i} r={r} today={today} onSchedule={function(){ setSelectedDebt(r); }} />; })}
             </tbody>
             {sorted.length>0&&(
               <tfoot>
@@ -329,13 +493,14 @@ const DebtLedgerPage = function({ data }) {
                   <td style={{ padding:'9px 12px', textAlign:'right', fontVariantNumeric:'tabular-nums', color:'#c05621' }}>
                     {filtInterest>0?fmtMoney(filtInterest):'—'}
                   </td>
-                  <td colSpan={5}></td>
+                  <td colSpan={6}></td>
                 </tr>
               </tfoot>
             )}
           </table>
         </div>
       </div>
+      {selectedDebt&&<DLInterestModal debt={selectedDebt} onClose={function(){ setSelectedDebt(null); }} />}
     </div>
   );
 };
