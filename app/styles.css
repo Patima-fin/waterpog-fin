@@ -82,17 +82,16 @@ button { font: inherit; color: inherit; }
   gap: 0;
 }
 .sb-brand {
-  display: flex; align-items: center; gap: 9px;
+  display: flex; flex-direction: column; align-items: flex-start;
   padding: 0 4px 16px;
   margin-bottom: 4px;
 }
-.sb-logo {
-  width: 30px; height: 30px; border-radius: 8px;
-  display: grid; place-items: center; flex-shrink: 0;
-  background: var(--brand-600);
+.sb-logo-img {
+  height: 52px; width: auto;
+  object-fit: contain; object-position: left center;
+  max-width: 100%;
 }
-.sb-brand-name { font-weight: 700; color: var(--ink-900); font-size: 13.5px; letter-spacing: .01em; }
-.sb-brand-sub  { font-size: 10px; color: var(--ink-400); margin-top: 1px; }
+.sb-brand-sub  { font-size: 10px; color: var(--ink-400); }
 .sb-section {
   font-size: 12px; font-weight: 700;
   color: var(--ink-800);

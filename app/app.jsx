@@ -251,15 +251,8 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
   return (
     <aside className="sb">
       <div className="sb-brand">
-        <div className="sb-logo">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-            <path d="M3 5 L6 19 L9 9 L12 16 L15 9 L18 19 L21 5" stroke="white" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </div>
-        <div>
-          <div className="sb-brand-name">Water POG</div>
-          <div className="sb-brand-sub">Financial Console</div>
-        </div>
+        <img src="waterpog_Logo-02.png" alt="Water POG" className="sb-logo-img" />
+        <div className="sb-brand-sub" style={{ marginTop: 2 }}>Financial Console</div>
       </div>
 
       {/* ── Scrollable nav area ── */}
