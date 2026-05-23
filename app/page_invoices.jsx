@@ -311,10 +311,10 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
   const s = WTPData.IV_STATUS_META[draft.status];
 
   // ── Sub-components ──────────────────────────────────────────────────────────
-  const ROField = ({ fkey, label, mono }) => {
+  const ROField = ({ fkey, label, mono, style: fieldStyle }) => {
     const v = draft[fkey];
     return (
-      <div className="field">
+      <div className="field" style={fieldStyle}>
         <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'flex', alignItems: 'center', gap: 3 }}>
           <span style={{ fontSize: 10, opacity: 0.5 }}>🔒</span>{label}
         </label>
@@ -333,8 +333,8 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
     );
   };
 
-  const RONum = ({ value, label, negative }) => (
-    <div className="field">
+  const RONum = ({ value, label, negative, style: fieldStyle }) => (
+    <div className="field" style={fieldStyle}>
       <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'flex', alignItems: 'center', gap: 3 }}>
         <span style={{ fontSize: 10, opacity: 0.5 }}>🔒</span>{label}
       </label>
@@ -372,7 +372,7 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
           <span style={{ fontSize: 13, fontWeight: 500 }}>· {project?.['พื้นที่'] || project?.name || '—'}</span>
         </div>
       }
-      maxWidth={isNew ? 720 : 1160}
+      maxWidth={760}
       onClose={onClose}
       footer={<>
         <button className="btn btn-ghost" onClick={onClose}>ยกเลิก</button>
@@ -411,169 +411,186 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
           <div className="field"><label>วันที่คาดว่าจะได้รับเงิน</label><input className="input" type="date" value={draft.expectedReceive || ''} onChange={(e) => set('expectedReceive', e.target.value)} /></div>
         </div>
       ) : (
-        /* ── EXISTING INVOICE: AP-style 4-col grid ───────────────────────── */
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px 16px' }}>
+        /* ── EXISTING INVOICE: flex layout — each field sized to content ─────── */
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
           {/* ── ข้อมูลจากระบบ ──────────────────────────────────────────────── */}
-          <div style={{ gridColumn: '1/-1' }}><SectionHdr label="ข้อมูลจากระบบ — แก้ไขไม่ได้" icon="lock" muted /></div>
-          <ROField fkey="jobNo"       label="Job no"   mono />
-          <ROField fkey="ivNo"        label="เลขที่ IV" mono />
-          <ROField fkey="invoiceDate" label="วันที่ IV" />
-          <RONum   value={draft.balance} label="Balance" />
-
-          <div className="field">
-            <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'flex', alignItems: 'center', gap: 3 }}>
-              <span style={{ fontSize: 10, opacity: 0.5 }}>🔒</span>ผู้รับโอนสิทธิ
-            </label>
-            <div style={{ height: 32, borderRadius: 7, border: '1px solid var(--ink-100)', background: 'var(--ink-50)', padding: '0 9px', display: 'flex', alignItems: 'center', fontSize: 12.5, color: finance?.assignee ? 'var(--ink-800)' : 'var(--ink-300)', cursor: 'default' }}>
-              {finance?.assignee || '—'}
+          <div>
+            <SectionHdr label="ข้อมูลจากระบบ — แก้ไขไม่ได้" icon="lock" muted />
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 14px' }}>
+              <ROField fkey="jobNo"       label="Job no"   mono style={{ width: 110 }} />
+              <ROField fkey="ivNo"        label="เลขที่ IV" mono style={{ width: 148 }} />
+              <ROField fkey="invoiceDate" label="วันที่ IV"      style={{ width: 128 }} />
+              <RONum   value={draft.balance} label="Balance"     style={{ width: 148 }} />
+              {/* row 2 */}
+              <div style={{ width: '100%', height: 0 }} />
+              <div className="field" style={{ width: 138 }}>
+                <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'flex', alignItems: 'center', gap: 3 }}>
+                  <span style={{ fontSize: 10, opacity: 0.5 }}>🔒</span>ผู้รับโอนสิทธิ
+                </label>
+                <div style={{ height: 32, borderRadius: 7, border: '1px solid var(--ink-100)', background: 'var(--ink-50)', padding: '0 9px', display: 'flex', alignItems: 'center', fontSize: 12.5, color: finance?.assignee ? 'var(--ink-800)' : 'var(--ink-300)', cursor: 'default' }}>
+                  {finance?.assignee || '—'}
+                </div>
+              </div>
+              <RONum value={debt} label="ภาระหนี้" negative style={{ width: 128 }} />
+              <div className="field" style={{ width: 155 }}>
+                <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'flex', alignItems: 'center', gap: 3 }}>
+                  <span style={{ fontSize: 10, opacity: 0.5 }}>🔒</span>คาดรับสุทธิ <span style={{ fontSize: 10, opacity: 0.6, marginLeft: 3 }}>(คำนวณ)</span>
+                </label>
+                <div style={{ height: 32, borderRadius: 7, padding: '0 22px 0 9px', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', background: 'color-mix(in oklch, var(--good) 10%, transparent)', border: '1px solid color-mix(in oklch, var(--good) 25%, transparent)', fontFamily: 'ui-monospace', fontSize: 13, fontWeight: 700, color: 'var(--good)' }}>
+                  {fmtNum(netExpected, 0)}
+                  <span style={{ position: 'absolute', right: 7, fontSize: 10, color: 'var(--ink-400)', fontWeight: 400 }}>฿</span>
+                </div>
+              </div>
             </div>
           </div>
-          <RONum value={debt} label="ภาระหนี้" negative />
-          <div className="field">
-            <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'flex', alignItems: 'center', gap: 3 }}>
-              <span style={{ fontSize: 10, opacity: 0.5 }}>🔒</span>คาดรับสุทธิ <span style={{ fontSize: 10, opacity: 0.6, marginLeft: 3 }}>(คำนวณ)</span>
-            </label>
-            <div style={{ height: 32, borderRadius: 7, padding: '0 22px 0 9px', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', background: 'color-mix(in oklch, var(--good) 10%, transparent)', border: '1px solid color-mix(in oklch, var(--good) 25%, transparent)', fontFamily: 'ui-monospace', fontSize: 13, fontWeight: 700, color: 'var(--good)' }}>
-              {fmtNum(netExpected, 0)}
-              <span style={{ position: 'absolute', right: 7, fontSize: 10, color: 'var(--ink-400)', fontWeight: 400 }}>฿</span>
-            </div>
-          </div>
-          <div />
 
           {/* ── ข้อมูลติดตาม ───────────────────────────────────────────────── */}
-          <div style={{ gridColumn: '1/-1' }}><SectionHdr label="ข้อมูลติดตาม — กรอกได้" icon="edit" /></div>
-
-          {/* แถว 1 — งวดที่ · สถานะ · วันที่คาดรับเงิน (3 ฟิลด์หลัก) */}
-          <div className="field" style={{ gridColumn: 'span 1' }}>
-            <label style={{ fontSize: 12 }}>งวดที่</label>
-            <input className="input" type="number" min="1" value={draft.period || 1}
-              onChange={(e) => set('period', Number(e.target.value))}
-              style={{ textAlign: 'center', fontWeight: 700, fontSize: 15 }} />
-          </div>
-          <div className="field" style={{ gridColumn: 'span 1' }}>
-            <label style={{ fontSize: 12 }}>สถานะ</label>
-            <select className="select input" value={draft.status}
-              onChange={(e) => { set('status', e.target.value); setSaveError(''); }}>
-              {Object.entries(WTPData.IV_STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-            </select>
-          </div>
-          <div className="field" style={{ gridColumn: 'span 2' }}>
-            <label style={{ fontSize: 12 }}>วันที่คาดรับเงิน</label>
-            <input className="input" type="date" value={draft.expectedReceive || ''}
-              onChange={(e) => set('expectedReceive', e.target.value)} />
-          </div>
-
-          {/* แถว 2 — ข้อมูลผู้ติดต่อ */}
-          <div className="field" style={{ gridColumn: 'span 2' }}>
-            <label style={{ fontSize: 12 }}>ชื่อผู้ติดต่อ</label>
-            <input className="input" value={draft.contactName || ''}
-              onChange={(e) => set('contactName', e.target.value)} placeholder="เช่น คุณสมหญิง" />
-          </div>
-          <div className="field" style={{ gridColumn: 'span 2' }}>
-            <label style={{ fontSize: 12 }}>เบอร์โทร</label>
-            <input className="input" value={draft.contactPhone || ''}
-              onChange={(e) => set('contactPhone', e.target.value)} placeholder="0XX-XXX-XXXX" />
+          <div>
+            <SectionHdr label="ข้อมูลติดตาม — กรอกได้" icon="edit" />
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 14px' }}>
+              <div className="field" style={{ width: 70 }}>
+                <label style={{ fontSize: 12 }}>งวดที่</label>
+                <input className="input" type="number" min="1" value={draft.period || 1}
+                  onChange={(e) => set('period', Number(e.target.value))}
+                  style={{ textAlign: 'center', fontWeight: 700, fontSize: 15 }} />
+              </div>
+              <div className="field" style={{ width: 155 }}>
+                <label style={{ fontSize: 12 }}>สถานะ</label>
+                <select className="select input" value={draft.status}
+                  onChange={(e) => { set('status', e.target.value); setSaveError(''); }}>
+                  {Object.entries(WTPData.IV_STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                </select>
+              </div>
+              <div className="field" style={{ width: 148 }}>
+                <label style={{ fontSize: 12 }}>วันที่คาดรับเงิน</label>
+                <input className="input" type="date" value={draft.expectedReceive || ''}
+                  onChange={(e) => set('expectedReceive', e.target.value)} />
+              </div>
+              {/* row 2 */}
+              <div style={{ width: '100%', height: 0 }} />
+              <div className="field" style={{ width: 210 }}>
+                <label style={{ fontSize: 12 }}>ชื่อผู้ติดต่อ</label>
+                <input className="input" value={draft.contactName || ''}
+                  onChange={(e) => set('contactName', e.target.value)} placeholder="เช่น คุณสมหญิง" />
+              </div>
+              <div className="field" style={{ width: 155 }}>
+                <label style={{ fontSize: 12 }}>เบอร์โทร</label>
+                <input className="input" value={draft.contactPhone || ''}
+                  onChange={(e) => set('contactPhone', e.target.value)} placeholder="0XX-XXX-XXXX" />
+              </div>
+            </div>
           </div>
 
           {/* ── ประวัติติดตาม ──────────────────────────────────────────────── */}
-          <div style={{ gridColumn: '1/-1' }}><SectionHdr label={`ประวัติติดตาม · ${draft.followUps?.length || 0} ครั้ง`} icon="phone" /></div>
-          <div style={{ gridColumn: '1/-1', border: '1px solid var(--ink-100)', borderRadius: 9, overflow: 'hidden' }}>
-            <div style={{ maxHeight: 130, overflowY: 'auto' }}>
-              {(!draft.followUps || draft.followUps.length === 0) ? (
-                <div className="muted" style={{ padding: '9px 12px', fontSize: 12 }}>ยังไม่มีการติดตาม</div>
-              ) : (
-                <table className="tbl" style={{ fontSize: 11.5 }}>
-                  <thead><tr><th style={{ width: 88 }}>วันที่</th><th>หมายเหตุ</th><th style={{ width: 30 }}></th></tr></thead>
-                  <tbody>
-                    {draft.followUps.map((f, i) => (
-                      <tr key={i}>
-                        <td style={{ fontSize: 11 }}>{fmtDate(f.date)}</td>
-                        <td>{f.note}</td>
-                        <td><button className="btn-icon danger" onClick={() => removeLog(i)}><Icon name="trash" size={11} /></button></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-            <div style={{ borderTop: '1px solid var(--ink-100)', padding: '7px 8px', background: 'var(--brand-50, #f0f6ff)', display: 'grid', gridTemplateColumns: '100px 1fr 60px', gap: 6, alignItems: 'end' }}>
-              <input className="input input-cell" type="date" value={newLog.date} onChange={(e) => setNewLog(s => ({ ...s, date: e.target.value }))} style={{ fontSize: 11.5 }} />
-              <input className="input input-cell" placeholder="บันทึกการติดตาม…" value={newLog.note} onChange={(e) => setNewLog(s => ({ ...s, note: e.target.value }))} style={{ fontSize: 11.5 }}
-                onKeyDown={(e) => e.key === 'Enter' && addLog()} />
-              <button className="btn btn-primary btn-sm" onClick={addLog} disabled={!newLog.note.trim()} style={{ fontSize: 11 }}>+ บันทึก</button>
+          <div>
+            <SectionHdr label={`ประวัติติดตาม · ${draft.followUps?.length || 0} ครั้ง`} icon="phone" />
+            <div style={{ border: '1px solid var(--ink-100)', borderRadius: 9, overflow: 'hidden' }}>
+              <div style={{ maxHeight: 130, overflowY: 'auto' }}>
+                {(!draft.followUps || draft.followUps.length === 0) ? (
+                  <div className="muted" style={{ padding: '9px 12px', fontSize: 12 }}>ยังไม่มีการติดตาม</div>
+                ) : (
+                  <table className="tbl" style={{ fontSize: 11.5 }}>
+                    <thead><tr><th style={{ width: 88 }}>วันที่</th><th>หมายเหตุ</th><th style={{ width: 30 }}></th></tr></thead>
+                    <tbody>
+                      {draft.followUps.map((f, i) => (
+                        <tr key={i}>
+                          <td style={{ fontSize: 11 }}>{fmtDate(f.date)}</td>
+                          <td>{f.note}</td>
+                          <td><button className="btn-icon danger" onClick={() => removeLog(i)}><Icon name="trash" size={11} /></button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+              <div style={{ borderTop: '1px solid var(--ink-100)', padding: '7px 8px', background: 'var(--brand-50, #f0f6ff)', display: 'grid', gridTemplateColumns: '100px 1fr 60px', gap: 6, alignItems: 'end' }}>
+                <input className="input input-cell" type="date" value={newLog.date} onChange={(e) => setNewLog(s => ({ ...s, date: e.target.value }))} style={{ fontSize: 11.5 }} />
+                <input className="input input-cell" placeholder="บันทึกการติดตาม…" value={newLog.note} onChange={(e) => setNewLog(s => ({ ...s, note: e.target.value }))} style={{ fontSize: 11.5 }}
+                  onKeyDown={(e) => e.key === 'Enter' && addLog()} />
+                <button className="btn btn-primary btn-sm" onClick={addLog} disabled={!newLog.note.trim()} style={{ fontSize: 11 }}>+ บันทึก</button>
+              </div>
             </div>
           </div>
 
           {/* ── การรับเงินจริง ─────────────────────────────────────────────── */}
-          <div style={{ gridColumn: '1/-1', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <SectionHdr label={`การรับเงินจริง${isPaid ? ' *' : ''}`} icon="coin" />
-            {!ar && <button className="btn btn-sm" style={{ fontSize: 11, padding: '2px 10px', marginBottom: 6 }}
-              onClick={() => setReceive({ date: new Date().toISOString().slice(0, 10), amount: draft.balance, bankAccount: '', bankFee: 0, otherFee: 0 })}>
-              + บันทึก
-            </button>}
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <SectionHdr label={`การรับเงินจริง${isPaid ? ' *' : ''}`} icon="coin" />
+              {!ar && <button className="btn btn-sm" style={{ fontSize: 11, padding: '2px 10px' }}
+                onClick={() => setReceive({ date: new Date().toISOString().slice(0, 10), amount: draft.balance, bankAccount: '', bankFee: 0, otherFee: 0 })}>
+                + บันทึก
+              </button>}
+            </div>
+            {ar ? (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 14px' }}>
+                <div className="field" style={{ width: 128 }}><label style={{ fontSize: 12 }}>วันที่รับจริง</label>
+                  <input className="input" type="date" value={ar.date || ''} onChange={(e) => setReceive({ date: e.target.value })} />
+                </div>
+                <div className="field" style={{ width: 140 }}><label style={{ fontSize: 12 }}>จำนวนที่ได้รับ{isPaid && <span style={{ color: 'var(--bad)', marginLeft: 3 }}>*</span>}</label>
+                  <div style={{ position: 'relative' }}>
+                    <input className="input" type="number" value={ar.amount || ''} onChange={(e) => { setReceive({ amount: Number(e.target.value) }); setSaveError(''); }} style={{ textAlign: 'right', paddingRight: 24, fontWeight: 600, fontFamily: 'ui-monospace' }} />
+                    <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: 'var(--ink-400)' }}>฿</span>
+                  </div>
+                </div>
+                <div className="field" style={{ width: 148 }}><label style={{ fontSize: 12 }}>ค่าธรรมเนียมธนาคาร</label>
+                  <div style={{ position: 'relative' }}>
+                    <input className="input" type="number" value={ar.bankFee || ''} onChange={(e) => setReceive({ bankFee: Number(e.target.value) })} style={{ textAlign: 'right', paddingRight: 24 }} placeholder="0" />
+                    <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: 'var(--ink-400)' }}>฿</span>
+                  </div>
+                </div>
+                <div className="field" style={{ width: 110 }}><label style={{ fontSize: 12 }}>ค่าอื่นๆ</label>
+                  <div style={{ position: 'relative' }}>
+                    <input className="input" type="number" value={ar.otherFee || ''} onChange={(e) => setReceive({ otherFee: Number(e.target.value) })} style={{ textAlign: 'right', paddingRight: 24 }} placeholder="0" />
+                    <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: 'var(--ink-400)' }}>฿</span>
+                  </div>
+                </div>
+                {/* row 2 */}
+                <div style={{ width: '100%', height: 0 }} />
+                <div className="field" style={{ width: 230 }}><label style={{ fontSize: 12 }}>รายละเอียดค่าอื่นๆ</label>
+                  <input className="input" value={ar.otherFeeNote || ''} onChange={(e) => setReceive({ otherFeeNote: e.target.value })}
+                    placeholder="เช่น หักชำระ PS2026-014 / ค่าปรับ / หักเงินกู้…" />
+                </div>
+                <div className="field" style={{ width: 148 }}><label style={{ fontSize: 12, color: 'var(--ink-600)' }}>เงินเข้าบัญชีสุทธิ <span style={{ fontSize: 10, fontWeight: 400, color: 'var(--ink-400)' }}>(คำนวณ)</span></label>
+                  <div style={{ height: 34, borderRadius: 7, position: 'relative', background: 'color-mix(in oklch, var(--good) 10%, transparent)', border: '1px solid color-mix(in oklch, var(--good) 22%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '0 24px 0 10px', fontFamily: 'ui-monospace', fontSize: 14, fontWeight: 700, color: netCash < 0 ? 'var(--bad)' : 'var(--good)' }}>
+                    {fmtNum(netCash, 0)}
+                    <span style={{ position: 'absolute', right: 7, fontSize: 10, color: 'var(--ink-400)', fontWeight: 400 }}>฿</span>
+                  </div>
+                </div>
+                <div className="field" style={{ width: 175 }}><label style={{ fontSize: 12 }}>เข้าบัญชี</label>
+                  <select className="select input" value={ar.bankAccount || ''} onChange={(e) => setReceive({ bankAccount: e.target.value })}>
+                    <option value="">— เลือกบัญชี —</option>
+                    {(bankAccounts || []).map(b => <option key={b.id} value={`${b.BANK_NAME || b.bankName} ${b.Bank_AC || b.accountNo}`}>{b.BANK_NAME || b.bankName} · {b.Bank_AC || b.accountNo}</option>)}
+                  </select>
+                </div>
+                <div style={{ width: '100%', display: 'flex', justifyContent: 'flex-end' }}>
+                  <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--bad)' }} onClick={() => setReceive(null)}>
+                    <Icon name="trash" size={11} /> ลบบันทึก
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ padding: '9px 12px', fontSize: 12, border: '1px solid var(--ink-100)', borderRadius: 9, color: 'var(--ink-400)' }}>
+                {isPaid
+                  ? <span style={{ color: 'var(--bad)', fontWeight: 500 }}>⚠️ กรุณาบันทึกการรับเงิน — สถานะ "รับชำระแล้ว"</span>
+                  : 'ยังไม่มีบันทึกรับเงิน — กด "+ บันทึก" เมื่อเงินเข้าจริง'}
+              </div>
+            )}
           </div>
-          {ar ? (<>
-            <div className="field"><label style={{ fontSize: 12 }}>วันที่รับจริง</label>
-              <input className="input" type="date" value={ar.date || ''} onChange={(e) => setReceive({ date: e.target.value })} />
-            </div>
-            <div className="field"><label style={{ fontSize: 12 }}>จำนวนที่ได้รับ{isPaid && <span style={{ color: 'var(--bad)', marginLeft: 3 }}>*</span>}</label>
-              <div style={{ position: 'relative' }}>
-                <input className="input" type="number" value={ar.amount || ''} onChange={(e) => { setReceive({ amount: Number(e.target.value) }); setSaveError(''); }} style={{ textAlign: 'right', paddingRight: 24, fontWeight: 600, fontFamily: 'ui-monospace' }} />
-                <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: 'var(--ink-400)' }}>฿</span>
-              </div>
-            </div>
-            <div className="field"><label style={{ fontSize: 12 }}>ค่าธรรมเนียมธนาคาร</label>
-              <div style={{ position: 'relative' }}>
-                <input className="input" type="number" value={ar.bankFee || ''} onChange={(e) => setReceive({ bankFee: Number(e.target.value) })} style={{ textAlign: 'right', paddingRight: 24 }} placeholder="0" />
-                <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: 'var(--ink-400)' }}>฿</span>
-              </div>
-            </div>
-            <div className="field"><label style={{ fontSize: 12 }}>ค่าอื่นๆ</label>
-              <div style={{ position: 'relative' }}>
-                <input className="input" type="number" value={ar.otherFee || ''} onChange={(e) => setReceive({ otherFee: Number(e.target.value) })} style={{ textAlign: 'right', paddingRight: 24 }} placeholder="0" />
-                <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: 'var(--ink-400)' }}>฿</span>
-              </div>
-            </div>
-            <div className="field" style={{ gridColumn: 'span 2' }}><label style={{ fontSize: 12 }}>รายละเอียดค่าอื่นๆ</label>
-              <input className="input" value={ar.otherFeeNote || ''} onChange={(e) => setReceive({ otherFeeNote: e.target.value })}
-                placeholder="เช่น หักชำระ PS2026-014 / ค่าปรับ / หักเงินกู้…" />
-            </div>
-            <div className="field"><label style={{ fontSize: 12, color: 'var(--ink-600)' }}>เงินเข้าบัญชีสุทธิ <span style={{ fontSize: 10, fontWeight: 400, color: 'var(--ink-400)' }}>(คำนวณ)</span></label>
-              <div style={{ height: 34, borderRadius: 7, position: 'relative', background: 'color-mix(in oklch, var(--good) 10%, transparent)', border: '1px solid color-mix(in oklch, var(--good) 22%, transparent)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '0 24px 0 10px', fontFamily: 'ui-monospace', fontSize: 14, fontWeight: 700, color: netCash < 0 ? 'var(--bad)' : 'var(--good)' }}>
-                {fmtNum(netCash, 0)}
-                <span style={{ position: 'absolute', right: 7, fontSize: 10, color: 'var(--ink-400)', fontWeight: 400 }}>฿</span>
-              </div>
-            </div>
-            <div className="field"><label style={{ fontSize: 12 }}>เข้าบัญชี</label>
-              <select className="select input" value={ar.bankAccount || ''} onChange={(e) => setReceive({ bankAccount: e.target.value })}>
-                <option value="">— เลือกบัญชี —</option>
-                {(bankAccounts || []).map(b => <option key={b.id} value={`${b.BANK_NAME || b.bankName} ${b.Bank_AC || b.accountNo}`}>{b.BANK_NAME || b.bankName} · {b.Bank_AC || b.accountNo}</option>)}
-              </select>
-            </div>
-            <div style={{ gridColumn: '1/-1', display: 'flex', justifyContent: 'flex-end' }}>
-              <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--bad)' }} onClick={() => setReceive(null)}>
-                <Icon name="trash" size={11} /> ลบบันทึก
-              </button>
-            </div>
-          </>) : (
-            <div style={{ gridColumn: '1/-1', padding: '9px 12px', fontSize: 12, border: '1px solid var(--ink-100)', borderRadius: 9, color: 'var(--ink-400)' }}>
-              {isPaid
-                ? <span style={{ color: 'var(--bad)', fontWeight: 500 }}>⚠️ กรุณาบันทึกการรับเงิน — สถานะ "รับชำระแล้ว"</span>
-                : 'ยังไม่มีบันทึกรับเงิน — กด "+ บันทึก" เมื่อเงินเข้าจริง'}
-            </div>
-          )}
 
           {/* ── หมายเหตุ / บันทึก ─────────────────────────────────────────── */}
-          <div style={{ gridColumn: '1/-1' }}><SectionHdr label="หมายเหตุ / บันทึก" icon="edit" /></div>
-          <textarea
-            className="input"
-            rows={2}
-            value={draft.remark || ''}
-            onChange={(e) => set('remark', e.target.value)}
-            placeholder="บันทึกหมายเหตุเกี่ยวกับใบแจ้งหนี้นี้…"
-            style={{ gridColumn: '1/-1', resize: 'none', fontSize: 13, boxSizing: 'border-box' }}
-          />
+          <div>
+            <SectionHdr label="หมายเหตุ / บันทึก" icon="edit" />
+            <textarea
+              className="input"
+              rows={2}
+              value={draft.remark || ''}
+              onChange={(e) => set('remark', e.target.value)}
+              placeholder="บันทึกหมายเหตุเกี่ยวกับใบแจ้งหนี้นี้…"
+              style={{ width: '100%', resize: 'none', fontSize: 13, boxSizing: 'border-box' }}
+            />
+          </div>
+
         </div>
       )}
     </Modal>
