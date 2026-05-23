@@ -1,529 +1,414 @@
-/* page_debt.jsx — ภาระหนี้ทั้งหมด (projectFinance schema v2: LIT / KU / OTHER)
-   ใช้ข้อมูลจาก data.projectFinance ที่ sync มาจาก Google Sheets
+/* page_debt.jsx — ภาระหนี้ทั้งหมด (debtLedger schema)
+   debtType: transfer_rights | od | pn | term_loan | internal | lc
+   ดอกเบี้ยค้างคำนวณ real-time ผ่าน WTPData.calcInterest()
 */
 'use strict';
 
-// ── Constants ─────────────────────────────────────────────────────────────────
-const DEBT_TYPE_META = {
-  LIT:   { label: 'โอนสิทธิรับเงิน (LIT)', badge: 'b-blue',   color: '#2a6fdb', bg: '#ebf8ff', border: '#63b3ed' },
-  KU:    { label: 'กู้ยืม / สินเชื่อ (KU)', badge: 'b-green',  color: '#276749', bg: '#f0fdf4', border: '#68d391' },
-  OTHER: { label: 'อื่นๆ (OTHER)',            badge: 'b-gray',   color: '#475569', bg: '#f1f5f9', border: '#cbd5e0' },
+// ── Type & Status metadata ────────────────────────────────────────────────────
+const DL_TYPE = {
+  transfer_rights: { label: 'โอนสิทธิรับเงิน', short: 'TR',  color: '#2a6fdb', bg: '#ebf8ff', border: '#63b3ed' },
+  od:              { label: 'OD เบิกเกินบัญชี', short: 'OD',  color: '#c05621', bg: '#fffaf0', border: '#fbd38d' },
+  pn:              { label: 'PN ตั๋วสัญญา',      short: 'PN',  color: '#6b46c1', bg: '#faf5ff', border: '#d6bcfa' },
+  term_loan:       { label: 'Term Loan',          short: 'TL',  color: '#276749', bg: '#f0fdf4', border: '#68d391' },
+  internal:        { label: 'กู้ภายใน',            short: 'IN',  color: '#718096', bg: '#f7fafc', border: '#cbd5e0' },
+  lc:              { label: 'L/C ค้ำประกัน',       short: 'LC',  color: '#b7791f', bg: '#fffff0', border: '#f6e05e' },
 };
-
-const PERIOD_STATUS_META = {
-  DONE:    { label: 'จ่ายแล้ว',  badge: 'b-green', color: '#276749' },
-  PENDING: { label: 'รอจ่าย',   badge: 'b-amber',  color: '#b45309' },
-  '':      null,
+const DL_STATUS = {
+  active:           { label: 'Active',      badge: 'b-blue',   color: '#2b6cb0' },
+  pending_approval: { label: 'รออนุมัติ',   badge: 'b-amber',  color: '#b45309' },
+  closed:           { label: 'ปิดแล้ว',     badge: 'b-gray',   color: '#718096' },
+  overdue:          { label: 'เกินกำหนด',   badge: 'b-red',    color: '#c53030' },
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function PeriodCell({ amount, pStatus }) {
-  const n = Number(amount) || 0;
-  const meta = PERIOD_STATUS_META[pStatus || ''];
-  if (!n && !pStatus) return <span className="muted">—</span>;
-  return (
-    <div style={{ textAlign: 'right' }}>
-      {n > 0 && (
-        <div style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600, fontSize: 12.5 }}>
-          {fmtNum(n, 0)}
-        </div>
-      )}
-      {meta && (
-        <div style={{ marginTop: 2 }}>
-          <Badge kind={meta.badge} dot={false}>{meta.label}</Badge>
-        </div>
-      )}
-    </div>
-  );
-}
+function typeMeta(t) { return DL_TYPE[t] || { label: t, short: t, color: '#718096', bg: '#f7fafc', border: '#e2e8f0' }; }
+function statusMeta(s) { return DL_STATUS[s] || DL_STATUS.active; }
 
-function DaysBadge({ endDate, isActive }) {
-  if (!endDate) return <span className="muted">—</span>;
-  const today = new Date().toISOString().slice(0, 10);
-  const days  = Math.round((new Date(endDate) - new Date(today)) / 86400000);
-  const color = !isActive ? 'var(--ink-300)'
-    : days < 0   ? 'var(--bad)'
-    : days <= 30 ? '#dd6b20'
-    : 'var(--ink-600)';
+function MaturityCell({ maturityDate, drawdownDate, status }) {
+  if (!maturityDate) return <span style={{ color:'#a0aec0', fontSize:11 }}>—</span>;
+  const today = new Date().toISOString().slice(0,10);
+  const days  = Math.round((new Date(maturityDate) - new Date(today)) / 86400000);
+  const isActive = status === 'active' || status === 'overdue';
+  const color = !isActive ? '#a0aec0'
+    : days < 0    ? '#c53030'
+    : days <= 30  ? '#c05621'
+    : days <= 90  ? '#b45309'
+    : '#276749';
   return (
     <div>
-      <div style={{ fontSize: 12, color, whiteSpace: 'nowrap' }}>{fmtDate(endDate)}</div>
+      <div style={{ fontSize:12, color, fontWeight:600 }}>{fmtDate(maturityDate)}</div>
       {isActive && (
-        <div style={{ fontSize: 10.5, color, marginTop: 1 }}>
-          {days < 0 ? `⚠ เกิน ${Math.abs(days)} วัน` : `${days} วัน`}
+        <div style={{ fontSize:10, color, marginTop:1 }}>
+          {days < 0 ? '⚠ เกิน '+Math.abs(days)+' วัน' : days+' วัน'}
         </div>
       )}
     </div>
   );
 }
 
-// ── ProjectSummaryRow — แสดง aggregate ต่อโครงการ ──────────────────────────
-function ProjectSummaryBlock({ projectCode, rows }) {
-  const [open, setOpen] = React.useState(false);
-  const totalBalance  = rows.reduce((s, r) => s + (Number(r.balance) || 0), 0);
-  const totalDebt     = rows.reduce((s, r) => s + (Number(r.totalDebt) || 0), 0);
-  const totalPaid     = rows.reduce((s, r) => s + (Number(r.totalPaid) || 0), 0);
-  const hasActive     = rows.some(r => r.status === 'Active');
-  const assignees     = [...new Set(rows.map(r => r.assignee).filter(a => a && a !== '—'))];
-  const types         = [...new Set(rows.map(r => r.debtType).filter(Boolean))];
-
+function TypeBadge({ debtType }) {
+  const m = typeMeta(debtType);
   return (
-    <React.Fragment>
-      {/* Project header row */}
-      <tr
-        onClick={() => setOpen(o => !o)}
-        style={{
-          background: 'var(--brand-50, #f0f6ff)',
-          cursor: 'pointer',
-          borderTop: '2px solid var(--brand-200, #b9d4ff)',
-        }}
-      >
-        <td colSpan={2}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 11, color: 'var(--ink-400)', transition: 'transform 200ms', display: 'inline-block', transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
-            <span style={{ fontFamily: 'ui-monospace', fontWeight: 800, fontSize: 13.5, color: 'var(--brand-700)' }}>
-              {projectCode}
-            </span>
-            <span style={{ fontSize: 11, color: 'var(--ink-400)' }}>{rows.length} รายการ</span>
-          </div>
-        </td>
-        <td colSpan={2}>
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-            {types.map(t => {
-              const m = DEBT_TYPE_META[t];
-              return m ? <Badge key={t} kind={m.badge} dot={false}>{t}</Badge> : null;
-            })}
-          </div>
-        </td>
-        <td>
-          <Badge kind={hasActive ? 'b-blue' : 'b-gray'} dot={false}>
-            {hasActive ? 'มีหนี้ค้าง' : 'ปิดครบแล้ว'}
-          </Badge>
-        </td>
-        <td></td>
-        <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700, fontSize: 13, color: 'var(--ink-700)' }}>
-          {fmtNum(totalDebt, 0)}
-        </td>
-        <td colSpan={2}></td>
-        <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: 'var(--good)' }}>
-          {totalPaid > 0 ? fmtNum(totalPaid, 0) : <span className="muted">—</span>}
-        </td>
-        <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 800, fontSize: 14,
-                     color: totalBalance > 0 ? 'var(--bad)' : 'var(--ink-400)' }}>
-          {fmtNum(totalBalance, 0)}
-        </td>
-        <td colSpan={3}>
-          {assignees.length > 0 && (
-            <div style={{ fontSize: 11.5, color: 'var(--ink-600)' }}>{assignees.join(' · ')}</div>
-          )}
-        </td>
-      </tr>
-
-      {/* Detail rows */}
-      {open && rows.map(r => (
-        <DebtDetailRow key={r.id || r.debtorRef} r={r} indent />
-      ))}
-    </React.Fragment>
+    <span style={{
+      display:'inline-block', padding:'2px 8px', borderRadius:20,
+      fontSize:11, fontWeight:700,
+      background: m.bg, color: m.color, border:'1px solid '+m.border,
+      whiteSpace:'nowrap',
+    }}>
+      {m.short}
+    </span>
   );
 }
 
-// ── Flat detail row ───────────────────────────────────────────────────────────
-function DebtDetailRow({ r, indent }) {
-  const dt       = DEBT_TYPE_META[r.debtType] || DEBT_TYPE_META.OTHER;
-  const isActive = r.status === 'Active';
-  const balance  = Number(r.balance) || 0;
-  const totalPaid = Number(r.totalPaid) || 0;
-  const totalDebt = Number(r.totalDebt) || 0;
+// ── Type Summary Card ─────────────────────────────────────────────────────────
+function TypeCard({ debtType, rows, today }) {
+  const m          = typeMeta(debtType);
+  const active     = rows.filter(function(r){ return r.status==='active'||r.status==='overdue'; });
+  const outstanding= active.reduce(function(s,r){ return s+(parseFloat(r.outstandingBalance)||0); }, 0);
+  const interest   = active.reduce(function(s,r){ return s+(WTPData.calcInterest(r,today)||0); }, 0);
+  return (
+    <div className="card" style={{ padding:'12px 16px', borderLeft:'4px solid '+m.color, minWidth:200, flex:'1 1 200px' }}>
+      <div style={{ fontWeight:700, fontSize:13, color:m.color, marginBottom:8 }}>{m.label}</div>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:4 }}>
+        <div>
+          <div style={{ fontSize:10, color:'#718096' }}>รายการ</div>
+          <div style={{ fontWeight:700, fontSize:16 }}>{rows.length}</div>
+          <div style={{ fontSize:10, color:'#718096' }}>Active {active.length}</div>
+        </div>
+        <div>
+          <div style={{ fontSize:10, color:'#718096' }}>คงค้าง</div>
+          <div style={{ fontWeight:700, fontSize:13, fontVariantNumeric:'tabular-nums', color: outstanding>0?'#c53030':'#a0aec0' }}>
+            {outstanding>0 ? fmtMoney(outstanding) : '—'}
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize:10, color:'#718096' }}>ดอกเบี้ย</div>
+          <div style={{ fontWeight:700, fontSize:13, fontVariantNumeric:'tabular-nums', color: interest>0?'#c05621':'#a0aec0' }}>
+            {interest>0 ? fmtMoney(interest) : '—'}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Detail Row ────────────────────────────────────────────────────────────────
+function DebtRow({ r, today, highlight }) {
+  const m         = typeMeta(r.debtType);
+  const sm        = statusMeta(r.status);
+  const isActive  = r.status === 'active' || r.status === 'overdue';
+  const interest  = isActive ? (WTPData.calcInterest(r, today) || 0) : 0;
+  const balance   = parseFloat(r.outstandingBalance) || 0;
+  const principal = parseFloat(r.principalAmount) || 0;
+
+  // Days since drawdown (for interest context)
+  const daysSince = r.drawdownDate
+    ? Math.round((new Date(today) - new Date(r.drawdownDate)) / 86400000)
+    : null;
 
   return (
-    <tr style={{ opacity: isActive ? 1 : 0.65, background: indent ? '#fafcff' : undefined }}>
-      <td>
-        {!indent && (
-          <span style={{ fontFamily: 'ui-monospace', fontWeight: 700, fontSize: 12.5, color: 'var(--brand-700)' }}>
-            {r.code}
-          </span>
-        )}
-        {indent && (
-          <span style={{ paddingLeft: 24, color: 'var(--ink-300)', fontSize: 11 }}>└─</span>
-        )}
+    <tr style={{ opacity: isActive ? 1 : 0.55, background: highlight ? '#fffbf0' : 'transparent' }}>
+      {/* debtNo */}
+      <td style={{ padding:'8px 12px', fontFamily:'ui-monospace', fontSize:12, color:'var(--brand-700,#1a4490)', whiteSpace:'nowrap', fontWeight:600 }}>
+        {r.debtNo}
       </td>
-      <td>
-        <Badge kind={dt.badge} dot={false}>{r.debtType || '—'}</Badge>
+      {/* ประเภท */}
+      <td style={{ padding:'8px 10px' }}>
+        <TypeBadge debtType={r.debtType} />
       </td>
-      <td style={{ fontSize: 11.5, fontFamily: 'ui-monospace', color: 'var(--ink-600)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {r.debtorRef || '—'}
+      {/* โครงการ / อ้างอิง */}
+      <td style={{ padding:'8px 10px' }}>
+        {r.linkedProjectCode
+          ? <div style={{ fontWeight:700, fontSize:12, color:'#1a202c' }}>{r.linkedProjectCode}</div>
+          : <span style={{ fontSize:11, color:'#718096' }}>Standalone</span>}
+        <div style={{ fontSize:11, color:'#718096', whiteSpace:'nowrap' }}>{r.accountRef||''}</div>
       </td>
-      <td>
-        <Badge kind={isActive ? 'b-blue' : 'b-gray'} dot={false}>
-          {isActive ? 'Active' : 'ปิดแล้ว'}
-        </Badge>
+      {/* ธนาคาร */}
+      <td style={{ padding:'8px 10px', fontSize:12, color:'#4a5568', whiteSpace:'nowrap' }}>{r.bankName||'—'}</td>
+      {/* อัตราดอกเบี้ย */}
+      <td style={{ padding:'8px 10px', textAlign:'center' }}>
+        <div style={{ fontWeight:700, fontSize:13, color:'#c05621' }}>{r.interestRate}%</div>
+        <div style={{ fontSize:10, color:'#718096' }}>p.a.</div>
       </td>
-      <td><DaysBadge endDate={r.endDate} isActive={isActive} /></td>
-      <td style={{ fontSize: 11, color: 'var(--ink-400)', whiteSpace: 'nowrap' }}>{fmtDate(r.startDate)}</td>
-      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 12.5, fontWeight: 600 }}>
-        {fmtNum(totalDebt, 0)}
+      {/* วงเงินต้น */}
+      <td style={{ padding:'8px 10px', textAlign:'right', fontVariantNumeric:'tabular-nums', fontSize:12 }}>
+        {fmtMoney(principal)}
       </td>
-      <td><PeriodCell amount={r.period1Amount} pStatus={r.period1Status} /></td>
-      <td><PeriodCell amount={r.period2Amount} pStatus={r.period2Status} /></td>
-      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 12.5,
-                   color: totalPaid > 0 ? 'var(--good)' : 'var(--ink-300)' }}>
-        {totalPaid > 0 ? fmtNum(totalPaid, 0) : '—'}
+      {/* คงเหลือ */}
+      <td style={{ padding:'8px 10px', textAlign:'right', fontVariantNumeric:'tabular-nums', fontWeight:700, fontSize:13,
+                   color: balance>0 ? '#c53030' : '#276749' }}>
+        {fmtMoney(balance)}
+        {principal>0 && balance<principal && isActive &&
+          <div style={{ fontSize:10, color:'#718096' }}>{((balance/principal)*100).toFixed(0)}%</div>}
       </td>
-      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700, fontSize: 13.5,
-                   color: balance > 0 ? 'var(--bad)' : 'var(--ink-300)' }}>
-        {fmtNum(balance, 0)}
+      {/* ดอกเบี้ยค้าง */}
+      <td style={{ padding:'8px 10px', textAlign:'right', fontVariantNumeric:'tabular-nums', fontSize:12,
+                   color: interest>0 ? '#c05621' : '#a0aec0', fontWeight: interest>0 ? 600 : 400 }}>
+        {interest>0 ? fmtMoney(interest) : '—'}
+        {interest>0 && daysSince!==null && <div style={{ fontSize:10, color:'#718096' }}>{daysSince} วัน</div>}
       </td>
-      <td>
-        {r.assignee && r.assignee !== '—'
-          ? <Badge kind="b-violet" dot={false}>{r.assignee}</Badge>
-          : <span className="muted">—</span>}
+      {/* วันเบิก */}
+      <td style={{ padding:'8px 10px', fontSize:11, color:'#718096', whiteSpace:'nowrap' }}>
+        {r.drawdownDate ? fmtDate(r.drawdownDate) : '—'}
       </td>
-      <td style={{ fontSize: 12, color: 'var(--ink-600)' }}>{r.bank || '—'}</td>
-      <td style={{ fontSize: 11.5, color: 'var(--ink-500)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-          title={r.remark || ''}>
-        {r.remark || ''}
+      {/* ครบกำหนด */}
+      <td style={{ padding:'8px 10px' }}>
+        <MaturityCell maturityDate={r.maturityDate} drawdownDate={r.drawdownDate} status={r.status} />
+      </td>
+      {/* หลักประกัน */}
+      <td style={{ padding:'8px 10px', fontSize:11, color:'#4a5568', maxWidth:160, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}
+          title={r.collateral||''}>
+        {r.collateral||'—'}
+      </td>
+      {/* สถานะ */}
+      <td style={{ padding:'8px 10px' }}>
+        <span style={{ display:'inline-block', padding:'2px 9px', borderRadius:20, fontSize:11, fontWeight:700,
+                       background: r.status==='active'?'#ebf8ff': r.status==='overdue'?'#fff5f5': r.status==='pending_approval'?'#fffbeb':'#f7fafc',
+                       color: sm.color }}>
+          {sm.label}
+        </span>
+      </td>
+      {/* หมายเหตุ */}
+      <td style={{ padding:'8px 10px', fontSize:11, color:'#718096', maxWidth:160, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}
+          title={r.note||''}>
+        {r.note||''}
       </td>
     </tr>
   );
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
+// ── Main Page ─────────────────────────────────────────────────────────────────
 function DebtPage({ data }) {
-  // รองรับทั้ง new schema (debtType field) และ old seed data
-  const rawRows = (data?.projectFinance || WTPData.load().projectFinance || []);
-  const allRows = React.useMemo(
-    () => rawRows.filter(r => r.debtType),  // เฉพาะ schema ใหม่ที่มี debtType
-    [rawRows]
-  );
+  const today   = new Date().toISOString().slice(0,10);
+  const ledger  = React.useMemo(function(){ return data.debtLedger || []; }, [data.debtLedger]);
 
-  const [tab,        setTab]        = React.useState('all');   // all | Active | Non-Active
-  const [typeFilter, setTypeFilter] = React.useState('all');   // all | LIT | KU | OTHER
-  const [query,      setQuery]      = React.useState('');
-  const [viewMode,   setViewMode]   = React.useState('flat');  // flat | grouped
+  const [typeFilter,   setTypeFilter]   = React.useState('all');
+  const [statusFilter, setStatusFilter] = React.useState('active');
+  const [query,        setQuery]        = React.useState('');
 
-  const today = new Date().toISOString().slice(0, 10);
+  // ── Aggregates (all active/overdue) ────────────────────────────────────────
+  const active = React.useMemo(function(){
+    return ledger.filter(function(r){ return r.status==='active'||r.status==='overdue'; });
+  }, [ledger]);
 
-  // ── KPIs ──────────────────────────────────────────────────────────────────
-  const activeRows   = allRows.filter(r => r.status === 'Active');
-  const totalBalance = activeRows.reduce((s, r) => s + (Number(r.balance) || 0), 0);
-  const litBalance   = activeRows.filter(r => r.debtType === 'LIT').reduce((s,r) => s + (Number(r.balance)||0), 0);
-  const kuBalance    = activeRows.filter(r => r.debtType === 'KU').reduce((s,r) => s + (Number(r.balance)||0), 0);
-  const totalPaid    = allRows.reduce((s, r) => s + (Number(r.totalPaid) || 0), 0);
+  const totalOutstanding = active.reduce(function(s,r){ return s+(parseFloat(r.outstandingBalance)||0); }, 0);
+  const totalInterest    = active.reduce(function(s,r){ return s+(WTPData.calcInterest(r,today)||0); }, 0);
+  const trOutstanding    = active.filter(function(r){ return r.debtType==='transfer_rights'; })
+                                  .reduce(function(s,r){ return s+(parseFloat(r.outstandingBalance)||0); }, 0);
+  const standaloneOut    = active.filter(function(r){ return r.debtType==='od'||r.debtType==='pn'||r.debtType==='term_loan'; })
+                                  .reduce(function(s,r){ return s+(parseFloat(r.outstandingBalance)||0); }, 0);
 
-  // ── Filtered rows ─────────────────────────────────────────────────────────
-  const filtered = React.useMemo(() => {
-    let rows = allRows;
-    if (tab !== 'all')        rows = rows.filter(r => r.status === tab);
-    if (typeFilter !== 'all') rows = rows.filter(r => r.debtType === typeFilter);
+  // Near maturity (≤ 60 days)
+  const nearMaturity = active.filter(function(r){
+    if (!r.maturityDate) return false;
+    var d = Math.round((new Date(r.maturityDate)-new Date(today))/86400000);
+    return d >= 0 && d <= 60;
+  }).length;
+
+  const overdueCount = ledger.filter(function(r){ return r.status==='overdue'; }).length;
+
+  // ── Filtered rows ──────────────────────────────────────────────────────────
+  const filtered = React.useMemo(function(){
+    var rows = ledger;
+    if (statusFilter !== 'all') {
+      if (statusFilter === 'active') rows = rows.filter(function(r){ return r.status==='active'||r.status==='overdue'; });
+      else rows = rows.filter(function(r){ return r.status===statusFilter; });
+    }
+    if (typeFilter !== 'all') rows = rows.filter(function(r){ return r.debtType===typeFilter; });
     if (query.trim()) {
-      const q = query.toLowerCase();
-      rows = rows.filter(r =>
-        (r.code      || '').toLowerCase().includes(q) ||
-        (r.debtorRef || '').toLowerCase().includes(q) ||
-        (r.assignee  || '').toLowerCase().includes(q) ||
-        (r.bank      || '').toLowerCase().includes(q) ||
-        (r.remark    || '').toLowerCase().includes(q)
-      );
+      var q = query.toLowerCase();
+      rows = rows.filter(function(r){
+        return (r.debtNo||'').toLowerCase().includes(q)
+          || (r.linkedProjectCode||'').toLowerCase().includes(q)
+          || (r.bankName||'').toLowerCase().includes(q)
+          || (r.accountRef||'').toLowerCase().includes(q)
+          || (r.collateral||'').toLowerCase().includes(q)
+          || (r.note||'').toLowerCase().includes(q);
+      });
     }
     return rows;
-  }, [allRows, tab, typeFilter, query]);
+  }, [ledger, statusFilter, typeFilter, query]);
 
-  const { sorted, sort, toggle } = useSortable(filtered, 'code', 'asc');
-
-  // ── Grouped view: project → rows ──────────────────────────────────────────
-  const groupedByCode = React.useMemo(() => {
-    const map = {};
-    filtered.forEach(r => {
-      if (!map[r.code]) map[r.code] = [];
-      map[r.code].push(r);
+  // Sort: overdue first, then by days-to-maturity ascending
+  const sorted = React.useMemo(function(){
+    return filtered.slice().sort(function(a,b){
+      if (a.status==='overdue' && b.status!=='overdue') return -1;
+      if (b.status==='overdue' && a.status!=='overdue') return 1;
+      if (!a.maturityDate) return 1;
+      if (!b.maturityDate) return -1;
+      return a.maturityDate < b.maturityDate ? -1 : 1;
     });
-    return Object.entries(map).sort((a, b) => a[0].localeCompare(b[0]));
   }, [filtered]);
 
-  // ── Footer totals ─────────────────────────────────────────────────────────
-  const filtTotalDebt  = filtered.reduce((s,r) => s + (Number(r.totalDebt)||0), 0);
-  const filtTotalPaid  = filtered.reduce((s,r) => s + (Number(r.totalPaid)||0), 0);
-  const filtBalance    = filtered.reduce((s,r) => s + (Number(r.balance)||0), 0);
+  // Footer totals
+  const filtOutstanding = filtered.filter(function(r){ return r.status==='active'||r.status==='overdue'; })
+                                    .reduce(function(s,r){ return s+(parseFloat(r.outstandingBalance)||0); }, 0);
+  const filtInterest    = filtered.filter(function(r){ return r.status==='active'||r.status==='overdue'; })
+                                    .reduce(function(s,r){ return s+(WTPData.calcInterest(r,today)||0); }, 0);
 
-  // ── Tab counts ────────────────────────────────────────────────────────────
-  const cntAll    = allRows.length;
-  const cntActive = allRows.filter(r => r.status === 'Active').length;
-  const cntClosed = allRows.filter(r => r.status === 'Non-Active').length;
+  // Type groups for summary cards
+  const typeGroups = React.useMemo(function(){
+    var g = {};
+    ledger.forEach(function(r){ if(!g[r.debtType]) g[r.debtType]=[]; g[r.debtType].push(r); });
+    return g;
+  }, [ledger]);
+
+  const inp = { padding:'7px 11px', border:'1.5px solid #e2e8f0', borderRadius:8, fontSize:13, fontFamily:'inherit', outline:'none', background:'#fff' };
+
+  // Count by status
+  var cntActive  = ledger.filter(function(r){ return r.status==='active'||r.status==='overdue'; }).length;
+  var cntPending = ledger.filter(function(r){ return r.status==='pending_approval'; }).length;
+  var cntClosed  = ledger.filter(function(r){ return r.status==='closed'; }).length;
 
   return (
     <div className="page">
-
-      {/* ── Page header ──────────────────────────────────────────────────── */}
-      <div className="page-head anim-in">
+      <div className="page-head">
         <div>
-          <h1 className="page-title">ภาระหนี้ทั้งหมด</h1>
+          <div className="page-title">ภาระหนี้ทั้งหมด</div>
           <div className="page-sub">
-            คำนวณ ณ {fmtDate(today)} · {allRows.length} รายการ ·&nbsp;
-            Active {cntActive} รายการ
+            Debt Ledger — คำนวณ ณ {fmtDate(today)} · {ledger.length} รายการ · Active {cntActive}
           </div>
         </div>
-        {/* View mode toggle */}
-        <div className="page-head-r">
-          <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--line)' }}>
-            <button
-              onClick={() => setViewMode('flat')}
-              style={{ padding: '5px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none',
-                       background: viewMode === 'flat' ? 'var(--brand-600,#2a6fdb)' : '#fff',
-                       color:      viewMode === 'flat' ? '#fff' : 'var(--ink-600)' }}>
-              ตาราง
-            </button>
-            <button
-              onClick={() => setViewMode('grouped')}
-              style={{ padding: '5px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none',
-                       borderLeft: '1px solid var(--line)',
-                       background: viewMode === 'grouped' ? 'var(--brand-600,#2a6fdb)' : '#fff',
-                       color:      viewMode === 'grouped' ? '#fff' : 'var(--ink-600)' }}>
-              จัดกลุ่ม
-            </button>
+        {(overdueCount > 0 || nearMaturity > 0) && (
+          <div style={{ display:'flex', gap:8 }}>
+            {overdueCount > 0 &&
+              <span style={{ background:'#fef2f2', color:'#c53030', border:'1px solid #fecaca', borderRadius:8, padding:'6px 12px', fontSize:12, fontWeight:700 }}>
+                🔴 เกินกำหนด {overdueCount} รายการ
+              </span>}
+            {nearMaturity > 0 &&
+              <span style={{ background:'#fffbeb', color:'#b45309', border:'1px solid #fde68a', borderRadius:8, padding:'6px 12px', fontSize:12, fontWeight:700 }}>
+                ⚠ ครบ ≤60 วัน: {nearMaturity} รายการ
+              </span>}
           </div>
+        )}
+      </div>
+
+      {/* ── KPI ── */}
+      <div className="grid grid-4" style={{ marginBottom:16 }}>
+        <div className="kpi">
+          <div className="kpi-accent" style={{ background:'#c53030' }} />
+          <div className="kpi-label">ภาระหนี้รวม (Active)</div>
+          <div className="kpi-value" style={{ fontSize:17, color:'#c53030' }}>{fmtMoney(totalOutstanding)}</div>
+          <div style={{ fontSize:11, color:'#a0aec0', marginTop:2 }}>{active.length} รายการ</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi-accent" style={{ background:'#c05621' }} />
+          <div className="kpi-label">ดอกเบี้ยค้างชำระ (real-time)</div>
+          <div className="kpi-value" style={{ fontSize:17, color:'#c05621' }}>{fmtMoney(totalInterest)}</div>
+          <div style={{ fontSize:11, color:'#a0aec0', marginTop:2 }}>คำนวณ ณ วันนี้</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi-accent" style={{ background:'#2a6fdb' }} />
+          <div className="kpi-label">โอนสิทธิรับเงิน (TR)</div>
+          <div className="kpi-value" style={{ fontSize:17 }}>{fmtMoney(trOutstanding)}</div>
+          <div style={{ fontSize:11, color:'#a0aec0', marginTop:2 }}>{active.filter(function(r){ return r.debtType==='transfer_rights'; }).length} รายการ</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi-accent" style={{ background:'#6b46c1' }} />
+          <div className="kpi-label">OD / PN / Term Loan</div>
+          <div className="kpi-value" style={{ fontSize:17 }}>{fmtMoney(standaloneOut)}</div>
+          <div style={{ fontSize:11, color:'#a0aec0', marginTop:2 }}>Standalone</div>
         </div>
       </div>
 
-      {/* ── KPI Row ───────────────────────────────────────────────────────── */}
-      <div className="grid grid-4 anim-stagger" style={{ marginBottom: 16 }}>
-        <KpiTile
-          label="ภาระหนี้คงเหลือ (Active)"
-          value={totalBalance}
-          accent="var(--bad)"
-          icon="money"
-          delta={`${cntActive} รายการ`}
-        />
-        <KpiTile
-          label="โอนสิทธิ LIT"
-          value={litBalance}
-          accent="var(--brand-500)"
-          icon="arrow_up"
-          delta={`${activeRows.filter(r=>r.debtType==='LIT').length} ราย`}
-        />
-        <KpiTile
-          label="กู้ยืม KU"
-          value={kuBalance}
-          accent="oklch(52% 0.16 145)"
-          icon="bank"
-          delta={`${activeRows.filter(r=>r.debtType==='KU').length} ราย`}
-        />
-        <KpiTile
-          label="จ่ายแล้วรวม (ทั้งหมด)"
-          value={totalPaid}
-          accent="oklch(52% 0.16 185)"
-          icon="coin"
-          delta={`${allRows.filter(r=>r.status==='Non-Active').length} รายการปิด`}
-        />
-      </div>
-
-      {/* ── Summary cards by debt type ─────────────────────────────────── */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-        {Object.entries(DEBT_TYPE_META).map(([key, meta]) => {
-          const typeRows   = allRows.filter(r => r.debtType === key);
-          const activeAmt  = typeRows.filter(r => r.status === 'Active').reduce((s,r) => s + (Number(r.balance)||0), 0);
-          const paidAmt    = typeRows.reduce((s,r) => s + (Number(r.totalPaid)||0), 0);
-          const cntA       = typeRows.filter(r => r.status === 'Active').length;
-          if (typeRows.length === 0) return null;
-          return (
-            <div key={key} className="card" style={{
-              flex: '1 1 260px', padding: '12px 16px',
-              borderLeft: `4px solid ${meta.color}`,
-            }}>
-              <div style={{ fontWeight: 700, fontSize: 13, color: meta.color, marginBottom: 10 }}>
-                {meta.label}
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-                <div>
-                  <div style={{ fontSize: 10.5, color: 'var(--ink-400)', marginBottom: 2 }}>จำนวน</div>
-                  <div style={{ fontWeight: 700, fontSize: 18 }}>{typeRows.length}</div>
-                  <div style={{ fontSize: 10.5, color: 'var(--ink-400)' }}>
-                    Active {cntA} · ปิด {typeRows.length - cntA}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 10.5, color: 'var(--ink-400)', marginBottom: 2 }}>ค้างชำระ</div>
-                  <div style={{ fontWeight: 700, fontSize: 15, fontVariantNumeric: 'tabular-nums',
-                               color: activeAmt > 0 ? 'var(--bad)' : 'var(--ink-300)' }}>
-                    {fmtNum(activeAmt, 0)}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 10.5, color: 'var(--ink-400)', marginBottom: 2 }}>จ่ายแล้ว</div>
-                  <div style={{ fontWeight: 700, fontSize: 15, fontVariantNumeric: 'tabular-nums', color: 'var(--good)' }}>
-                    {fmtNum(paidAmt, 0)}
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
+      {/* ── Type Summary Cards ── */}
+      <div style={{ display:'flex', gap:12, flexWrap:'wrap', marginBottom:16 }}>
+        {Object.keys(DL_TYPE).map(function(t){
+          var rows = typeGroups[t];
+          if (!rows || rows.length===0) return null;
+          return <TypeCard key={t} debtType={t} rows={rows} today={today} />;
         })}
       </div>
 
-      {/* ── Filter bar ────────────────────────────────────────────────────── */}
-      <div className="card" style={{ padding: '10px 14px', marginBottom: 12, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+      {/* ── Filter bar ── */}
+      <div className="card" style={{ padding:'10px 14px', marginBottom:12, display:'flex', gap:10, flexWrap:'wrap', alignItems:'center' }}>
         {/* Status tabs */}
-        <div className="tabnav" style={{ flex: 'none' }}>
-          <button className={tab === 'all'        ? 'active' : ''} onClick={() => setTab('all')}>
-            ทั้งหมด ({cntAll})
-          </button>
-          <button className={tab === 'Active'     ? 'active' : ''} onClick={() => setTab('Active')}>
-            Active ({cntActive})
-          </button>
-          <button className={tab === 'Non-Active' ? 'active' : ''} onClick={() => setTab('Non-Active')}>
-            ปิดแล้ว ({cntClosed})
-          </button>
-        </div>
-
-        {/* Type filter pills */}
-        <div style={{ display: 'flex', gap: 6, flex: 'none' }}>
-          {[['all', 'ทุกประเภท', null], ...Object.entries(DEBT_TYPE_META).map(([k,m]) => [k, k, m])].map(([key, label, meta]) => {
-            const isSelected = typeFilter === key;
+        <div className="tabnav" style={{ flex:'none' }}>
+          {[['active','Active ('+cntActive+')'],['pending_approval','รออนุมัติ ('+cntPending+')'],['closed','ปิดแล้ว ('+cntClosed+')'],['all','ทั้งหมด ('+ledger.length+')']].map(function(pair){
             return (
-              <button
-                key={key}
-                onClick={() => setTypeFilter(key)}
-                style={{
-                  padding: '4px 13px', borderRadius: 20, border: '1.5px solid', fontSize: 12, fontWeight: 600,
-                  cursor: 'pointer', transition: 'all 120ms',
-                  borderColor: isSelected ? (meta?.color || 'var(--brand-500)') : 'var(--line)',
-                  background:  isSelected ? (meta?.bg || 'var(--brand-50,#f0f6ff)') : '#fff',
-                  color:       isSelected ? (meta?.color || 'var(--brand-700)') : 'var(--ink-500)',
-                }}>
-                {label}
+              <button key={pair[0]} className={statusFilter===pair[0]?'active':''} onClick={function(){ setStatusFilter(pair[0]); }}>
+                {pair[1]}
               </button>
             );
           })}
         </div>
-
-        {/* Search */}
-        <div className="tb-search" style={{ width: 300, marginLeft: 'auto' }}>
-          <Icon name="search" size={14} />
-          <input
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            placeholder="ค้นหา โครงการ / เลขที่อ้างอิง / ผู้รับโอน / ธนาคาร…"
-          />
+        {/* Type pills */}
+        <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+          <button onClick={function(){ setTypeFilter('all'); }}
+            style={{ padding:'3px 11px', borderRadius:20, border:'1.5px solid', fontSize:11, fontWeight:600, cursor:'pointer',
+                     borderColor: typeFilter==='all'?'var(--brand-500)':'#e2e8f0',
+                     background:  typeFilter==='all'?'var(--brand-50,#f0f6ff)':'#fff',
+                     color:       typeFilter==='all'?'var(--brand-700)':'#718096' }}>
+            ทุกประเภท
+          </button>
+          {Object.entries(DL_TYPE).map(function(kv){
+            var k=kv[0], m=kv[1];
+            var has = typeGroups[k] && typeGroups[k].length > 0;
+            if (!has) return null;
+            return (
+              <button key={k} onClick={function(){ setTypeFilter(k); }}
+                style={{ padding:'3px 11px', borderRadius:20, border:'1.5px solid', fontSize:11, fontWeight:600, cursor:'pointer',
+                         borderColor: typeFilter===k?m.color:m.border,
+                         background:  typeFilter===k?m.bg:'#fff',
+                         color:       typeFilter===k?m.color:'#718096' }}>
+                {m.short} {m.label}
+              </button>
+            );
+          })}
         </div>
+        {/* Search */}
+        <input style={{ ...inp, flex:1, minWidth:220, marginLeft:'auto' }}
+          value={query} onChange={function(e){ setQuery(e.target.value); }}
+          placeholder="ค้นหา เลขที่หนี้ / โครงการ / ธนาคาร / หลักประกัน…" />
+        <span style={{ fontSize:12, color:'#718096' }}>{filtered.length} รายการ</span>
       </div>
 
-      {/* ── No data state ─────────────────────────────────────────────────── */}
-      {allRows.length === 0 && (
-        <div className="card" style={{ padding: 40, textAlign: 'center' }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>📭</div>
-          <div style={{ fontWeight: 600, color: 'var(--ink-600)', marginBottom: 8 }}>ยังไม่มีข้อมูลภาระหนี้</div>
-          <div style={{ fontSize: 13, color: 'var(--ink-400)' }}>
-            ข้อมูลจะปรากฏเมื่อ sync จาก Google Sheets แล้ว
-            (ตาราง projectFinance schema ใหม่ที่มี column debtType)
-          </div>
-        </div>
-      )}
-
-      {/* ── FLAT TABLE VIEW ───────────────────────────────────────────────── */}
-      {allRows.length > 0 && viewMode === 'flat' && (
-        <div className="card anim-in" style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{ overflowX: 'auto' }}>
-            <table className="tbl" style={{ minWidth: 1180 }}>
-              <thead>
-                <tr>
-                  <SortHeader label="โครงการ"       sortKey="code"        sort={sort} toggle={toggle} width={90} />
-                  <SortHeader label="ประเภท"         sortKey="debtType"    sort={sort} toggle={toggle} width={80} />
-                  <SortHeader label="เลขที่อ้างอิง" sortKey="debtorRef"   sort={sort} toggle={toggle} />
-                  <SortHeader label="สถานะ"          sortKey="status"      sort={sort} toggle={toggle} width={90} />
-                  <SortHeader label="ครบกำหนด"       sortKey="endDate"     sort={sort} toggle={toggle} width={105} />
-                  <th style={{ width: 80, textAlign: 'left', fontSize: 11.5, color: 'var(--ink-400)' }}>เริ่มสัญญา</th>
-                  <SortHeader label="วงเงินรวม"      sortKey="totalDebt"   sort={sort} toggle={toggle} align="right" width={110} />
-                  <th style={{ textAlign: 'right', width: 110 }}>งวด 1</th>
-                  <th style={{ textAlign: 'right', width: 110 }}>งวด 2</th>
-                  <SortHeader label="จ่ายแล้ว"       sortKey="totalPaid"   sort={sort} toggle={toggle} align="right" width={110} />
-                  <SortHeader label="คงเหลือ"         sortKey="balance"     sort={sort} toggle={toggle} align="right" width={115} />
-                  <SortHeader label="ผู้รับโอนสิทธิ์" sortKey="assignee"   sort={sort} toggle={toggle} width={100} />
-                  <th style={{ width: 70 }}>ธนาคาร</th>
-                  <th style={{ width: 160 }}>หมายเหตุ</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.length === 0 && (
-                  <tr>
-                    <td colSpan={14} style={{ textAlign: 'center', color: 'var(--ink-400)', padding: 36 }}>
-                      ไม่พบข้อมูลที่ตรงกับเงื่อนไข
-                    </td>
-                  </tr>
-                )}
-                {sorted.map(r => <DebtDetailRow key={r.id || r.debtorRef || Math.random()} r={r} />)}
-              </tbody>
-              {sorted.length > 0 && (
-                <tfoot>
-                  <tr style={{ background: '#edf2ff', fontWeight: 700 }}>
-                    <td colSpan={6} style={{ textAlign: 'right', paddingRight: 10, fontSize: 12 }}>
-                      รวม ({filtered.length} รายการ)
-                    </td>
-                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(filtTotalDebt, 0)}</td>
-                    <td colSpan={2}></td>
-                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--good)' }}>{fmtNum(filtTotalPaid, 0)}</td>
-                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--bad)', fontSize: 14 }}>{fmtNum(filtBalance, 0)}</td>
-                    <td colSpan={3}></td>
-                  </tr>
-                </tfoot>
+      {/* ── Detail Table ── */}
+      <div className="card" style={{ padding:0, overflow:'hidden' }}>
+        <div style={{ overflowX:'auto' }}>
+          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
+            <thead>
+              <tr style={{ background:'#f8fafc' }}>
+                {['เลขที่หนี้','ประเภท','โครงการ / อ้างอิง','ธนาคาร','อัตราดอก','วงเงินต้น','คงเหลือ','ดอกเบี้ยค้าง (real-time)','วันเบิก','ครบกำหนด','หลักประกัน','สถานะ','หมายเหตุ'].map(function(h,i){
+                  var right = i>=4&&i<=7;
+                  return <th key={i} style={{ padding:'8px 12px', textAlign:right?'right':'left', fontWeight:600, color:'#475569', borderBottom:'1px solid #e2e8f0', whiteSpace:'nowrap', fontSize:11 }}>{h}</th>;
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.length === 0 && (
+                <tr><td colSpan={13} style={{ padding:32, textAlign:'center', color:'#a0aec0' }}>ไม่พบรายการ</td></tr>
               )}
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* ── GROUPED VIEW ──────────────────────────────────────────────────── */}
-      {allRows.length > 0 && viewMode === 'grouped' && (
-        <div className="card anim-in" style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{ overflowX: 'auto' }}>
-            <table className="tbl" style={{ minWidth: 1180 }}>
-              <thead>
-                <tr>
-                  <th style={{ width: 90 }}>โครงการ</th>
-                  <th style={{ width: 80 }}>ประเภท</th>
-                  <th>เลขที่อ้างอิง</th>
-                  <th style={{ width: 90 }}>สถานะ</th>
-                  <th style={{ width: 105 }}>ครบกำหนด</th>
-                  <th style={{ width: 80, fontSize: 11.5, color: 'var(--ink-400)' }}>เริ่มสัญญา</th>
-                  <th style={{ textAlign: 'right', width: 110 }}>วงเงินรวม</th>
-                  <th style={{ textAlign: 'right', width: 110 }}>งวด 1</th>
-                  <th style={{ textAlign: 'right', width: 110 }}>งวด 2</th>
-                  <th style={{ textAlign: 'right', width: 110 }}>จ่ายแล้ว</th>
-                  <th style={{ textAlign: 'right', width: 115 }}>คงเหลือ</th>
-                  <th style={{ width: 100 }}>ผู้รับโอนสิทธิ์</th>
-                  <th style={{ width: 70 }}>ธนาคาร</th>
-                  <th style={{ width: 160 }}>หมายเหตุ</th>
+              {sorted.map(function(r, i){
+                var overdue = r.status==='overdue';
+                var nearMat = r.maturityDate && Math.round((new Date(r.maturityDate)-new Date(today))/86400000)<=30 && r.status==='active';
+                return <DebtRow key={r.id||r.debtNo||i} r={r} today={today} highlight={overdue||nearMat} />;
+              })}
+            </tbody>
+            {sorted.length > 0 && (
+              <tfoot>
+                <tr style={{ background:'#fef2f2', fontWeight:700, borderTop:'2px solid #e2e8f0' }}>
+                  <td colSpan={5} style={{ padding:'9px 12px', fontSize:12, color:'#475569' }}>
+                    รวม {filtered.length} รายการ (ที่ Active {filtered.filter(function(r){ return r.status==='active'||r.status==='overdue'; }).length})
+                  </td>
+                  <td style={{ padding:'9px 12px', textAlign:'right', fontVariantNumeric:'tabular-nums' }}>
+                    {fmtMoney(filtered.reduce(function(s,r){ return s+(parseFloat(r.principalAmount)||0); },0))}
+                  </td>
+                  <td style={{ padding:'9px 12px', textAlign:'right', fontVariantNumeric:'tabular-nums', color:'#c53030', fontSize:13 }}>
+                    {fmtMoney(filtOutstanding)}
+                  </td>
+                  <td style={{ padding:'9px 12px', textAlign:'right', fontVariantNumeric:'tabular-nums', color:'#c05621' }}>
+                    {filtInterest > 0 ? fmtMoney(filtInterest) : '—'}
+                  </td>
+                  <td colSpan={5}></td>
                 </tr>
-              </thead>
-              <tbody>
-                {groupedByCode.length === 0 && (
-                  <tr>
-                    <td colSpan={14} style={{ textAlign: 'center', color: 'var(--ink-400)', padding: 36 }}>
-                      ไม่พบข้อมูลที่ตรงกับเงื่อนไข
-                    </td>
-                  </tr>
-                )}
-                {groupedByCode.map(([code, rows]) => (
-                  <ProjectSummaryBlock key={code} projectCode={code} rows={rows} />
-                ))}
-              </tbody>
-              {filtered.length > 0 && (
-                <tfoot>
-                  <tr style={{ background: '#edf2ff', fontWeight: 700 }}>
-                    <td colSpan={6} style={{ textAlign: 'right', paddingRight: 10, fontSize: 12 }}>
-                      รวม ({groupedByCode.length} โครงการ · {filtered.length} รายการ)
-                    </td>
-                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(filtTotalDebt, 0)}</td>
-                    <td colSpan={2}></td>
-                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--good)' }}>{fmtNum(filtTotalPaid, 0)}</td>
-                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--bad)', fontSize: 14 }}>{fmtNum(filtBalance, 0)}</td>
-                    <td colSpan={3}></td>
-                  </tr>
-                </tfoot>
-              )}
-            </table>
-          </div>
+              </tfoot>
+            )}
+          </table>
         </div>
-      )}
-
+      </div>
     </div>
   );
 }
+
+Object.assign(window, { DebtPage });

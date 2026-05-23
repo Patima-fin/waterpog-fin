@@ -211,7 +211,7 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
     data_bank:     data.bankAccounts?.length || 0,
     data_pv:       data.pvVouchers?.length || 0,
     data_payable:  data.payables?.length || 0,
-    debt:          data.projectFinance?.filter(r => r.debtType && r.status === 'Active').length || null,
+    debt:          data.debtLedger?.filter(r => r.status==='active'||r.status==='overdue').length || null,
     iv_report:     data.invoices?.filter(iv => iv.status !== 'paid').length || null,
     receipts:      data.receipts?.length || null,
     bank_diary:    null,
