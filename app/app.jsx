@@ -247,7 +247,7 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
   ));
 
   return (
-    <aside className="sb" style={sidebarStyle === 'minimal' ? { background: '#162032', borderRight: '1px solid rgba(255,255,255,.04)' } : {}}>
+    <aside className="sb">
       <div className="sb-brand">
         <div className="sb-logo">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
@@ -308,16 +308,16 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
       <div className="sb-user">
         <div className="sb-avatar">{currentUser ? currentUser.displayName.slice(0,2) : 'FA'}</div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 600, color: 'rgba(255,255,255,.88)' }}>{currentUser ? currentUser.displayName : 'ฝ่ายการเงิน'}</div>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,.36)', display:'flex', alignItems:'center', gap:4 }}>
-            <span style={{ width:6, height:6, borderRadius:'50%', background: syncDot, flexShrink:0 }} />
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-800)' }}>{currentUser ? currentUser.displayName : 'ฝ่ายการเงิน'}</div>
+          <div style={{ fontSize: 10.5, color: 'var(--ink-400)', display:'flex', alignItems:'center', gap:4 }}>
+            <span style={{ width:5, height:5, borderRadius:'50%', background: syncDot, flexShrink:0 }} />
             {syncLabel}
           </div>
         </div>
-        <button onClick={onLogout} title="ออกจากระบบ" style={{ background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,.32)', padding:4, borderRadius:6, display:'flex', alignItems:'center', transition:'color 160ms' }}
-          onMouseEnter={e => e.currentTarget.style.color='rgba(255,255,255,.75)'}
-          onMouseLeave={e => e.currentTarget.style.color='rgba(255,255,255,.32)'}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <button onClick={onLogout} title="ออกจากระบบ" style={{ background:'none', border:'none', cursor:'pointer', color:'var(--ink-300)', padding:4, borderRadius:5, display:'flex', alignItems:'center', transition:'color 160ms' }}
+          onMouseEnter={e => e.currentTarget.style.color='var(--bad)'}
+          onMouseLeave={e => e.currentTarget.style.color='var(--ink-300)'}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
             <polyline points="16 17 21 12 16 7"/>
             <line x1="21" y1="12" x2="9" y2="12"/>

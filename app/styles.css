@@ -69,78 +69,75 @@ button { font: inherit; color: inherit; }
   grid-template-columns: 248px 1fr;
   min-height: 100vh;
 }
-/* ─── Sidebar – dark professional ─── */
+/* ─── Sidebar – minimal ─── */
 .sb {
-  background: #0d1623;
-  border-right: 1px solid rgba(255,255,255,.05);
+  background: #fff;
+  border-right: 1px solid var(--line);
   position: sticky;
   top: 0;
   height: 100vh;
   display: flex;
   flex-direction: column;
-  padding: 16px 10px;
-  gap: 6px;
+  padding: 20px 12px 16px;
+  gap: 0;
 }
 .sb-brand {
-  display: flex; align-items: center; gap: 10px;
-  padding: 4px 6px 14px;
-  border-bottom: 1px solid rgba(255,255,255,.07);
-  margin-bottom: 2px;
+  display: flex; align-items: center; gap: 9px;
+  padding: 0 4px 16px;
+  margin-bottom: 4px;
 }
 .sb-logo {
-  width: 34px; height: 34px; border-radius: 9px;
+  width: 30px; height: 30px; border-radius: 8px;
   display: grid; place-items: center; flex-shrink: 0;
-  background: linear-gradient(135deg, var(--brand-500), var(--brand-700));
-  box-shadow: 0 4px 14px rgba(42,111,219,.45);
+  background: var(--brand-600);
 }
-.sb-brand-name { font-weight: 700; color: rgba(255,255,255,.95); font-size: 14px; letter-spacing: .01em; }
-.sb-brand-sub  { font-size: 10.5px; color: rgba(255,255,255,.3); margin-top: 2px; }
+.sb-brand-name { font-weight: 700; color: var(--ink-900); font-size: 13.5px; letter-spacing: .01em; }
+.sb-brand-sub  { font-size: 10px; color: var(--ink-400); margin-top: 1px; }
 .sb-section {
-  font-size: 9.5px; text-transform: uppercase; letter-spacing: .14em;
-  color: rgba(255,255,255,.2); padding: 10px 10px 2px;
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: .13em;
+  color: var(--ink-300); padding: 12px 8px 3px;
 }
 .sb-link {
   appearance: none; border: 0; background: transparent;
   width: 100%; text-align: left;
-  display: flex; align-items: center; gap: 9px;
-  padding: 7px 10px; border-radius: 7px;
-  font-size: 13px; color: rgba(255,255,255,.52);
+  display: flex; align-items: center; gap: 8px;
+  padding: 6.5px 8px; border-radius: 6px;
+  font-size: 13px; color: var(--ink-500);
   cursor: pointer;
-  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+  transition: background var(--t-fast), color var(--t-fast);
 }
-.sb-link:hover { background: rgba(255,255,255,.07); color: rgba(255,255,255,.88); }
+.sb-link:hover { background: var(--ink-50); color: var(--ink-800); }
 .sb-link.active {
-  background: rgba(255,255,255,.1);
-  color: #fff;
+  background: var(--brand-50);
+  color: var(--brand-700);
   font-weight: 500;
-  box-shadow: inset 3px 0 0 var(--brand-400);
+  box-shadow: inset 2px 0 0 var(--brand-500);
 }
-.sb-link.active .sb-icon { color: var(--brand-300); }
-.sb-icon { width: 15px; height: 15px; color: rgba(255,255,255,.28); flex-shrink: 0; }
+.sb-link.active .sb-icon { color: var(--brand-500); }
+.sb-icon { width: 14px; height: 14px; color: var(--ink-300); flex-shrink: 0; }
 .sb-pill {
   margin-left: auto; font-size: 10px; font-weight: 600;
-  padding: 1px 6px; border-radius: 999px;
-  background: rgba(255,255,255,.1); color: rgba(255,255,255,.42);
+  padding: 1px 5px; border-radius: 999px;
+  background: var(--ink-100); color: var(--ink-500);
 }
-.sb-link.active .sb-pill { background: rgba(91,148,247,.28); color: var(--brand-200); }
+.sb-link.active .sb-pill { background: var(--brand-100); color: var(--brand-600); }
 
 .sb-user {
-  display: flex; align-items: center; gap: 10px;
-  padding: 9px 10px; border-radius: 8px;
-  background: rgba(255,255,255,.055);
-  border: 1px solid rgba(255,255,255,.08);
+  display: flex; align-items: center; gap: 9px;
+  padding: 10px 8px;
+  border-top: 1px solid var(--line);
   flex-shrink: 0;
 }
 .sb-avatar {
-  width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
-  background: rgba(91,148,247,.28); color: rgba(255,255,255,.9);
-  display: grid; place-items: center; font-weight: 700; font-size: 11px;
+  width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;
+  background: var(--brand-100); color: var(--brand-700);
+  display: grid; place-items: center; font-weight: 700; font-size: 10.5px;
 }
 
 /* scrollbar inside the nav */
 .sb nav::-webkit-scrollbar { width: 3px; }
 .sb nav::-webkit-scrollbar-track { background: transparent; }
-.sb nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 2px; }
+.sb nav::-webkit-scrollbar-thumb { background: var(--ink-200); border-radius: 2px; }
 
 /* ---------------------------------- Main ---------------------------------- */
 .main { display: flex; flex-direction: column; min-width: 0; }
