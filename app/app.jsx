@@ -118,6 +118,7 @@ function App() {
     bank_diary:    { label: 'Bank Diary',               title: 'Bank Diary',      icon: 'bank' },
     interest_calc: { label: 'คำนวณดอกเบี้ย',          title: 'Interest Schedule Calculator', icon: 'money' },
     sts_calc:      { label: 'STS Calculator',          title: 'STS Encompass Fee Calculator', icon: 'money' },
+    sts_workflow:  { label: 'STS Workflow',             title: 'STS Workflow · review queue',  icon: 'invoice' },
     projects: { label: 'จัดการโครงการ', title: 'Projects', icon: 'projects' },
     invoices: { label: 'ใบแจ้งหนี้', title: 'Invoices', icon: 'invoice' },
     checks:    { label: 'เช็คจ่ายล่วงหน้า', title: 'Checks', icon: 'money' },
@@ -141,6 +142,7 @@ function App() {
     case 'bank_diary':     page = <BankDiaryPage data={data} setData={setData} toast={pushToast} />; break;
     case 'interest_calc':  page = <InterestCalcPage data={data} />; break;
     case 'sts_calc':       page = <StsCalcPage data={data} />; break;
+    case 'sts_workflow':   page = <StsWorkflowPage data={data} setData={setData} toast={pushToast} />; break;
     case 'checks':         page = <ChecksPage data={data} />; break;
     case 'data_forecast':  page = <ForecastEntriesPage data={data} setData={setData} toast={pushToast} />; break;
     case 'data_bank':      page = <DataBankPage data={data} setData={setData} toast={pushToast} />; break;
@@ -281,6 +283,7 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
             ['bank_diary',    'Bank Diary',             'bank'],
             ['interest_calc', 'คำนวณดอกเบี้ย',         'money'],
             ['sts_calc',      'STS Calculator',         'money'],
+            ['sts_workflow',  'STS Workflow',           'invoice'],
           ])}
         </div>
 
