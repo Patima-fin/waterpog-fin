@@ -69,59 +69,78 @@ button { font: inherit; color: inherit; }
   grid-template-columns: 248px 1fr;
   min-height: 100vh;
 }
+/* ─── Sidebar – dark professional ─── */
 .sb {
-  background: var(--panel);
-  border-right: 1px solid var(--line);
+  background: #0d1623;
+  border-right: 1px solid rgba(255,255,255,.05);
   position: sticky;
   top: 0;
   height: 100vh;
   display: flex;
   flex-direction: column;
-  padding: 18px 14px;
-  gap: 14px;
+  padding: 16px 10px;
+  gap: 6px;
 }
 .sb-brand {
   display: flex; align-items: center; gap: 10px;
-  padding: 6px 6px 14px;
-  border-bottom: 1px dashed var(--line);
+  padding: 4px 6px 14px;
+  border-bottom: 1px solid rgba(255,255,255,.07);
+  margin-bottom: 2px;
 }
 .sb-logo {
-  width: 38px; height: 38px; border-radius: 10px;
-  display: grid; place-items: center;
+  width: 34px; height: 34px; border-radius: 9px;
+  display: grid; place-items: center; flex-shrink: 0;
   background: linear-gradient(135deg, var(--brand-500), var(--brand-700));
-  color: white; font-weight: 700; letter-spacing: .04em;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.4), var(--shadow);
+  box-shadow: 0 4px 14px rgba(42,111,219,.45);
 }
-.sb-brand-name { font-weight: 700; color: var(--ink-900); font-size: 14.5px; letter-spacing: .01em; }
-.sb-brand-sub  { font-size: 11px; color: var(--ink-500); margin-top: 2px; }
-.sb-section { font-size: 10.5px; text-transform: uppercase; letter-spacing: .12em; color: var(--ink-400); padding: 6px 10px 4px; }
+.sb-brand-name { font-weight: 700; color: rgba(255,255,255,.95); font-size: 14px; letter-spacing: .01em; }
+.sb-brand-sub  { font-size: 10.5px; color: rgba(255,255,255,.3); margin-top: 2px; }
+.sb-section {
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: .14em;
+  color: rgba(255,255,255,.2); padding: 10px 10px 2px;
+}
 .sb-link {
   appearance: none; border: 0; background: transparent;
   width: 100%; text-align: left;
-  display: flex; align-items: center; gap: 10px;
-  padding: 9px 12px; border-radius: var(--radius-sm);
-  font-size: 13.5px; color: var(--ink-700);
-  cursor: pointer; transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 10px; border-radius: 7px;
+  font-size: 13px; color: rgba(255,255,255,.52);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
-.sb-link:hover { background: var(--ink-50); color: var(--ink-900); }
+.sb-link:hover { background: rgba(255,255,255,.07); color: rgba(255,255,255,.88); }
 .sb-link.active {
-  background: linear-gradient(180deg, var(--brand-50), #fff);
-  color: var(--brand-700);
-  box-shadow: inset 0 0 0 1px var(--brand-100);
+  background: rgba(255,255,255,.1);
+  color: #fff;
+  font-weight: 500;
+  box-shadow: inset 3px 0 0 var(--brand-400);
 }
-.sb-link.active .sb-icon { color: var(--brand-600); }
-.sb-icon { width: 18px; height: 18px; color: var(--ink-400); flex-shrink: 0; }
-.sb-pill { margin-left: auto; font-size: 10.5px; padding: 2px 7px; border-radius: 999px; background: var(--ink-100); color: var(--ink-600); }
-.sb-link.active .sb-pill { background: var(--brand-100); color: var(--brand-700); }
+.sb-link.active .sb-icon { color: var(--brand-300); }
+.sb-icon { width: 15px; height: 15px; color: rgba(255,255,255,.28); flex-shrink: 0; }
+.sb-pill {
+  margin-left: auto; font-size: 10px; font-weight: 600;
+  padding: 1px 6px; border-radius: 999px;
+  background: rgba(255,255,255,.1); color: rgba(255,255,255,.42);
+}
+.sb-link.active .sb-pill { background: rgba(91,148,247,.28); color: var(--brand-200); }
 
 .sb-user {
-  margin-top: auto;
   display: flex; align-items: center; gap: 10px;
-  padding: 10px; border-radius: var(--radius-sm);
-  background: var(--ink-50);
-  border: 1px solid var(--line-soft);
+  padding: 9px 10px; border-radius: 8px;
+  background: rgba(255,255,255,.055);
+  border: 1px solid rgba(255,255,255,.08);
+  flex-shrink: 0;
 }
-.sb-avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--brand-100); color: var(--brand-700); display: grid; place-items: center; font-weight: 700; font-size: 12px; }
+.sb-avatar {
+  width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
+  background: rgba(91,148,247,.28); color: rgba(255,255,255,.9);
+  display: grid; place-items: center; font-weight: 700; font-size: 11px;
+}
+
+/* scrollbar inside the nav */
+.sb nav::-webkit-scrollbar { width: 3px; }
+.sb nav::-webkit-scrollbar-track { background: transparent; }
+.sb nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 2px; }
 
 /* ---------------------------------- Main ---------------------------------- */
 .main { display: flex; flex-direction: column; min-width: 0; }
