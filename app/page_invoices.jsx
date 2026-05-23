@@ -1275,4 +1275,81 @@ function normalizeDate(s) {
   return s;
 }
 
-Object.assign(window, { InvoicesPage });
+// ── Standalone IV Report Page (รายงาน/วิเคราะห์ section) ──────────────────
+function IvReportStandalonePage({ data, setData, toast }) {
+  const { projectByCode, financeByCode } = React.useMemo(
+    () => WTPData.buildLookups(data),
+    [data.projects, data.projectFinance]
+  );
+
+  const rows = React.useMemo(() => data.invoices.map(iv => {
+    const p = projectByCode[iv.jobNo] || projectByCode[iv.contractRef] || {};
+    const f = financeByCode[iv.jobNo] || financeByCode[iv.contractRef] || {};
+    const debt     = Number(f.debt ?? f['ภาระหนี้'] ?? 0);
+    const assignee = f.assignee || f['ผู้รับโอนสิทธิ์'] || '—';
+    return {
+      ...iv,
+      projectName: p['พื้นที่'] || p.name || iv.projectName || '—',
+      assignee,
+      debt,
+      netExpected: (iv.balance || 0) - debt,
+    };
+  }), [data.invoices, projectByCode, financeByCode]);
+
+  const pending = rows.filter(r => r.status !== 'paid');
+  const today   = new Date().toISOString().slice(0, 10);
+
+  const [detail, setDetail] = React.useState(null);
+  const [payModal, setPayModal] = React.useState(null);
+
+  const save = (iv) => {
+    setData(d => ({
+      ...d,
+      invoices: iv.id
+        ? d.invoices.map(x => x.id === iv.id ? iv : x)
+        : [{ ...iv, id: WTPData.newId() }, ...d.invoices],
+    }));
+    setDetail(prev => prev && prev.id === iv.id ? iv : prev);
+    toast && toast('บันทึกแล้ว');
+  };
+
+  return (
+    <div className="page">
+      <div className="page-head anim-in">
+        <div>
+          <h1 className="page-title">รายงานติดตามใบแจ้งหนี้คงค้าง</h1>
+          <div className="page-sub">
+            ข้อมูล ณ {fmtDate(today)} · ค้างชำระ {pending.length} ใบ · รวม {rows.length} ใบ
+          </div>
+        </div>
+      </div>
+
+      <IvReportView rows={rows} onOpen={setDetail} />
+
+      <InvoiceDetailModal
+        iv={detail}
+        onClose={() => setDetail(null)}
+        onSave={save}
+        bankAccounts={data.bankAccounts}
+        projects={data.projects}
+        financeByCode={financeByCode}
+        projectByCode={projectByCode}
+      />
+
+      <QuickPayModal
+        open={!!payModal}
+        iv={payModal?.iv}
+        draft={payModal?.draft}
+        bankAccounts={data.bankAccounts}
+        onChangeDraft={(patch) => setPayModal(pm => pm ? { ...pm, draft: { ...pm.draft, ...patch } } : pm)}
+        onConfirm={(ar) => {
+          save({ ...payModal.iv, status: 'paid', actualReceive: ar });
+          setPayModal(null);
+        }}
+        onCancel={() => setPayModal(null)}
+      />
+    </div>
+  );
+}
+
+Object.assign(window, { InvoicesPage, IvReportStandalonePage });
