@@ -21,65 +21,109 @@ function simpleInterest(p, r, days) {
 function bMoney(n) { return (Number(n) || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
 function bMoney2(n) { return (Number(n) || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
-// Build matching index: jobNo/projectCode → STS contract from debtMaster
+// Build matching index: jobNo → STS row(s) + paired WCI-Project rows
 function buildStsIndex(debtMaster) {
-  const byJob = {};
-  const byProj = {};
-  (debtMaster || []).filter(d => d.debtCategory === 'STS').forEach(d => {
-    if (d.projectCode) byJob[d.projectCode] = d;
-    if (d.projectName) byProj[d.projectName] = d;
+  const sts  = {};   // jobNo → first STS contract (primary)
+  const stsAll = {}; // jobNo → array of all STS rows (for multi-drawdown)
+  const wci  = {};   // jobNo → array of WCI-Project rows
+  (debtMaster || []).forEach(d => {
+    const cat = d.debtCategory;
+    const job = d.projectCode;
+    if (!job) return;
+    if (cat === 'STS') {
+      if (!sts[job]) sts[job] = d;
+      if (!stsAll[job]) stsAll[job] = [];
+      stsAll[job].push(d);
+    } else if (cat === 'WCI-Project') {
+      if (!wci[job]) wci[job] = [];
+      wci[job].push(d);
+    }
   });
-  return { byJob, byProj };
+  return { sts, stsAll, wci };
 }
 
-// Find STS contract matching a receipt (by projectCode or invoiceNo)
+// Find STS+WCI contracts matching a receipt → { sts, wciList, jobNo }
 function matchStsContract(receipt, idx, invoices) {
   if (!receipt) return null;
-  // 1. Direct projectCode match
-  if (receipt.projectCode && idx.byJob[receipt.projectCode]) return idx.byJob[receipt.projectCode];
-  // 2. Lookup via invoice → jobNo
-  if (receipt.invoiceNo && invoices) {
+  let jobNo = null;
+  // Try in order — each fallback if previous didn't find a match
+  if (receipt.projectCode && idx.sts[receipt.projectCode]) jobNo = receipt.projectCode;
+  if (!jobNo && receipt.invoiceNo && invoices) {
     const iv = invoices.find(i => i.ivNo === receipt.invoiceNo);
-    if (iv && iv.jobNo && idx.byJob[iv.jobNo]) return idx.byJob[iv.jobNo];
+    if (iv && iv.jobNo && idx.sts[iv.jobNo]) jobNo = iv.jobNo;
   }
-  // 3. By projectName substring (loose)
-  if (receipt.projectName) {
-    for (const k of Object.keys(idx.byJob)) {
-      const c = idx.byJob[k];
-      if (c.projectName && (c.projectName.includes(receipt.projectName.slice(0, 15)) || receipt.projectName.includes((c.projectName || '').slice(0, 15)))) return c;
+  if (!jobNo && receipt.projectName) {
+    for (const k of Object.keys(idx.sts)) {
+      const c = idx.sts[k];
+      if (c.projectName && (c.projectName.includes((receipt.projectName || '').slice(0, 15)) || (receipt.projectName || '').includes((c.projectName || '').slice(0, 15)))) {
+        jobNo = k; break;
+      }
     }
   }
-  return null;
+  if (!jobNo) return null;
+  return {
+    jobNo,
+    sts: idx.sts[jobNo],
+    stsAll: idx.stsAll[jobNo] || [],
+    wciList: idx.wci[jobNo] || [],
+  };
 }
 
-// Compute STS row: interest + encompass fee net
-function computeStsRow(receipt, contract, params) {
+// Compute one drawdown's interest (used for both STS and each WCI tranche)
+function legInterest(drawdownDate, receiveDate, principal, rate) {
+  const days = dayDiff(drawdownDate, receiveDate);
+  const interest = simpleInterest(principal, rate, days);
+  return { drawdown: drawdownDate, days, principal: Number(principal) || 0, rate: Number(rate) || 0, interest };
+}
+
+// Compute full STS calc — STS leg(s) + WCI-Project legs combined
+// match = { sts, stsAll, wciList, jobNo }
+function computeStsRow(receipt, match, params) {
   const mgmtRate    = Number(params.mgmtRate) || DEFAULT_MGMT_FEE_RATE;
-  const intRate     = Number(contract.interestRate) || DEFAULT_STS_INT_RATE;
   const whtMgmt     = Number(params.whtMgmt) || DEFAULT_WHT_MGMT;
   const whtInt      = Number(params.whtInterest) || DEFAULT_WHT_INTEREST;
-  const drawdown    = contract.receiveDate || contract.startDate;
   const receiveDate = receipt.receiptDate;
-  const days        = dayDiff(drawdown, receiveDate);
-  const principal   = Number(contract.principalAmount) || 0;
-  const interest    = simpleInterest(principal, intRate, days);
-  // Use receipt's gross as the basis for management fee (proportional to this receipt's share)
   const baseAmount  = Number(receipt.grossAmount) || 0;
-  const mgmtGross   = baseAmount * mgmtRate;
-  const mgmtNet     = mgmtGross - interest;
-  const whtOnMgmt   = mgmtGross * whtMgmt;
-  const whtOnInt    = interest * whtInt;
+
+  // STS legs (1 or 2 drawdowns)
+  const stsLegs = (match.stsAll || [match.sts]).filter(Boolean).map(c =>
+    legInterest(c.receiveDate || c.startDate, receiveDate, c.principalAmount, Number(c.interestRate) || DEFAULT_STS_INT_RATE)
+  );
+  // WCI legs (each WCI-Project row = 1 drawdown)
+  const wciLegs = (match.wciList || []).map(w =>
+    legInterest(w.receiveDate || w.startDate, receiveDate, w.principalAmount, Number(w.interestRate) || 0.10)
+  );
+
+  const stsInterest = stsLegs.reduce((s, l) => s + l.interest, 0);
+  const wciInterest = wciLegs.reduce((s, l) => s + l.interest, 0);
+  const totalInterest = stsInterest + wciInterest;
+
+  const mgmtGross = baseAmount * mgmtRate;
+  const mgmtNet   = mgmtGross - totalInterest;
+  const whtOnMgmt = mgmtGross * whtMgmt;
+  const whtOnInt  = totalInterest * whtInt;
   const encompassPayable = mgmtNet - whtOnMgmt + whtOnInt;
+
+  // Primary STS info for display
+  const primary = match.sts || {};
   return {
-    drawdown, receiveDate, days, principal, intRate,
-    baseAmount, mgmtRate, mgmtGross, interest, mgmtNet,
-    whtOnMgmt, whtOnInt, encompassPayable,
+    drawdown: primary.receiveDate || primary.startDate,
+    receiveDate,
+    days: stsLegs[0]?.days || 0,
+    principal: Number(primary.principalAmount) || 0,
+    intRate: Number(primary.interestRate) || DEFAULT_STS_INT_RATE,
+    baseAmount, mgmtRate, mgmtGross,
+    interest: totalInterest,           // total (STS + WCI) — for backward-compat display
+    stsInterest, wciInterest,
+    stsLegs, wciLegs,
+    mgmtNet, whtOnMgmt, whtOnInt, encompassPayable,
   };
 }
 
 // ── Drawer for a single receipt ───────────────────────────────────────────
-function StsCalcDrawer({ receipt, contract, calcResult, isOpen, onClose, onConfirm, params, setParams }) {
+function StsCalcDrawer({ receipt, match, calcResult, isOpen, onClose, onConfirm, params, setParams }) {
   if (!isOpen) return null;
+  const contract = match?.sts;
   if (!contract) {
     return (
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
@@ -96,10 +140,10 @@ function StsCalcDrawer({ receipt, contract, calcResult, isOpen, onClose, onConfi
       </div>
     );
   }
-  const c = computeStsRow(receipt, contract, params);
+  const c = computeStsRow(receipt, match, params);
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, width: 'min(800px, 95vw)', maxHeight: '90vh', overflow: 'auto' }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, width: 'min(880px, 95vw)', maxHeight: '90vh', overflow: 'auto' }}>
         <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between' }}>
           <div>
             <div style={{ fontWeight: 700, fontSize: 16 }}>คำนวณ STS สำหรับใบรับ {receipt.receiptNo || receipt.invoiceNo}</div>
@@ -158,17 +202,32 @@ function StsCalcDrawer({ receipt, contract, calcResult, isOpen, onClose, onConfi
         </div>
 
         <div style={{ padding: '0 18px 18px' }}>
+          <div style={{ fontWeight: 700, fontSize: 12, color: '#475569', marginBottom: 6 }}>📈 รายละเอียดดอกเบี้ยแต่ละ leg</div>
+          <table className="tbl" style={{ width: '100%', fontSize: 11.5, marginBottom: 12 }}>
+            <thead>
+              <tr><th style={{ width: 80 }}>ฝ่าย</th><th>วันที่กู้</th><th style={{ textAlign: 'right' }}>วัน</th><th style={{ textAlign: 'right' }}>เงินต้น</th><th style={{ textAlign: 'right' }}>อัตรา</th><th style={{ textAlign: 'right' }}>ดอกเบี้ย</th></tr>
+            </thead>
+            <tbody>
+              {c.stsLegs.map((l, i) => (
+                <tr key={'sts-'+i}><td><Badge kind="b-blue" dot={false}>STS</Badge></td><td>{l.drawdown}</td><td style={{ textAlign: 'right' }}>{l.days}</td><td style={{ textAlign: 'right' }}>{bMoney(l.principal)}</td><td style={{ textAlign: 'right' }}>{(l.rate*100).toFixed(2)}%</td><td style={{ textAlign: 'right', fontWeight: 600, color: '#9b1c1c' }}>{bMoney2(l.interest)}</td></tr>
+              ))}
+              {c.wciLegs.map((l, i) => (
+                <tr key={'wci-'+i}><td><Badge kind="b-violet" dot={false}>WCI</Badge></td><td>{l.drawdown}</td><td style={{ textAlign: 'right' }}>{l.days}</td><td style={{ textAlign: 'right' }}>{bMoney(l.principal)}</td><td style={{ textAlign: 'right' }}>{(l.rate*100).toFixed(2)}%</td><td style={{ textAlign: 'right', fontWeight: 600, color: '#6b46c1' }}>{bMoney2(l.interest)}</td></tr>
+              ))}
+              <tr style={{ background: '#fef3c7', fontWeight: 700 }}><td colSpan={5} style={{ textAlign: 'right', paddingRight: 10 }}>รวมดอกเบี้ย STS</td><td style={{ textAlign: 'right', color: '#9b1c1c' }}>{bMoney2(c.stsInterest)}</td></tr>
+              <tr style={{ background: '#fef3c7', fontWeight: 700 }}><td colSpan={5} style={{ textAlign: 'right', paddingRight: 10 }}>รวมดอกเบี้ย WCI</td><td style={{ textAlign: 'right', color: '#6b46c1' }}>{bMoney2(c.wciInterest)}</td></tr>
+            </tbody>
+          </table>
+
           <table className="tbl" style={{ width: '100%', fontSize: 12 }}>
             <tbody>
-              <tr><td>ดอกเบี้ย STS ({c.days} วัน × {((c.intRate)*100).toFixed(2)}% × {bMoney(c.principal)})</td>
-                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#9b1c1c' }}>{bMoney2(c.interest)}</td></tr>
               <tr><td>ค่าบริการเอนคอมพาส (gross) = {(c.mgmtRate*100).toFixed(2)}% × {bMoney(c.baseAmount)}</td>
                   <td style={{ textAlign: 'right' }}>{bMoney2(c.mgmtGross)}</td></tr>
-              <tr style={{ background: '#fffbeb' }}><td>(−) หักดอกเบี้ย STS</td>
+              <tr style={{ background: '#fffbeb' }}><td>(−) หักดอกเบี้ยรวม (STS + WCI)</td>
                   <td style={{ textAlign: 'right', color: '#9b1c1c' }}>−{bMoney2(c.interest)}</td></tr>
               <tr style={{ borderTop: '2px solid var(--line)' }}><td><strong>= ค่าบริการสุทธิ</strong></td>
                   <td style={{ textAlign: 'right', fontWeight: 700, color: '#276749' }}>{bMoney2(c.mgmtNet)}</td></tr>
-              <tr><td>(−) WHT ค่าบริการ {(c.mgmtRate ? (params.whtMgmt*100).toFixed(0) : 0)}%</td>
+              <tr><td>(−) WHT ค่าบริการ {(params.whtMgmt*100).toFixed(0)}%</td>
                   <td style={{ textAlign: 'right', fontSize: 11 }}>−{bMoney2(c.whtOnMgmt)}</td></tr>
               <tr><td>(+) WHT ดอกเบี้ย {(params.whtInterest*100).toFixed(0)}% (รับคืน)</td>
                   <td style={{ textAlign: 'right', fontSize: 11 }}>+{bMoney2(c.whtOnInt)}</td></tr>
@@ -215,10 +274,10 @@ function StsWorkflowPage({ data, setData, toast }) {
   // Match each receipt to STS contract; only keep matched
   const matched = React.useMemo(() => {
     return receipts.map(r => {
-      const contract = matchStsContract(r, stsIdx, invoices);
-      const result   = calcResults.find(x => x.pendingCalcId === r.id);
-      return { receipt: r, contract, result };
-    }).filter(m => m.contract); // STS-relevant only
+      const match = matchStsContract(r, stsIdx, invoices);
+      const result = calcResults.find(x => x.pendingCalcId === r.id);
+      return { receipt: r, match, result };
+    }).filter(m => m.match); // STS-relevant only
   }, [receipts, stsIdx, invoices, calcResults]);
 
   const filtered = React.useMemo(() => {
@@ -230,23 +289,28 @@ function StsWorkflowPage({ data, setData, toast }) {
   // KPIs
   const pendingCount = matched.filter(m => !m.result).length;
   const doneCount    = matched.filter(m =>  m.result).length;
-  let totalInterest = 0, totalMgmtNet = 0, totalEncompass = 0;
+  let totalSts = 0, totalWci = 0, totalEncompass = 0;
   matched.forEach(m => {
-    const c = computeStsRow(m.receipt, m.contract, params);
-    totalInterest += c.interest;
-    totalMgmtNet  += c.mgmtNet;
+    const c = computeStsRow(m.receipt, m.match, params);
+    totalSts      += c.stsInterest;
+    totalWci      += c.wciInterest;
     totalEncompass+= c.encompassPayable;
   });
+  const totalInterest = totalSts + totalWci;
 
   // Confirm handler — save to stsCalcResult (local state; needs Sheet write to persist)
   const handleConfirm = (calcVals) => {
     if (!openReceiptId) return;
-    const match = matched.find(m => m.receipt.id === openReceiptId);
-    if (!match) return;
+    const m = matched.find(x => x.receipt.id === openReceiptId);
+    if (!m) return;
+    const debtIds = [].concat(
+      m.match.stsAll.map(d => d.id),
+      m.match.wciList.map(d => d.id)
+    );
     const newResult = {
       id: 'cr_' + Math.random().toString(36).slice(2, 10),
-      pendingCalcId: match.receipt.id,
-      debtIds: [match.contract.id],
+      pendingCalcId: m.receipt.id,
+      debtIds,
       interestTotal: calcVals.interest,
       serviceFeeFull: calcVals.mgmtGross,
       serviceFeeNet:  calcVals.mgmtNet,
@@ -280,7 +344,7 @@ function StsWorkflowPage({ data, setData, toast }) {
       <div className="grid grid-4 anim-stagger" style={{ marginBottom: 16 }}>
         <KpiTile animate={false} label="รอ review" value={pendingCount} accent="var(--bad)"   icon="invoice" unit="" digits={0} delta="ใบรับ"  />
         <KpiTile animate={false} label="ตรวจแล้ว"  value={doneCount}    accent="var(--good)"  icon="coin"    unit="" digits={0} delta="ใบรับ" />
-        <KpiTile animate={false} label="ดอกเบี้ย STS รวม" value={totalInterest} accent="var(--brand-500)" icon="money" delta="จากทั้งหมด" />
+        <KpiTile animate={false} label="ดอกเบี้ย STS+WCI รวม" value={totalInterest} accent="var(--brand-500)" icon="money" delta={`STS ${bMoney(totalSts)} + WCI ${bMoney(totalWci)}`} />
         <KpiTile animate={false} label="เอนคอมพาส (สุทธิ)" value={totalEncompass} accent="oklch(52% 0.16 220)" icon="bank" delta="คงเหลือจ่าย" />
       </div>
 
@@ -324,8 +388,11 @@ function StsWorkflowPage({ data, setData, toast }) {
               </thead>
               <tbody>
                 {filtered.map(m => {
-                  const c = computeStsRow(m.receipt, m.contract, params);
+                  const c = computeStsRow(m.receipt, m.match, params);
                   const isDone = !!m.result;
+                  const sts = m.match.sts;
+                  const wciCount = m.match.wciList.length;
+                  const stsCount = m.match.stsAll.length;
                   return (
                     <tr key={m.receipt.id} onClick={() => setOpenReceiptId(m.receipt.id)} style={{ cursor: 'pointer', background: isDone ? '#f0fdf4' : undefined }}>
                       <td>{fmtDate(m.receipt.receiptDate)}</td>
@@ -335,9 +402,9 @@ function StsWorkflowPage({ data, setData, toast }) {
                       </td>
                       <td style={{ fontFamily: 'ui-monospace', fontSize: 11 }}>{m.receipt.projectCode || '—'}</td>
                       <td style={{ fontSize: 11 }}>
-                        <div style={{ fontWeight: 600 }}>{m.contract.contractNo}</div>
+                        <div style={{ fontWeight: 600 }}>{sts.contractNo}</div>
                         <div style={{ fontSize: 10, color: 'var(--ink-400)' }}>
-                          เบิก {fmtDate(m.contract.receiveDate)} · {bMoney(m.contract.principalAmount)} ฿
+                          STS {bMoney(sts.principalAmount)} ฿{stsCount > 1 ? ' (' + stsCount + ' งวด)' : ''} · WCI {wciCount} งวด
                         </div>
                       </td>
                       <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{bMoney(m.receipt.grossAmount)}</td>
@@ -360,7 +427,7 @@ function StsWorkflowPage({ data, setData, toast }) {
 
       <StsCalcDrawer
         receipt={openMatch?.receipt}
-        contract={openMatch?.contract}
+        match={openMatch?.match}
         calcResult={openMatch?.result}
         isOpen={!!openMatch}
         onClose={() => setOpenReceiptId(null)}
