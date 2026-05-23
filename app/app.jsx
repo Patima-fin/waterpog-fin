@@ -115,7 +115,8 @@ function App() {
     debt_ledger: { label: 'Debt Ledger · ดอกเบี้ย', title: 'Debt Ledger',     icon: 'money' },
     iv_report:   { label: 'รายงานติดตาม IV',         title: 'IV Tracking Report', icon: 'invoice' },
     receipts:    { label: 'ประวัติรับเงิน',           title: 'Receipts History', icon: 'receivables' },
-    bank_diary:  { label: 'Bank Diary',               title: 'Bank Diary',      icon: 'bank' },
+    bank_diary:    { label: 'Bank Diary',               title: 'Bank Diary',      icon: 'bank' },
+    interest_calc: { label: 'คำนวณดอกเบี้ย',          title: 'Interest Schedule Calculator', icon: 'money' },
     projects: { label: 'จัดการโครงการ', title: 'Projects', icon: 'projects' },
     invoices: { label: 'ใบแจ้งหนี้', title: 'Invoices', icon: 'invoice' },
     checks:    { label: 'เช็คจ่ายล่วงหน้า', title: 'Checks', icon: 'money' },
@@ -137,6 +138,7 @@ function App() {
     case 'iv_report':      page = <IvReportStandalonePage data={data} setData={setData} toast={pushToast} />; break;
     case 'receipts':       page = <ReceiptsPage data={data} />; break;
     case 'bank_diary':     page = <BankDiaryPage data={data} setData={setData} toast={pushToast} />; break;
+    case 'interest_calc':  page = <InterestCalcPage data={data} />; break;
     case 'checks':         page = <ChecksPage />; break;
     case 'data_forecast':  page = <ForecastEntriesPage data={data} setData={setData} toast={pushToast} />; break;
     case 'data_bank':      page = <DataBankPage data={data} setData={setData} toast={pushToast} />; break;
@@ -218,6 +220,7 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
     iv_report:     data.invoices?.filter(iv => iv.status !== 'paid').length || null,
     receipts:      data.receipts?.length || null,
     bank_diary:    null,
+    interest_calc: null,
     checks:        data.checks?.filter(c => c.status === 'pending' || c.status === 'clearing').length || null,
   };
   return (
@@ -257,7 +260,8 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
           ['debt_ledger', 'Debt Ledger · ดอกเบี้ย','money'],
           ['iv_report',   'รายงานติดตาม IV',       'invoice'],
           ['receipts',    'ประวัติรับเงิน',         'receivables'],
-          ['bank_diary',  'Bank Diary',             'bank'],
+          ['bank_diary',    'Bank Diary',             'bank'],
+          ['interest_calc', 'คำนวณดอกเบี้ย',        'money'],
         ].map(([key, label, icon]) => (
           <button key={key} className={`sb-link ${route === key ? 'active' : ''}`} onClick={() => go(key)}>
             <Icon name={icon} className="sb-icon" />
