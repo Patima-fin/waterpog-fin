@@ -113,6 +113,7 @@ function App() {
     cashflow: { label: 'แผนประมาณการจ่ายรายสัปดาห์', title: 'Weekly Cash Flow', icon: 'chart' },
     debt:      { label: 'ภาระหนี้ทั้งหมด', title: 'Debt Register', icon: 'money' },
     iv_report: { label: 'รายงานติดตาม IV', title: 'IV Tracking Report', icon: 'invoice' },
+    receipts:  { label: 'ประวัติรับเงิน', title: 'Receipts History', icon: 'receivables' },
     bank_diary:{ label: 'Bank Diary', title: 'Bank Diary', icon: 'bank' },
     projects: { label: 'จัดการโครงการ', title: 'Projects', icon: 'projects' },
     invoices: { label: 'ใบแจ้งหนี้', title: 'Invoices', icon: 'invoice' },
@@ -132,6 +133,7 @@ function App() {
     case 'invoices':       page = <InvoicesPage data={data} setData={setData} toast={pushToast} />; break;
     case 'debt':           page = <DebtPage data={data} />; break;
     case 'iv_report':      page = <IvReportStandalonePage data={data} setData={setData} toast={pushToast} />; break;
+    case 'receipts':       page = <ReceiptsPage data={data} />; break;
     case 'bank_diary':     page = <BankDiaryPage data={data} setData={setData} toast={pushToast} />; break;
     case 'checks':         page = <ChecksPage />; break;
     case 'data_forecast':  page = <ForecastEntriesPage data={data} setData={setData} toast={pushToast} />; break;
@@ -211,6 +213,7 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
     data_payable:  data.payables?.length || 0,
     debt:          data.projectFinance?.filter(r => r.debtType && r.status === 'Active').length || null,
     iv_report:     data.invoices?.filter(iv => iv.status !== 'paid').length || null,
+    receipts:      data.receipts?.length || null,
     bank_diary:    null,
     checks:        data.checks?.filter(c => c.status === 'pending' || c.status === 'clearing').length || null,
   };
@@ -249,6 +252,7 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
         {[
           ['debt',       'ภาระหนี้ทั้งหมด',    'money'],
           ['iv_report',  'รายงานติดตาม IV',    'invoice'],
+          ['receipts',   'ประวัติรับเงิน',      'receivables'],
           ['bank_diary', 'Bank Diary',          'bank'],
         ].map(([key, label, icon]) => (
           <button key={key} className={`sb-link ${route === key ? 'active' : ''}`} onClick={() => go(key)}>
