@@ -27,122 +27,120 @@ function AddTransferModal({ bankAccounts, onSave, onClose }) {
   const setF = (k, v) => { setErr(''); setForm(prev => ({ ...prev, [k]: v })); };
 
   const handleSave = () => {
-    if (!form.fromAccountNo)                          return setErr('กรุณาเลือกบัญชีต้นทาง');
-    if (!form.toAccountNo)                            return setErr('กรุณาเลือกบัญชีปลายทาง');
-    if (form.fromAccountNo === form.toAccountNo)      return setErr('บัญชีต้นทางและปลายทางต้องไม่ใช่บัญชีเดียวกัน');
+    if (!form.fromAccountNo)                     return setErr('กรุณาเลือกบัญชีต้นทาง');
+    if (!form.toAccountNo)                       return setErr('กรุณาเลือกบัญชีปลายทาง');
+    if (form.fromAccountNo === form.toAccountNo) return setErr('บัญชีต้นทางและปลายทางต้องไม่ใช่บัญชีเดียวกัน');
     const amt = parseFloat(form.amount);
-    if (!amt || amt <= 0)                             return setErr('กรุณาระบุจำนวนเงินที่ถูกต้อง');
-    if (!form.date)                                   return setErr('กรุณาเลือกวันที่');
+    if (!amt || amt <= 0)                        return setErr('กรุณาระบุจำนวนเงินที่ถูกต้อง');
+    if (!form.date)                              return setErr('กรุณาเลือกวันที่');
 
-    const ref      = form.ref.trim() || `TRF-${Date.now()}`;
-    const fromAcct = bankAccounts.find(a => a.accountNo === form.fromAccountNo);
-    const toAcct   = bankAccounts.find(a => a.accountNo === form.toAccountNo);
+    const ref      = form.ref.trim() || ('TRF-' + Date.now());
+    const fromAcct = bankAccounts.find(function(a){ return a.accountNo === form.fromAccountNo; });
+    const toAcct   = bankAccounts.find(function(a){ return a.accountNo === form.toAccountNo; });
     const noteText = form.note.trim();
+    const ts       = Date.now();
 
-    const ts = Date.now();
-    const outEntry = {
-      id:          `be-${ts}-out`,
-      accountNo:   form.fromAccountNo,
-      bankName:    fromAcct?.bankName || '',
-      entryDate:   form.date,
-      entryType:   'outflow_transfer',
-      amount:      -amt,
-      description: noteText || `โอนเงินไป ${toAcct?.bankName || ''} ${form.toAccountNo}`,
-      transferRef: ref,
-      reconciled:  false,
-    };
-    const inEntry = {
-      id:          `be-${ts}-in`,
-      accountNo:   form.toAccountNo,
-      bankName:    toAcct?.bankName || '',
-      entryDate:   form.date,
-      entryType:   'inflow_transfer',
-      amount:      amt,
-      description: noteText || `รับโอนจาก ${fromAcct?.bankName || ''} ${form.fromAccountNo}`,
-      transferRef: ref,
-      reconciled:  false,
-    };
-    onSave([outEntry, inEntry]);
+    onSave([
+      { id:'be-'+ts+'-out', accountNo:form.fromAccountNo, bankName:(fromAcct ? fromAcct.bankName : ''), entryDate:form.date, entryType:'outflow_transfer', amount:-amt, description:noteText || ('โอนเงินไป '+(toAcct ? toAcct.bankName : '')+' '+form.toAccountNo), transferRef:ref, reconciled:false },
+      { id:'be-'+ts+'-in',  accountNo:form.toAccountNo,   bankName:(toAcct  ? toAcct.bankName  : ''), entryDate:form.date, entryType:'inflow_transfer',  amount: amt, description:noteText || ('รับโอนจาก '+(fromAcct ? fromAcct.bankName : '')+' '+form.fromAccountNo), transferRef:ref, reconciled:false },
+    ]);
   };
 
   const inp = { width:'100%', padding:'8px 11px', boxSizing:'border-box', border:'1.5px solid #e2e8f0', borderRadius:8, fontSize:13, fontFamily:'inherit', outline:'none' };
   const sel = { ...inp, background:'#fff' };
   const lbl = { fontSize:12, fontWeight:600, color:'#475569', marginBottom:4, display:'block' };
 
-  const acctOpts = bankAccounts.map(a => (
-    <option key={a.accountNo} value={a.accountNo}>{a.bankName} — {a.accountNo}</option>
-  ));
+  const fromName = form.fromAccountNo ? (bankAccounts.find(function(a){ return a.accountNo===form.fromAccountNo; }) || {}).bankName || form.fromAccountNo : '—';
+  const toName   = form.toAccountNo   ? (bankAccounts.find(function(a){ return a.accountNo===form.toAccountNo;   }) || {}).bankName || form.toAccountNo   : '—';
 
   return (
-    <Modal open={true} title="บันทึกการโอนเงินระหว่างบัญชี" onClose={onClose} maxWidth={500}>
-      {/* Arrow diagram */}
-      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:16, padding:'10px 14px', background:'#f8fafc', borderRadius:10, border:'1px solid #e2e8f0' }}>
-        <div style={{ flex:1, textAlign:'center' }}>
-          <div style={{ fontSize:11, color:'#718096', marginBottom:3 }}>โอนออกจาก</div>
-          <div style={{ fontWeight:700, fontSize:13, color:'#c53030' }}>
-            {form.fromAccountNo ? (bankAccounts.find(a=>a.accountNo===form.fromAccountNo)?.bankName || form.fromAccountNo) : '—'}
+    <div style={{ position:'fixed', inset:0, background:'rgba(15,23,42,0.45)', zIndex:9000, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
+         onClick={onClose}>
+      <div style={{ background:'#fff', borderRadius:16, width:'100%', maxWidth:500, boxShadow:'0 24px 64px rgba(0,0,0,0.18)', overflow:'hidden' }}
+           onClick={function(e){ e.stopPropagation(); }}>
+
+        {/* Header */}
+        <div style={{ padding:'16px 20px', background:'linear-gradient(135deg,#faf5ff,#ede9fe)', borderBottom:'1px solid #d6bcfa', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+          <div style={{ fontWeight:700, fontSize:15, color:'#44337a' }}>⇄ บันทึกการโอนเงินระหว่างบัญชี</div>
+          <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', fontSize:18, color:'#805ad5', lineHeight:1, padding:'0 4px' }}>✕</button>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding:20 }}>
+          {/* Preview arrow */}
+          <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:16, padding:'10px 14px', background:'#f8fafc', borderRadius:10, border:'1px solid #e2e8f0' }}>
+            <div style={{ flex:1, textAlign:'center' }}>
+              <div style={{ fontSize:11, color:'#718096', marginBottom:2 }}>โอนออกจาก</div>
+              <div style={{ fontWeight:700, fontSize:13, color:'#c53030' }}>{fromName}</div>
+            </div>
+            <div style={{ fontSize:20, color:'#805ad5' }}>→</div>
+            <div style={{ flex:1, textAlign:'center' }}>
+              <div style={{ fontSize:11, color:'#718096', marginBottom:2 }}>โอนเข้า</div>
+              <div style={{ fontWeight:700, fontSize:13, color:'#276749' }}>{toName}</div>
+            </div>
+            {form.amount ? <div style={{ fontSize:13, fontWeight:700, color:'#1a202c', whiteSpace:'nowrap', marginLeft:8 }}>{fmtMoney(parseFloat(form.amount)||0)}</div> : null}
+          </div>
+
+          {/* Form grid */}
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'12px 14px' }}>
+
+            <div style={{ gridColumn:'1/-1' }}>
+              <label style={lbl}>บัญชีต้นทาง (โอนออก) *</label>
+              <select style={sel} value={form.fromAccountNo} onChange={function(e){ setF('fromAccountNo', e.target.value); }}>
+                <option value="">— เลือกบัญชีต้นทาง —</option>
+                {bankAccounts.map(function(a, i){ return <option key={i} value={a.accountNo}>{a.bankName} — {a.accountNo}</option>; })}
+              </select>
+            </div>
+
+            <div style={{ gridColumn:'1/-1' }}>
+              <label style={lbl}>บัญชีปลายทาง (รับโอน) *</label>
+              <select style={sel} value={form.toAccountNo} onChange={function(e){ setF('toAccountNo', e.target.value); }}>
+                <option value="">— เลือกบัญชีปลายทาง —</option>
+                {bankAccounts.map(function(a, i){ return <option key={i} value={a.accountNo}>{a.bankName} — {a.accountNo}</option>; })}
+              </select>
+            </div>
+
+            <div>
+              <label style={lbl}>จำนวนเงิน (บาท) *</label>
+              <input type="number" style={inp} value={form.amount} min="0" step="0.01"
+                onChange={function(e){ setF('amount', e.target.value); }} placeholder="0.00" />
+            </div>
+
+            <div>
+              <label style={lbl}>วันที่โอน *</label>
+              <input type="date" style={inp} value={form.date}
+                onChange={function(e){ setF('date', e.target.value); }} />
+            </div>
+
+            <div style={{ gridColumn:'1/-1' }}>
+              <label style={lbl}>เลขที่อ้างอิง <span style={{ fontWeight:400, color:'#94a3b8' }}>(ระบบสร้างให้ถ้าไม่กรอก)</span></label>
+              <input type="text" style={inp} value={form.ref}
+                onChange={function(e){ setF('ref', e.target.value); }} placeholder="เช่น TRF-2026-001" />
+            </div>
+
+            <div style={{ gridColumn:'1/-1' }}>
+              <label style={lbl}>หมายเหตุ</label>
+              <input type="text" style={inp} value={form.note}
+                onChange={function(e){ setF('note', e.target.value); }} placeholder="รายละเอียดการโอน" />
+            </div>
+
+          </div>
+
+          {err ? <div style={{ marginTop:10, padding:'8px 12px', background:'#fef2f2', border:'1px solid #fecaca', borderRadius:7, fontSize:12, color:'#dc2626' }}>⚠ {err}</div> : null}
+
+          <div style={{ marginTop:18, display:'flex', gap:10, justifyContent:'flex-end' }}>
+            <button onClick={onClose}
+              style={{ padding:'8px 18px', borderRadius:8, border:'1.5px solid #e2e8f0', background:'#fff', color:'#475569', fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>
+              ยกเลิก
+            </button>
+            <button onClick={handleSave}
+              style={{ padding:'8px 20px', borderRadius:8, border:'none', background:'linear-gradient(135deg,#2a6fdb,#1a4490)', color:'#fff', fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'inherit', boxShadow:'0 4px 12px rgba(42,111,219,0.3)' }}>
+              บันทึกการโอน
+            </button>
           </div>
         </div>
-        <div style={{ fontSize:22, color:'#805ad5', fontWeight:300 }}>→</div>
-        <div style={{ flex:1, textAlign:'center' }}>
-          <div style={{ fontSize:11, color:'#718096', marginBottom:3 }}>โอนเข้า</div>
-          <div style={{ fontWeight:700, fontSize:13, color:'#276749' }}>
-            {form.toAccountNo ? (bankAccounts.find(a=>a.accountNo===form.toAccountNo)?.bankName || form.toAccountNo) : '—'}
-          </div>
-        </div>
-        {form.amount && <div style={{ marginLeft:8, fontSize:14, fontWeight:700, color:'#1a202c', whiteSpace:'nowrap' }}>{fmtMoney(parseFloat(form.amount)||0)}</div>}
       </div>
-
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'12px 16px' }}>
-        <div style={{ gridColumn:'1/-1' }}>
-          <label style={lbl}>บัญชีต้นทาง (โอนออก) *</label>
-          <select style={sel} value={form.fromAccountNo} onChange={e => setF('fromAccountNo', e.target.value)}>
-            <option value="">— เลือกบัญชีต้นทาง —</option>
-            {acctOpts}
-          </select>
-        </div>
-        <div style={{ gridColumn:'1/-1' }}>
-          <label style={lbl}>บัญชีปลายทาง (รับโอน) *</label>
-          <select style={sel} value={form.toAccountNo} onChange={e => setF('toAccountNo', e.target.value)}>
-            <option value="">— เลือกบัญชีปลายทาง —</option>
-            {acctOpts}
-          </select>
-        </div>
-        <div>
-          <label style={lbl}>จำนวนเงิน (บาท) *</label>
-          <input type="number" style={inp} value={form.amount} min="0" step="0.01"
-            onChange={e => setF('amount', e.target.value)} placeholder="0.00" />
-        </div>
-        <div>
-          <label style={lbl}>วันที่โอน *</label>
-          <input type="date" style={inp} value={form.date}
-            onChange={e => setF('date', e.target.value)} />
-        </div>
-        <div style={{ gridColumn:'1/-1' }}>
-          <label style={lbl}>เลขที่อ้างอิง <span style={{ fontWeight:400, color:'#94a3b8' }}>(ไม่บังคับ — ระบบสร้างให้อัตโนมัติ)</span></label>
-          <input type="text" style={inp} value={form.ref}
-            onChange={e => setF('ref', e.target.value)} placeholder="เช่น TRF-2026-001" />
-        </div>
-        <div style={{ gridColumn:'1/-1' }}>
-          <label style={lbl}>หมายเหตุ</label>
-          <input type="text" style={inp} value={form.note}
-            onChange={e => setF('note', e.target.value)} placeholder="รายละเอียดการโอน" />
-        </div>
-      </div>
-
-      {err && (
-        <div style={{ marginTop:10, padding:'8px 12px', background:'#fef2f2', border:'1px solid #fecaca', borderRadius:7, fontSize:12, color:'#dc2626' }}>
-          ⚠ {err}
-        </div>
-      )}
-
-      <div style={{ marginTop:18, display:'flex', gap:10, justifyContent:'flex-end' }}>
-        <button className="btn-ghost" onClick={onClose}>ยกเลิก</button>
-        <button className="btn-primary" onClick={handleSave}>
-          บันทึกการโอน
-        </button>
-      </div>
-    </Modal>
+    </div>
   );
 }
 
