@@ -606,7 +606,7 @@ function AmountInput({ value, onChange, label, required }) {
   );
 }
 
-// ─── AP Edit Modal — wide landscape, 4-col grid, styled delete confirm ───────
+// ─── AP Edit Modal — 3-col grid, highlight due date + netpayment ─────────────
 function APEditModal({ row, onClose, onSave, onDelete }) {
   const [draft, setDraft]             = dxState(null);
   const [confirmDelete, setConfirm]   = dxState(false);
@@ -627,7 +627,6 @@ function APEditModal({ row, onClose, onSave, onDelete }) {
     setConfirm(false);
   }, [row]);
   if (!row || !draft) return null;
-  const set = (k, v) => setDraft(d => ({ ...d, [k]: v }));
 
   const Hdr = ({ label, icon }) => (
     <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'var(--brand-700)', paddingBottom: 6, borderBottom: '1px solid var(--ink-100)', gridColumn: '1 / -1', marginTop: 4 }}>
@@ -635,29 +634,31 @@ function APEditModal({ row, onClose, onSave, onDelete }) {
     </div>
   );
 
-  const roStyle = { background: 'var(--ink-25, #f9fafb)', color: 'var(--ink-700)', cursor: 'default', userSelect: 'text' };
+  // highlight styles — applied LAST to override base styles
+  const dueStyle   = { background: 'color-mix(in oklch, oklch(65% 0.2 55) 10%, transparent)', border: '1px solid color-mix(in oklch, oklch(65% 0.2 55) 32%, transparent)', color: 'oklch(42% 0.2 55)', fontWeight: 700 };
+  const totalStyle = { background: 'color-mix(in oklch, var(--bad) 9%, transparent)',           border: '1px solid color-mix(in oklch, var(--bad) 28%, transparent)',           color: 'var(--bad)',          fontWeight: 700 };
 
-  const F = ({ fkey, label, hint, span }) => {
+  const F = ({ fkey, label, hint, span, highlight }) => {
     const v = draft[fkey];
     const display = (v === null || v === undefined || v === '') ? '—' : String(v);
     return (
       <div className="field" style={{ gridColumn: span ? `span ${span}` : 'auto' }}>
         <label style={{ fontSize: 12, color: 'var(--ink-500)' }}>{label}</label>
-        <div style={{ ...roStyle, minHeight: 34, borderRadius: 7, border: '1px solid var(--ink-100)', padding: '6px 10px', fontSize: 13, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{display}</div>
+        <div style={{ minHeight: 34, borderRadius: 7, border: '1px solid var(--ink-100)', padding: '6px 10px', fontSize: 13, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', cursor: 'default', userSelect: 'text', color: 'var(--ink-700)', background: 'var(--ink-25, #f9fafb)', ...(highlight === 'due' ? dueStyle : {}) }}>{display}</div>
         {hint && <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{hint}</div>}
       </div>
     );
   };
 
-  const ROAmount = ({ value, label }) => {
+  const ROAmount = ({ value, label, highlight }) => {
     const numVal = parseNum(value);
     const display = (value === null || value === undefined || value === '') ? '—' : fmtNum(numVal, 2);
     return (
       <div className="field">
         <label style={{ fontSize: 12, color: 'var(--ink-500)' }}>{label}</label>
-        <div style={{ ...roStyle, height: 34, borderRadius: 7, border: '1px solid var(--ink-100)', padding: '0 28px 0 10px', fontSize: 13, fontFamily: 'ui-monospace', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', position: 'relative' }}>
+        <div style={{ height: 34, borderRadius: 7, border: '1px solid var(--ink-100)', padding: '0 28px 0 10px', fontSize: 13, fontFamily: 'ui-monospace', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', position: 'relative', cursor: 'default', userSelect: 'text', color: 'var(--ink-700)', background: 'var(--ink-25, #f9fafb)', ...(highlight ? totalStyle : {}) }}>
           {display}
-          <span style={{ position: 'absolute', right: 8, fontSize: 11, color: 'var(--ink-400)' }}>฿</span>
+          <span style={{ position: 'absolute', right: 8, fontSize: 11, color: highlight ? 'color-mix(in oklch, var(--bad) 55%, transparent)' : 'var(--ink-400)' }}>฿</span>
         </div>
       </div>
     );
@@ -666,42 +667,46 @@ function APEditModal({ row, onClose, onSave, onDelete }) {
   return (
     <>
       <Modal open={!!row} title={`ข้อมูล AP · ${draft.vchno || '—'}`}
-        maxWidth={1160} onClose={onClose}
+        maxWidth={900} onClose={onClose}
         footer={<>
           <button className="btn btn-ghost" onClick={onClose}>ปิด</button>
         </>}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px 16px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px 16px' }}>
+
           <Hdr label="ข้อมูลเอกสาร" icon="invoice" />
+          {/* บรรทัด 1: วันที่ | vchno | docno */}
+          <F fkey="vchdate" label="วันที่ใบสำคัญ" />
           <F fkey="vchno"   label="vchno · ใบสำคัญ" />
           <F fkey="docno"   label="docno (col B)" />
-          <F fkey="vchdate" label="วันที่ใบสำคัญ" />
-          <F fkey="due2"    label="วันครบกำหนด" />
+          {/* บรรทัด 2: refno | refcode | due (highlight) */}
           <F fkey="refno"   label="refno · เลขที่อ้างอิง" />
           <F fkey="refcode" label="refcode" />
+          <F fkey="due2"    label="วันครบกำหนด" highlight="due" />
 
-          <Hdr label="เจ้าหนี้ (Vendor)" icon="money" />
-          <F fkey="cust_name" label="ชื่อเจ้าหนี้" span={3} />
+          <Hdr label="เจ้าหนี้ (VENDOR)" icon="money" />
+          <F fkey="cust_name" label="ชื่อเจ้าหนี้" span={2} />
           <F fkey="acct_no"   label="รหัสเจ้าหนี้" />
 
           <Hdr label="แผนก / โครงการ" icon="forecast" />
           <F fkey="dpt_code" label="รหัสแผนก" />
           <F fkey="dpt_name" label="ชื่อแผนก" />
           <F fkey="jobcode"  label="Job Code" />
-          <F fkey="jobname"  label="ชื่องาน" />
+          <F fkey="jobname"  label="ชื่องาน" span={3} />
 
-          <Hdr label="ยอดเงิน (Amounts)" icon="coin" />
+          <Hdr label="ยอดเงิน (AMOUNTS)" icon="coin" />
+          {/* บรรทัด 1: Amount | VAT | net_new */}
           <ROAmount value={draft.Amount}     label="Amount · ยอดก่อนหัก" />
           <ROAmount value={draft.VAT}        label="VAT · ภาษีมูลค่าเพิ่ม" />
           <ROAmount value={draft.net_new}    label="net_new · รวม VAT" />
+          {/* บรรทัด 2: Less_Ret | WHT_EXT | netpayment (highlight) */}
           <ROAmount value={draft.Less_Ret}   label="Less_Ret · หักประกัน" />
           <ROAmount value={draft.WHT_EXT}    label="WHT_EXT · ภาษีหัก ณ จ่าย" />
-          <ROAmount value={draft.netpayment} label="netpayment · ยอดสุทธิ" />
+          <ROAmount value={draft.netpayment} label="netpayment · ยอดสุทธิ" highlight />
 
           <Hdr label="หมายเหตุ" icon="edit" />
-          <F fkey="remark" label="remark · คำอธิบาย" span={4} />
+          <F fkey="remark" label="remark · คำอธิบาย" span={3} />
         </div>
       </Modal>
-
     </>
   );
 }
