@@ -139,7 +139,7 @@ function InvoicesPage({ data, setData, toast }) {
           <Icon name="search" size={14} />
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ค้นหา IV / Job no / ชื่อโครงการ / ผู้ติดต่อ…" />
         </div>
-      </div>}
+      </div>
 
       <div className="card anim-in" style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'min(480px, calc(100vh - 400px))' }}>
