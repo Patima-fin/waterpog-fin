@@ -776,7 +776,20 @@ function DataPayablePage({ data, setData, toast }) {
 
   // KPI — netpayment (col Q) tracks filtered rows
   const fNet    = filtered.reduce((s, r) => s + parseNum(r.netpayment), 0);
-  const overdue = filtered.filter(r => { const d = parseDue(r.due2||r.due); return d && d < new Date(); }).length;
+  const overdueRows = filtered.filter(r => { const d = parseDue(r.due2||r.due); return d && d < new Date(); });
+  const overdue = overdueRows.length;
+  const overdueNet = overdueRows.reduce((s, r) => s + parseNum(r.netpayment), 0);
+
+  // This month total
+  const monthKey = new Date().toISOString().slice(0, 7);
+  const thisMonth = filtered.filter(r => {
+    const d = r.vchdate; return d && String(d).slice(0, 7) === monthKey;
+  }).reduce((s, r) => s + parseNum(r.netpayment), 0);
+
+  // Top department by Net Payment (filtered)
+  const byDpt = {};
+  filtered.forEach(r => { const k = r.dpt_code || '?'; byDpt[k] = (byDpt[k]||0) + parseNum(r.netpayment); });
+  const topDpt = Object.entries(byDpt).sort((a,b)=>b[1]-a[1])[0] || ['—', 0];
 
   // Doc-type counts
   const dtCount = { APO: 0, APS: 0, APV: 0 };
@@ -868,11 +881,14 @@ function DataPayablePage({ data, setData, toast }) {
         </div>
       </div>
 
-      {/* KPI — 2 cards, values follow filtered table */}
-      <div className="grid grid-2 anim-stagger" style={{ marginBottom: 16 }}>
-        <KpiTile label="จำนวนรายการ (ตามตาราง)" value={filtered.length} unit=" รายการ" digits={0} accent="var(--brand-500)" icon="invoice" animate={false} />
-        <KpiTile label="Net Payment รวม (ตามตาราง)" value={fNet} unit=" ฿" digits={2} accent="oklch(55% 0.18 30)" icon="coin" animate={false}
-          delta={overdue > 0 ? `${overdue} รายการเกินกำหนด` : undefined} deltaKind={overdue > 0 ? 'bad' : 'neu'} />
+      {/* KPI — 4 cards (matches DATA PV layout) */}
+      <div className="grid grid-4 anim-stagger" style={{ marginBottom: 16 }}>
+        <KpiTile label="จำนวนรายการ" value={filtered.length} unit=" รายการ" digits={0} accent="var(--brand-500)" icon="invoice" animate={false} />
+        <KpiTile label="Net Payment รวม" value={fNet} accent="var(--bad)" icon="coin" animate={false}
+          delta={overdue > 0 ? `${overdue} รายการเกินกำหนด` : 'ตามตารางที่กรอง'} deltaKind={overdue > 0 ? 'bad' : 'neu'} />
+        <KpiTile label="เกินกำหนด (Net Payment)" value={overdueNet} accent="oklch(60% 0.18 30)" icon="arrow_up" animate={false}
+          delta={`${overdue} รายการ`} deltaKind={overdue > 0 ? 'bad' : 'neu'} />
+        <KpiTile label={`แผนกสูงสุด: ${topDpt[0]}`} value={topDpt[1]} accent="oklch(70% 0.16 75)" icon="money" animate={false} />
       </div>
 
       {/* Filter bar — tabs left, dropdown + search right (inline) */}
