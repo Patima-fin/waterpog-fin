@@ -121,21 +121,21 @@ function ProjectsPage({ data, setData, toast }) {
       </div>
 
       <div className="card anim-in" style={{ padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ overflow: 'auto', maxHeight: '62vh' }}>
+        <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'min(480px, calc(100vh - 400px))' }}>
           <table className="tbl" style={{ minWidth: 1700 }}>
-            <thead style={{ position: 'sticky', top: 0, zIndex: 2, background: 'var(--panel)' }}>
+            <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--surface)' }}>
               <tr>
-                <SortHeader label="Contract No."    sortKey="_code"        sort={sort} toggle={toggle} width={130} />
-                <SortHeader label="พื้นที่/ชื่อโครงการ" sortKey="_name"     sort={sort} toggle={toggle} />
-                <SortHeader label="Type"            sortKey="Type"         sort={sort} toggle={toggle} width={70} />
-                <SortHeader label="Start"           sortKey="_start"       sort={sort} toggle={toggle} width={100} />
-                <SortHeader label="Finish"          sortKey="_finish"      sort={sort} toggle={toggle} width={100} />
-                <SortHeader label="Timeline (วัน)"  sortKey="_timelineDays" sort={sort} toggle={toggle} align="right" width={95} />
-                <SortHeader label="งบประมาณ"        sortKey="_budget"      sort={sort} toggle={toggle} align="right" width={130} />
-                <SortHeader label="สัญญา (ไม่VAT)"  sortKey="_signed"      sort={sort} toggle={toggle} align="right" width={145} />
-                <SortHeader label="ผู้รับโอนสิทธิ"  sortKey="_assignee"    sort={sort} toggle={toggle} width={130} />
-                <SortHeader label="ภาระหนี้"        sortKey="_debt"        sort={sort} toggle={toggle} align="right" width={120} />
-                <SortHeader label="% POG+STANK"     sortKey="_pogPct"      sort={sort} toggle={toggle} align="right" width={110} />
+                <SortHeader label="เลขที่สัญญา"         sortKey="_code"         sort={sort} toggle={toggle} width={130} />
+                <SortHeader label="ชื่อโครงการ / พื้นที่"   sortKey="_name"         sort={sort} toggle={toggle} />
+                <SortHeader label="ประเภท"              sortKey="Type"          sort={sort} toggle={toggle} width={70} />
+                <SortHeader label="วันที่เริ่ม"          sortKey="_start"        sort={sort} toggle={toggle} width={100} />
+                <SortHeader label="วันที่สิ้นสุด"        sortKey="_finish"       sort={sort} toggle={toggle} width={100} />
+                <SortHeader label="ระยะเวลา (วัน)"      sortKey="_timelineDays" sort={sort} toggle={toggle} align="right" width={95} />
+                <SortHeader label="งบประมาณ (฿)"        sortKey="_budget"       sort={sort} toggle={toggle} align="right" width={130} />
+                <SortHeader label="มูลค่าสัญญา (ไม่รวม VAT)" sortKey="_signed"   sort={sort} toggle={toggle} align="right" width={165} />
+                <SortHeader label="ผู้รับโอนสิทธิ์"     sortKey="_assignee"     sort={sort} toggle={toggle} width={130} />
+                <SortHeader label="ภาระหนี้ (฿)"        sortKey="_debt"         sort={sort} toggle={toggle} align="right" width={120} />
+                <SortHeader label="สัดส่วน POG+STANK"   sortKey="_pogPct"       sort={sort} toggle={toggle} align="right" width={120} />
                 <th style={{ width: 115 }}>คาดรับ งวด 1</th>
                 <th style={{ width: 115 }}>คาดรับ งวด 2</th>
                 <th style={{ width: 80 }}>การจัดการ</th>

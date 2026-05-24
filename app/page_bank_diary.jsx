@@ -360,11 +360,11 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
       </div>
 
       {/* Top KPIs */}
-      <div className="grid grid-4" style={{ marginBottom:16 }}>
-        <BDStatTile label="ยอดเงินปัจจุบันรวม"    value={fmtMoney(totalCurrent)}   sub={`${bankAccounts.length} บัญชี`} color="blue" />
-        <BDStatTile label="ยอดเงินประมาณการรวม"    value={fmtMoney(totalProjected)} sub="หลังรายการที่วางแผน" color={totalProjected < 0 ? 'red' : 'teal'} />
-        <BDStatTile label="บัญชีติดลบ (คาดการณ์)"  value={redAccounts}              sub="ต้องเพิ่มเงิน" color={redAccounts > 0 ? 'red' : 'green'} />
-        <BDStatTile label="รายการโอนระหว่างบัญชี"  value={Object.keys(transferPairs).length} sub="คู่โอน" color="orange" />
+      <div className="grid grid-4 anim-stagger" style={{ marginBottom:16 }}>
+        <KpiTile label="ยอดเงินปัจจุบันรวม"    value={totalCurrent}   accent="var(--brand-500)"                                      icon="bank"    animate={false} />
+        <KpiTile label="ยอดเงินประมาณการรวม"   value={totalProjected} accent={totalProjected < 0 ? 'var(--bad)' : 'oklch(52% 0.16 185)'} icon="coin"    animate={false} />
+        <KpiTile label="บัญชีติดลบ (คาดการณ์)" value={redAccounts}    accent={redAccounts > 0 ? 'var(--bad)' : 'var(--good)'}        unit=" บัญชี" digits={0} icon="arrow_up" animate={false} />
+        <KpiTile label="คู่โอนระหว่างบัญชี"    value={Object.keys(transferPairs).length} accent="oklch(60% 0.18 55)"               unit=" คู่" digits={0} icon="money"   animate={false} />
       </div>
 
       {/* Reconcile Panel — shows all transfer pairs */}

@@ -316,10 +316,10 @@ function DebtLedgerPage({ data }) {
       </div>
 
       <div className="grid grid-4 anim-stagger" style={{ marginBottom: 16 }}>
-        <KpiTile animate={false} label="ดอกเบี้ยค้างจ่าย" value={totalOutstanding} accent="var(--bad)" icon="money" delta={`${activeMasters.length} สัญญา Active`} />
-        <KpiTile animate={false} label="ดอกเบี้ยจ่ายแล้ว" value={totalPaid} accent="var(--good)" icon="coin" delta="สะสมตามตาราง" />
-        <KpiTile animate={false} label="ดอกเบี้ยรวม (คำนวณ)" value={totalInterest} accent="oklch(52% 0.16 145)" icon="arrow_up" delta="จากตารางดอกเบี้ย" />
-        <KpiTile animate={false} label="จำนวนสัญญา Active" value={activeMasters.length} accent="var(--brand-500)" icon="bank" unit="" digits={0} delta="สัญญา" />
+        <KpiTile animate={false} label="ดอกเบี้ยค้างชำระ"       value={totalOutstanding}          accent="var(--bad)"            icon="money" />
+        <KpiTile animate={false} label="ดอกเบี้ยชำระแล้ว"       value={totalPaid}                 accent="var(--good)"           icon="coin" />
+        <KpiTile animate={false} label="ดอกเบี้ยรวม (คำนวณ)"    value={totalInterest}             accent="oklch(52% 0.16 145)"   icon="arrow_up" />
+        <KpiTile animate={false} label="สัญญา Active"            value={activeMasters.length}      accent="var(--brand-500)"      icon="bank" unit=" สัญญา" digits={0} />
       </div>
 
       <div className="card" style={{ padding: '10px 14px', marginBottom: 12, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -365,20 +365,20 @@ function DebtLedgerPage({ data }) {
 
       {masters.length > 0 && (
         <div className="card anim-in" style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{ overflowX: 'auto' }}>
+          <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'min(480px, calc(100vh - 400px))' }}>
             <table className="tbl" style={{ minWidth: 1200 }}>
-              <thead>
+              <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--surface)' }}>
                 <tr>
-                  <th style={{ width: 100 }}>หมวด</th>
+                  <th style={{ width: 100 }}>หมวดหนี้</th>
                   <th style={{ width: 150 }}>เลขที่สัญญา</th>
-                  <th>ผู้กู้ยืม</th>
+                  <th>ผู้กู้ / ผู้รับสินเชื่อ</th>
                   <th style={{ width: 80 }}>สถานะ</th>
-                  <th style={{ textAlign: 'right', width: 120 }}>วงเงิน</th>
-                  <th style={{ textAlign: 'right', width: 70 }}>ดอกเบี้ย</th>
-                  <th style={{ textAlign: 'right', width: 110 }}>ดอกเบี้ยรวม</th>
-                  <th style={{ textAlign: 'right', width: 110 }}>จ่ายแล้ว</th>
-                  <th style={{ textAlign: 'right', width: 110 }}>ค้างจ่าย</th>
-                  <th style={{ width: 100 }}>เริ่มสัญญา</th>
+                  <th style={{ textAlign: 'right', width: 120 }}>วงเงิน (฿)</th>
+                  <th style={{ textAlign: 'right', width: 70 }}>อัตราดอกเบี้ย</th>
+                  <th style={{ textAlign: 'right', width: 120 }}>ดอกเบี้ยรวม (฿)</th>
+                  <th style={{ textAlign: 'right', width: 120 }}>ชำระแล้ว (฿)</th>
+                  <th style={{ textAlign: 'right', width: 120 }}>ค้างชำระ (฿)</th>
+                  <th style={{ width: 100 }}>วันเริ่มสัญญา</th>
                 </tr>
               </thead>
               <tbody>

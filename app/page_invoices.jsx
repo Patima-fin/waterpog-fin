@@ -141,19 +141,20 @@ function InvoicesPage({ data, setData, toast }) {
         </div>
       </div>}
 
-      <div className="card anim-in" style={{ padding: 0, overflow: 'auto' }}>
+      <div className="card anim-in" style={{ padding: 0, overflow: 'hidden' }}>
+        <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'min(480px, calc(100vh - 400px))' }}>
         <table className="tbl">
-          <thead>
+          <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--surface)' }}>
             <tr>
-              <SortHeader label="Job no"         sortKey="jobNo"           sort={sort} toggle={toggle} align="center" width={90} />
-              <SortHeader label="เลขที่ IV"      sortKey="ivNo"            sort={sort} toggle={toggle} align="center" width={110} />
-              <SortHeader label="วันที่ IV"       sortKey="invoiceDate"     sort={sort} toggle={toggle} align="center" width={95} />
-              <SortHeader label="ชื่อโครงการ"    sortKey="projectName"     sort={sort} toggle={toggle} align="center" />
-              <SortHeader label="Balance"        sortKey="balance"         sort={sort} toggle={toggle} align="right"  width={115} />
-              <SortHeader label="ผู้รับโอนสิทธิ"  sortKey="assignee"        sort={sort} toggle={toggle} align="center" width={110} />
-              <SortHeader label="ภาระหนี้"       sortKey="debt"            sort={sort} toggle={toggle} align="right"  width={100} />
-              <SortHeader label="คาดรับสุทธิ"    sortKey="netExpected"     sort={sort} toggle={toggle} align="right"  width={115} />
-              <SortHeader label="คาดรับเงิน"     sortKey="expectedReceive" sort={sort} toggle={toggle} align="center" width={95} />
+              <SortHeader label="Job No."          sortKey="jobNo"           sort={sort} toggle={toggle} align="center" width={90} />
+              <SortHeader label="เลขที่ IV"        sortKey="ivNo"            sort={sort} toggle={toggle} align="center" width={110} />
+              <SortHeader label="วันที่ออก IV"     sortKey="invoiceDate"     sort={sort} toggle={toggle} align="center" width={95} />
+              <SortHeader label="ชื่อโครงการ"      sortKey="projectName"     sort={sort} toggle={toggle} align="center" />
+              <SortHeader label="ยอดค้างชำระ (฿)" sortKey="balance"         sort={sort} toggle={toggle} align="right"  width={130} />
+              <SortHeader label="ผู้รับโอนสิทธิ์"  sortKey="assignee"        sort={sort} toggle={toggle} align="center" width={110} />
+              <SortHeader label="ภาระหนี้ (฿)"    sortKey="debt"            sort={sort} toggle={toggle} align="right"  width={110} />
+              <SortHeader label="คาดรับสุทธิ (฿)" sortKey="netExpected"     sort={sort} toggle={toggle} align="right"  width={120} />
+              <SortHeader label="วันคาดรับเงิน"    sortKey="expectedReceive" sort={sort} toggle={toggle} align="center" width={105} />
               <th style={{ width: 150, textAlign: 'center' }}>สถานะ</th>
             </tr>
           </thead>
@@ -207,6 +208,7 @@ function InvoicesPage({ data, setData, toast }) {
             </tr>
           </tfoot>
         </table>
+        </div>
       </div>
 
       <InvoiceDetailModal

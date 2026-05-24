@@ -337,17 +337,18 @@ function ForecastEntriesPage({ data, setData, toast }) {
         DESCRIPTION: '', JOB_NO: '', PROJECT_NAME: '',
         AMOUNT: 0, Bank_AC: '', STATUS: 'PLANNED', CATEGORY: '', IS_ACCRUED: '', NOTE: '',
       },
+      tableMaxHeight: 'min(480px, calc(100vh - 400px))',
       columns: [
-        { key: 'DATE',          label: 'DATE', type: 'date', width: 105 },
-        { key: 'PAYMENT_DATE',  label: 'PAYMENT_DATE', type: 'date', width: 105 },
-        { key: 'DESCRIPTION',   label: 'DESCRIPTION', render: r => <div><div style={{ fontWeight: 500 }}>{r.DESCRIPTION || r.label}</div>{r.NOTE && <div className="muted" style={{ fontSize: 11.5 }}>{r.NOTE}</div>}</div> },
-        { key: 'JOB_NO',        label: 'JOB_NO', width: 100, mono: true },
-        { key: 'CATEGORY',      label: 'CATEGORY', width: 110, render: r => r.CATEGORY ? <Badge kind="b-gray" dot={false}>{r.CATEGORY}</Badge> : <span className="muted">—</span> },
-        { key: 'AMOUNT',        label: 'AMOUNT', align: 'right', width: 140, render: r => {
+        { key: 'DATE',          label: 'วันที่บันทึก', type: 'date', width: 105 },
+        { key: 'PAYMENT_DATE',  label: 'วันที่จ่าย', type: 'date', width: 105 },
+        { key: 'DESCRIPTION',   label: 'รายการ', render: r => <div><div style={{ fontWeight: 500 }}>{r.DESCRIPTION || r.label}</div>{r.NOTE && <div className="muted" style={{ fontSize: 11.5 }}>{r.NOTE}</div>}</div> },
+        { key: 'JOB_NO',        label: 'Job No.', width: 100, mono: true },
+        { key: 'CATEGORY',      label: 'หมวด', width: 110, render: r => r.CATEGORY ? <Badge kind="b-gray" dot={false}>{r.CATEGORY}</Badge> : <span className="muted">—</span> },
+        { key: 'AMOUNT',        label: 'จำนวนเงิน (฿)', align: 'right', width: 140, render: r => {
           const v = Number(r.AMOUNT || r.amount || 0);
           return <span style={{ color: v < 0 ? 'var(--bad)' : 'var(--good)', fontWeight: 700 }}>{v > 0 ? '+' : ''}{fmtNum(v, 0)}</span>;
         }},
-        { key: 'STATUS',        label: 'STATUS', width: 100, render: r => {
+        { key: 'STATUS',        label: 'สถานะ', width: 100, render: r => {
           const s = r.STATUS || r.status || '';
           const kind = s === 'DONE' ? 'b-green' : s === 'CANCELED' ? 'b-red' : 'b-amber';
           return <Badge kind={kind} dot={false}>{s || '—'}</Badge>;
@@ -400,17 +401,18 @@ function DataBankPage({ data, setData, toast }) {
         return k === 'positive' ? bal >= 0 : bal < 0;
       },
       emptyRow: { DATE: data.meta.asOf, BANK_NAME: '', Bank_AC: '', BALANCE: 0, AVAILABLE_BALANCE: 0, HOLD_AMOUNT: 0, NOTE: '' },
+      tableMaxHeight: 'min(480px, calc(100vh - 400px))',
       columns: [
         { key: 'BANK_NAME',          label: 'ธนาคาร', width: 130, render: r => <div style={{ fontWeight: 700, color: 'var(--brand-700)' }}>{r.BANK_NAME || r.bankName}</div> },
-        { key: 'Bank_AC',            label: 'Bank_AC (เลขที่บัญชี)', width: 160, mono: true },
-        { key: 'BALANCE',            label: 'BALANCE', align: 'right', width: 160, render: r => {
+        { key: 'Bank_AC',            label: 'เลขที่บัญชี', width: 160, mono: true },
+        { key: 'BALANCE',            label: 'ยอดคงเหลือ (฿)', align: 'right', width: 160, render: r => {
           const v = Number(r.BALANCE ?? r.balance ?? 0);
           return <span style={{ color: v < 0 ? 'var(--bad)' : 'inherit', fontWeight: 600 }}>{fmtNum(v, 2)}</span>;
         }},
-        { key: 'AVAILABLE_BALANCE',  label: 'AVAILABLE_BALANCE', align: 'right', width: 160, render: r => <span>{fmtNum(Number(r.AVAILABLE_BALANCE||0), 2)}</span> },
-        { key: 'HOLD_AMOUNT',        label: 'HOLD_AMOUNT', align: 'right', width: 120, render: r => <span className="muted">{fmtNum(Number(r.HOLD_AMOUNT||0), 2)}</span> },
-        { key: 'DATE',               label: 'DATE', type: 'date', width: 110 },
-        { key: 'NOTE',               label: 'NOTE' },
+        { key: 'AVAILABLE_BALANCE',  label: 'วงเงินใช้ได้ (฿)', align: 'right', width: 160, render: r => <span>{fmtNum(Number(r.AVAILABLE_BALANCE||0), 2)}</span> },
+        { key: 'HOLD_AMOUNT',        label: 'ยอด Hold (฿)', align: 'right', width: 120, render: r => <span className="muted">{fmtNum(Number(r.HOLD_AMOUNT||0), 2)}</span> },
+        { key: 'DATE',               label: 'วันที่อัปเดต', type: 'date', width: 110 },
+        { key: 'NOTE',               label: 'หมายเหตุ' },
       ],
       modalHeader: (draft) => {
         const bal   = Number(draft.BALANCE ?? 0);

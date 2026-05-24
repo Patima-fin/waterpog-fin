@@ -128,15 +128,11 @@ const ChecksPage = ({ data: propData }) => {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-4" style={{ marginBottom: 16 }}>
-        <ChkStatTile label="รอจ่าย"            value={fmtMoney(pendingTotal)}
-                 sub={`${checks.filter(c=>c.status==='pending').length} ฉบับ`} color="yellow" />
-        <ChkStatTile label="กำลังเรียกเก็บ"    value={fmtMoney(clearingTotal)}
-                 sub={`${checks.filter(c=>c.status==='clearing').length} ฉบับ`} color="blue" />
-        <ChkStatTile label="ครบกำหนด 7 วัน"   value={fmtMoney(upcoming7)}
-                 sub="รอจ่ายที่ใกล้ถึง" color="orange" />
-        <ChkStatTile label="เกินกำหนด (pending)" value={overdueCount}
-                 sub="ฉบับ" color={overdueCount > 0 ? 'red' : 'green'} />
+      <div className="grid grid-4 anim-stagger" style={{ marginBottom: 16 }}>
+        <KpiTile label="รอจ่าย"             value={pendingTotal}  accent="oklch(65% 0.18 75)"  icon="money"     animate={false} />
+        <KpiTile label="กำลังเรียกเก็บ"     value={clearingTotal} accent="var(--brand-500)"    icon="coin"      animate={false} />
+        <KpiTile label="ครบกำหนด 7 วัน"    value={upcoming7}     accent="oklch(60% 0.18 55)"  icon="invoice"   animate={false} />
+        <KpiTile label="เกินกำหนด"          value={overdueCount}  accent={overdueCount > 0 ? 'var(--bad)' : 'var(--good)'} unit=" ฉบับ" digits={0} icon="arrow_up" animate={false} />
       </div>
 
       {/* Filter bar */}
@@ -154,17 +150,17 @@ const ChecksPage = ({ data: propData }) => {
 
       {/* Table */}
       <div className="card" style={{ padding: 0, overflow:'hidden' }}>
-        <div className="tbl-wrap" style={{ overflowX:'auto' }}>
+        <div className="tbl-wrap" style={{ overflowX:'auto', overflowY:'auto', maxHeight:'min(480px, calc(100vh - 400px))' }}>
           <table className="tbl" style={{ minWidth: 850 }}>
-            <thead>
+            <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--surface)' }}>
               <tr>
-                <SortTh col="checkNo">เลขเช็ค</SortTh>
+                <SortTh col="checkNo">เลขที่เช็ค</SortTh>
                 <SortTh col="checkDate">วันที่เช็ค</SortTh>
                 <SortTh col="payee">ผู้รับเงิน</SortTh>
-                <SortTh col="amount">จำนวนเงิน</SortTh>
+                <SortTh col="amount">จำนวนเงิน (฿)</SortTh>
                 <SortTh col="bankName">ธนาคาร</SortTh>
-                <th>เลขบัญชี</th>
-                <th>อ้างอิง</th>
+                <th>เลขที่บัญชี</th>
+                <th>เลขอ้างอิง</th>
                 <SortTh col="status">สถานะ</SortTh>
                 <th>หมายเหตุ</th>
                 <th></th>

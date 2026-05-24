@@ -351,10 +351,10 @@ function StsWorkflowPage({ data, setData, toast }) {
       </div>
 
       <div className="grid grid-4 anim-stagger" style={{ marginBottom: 16 }}>
-        <KpiTile animate={false} label="รอ review" value={pendingCount} accent="var(--bad)"   icon="invoice" unit="" digits={0} delta="ใบรับ"  />
-        <KpiTile animate={false} label="ตรวจแล้ว"  value={doneCount}    accent="var(--good)"  icon="coin"    unit="" digits={0} delta="ใบรับ" />
-        <KpiTile animate={false} label="ดอกเบี้ย STS+WCI รวม" value={totalInterest} accent="var(--brand-500)" icon="money" delta={`STS ${bMoney(totalSts)} + WCI ${bMoney(totalWci)}`} />
-        <KpiTile animate={false} label="เอนคอมพาส (สุทธิ)" value={totalEncompass} accent="oklch(52% 0.16 220)" icon="bank" delta="คงเหลือจ่าย" />
+        <KpiTile animate={false} label="รอ Review"            value={pendingCount}   accent="var(--bad)"            icon="invoice" unit=" ใบ" digits={0} />
+        <KpiTile animate={false} label="ตรวจสอบแล้ว"          value={doneCount}      accent="var(--good)"           icon="coin"    unit=" ใบ" digits={0} />
+        <KpiTile animate={false} label="ดอกเบี้ย STS+WCI รวม" value={totalInterest}  accent="var(--brand-500)"      icon="money" />
+        <KpiTile animate={false} label="ค่าบริการเอนคอมพาส"   value={totalEncompass} accent="oklch(52% 0.16 220)"   icon="bank" />
       </div>
 
       <div className="card" style={{ padding: '10px 14px', marginBottom: 12, display: 'flex', gap: 10, alignItems: 'center' }}>
@@ -380,18 +380,18 @@ function StsWorkflowPage({ data, setData, toast }) {
 
       {matched.length > 0 && (
         <div className="card anim-in" style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{ overflowX: 'auto' }}>
+          <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'min(480px, calc(100vh - 400px))' }}>
             <table className="tbl" style={{ minWidth: 1100, fontSize: 12 }}>
-              <thead>
+              <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--surface)' }}>
                 <tr>
-                  <th style={{ width: 100 }}>วันที่รับ</th>
-                  <th style={{ width: 120 }}>ใบรับ / IV</th>
-                  <th style={{ width: 90 }}>Project</th>
+                  <th style={{ width: 100 }}>วันที่รับเงิน</th>
+                  <th style={{ width: 120 }}>เลขที่ใบรับ / IV</th>
+                  <th style={{ width: 90 }}>รหัสโครงการ</th>
                   <th>สัญญา STS</th>
-                  <th style={{ textAlign: 'right', width: 100 }}>ยอดรับ</th>
-                  <th style={{ textAlign: 'right', width: 60 }}>วัน</th>
-                  <th style={{ textAlign: 'right', width: 110 }}>ดอกเบี้ย</th>
-                  <th style={{ textAlign: 'right', width: 110 }}>เอนคอมพาส</th>
+                  <th style={{ textAlign: 'right', width: 110 }}>ยอดรับ (฿)</th>
+                  <th style={{ textAlign: 'right', width: 70 }}>จำนวนวัน</th>
+                  <th style={{ textAlign: 'right', width: 120 }}>ดอกเบี้ยรวม (฿)</th>
+                  <th style={{ textAlign: 'right', width: 120 }}>ค่าบริการ (฿)</th>
                   <th style={{ width: 100 }}>สถานะ</th>
                 </tr>
               </thead>
