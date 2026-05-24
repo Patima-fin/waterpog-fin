@@ -881,13 +881,11 @@ function DataPayablePage({ data, setData, toast }) {
         </div>
       </div>
 
-      {/* KPI — 4 cards (matches DATA PV layout) */}
+      {/* KPI — 4 cards (grid-4, same size as all other data pages, no delta to keep height equal) */}
       <div className="grid grid-4 anim-stagger" style={{ marginBottom: 16 }}>
         <KpiTile label="จำนวนรายการ" value={filtered.length} unit=" รายการ" digits={0} accent="var(--brand-500)" icon="invoice" animate={false} />
-        <KpiTile label="Net Payment รวม" value={fNet} accent="var(--bad)" icon="coin" animate={false}
-          delta={overdue > 0 ? `${overdue} รายการเกินกำหนด` : 'ตามตารางที่กรอง'} deltaKind={overdue > 0 ? 'bad' : 'neu'} />
-        <KpiTile label="เกินกำหนด (Net Payment)" value={overdueNet} accent="oklch(60% 0.18 30)" icon="arrow_up" animate={false}
-          delta={`${overdue} รายการ`} deltaKind={overdue > 0 ? 'bad' : 'neu'} />
+        <KpiTile label="Net Payment รวม" value={fNet} accent="var(--bad)" icon="coin" animate={false} />
+        <KpiTile label="เกินกำหนด (Net Payment)" value={overdueNet} accent="oklch(60% 0.18 30)" icon="arrow_up" animate={false} />
         <KpiTile label={`แผนกสูงสุด: ${topDpt[0]}`} value={topDpt[1]} accent="oklch(70% 0.16 75)" icon="money" animate={false} />
       </div>
 
@@ -937,7 +935,7 @@ function DataPayablePage({ data, setData, toast }) {
 
       {/* Table */}
       <div className="card anim-in" style={{ padding: 0, overflow: 'hidden' }}>
-        <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 370px)' }}>
+        <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'min(480px, calc(100vh - 400px))' }}>
           <table className="tbl" style={{ minWidth: 1300 }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--surface)' }}>
               <tr>
