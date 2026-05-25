@@ -347,6 +347,25 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
           <div className="page-title">Bank Diary</div>
           <div className="page-sub">แผนเงินรับ-จ่ายล่วงหน้าแยกตามบัญชี • ณ {fmtDate(today)}</div>
         </div>
+        <div className="page-head-r">
+        <ExportButton
+          rows={bankEntries}
+          columns={[
+            { key: 'entryDate',  label: 'วันที่',          type: 'date' },
+            { key: 'bankAc',     label: 'เลขที่บัญชี' },
+            { key: 'bankName',   label: 'ธนาคาร' },
+            { key: 'description',label: 'รายการ' },
+            { key: 'inflow',     label: 'รับเข้า (฿)',     type: 'number' },
+            { key: 'outflow',    label: 'จ่ายออก (฿)',    type: 'number' },
+            { key: 'balance',    label: 'ยอดคงเหลือ (฿)', type: 'number' },
+            { key: 'reference',  label: 'อ้างอิง' },
+            { key: 'note',       label: 'หมายเหตุ' },
+          ]}
+          filename="bank_diary"
+          sheetName="Bank Diary"
+          title="Bank Diary · บันทึกรายการธนาคาร"
+        />
+        <PrintButton />
         <button
           className="btn-primary"
           onClick={() => setShowAddTransfer(true)}
@@ -357,6 +376,7 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
           </svg>
           บันทึกการโอน
         </button>
+        </div>
       </div>
 
       {/* Top KPIs */}

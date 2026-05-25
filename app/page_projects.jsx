@@ -95,6 +95,24 @@ function ProjectsPage({ data, setData, toast }) {
           <div className="page-sub">{rows.length} โครงการ · มูลค่าสัญญารวม {fmtNum(tot.signed, 0)} บาท</div>
         </div>
         <div className="page-head-r">
+          <ExportButton
+            rows={sorted}
+            columns={[
+              { key: 'code',         label: 'เลขที่สัญญา' },
+              { key: 'name',         label: 'ชื่อโครงการ' },
+              { key: 'startDate',    label: 'วันที่เริ่ม',   type: 'date' },
+              { key: 'finishDate',   label: 'วันที่สิ้นสุด', type: 'date' },
+              { key: 'allocBudget',  label: 'งบประมาณ (฿)', type: 'number' },
+              { key: 'signedValue',  label: 'มูลค่าสัญญา (฿)', type: 'number' },
+              { key: 'assignee',     label: 'ผู้รับโอนสิทธิ์' },
+              { key: 'debt',         label: 'ภาระหนี้ (฿)', type: 'number' },
+              { key: 'status',       label: 'สถานะ' },
+            ]}
+            filename="projects"
+            sheetName="โครงการ"
+            title="รายการโครงการทั้งหมด"
+          />
+          <PrintButton />
           <button className="btn btn-primary" onClick={newProject}><Icon name="plus" size={14} /> เพิ่มโครงการ</button>
         </div>
       </div>

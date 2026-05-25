@@ -73,10 +73,20 @@ function DataCrudPage({ data, setData, toast, config }) {
           <div className="page-sub">{config.sub}</div>
         </div>
         <div className="page-head-r">
+          <ExportButton
+            rows={sortedFiltered}
+            columns={config.columns.map(c => ({ key: c.key, label: c.label, type: c.type || (c.numeric ? 'number' : undefined) }))}
+            filename={config.dataKey || 'data'}
+            sheetName={config.singular || 'ข้อมูล'}
+            title={config.title}
+          />
+          <PrintButton />
           <button className="btn btn-ghost"><Icon name="upload" size={14} /> นำเข้า Excel</button>
-          <button className="btn btn-primary" onClick={() => setEdit({ ...config.emptyRow, id: null })}>
-            <Icon name="plus" size={14} /> {config.addLabel || 'เพิ่ม'}
-          </button>
+          {!config.readOnlyRows && (
+            <button className="btn btn-primary" onClick={() => setEdit({ ...config.emptyRow, id: null })}>
+              <Icon name="plus" size={14} /> {config.addLabel || 'เพิ่ม'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -929,6 +939,17 @@ function DataPayablePage({ data, setData, toast }) {
           <div className="page-sub">RAW_AP_OUTSTANDING · 54 คอลัมน์ · วางข้อมูล RAW ได้เลย</div>
         </div>
         <div className="page-head-r">
+          <ExportButton
+            rows={filtered}
+            columns={COLS.filter(c => !c.noSort).map(c => ({
+              key: c.key, label: c.label,
+              type: c.align === 'right' ? 'number' : (c.key === 'vchdate' || c.key === 'due2' ? 'date' : undefined),
+            }))}
+            filename="AP_outstanding"
+            sheetName="AP Outstanding"
+            title="DATA AP Outstanding · ใบแจ้งหนี้เจ้าหนี้คงค้าง"
+          />
+          <PrintButton />
           <button className="btn btn-ghost"
             onClick={() => {
               if (window.WTPData && typeof window.WTPData.refreshFromServer === 'function') {

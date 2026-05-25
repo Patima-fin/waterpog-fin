@@ -313,6 +313,27 @@ function DebtLedgerPage({ data }) {
             ณ {fmtDate(today)} · {masters.length} สัญญา · Active {activeMasters.length} · ตารางดอกเบี้ย {allLedger.length} แถว
           </div>
         </div>
+        <div className="page-head-r">
+          <ExportButton
+            rows={sortedRows}
+            columns={[
+              { key: 'debtCategory',     label: 'หมวดหนี้' },
+              { key: 'contractNo',       label: 'เลขที่สัญญา' },
+              { key: 'borrowerName',     label: 'ผู้กู้ / ผู้รับสินเชื่อ' },
+              { key: 'principalAmount',  label: 'วงเงิน (฿)',        type: 'number' },
+              { key: 'interestRate',     label: 'อัตราดอกเบี้ย/ปี',  type: 'number' },
+              { key: 'totalInterest',    label: 'ดอกเบี้ยรวม (฿)',  type: 'number' },
+              { key: 'totalPaid',        label: 'ชำระแล้ว (฿)',     type: 'number' },
+              { key: 'totalOutstanding', label: 'ค้างชำระ (฿)',     type: 'number' },
+              { key: 'receiveDate',      label: 'วันเริ่มสัญญา',    type: 'date' },
+              { key: 'status',           label: 'สถานะ' },
+            ]}
+            filename="debt_ledger"
+            sheetName="Debt Ledger"
+            title="Debt Ledger · ดอกเบี้ย"
+          />
+          <PrintButton />
+        </div>
       </div>
 
       <div className="grid grid-4 anim-stagger" style={{ marginBottom: 16 }}>

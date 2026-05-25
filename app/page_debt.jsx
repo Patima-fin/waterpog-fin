@@ -143,6 +143,31 @@ function DebtPage({ data }) {
             ณ {fmtDate(today)} · {rawRows.length} สัญญา · Active {cntActive} · ปิดแล้ว {cntClosed}
           </div>
         </div>
+        <div className="page-head-r">
+          <ExportButton
+            rows={sorted}
+            columns={[
+              { key: 'debtCategory',    label: 'หมวด' },
+              { key: 'contractNo',      label: 'เลขที่สัญญา' },
+              { key: 'borrowerName',    label: 'ผู้กู้ / เจ้าหนี้' },
+              { key: 'status',          label: 'สถานะ' },
+              { key: 'receiveDate',     label: 'วันรับเงิน',   type: 'date' },
+              { key: 'maturityDate',    label: 'วันครบกำหนด', type: 'date' },
+              { key: 'principalAmount', label: 'วงเงิน (฿)',   type: 'number' },
+              { key: 'interestRate',    label: 'อัตราดอกเบี้ย/ปี', type: 'number' },
+              { key: 'balance',         label: 'คงเหลือ (฿)',  type: 'number' },
+              { key: 'currency',        label: 'สกุลเงิน' },
+              { key: 'bankName',        label: 'ธนาคาร' },
+              { key: 'projectCode',     label: 'รหัสโครงการ' },
+              { key: 'projectName',     label: 'ชื่อโครงการ' },
+              { key: 'note',            label: 'หมายเหตุ' },
+            ]}
+            filename="debt_register"
+            sheetName="ภาระหนี้"
+            title="ภาระหนี้ทั้งหมด"
+          />
+          <PrintButton />
+        </div>
       </div>
 
       {/* ── KPI Row ──────────────────────────────────────────────────────── */}

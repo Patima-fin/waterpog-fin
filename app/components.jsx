@@ -36,6 +36,100 @@ function fmtDateLong(iso) {
   return d.toLocaleDateString('th-TH-u-ca-gregory', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
+// ─── Excel / Print export ───────────────────────────────────────────────────
+//
+// exportRowsToExcel(rows, columns, opts) — write an .xlsx file
+//   rows:    array of records
+//   columns: [ { key, label, fmt?, type? } ]    // fmt: (value, row) => string|number
+//                                                // type: 'number' | 'date' | 'text' (auto if fmt absent)
+//   opts:    { filename, sheetName, title }     // title is an optional H1 row at top
+//
+// Uses the SheetJS library loaded from CDN in index.html.
+function exportRowsToExcel(rows, columns, opts = {}) {
+  if (typeof XLSX === 'undefined') {
+    alert('ระบบ Export ยังไม่พร้อม (SheetJS โหลดไม่สำเร็จ) — กรุณารีเฟรชหน้า');
+    return;
+  }
+  const cols = (columns || []).filter(c => c && c.key);
+  if (!cols.length) {
+    alert('ไม่มีคอลัมน์ที่ Export ได้');
+    return;
+  }
+  const filename = (opts.filename || 'export') + '_' + new Date().toISOString().slice(0,10) + '.xlsx';
+  const sheetName = (opts.sheetName || 'Sheet1').slice(0, 31);
+
+  // Build 2D array: [headers], [...rows]
+  const aoa = [];
+  if (opts.title) aoa.push([opts.title]);
+  aoa.push(cols.map(c => c.label || c.key));
+  (rows || []).forEach(r => {
+    aoa.push(cols.map(c => {
+      const raw = r[c.key];
+      if (c.fmt) {
+        try { return c.fmt(raw, r); }
+        catch (_) { return raw == null ? '' : String(raw); }
+      }
+      if (raw == null || raw === '') return '';
+      if (c.type === 'number') {
+        const n = Number(String(raw).replace(/[^0-9.-]/g, ''));
+        return isNaN(n) ? '' : n;
+      }
+      if (c.type === 'date') {
+        if (raw instanceof Date) return raw;
+        const d = new Date(raw);
+        return isNaN(d) ? String(raw) : d;
+      }
+      return typeof raw === 'object' ? JSON.stringify(raw) : raw;
+    }));
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  // Auto column width based on header + sample of values
+  const colWidths = cols.map((c, i) => {
+    let max = (c.label || c.key || '').length;
+    for (let r = 0; r < Math.min(aoa.length, 50); r++) {
+      const v = aoa[r][i];
+      const s = v == null ? '' : String(v);
+      if (s.length > max) max = s.length;
+    }
+    return { wch: Math.min(60, Math.max(8, max + 2)) };
+  });
+  ws['!cols'] = colWidths;
+  // If title row, merge across all columns
+  if (opts.title) {
+    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: cols.length - 1 } }];
+  }
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  XLSX.writeFile(wb, filename);
+}
+
+// ─── Reusable export + print button ────────────────────────────────────────
+// Drop-in button that calls exportRowsToExcel with the current rows. Use:
+// <ExportButton rows={filtered} columns={[{key,label},..]} filename="invoices" />
+function ExportButton({ rows, columns, filename, sheetName, title, label = 'Excel', icon = 'download' }) {
+  return (
+    <button
+      className="btn btn-ghost"
+      onClick={() => exportRowsToExcel(rows, columns, { filename, sheetName, title })}
+      title={`ส่งออกเป็น Excel (.xlsx) — ${(rows || []).length} แถว`}
+    >
+      <Icon name={icon} size={14} /> {label}
+    </button>
+  );
+}
+
+// Print current page using browser print dialog.
+// Each page should hook .print-area / .no-print classes via styles.css @media print.
+function PrintButton({ label = 'พิมพ์', icon = 'print' }) {
+  return (
+    <button className="btn btn-ghost" onClick={() => window.print()} title="พิมพ์หน้านี้ (Ctrl+P)">
+      <Icon name={icon} size={14} /> {label}
+    </button>
+  );
+}
+
 // ─── Animated number counter ─────────────────────────────────────────────────
 function useCountUp(target, duration = 900, deps = []) {
   const [val, setVal] = useState(0);
@@ -83,6 +177,8 @@ const Icon = ({ name, size = 16, stroke = 1.6, ...rest }) => {
     arrow_up:    <><path d="M12 19V5M5 12l7-7 7 7"/></>,
     arrow_down:  <><path d="M12 5v14M5 12l7 7 7-7"/></>,
     download:    <><path d="M12 4v12M6 12l6 6 6-6"/><path d="M4 20h16"/></>,
+    print:       <><path d="M6 9V2h12v7"/><rect x="3" y="9" width="18" height="9" rx="1"/><path d="M6 18h12v4H6z"/></>,
+    filter:      <><path d="M3 5h18l-7 9v6l-4-2v-4z"/></>,
     upload:      <><path d="M12 20V8M6 12l6-6 6 6"/><path d="M4 4h16"/></>,
     refresh:     <><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></>,
     search:      <><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></>,
@@ -272,4 +368,5 @@ Object.assign(window, {
   fmtNum, fmtInt, fmtMoney, fmtDate, fmtDateLong,
   useCountUp, AnimatedNumber, Icon, Modal, useToasts, Badge, KpiTile, EditableCell,
   useSortable, SortHeader, StatusPill,
+  exportRowsToExcel, ExportButton, PrintButton,
 });

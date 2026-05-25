@@ -125,7 +125,28 @@ const ChecksPage = ({ data: propData }) => {
           <div className="page-title">เช็คจ่ายล่วงหน้า</div>
           <div className="page-sub">รายการเช็คทั้งหมด • {checks.length} ฉบับ</div>
         </div>
-        <button className="btn btn-primary" onClick={openNew}>+ เพิ่มเช็ค</button>
+        <div className="page-head-r">
+          <ExportButton
+            rows={filtered}
+            columns={[
+              { key: 'checkNo',           label: 'เลขที่เช็ค' },
+              { key: 'checkDate',         label: 'วันที่เช็ค', type: 'date' },
+              { key: 'payee',             label: 'ผู้รับเงิน' },
+              { key: 'amount',            label: 'จำนวนเงิน (฿)', type: 'number' },
+              { key: 'bankName',          label: 'ธนาคาร' },
+              { key: 'accountNo',         label: 'เลขที่บัญชี' },
+              { key: 'referenceNo',       label: 'เลขอ้างอิง' },
+              { key: 'linkedProjectCode', label: 'โครงการ' },
+              { key: 'status',            label: 'สถานะ' },
+              { key: 'note',              label: 'หมายเหตุ' },
+            ]}
+            filename="checks"
+            sheetName="เช็คจ่าย"
+            title="เช็คจ่ายล่วงหน้า"
+          />
+          <PrintButton />
+          <button className="btn btn-primary" onClick={openNew}>+ เพิ่มเช็ค</button>
+        </div>
       </div>
 
       {/* KPIs */}

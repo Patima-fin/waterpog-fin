@@ -409,6 +409,25 @@ function InvoicesPage({ data, setData, toast }) {
           <div className="page-sub">RAW_IV_OUTSTANDING · {rows.length} ใบ · ผู้ดูแล: ฝ่ายติดตามรับเงิน</div>
         </div>
         <div className="page-head-r">
+          <ExportButton
+            rows={filtered}
+            columns={[
+              { key: 'jobNo',           label: 'JOB NO.' },
+              { key: 'ivNo',            label: 'เลขที่ IV' },
+              { key: 'invoiceDate',     label: 'วันที่ออก IV',   type: 'date' },
+              { key: 'projectName',     label: 'ชื่อโครงการ' },
+              { key: 'balance',         label: 'ยอดค้างชำระ (฿)', type: 'number' },
+              { key: 'assignee',        label: 'ผู้รับโอนสิทธิ์' },
+              { key: 'debt',            label: 'ภาระหนี้ (฿)',   type: 'number' },
+              { key: 'netExpected',     label: 'คาดรับสุทธิ (฿)', type: 'number' },
+              { key: 'expectedReceive', label: 'วันคาดรับเงิน', type: 'date' },
+              { key: 'status',          label: 'สถานะ' },
+            ]}
+            filename="invoices_outstanding"
+            sheetName="ใบแจ้งหนี้"
+            title="ใบแจ้งหนี้คงค้าง (IV Outstanding)"
+          />
+          <PrintButton />
           <button className="btn btn-ghost" onClick={() => setShowImport(true)}><Icon name="upload" size={14} /> วาง RAW_IV_OUTSTANDING</button>
         </div>
       </div>

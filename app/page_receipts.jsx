@@ -139,6 +139,27 @@ const ReceiptsPage = ({ data }) => {
           <div className="page-title">ประวัติรับเงิน</div>
           <div className="page-sub">Receipts — ยอดรับจริงแต่ละใบแจ้งหนี้ หักโอนสิทธิธนาคาร</div>
         </div>
+        <div className="page-head-r">
+          <ExportButton
+            rows={filtered}
+            columns={[
+              { key: 'receiptNo',          label: 'เลขที่ใบรับ' },
+              { key: 'receiptDate',        label: 'วันที่รับเงิน', type: 'date' },
+              { key: 'invoiceNo',          label: 'เลขที่ IV' },
+              { key: 'projectCode',        label: 'รหัสโครงการ' },
+              { key: 'projectName',        label: 'ชื่อโครงการ' },
+              { key: 'grossAmount',        label: 'ยอดรับ Gross (฿)', type: 'number' },
+              { key: 'transferDeduction',  label: 'หักโอนสิทธิ (฿)',  type: 'number' },
+              { key: 'netAmount',          label: 'เงินเข้าจริง Net (฿)', type: 'number' },
+              { key: 'bankName',           label: 'ธนาคารที่รับ' },
+              { key: 'remark',             label: 'หมายเหตุ' },
+            ]}
+            filename="receipts"
+            sheetName="ประวัติรับเงิน"
+            title="ประวัติรับเงิน · Receipts"
+          />
+          <PrintButton />
+        </div>
       </div>
 
       {/* ── KPI ── */}
