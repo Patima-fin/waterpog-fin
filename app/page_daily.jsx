@@ -242,12 +242,12 @@ function DailyRevenueDashboard({ data, setData, toast }) {
         transition: 'max-width .25s',
       }}>
 
-      {/* ── Hero — branded + screenshot-friendly (muted slate palette) ──── */}
+      {/* ── Hero — brand-aligned gradient (matches sidebar/cards) ────────── */}
       <div className="anim-in" style={{
         marginBottom: isPortrait ? 14 : 20, padding: isPortrait ? '18px 22px' : '22px 28px',
         borderRadius: 18, position: 'relative', overflow: 'hidden',
-        background: 'linear-gradient(135deg, #233857 0%, #2c4569 50%, #3a567f 100%)',
-        boxShadow: '0 8px 22px rgba(35, 56, 87, 0.22)',
+        background: 'linear-gradient(135deg, #1a4490 0%, #1f56b8 50%, #2a6fdb 100%)',
+        boxShadow: '0 8px 22px rgba(26, 68, 144, 0.25)',
         color: 'white',
       }}>
         {/* decorative water-wave SVG */}
@@ -313,37 +313,37 @@ function DailyRevenueDashboard({ data, setData, toast }) {
 
       {/* ── Summary pills: YTD / MTD / Today (paid) ─ screenshot-friendly ──── */}
       <div style={{ display: 'grid', gridTemplateColumns: isPortrait ? '1fr' : 'repeat(3, 1fr)', gap: isPortrait ? 10 : 14, marginBottom: isPortrait ? 16 : 24 }} className="anim-stagger daily-pill-grid">
-        {/* YTD — muted navy */}
+        {/* YTD — brand blue (lighter than hero) */}
         <DailyPillCard
           title={`มูลค่ารับสะสมในปี ${thisYear}`}
           subtitle="Year-to-date"
           icon="📈"
           count={ytdList.length}
           value={sumBal(ytdList)}
-          gradient="linear-gradient(135deg, #4a6491 0%, #324966 100%)"
-          accent="#7a96bf"
+          gradient="linear-gradient(135deg, #5b9eef 0%, #2a6fdb 100%)"
+          accent="#7eb5f5"
           onClick={() => setDrillModal({ title: `มูลค่ารับสะสมในปี ${thisYear}`, list: ytdList })}
         />
-        {/* MTD — muted sage/teal */}
+        {/* MTD — fresh emerald */}
         <DailyPillCard
           title="มูลค่ารับสะสมในเดือนนี้"
           subtitle="Month-to-date"
           icon="🏦"
           count={monthList.length}
           value={sumBal(monthList)}
-          gradient="linear-gradient(135deg, #5e8a83 0%, #406863 100%)"
-          accent="#9bbfb8"
+          gradient="linear-gradient(135deg, #20c997 0%, #16906b 100%)"
+          accent="#5fdbb5"
           onClick={() => setDrillModal({ title: 'มูลค่ารับสะสมในเดือนนี้', list: monthList })}
         />
-        {/* Today — muted bronze/amber (toned down from neon orange) */}
+        {/* Today — warm sunshine amber (highlighted) */}
         <DailyPillCard
           title="โครงการที่รับเงินวันนี้"
           subtitle="Today's receipts"
           icon="💰"
           count={todayList.length}
           value={sumBal(todayList)}
-          gradient="linear-gradient(135deg, #c08a4b 0%, #9a6a30 100%)"
-          accent="#deb275"
+          gradient="linear-gradient(135deg, #ffa726 0%, #e87f15 100%)"
+          accent="#ffc266"
           isHero
         />
       </div>
@@ -526,8 +526,8 @@ function DailyPillCard({ title, subtitle, icon, count, value, gradient, accent, 
         background: gradient,
         color: 'white',
         boxShadow: isHero
-          ? '0 6px 18px rgba(154, 106, 48, .22), 0 0 0 2px rgba(222, 178, 117, .22)'
-          : '0 4px 12px rgba(50, 73, 102, .15)',
+          ? '0 8px 20px rgba(232, 127, 21, .28), 0 0 0 2px rgba(255, 194, 102, .22)'
+          : '0 4px 14px rgba(42, 111, 219, .18)',
         cursor: clickable ? 'pointer' : 'default',
         transition: 'transform .15s, box-shadow .15s',
         display: 'flex', flexDirection: 'column', gap: 10,
