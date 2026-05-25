@@ -514,11 +514,13 @@ function WarroomDrillModal({ drill, data, setData, thisMthByWeek, liveMonthName,
   }, [items, isMonth]);
 
   // ── update receipt field + auto-recalc netReceived ──
-  const updateReceipt = (id, patch) => {
+  // match by id ก่อน, fallback ด้วย receiptNo (กรณี id ว่าง — โหลดจากชีตที่ไม่มี id column)
+  const rcKey = (r) => r.id || r.receiptNo;
+  const updateReceipt = (key, patch) => {
     setData(d => ({
       ...d,
       receipts: (d.receipts || []).map(r => {
-        if (r.id !== id) return r;
+        if (rcKey(r) !== key) return r;
         const merged = { ...r, ...patch };
         if (patch.grossAmount != null || patch.transferDeduction != null) {
           merged.netReceived = (Number(merged.grossAmount) || 0) - (Number(merged.transferDeduction) || 0);
@@ -597,14 +599,14 @@ function WarroomDrillModal({ drill, data, setData, thisMthByWeek, liveMonthName,
                       <RcDeductInput
                         value={Number(r.transferDeduction) || 0}
                         max={Number(r.grossAmount) || 0}
-                        onSave={(v) => updateReceipt(r.id, { transferDeduction: v })}
+                        onSave={(v) => updateReceipt(rcKey(r), { transferDeduction: v })}
                       />
                     </td>
                     <td className="num strong" style={{ color: '#276749' }}>{fmtNum(r.netReceived, 2)}</td>
                     {/* Editable invType */}
                     <td style={{ padding: '4px 6px', textAlign: 'center' }}>
                       <select value={t}
-                        onChange={(e) => updateReceipt(r.id, { invType: e.target.value })}
+                        onChange={(e) => updateReceipt(rcKey(r), { invType: e.target.value })}
                         title={t === 'O' ? 'ลูกหนี้อื่นๆ' : 'ลูกหนี้จากโครงการ'}
                         style={{
                           fontSize: 11.5, fontWeight: 700,
