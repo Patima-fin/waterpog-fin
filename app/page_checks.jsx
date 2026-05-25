@@ -145,7 +145,9 @@ const ChecksPage = ({ data: propData }) => {
             title="เช็คจ่ายล่วงหน้า"
           />
           <PrintButton />
-          <button className="btn btn-primary" onClick={openNew}>+ เพิ่มเช็ค</button>
+          {(window.WTPAuth ? window.WTPAuth.can('canEdit') : true) && (
+            <button className="btn btn-primary" onClick={openNew}>+ เพิ่มเช็ค</button>
+          )}
         </div>
       </div>
 

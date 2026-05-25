@@ -36,7 +36,7 @@ function WarRoomPage2({ data, setData, toast }) {
         </div>
         <div className="page-head-r">
           <a className="btn btn-ghost" href="#warroom1"><Icon name="arrow" size={14} style={{ transform: 'rotate(180deg)' }} /> ย้อนกลับ · หน้า 1</a>
-          <button className="btn btn-ghost"><Icon name="download" size={14} /> ส่งออก PDF</button>
+          <PrintButton label="พิมพ์ / PDF" />
         </div>
       </div>
 

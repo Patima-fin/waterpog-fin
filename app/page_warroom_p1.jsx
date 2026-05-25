@@ -82,7 +82,7 @@ function WarRoomPage1({ data, setData, toast }) {
         </div>
         <div className="page-head-r">
           <a className="btn btn-ghost" href="#warroom2"><Icon name="arrow" size={14} /> หน้าถัดไป · ประมาณการรายปี</a>
-          <button className="btn btn-ghost"><Icon name="download" size={14} /> ส่งออก PDF</button>
+          <PrintButton label="พิมพ์ / PDF" />
         </div>
       </div>
 

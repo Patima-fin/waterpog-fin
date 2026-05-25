@@ -428,7 +428,9 @@ function InvoicesPage({ data, setData, toast }) {
             title="ใบแจ้งหนี้คงค้าง (IV Outstanding)"
           />
           <PrintButton />
-          <button className="btn btn-ghost" onClick={() => setShowImport(true)}><Icon name="upload" size={14} /> วาง RAW_IV_OUTSTANDING</button>
+          {(window.WTPAuth ? window.WTPAuth.can('canEdit') : true) && (
+            <button className="btn btn-ghost" onClick={() => setShowImport(true)}><Icon name="upload" size={14} /> วาง RAW_IV_OUTSTANDING</button>
+          )}
         </div>
       </div>
 
@@ -1748,6 +1750,27 @@ function IvReportStandalonePage({ data, setData, toast }) {
           <div className="page-sub">
             ข้อมูล ณ {fmtDate(today)} · ค้างชำระ {pending.length} ใบ · รวม {rows.length} ใบ
           </div>
+        </div>
+        <div className="page-head-r">
+          <ExportButton
+            rows={rows}
+            columns={[
+              { key: 'jobNo',           label: 'JOB NO.' },
+              { key: 'ivNo',            label: 'เลขที่ IV' },
+              { key: 'invoiceDate',     label: 'วันที่ออก IV',   type: 'date' },
+              { key: 'projectName',     label: 'ชื่อโครงการ' },
+              { key: 'balance',         label: 'ยอดค้างชำระ (฿)', type: 'number' },
+              { key: 'assignee',        label: 'ผู้รับโอนสิทธิ์' },
+              { key: 'debt',            label: 'ภาระหนี้ (฿)',   type: 'number' },
+              { key: 'netExpected',     label: 'คาดรับสุทธิ (฿)', type: 'number' },
+              { key: 'expectedReceive', label: 'วันคาดรับเงิน', type: 'date' },
+              { key: 'status',          label: 'สถานะ' },
+            ]}
+            filename="iv_tracking_report"
+            sheetName="ติดตาม IV"
+            title="รายงานติดตามใบแจ้งหนี้คงค้าง"
+          />
+          <PrintButton />
         </div>
       </div>
 

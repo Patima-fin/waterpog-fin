@@ -12,6 +12,55 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "sidebarStyle": "filled"
 }/*EDITMODE-END*/;
 
+// ─── Role-based permission system ──────────────────────────────────────────
+//
+// Routes accessible per role + action flags. Read via window.WTPAuth.* helpers
+// from any page. Role is set at login (in handleLogin) and persists in the
+// session object in localStorage; it never changes mid-session so a simple
+// global-object pattern is enough (no Context / re-render churn needed).
+const ROLE_PERMS = {
+  // ผู้บริหาร — เห็นเฉพาะ Dashboard (รายงานรับเงินรายวัน + War Room) — ไม่เห็นประมาณการ
+  viewer: {
+    pages: new Set(['daily', 'warroom1', 'warroom2']),
+    canEdit: false, canDelete: false, canApprove: false, canManageUsers: false,
+  },
+  // ฝ่ายการเงิน — ทำงานปกติ เพิ่ม/แก้ได้ แต่ลบไม่ได้ + ไม่เห็นจัดการ users
+  staff: {
+    pages: '*', excludePages: new Set(['users']),
+    canEdit: true, canDelete: false, canApprove: true, canManageUsers: false,
+  },
+  // หัวหน้า — ทำได้ทุกอย่าง รวมจัดการ users
+  manager: {
+    pages: '*',
+    canEdit: true, canDelete: true, canApprove: true, canManageUsers: true,
+  },
+  // เจ้าของ — ดูได้ทุกหน้า แต่แก้/ลบไม่ได้ + ไม่เห็นจัดการ users
+  owner: {
+    pages: '*', excludePages: new Set(['users']),
+    canEdit: false, canDelete: false, canApprove: false, canManageUsers: false,
+  },
+};
+function _getRole() {
+  try {
+    const s = JSON.parse(localStorage.getItem('wtp-session') || 'null');
+    return (s && s.role) || 'viewer';
+  } catch { return 'viewer'; }
+}
+function _getPerms(role) { return ROLE_PERMS[role] || ROLE_PERMS.viewer; }
+window.WTPAuth = {
+  role() { return _getRole(); },
+  can(action) { return _getPerms(_getRole())[action] === true; },
+  canViewPage(route) {
+    const p = _getPerms(_getRole());
+    if (p.pages === '*') return !p.excludePages || !p.excludePages.has(route);
+    return p.pages.has(route);
+  },
+  // First page this role is allowed to see — used for redirecting after login
+  firstAllowedPage(allRoutes) {
+    return allRoutes.find(r => this.canViewPage(r)) || 'daily';
+  },
+};
+
 function App() {
   const [isLoggedIn, setIsLoggedIn] = aState(() => {
     try {
@@ -82,7 +131,27 @@ function App() {
     return () => { document.body.style.overflow = ''; };
   }, [sbOpen]);
 
-  const go = (r) => { window.location.hash = '#' + r; setRoute(r); };
+  const go = (r) => {
+    if (window.WTPAuth && !window.WTPAuth.canViewPage(r)) return;   // block forbidden routes
+    window.location.hash = '#' + r;
+    setRoute(r);
+  };
+
+  // Route guard — if user can't view current route, redirect to first allowed page
+  aEffect(() => {
+    if (!isLoggedIn || !window.WTPAuth) return;
+    if (!window.WTPAuth.canViewPage(route)) {
+      // Pull routes object below — at this point it's not defined yet, fallback inline
+      const order = ['daily','warroom1','warroom2','cashflow','debt','debt_ledger',
+                     'iv_report','receipts','bank_diary','interest_calc','sts_calc','sts_workflow',
+                     'projects','invoices','checks','data_forecast','data_bank','data_pv','data_payable'];
+      const allowed = window.WTPAuth.firstAllowedPage(order);
+      if (allowed !== route) {
+        window.location.hash = '#' + allowed;
+        setRoute(allowed);
+      }
+    }
+  }, [route, isLoggedIn]);
 
   // Apply tweaks to CSS vars
   aEffect(() => {
@@ -257,13 +326,16 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
     </svg>
   );
 
-  const navItems = (items) => items.map(([key, label, icon]) => (
-    <button key={key} className={`sb-link ${route === key ? 'active' : ''}`} onClick={() => go(key)}>
-      <Icon name={icon} className="sb-icon" />
-      <span>{label}</span>
-      {counts[key] != null && <span className="sb-pill">{counts[key]}</span>}
-    </button>
-  ));
+  // Filter nav items by role — viewer/owner see fewer
+  const navItems = (items) => items
+    .filter(([key]) => window.WTPAuth ? window.WTPAuth.canViewPage(key) : true)
+    .map(([key, label, icon]) => (
+      <button key={key} className={`sb-link ${route === key ? 'active' : ''}`} onClick={() => go(key)}>
+        <Icon name={icon} className="sb-icon" />
+        <span>{label}</span>
+        {counts[key] != null && <span className="sb-pill">{counts[key]}</span>}
+      </button>
+    ));
 
   return (
     <aside className={`sb ${isOpen ? 'is-open' : ''}`}>

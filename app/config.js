@@ -20,11 +20,19 @@ window.WTP_CONFIG = {
   // ตั้งเวลา auto-refresh จากเซิร์ฟเวอร์ (มิลลิวินาที, 0 = ปิด)
   AUTO_REFRESH_MS: 300000,  // 5 นาที
 
-  // ผู้ใช้ระบบ — แก้ไข username/password ได้ตามต้องการ
+  // ผู้ใช้ระบบ — แก้ไข username/password/role ได้ตามต้องการ
+  //
+  // Roles (เลือก 1 ใน 4):
+  //  - viewer  : ดูเฉพาะ dashboard (Daily, War Room) — ห้ามดูประมาณการ + จัดการข้อมูล
+  //  - staff   : ทำงานปกติ ดูทุกหน้า + เพิ่ม/แก้ไข ได้ แต่ลบไม่ได้
+  //  - manager : ทำได้ทุกอย่าง รวมจัดการ users
+  //  - owner   : ดูทุกหน้า แต่แก้/ลบไม่ได้ — มองไม่เห็นหน้าจัดการ users
   USERS: [
-    { username: 'admin',    password: 'waterpog2025', displayName: 'ผู้ดูแลระบบ' },
-    { username: 'finance1', password: 'fin1234',      displayName: 'การเงิน 1' },
-    { username: 'finance2', password: 'fin1234',      displayName: 'การเงิน 2' },
+    { username: 'admin',    password: 'waterpog2025', displayName: 'ผู้ดูแลระบบ',     role: 'manager' },
+    { username: 'finance1', password: 'fin1234',      displayName: 'การเงิน 1',       role: 'staff'   },
+    { username: 'finance2', password: 'fin1234',      displayName: 'การเงิน 2',       role: 'staff'   },
+    { username: 'viewer',   password: 'view2025',     displayName: 'ผู้บริหาร (ดู)',  role: 'viewer'  },
+    { username: 'owner',    password: 'own2025',      displayName: 'เจ้าของบริษัท',   role: 'owner'   },
   ],
 
   // อายุ session (มิลลิวินาที) — 0 = ไม่หมดอายุ

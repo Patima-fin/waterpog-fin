@@ -113,7 +113,9 @@ function ProjectsPage({ data, setData, toast }) {
             title="รายการโครงการทั้งหมด"
           />
           <PrintButton />
-          <button className="btn btn-primary" onClick={newProject}><Icon name="plus" size={14} /> เพิ่มโครงการ</button>
+          {(window.WTPAuth ? window.WTPAuth.can('canEdit') : true) && (
+            <button className="btn btn-primary" onClick={newProject}><Icon name="plus" size={14} /> เพิ่มโครงการ</button>
+          )}
         </div>
       </div>
 

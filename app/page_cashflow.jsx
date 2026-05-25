@@ -95,6 +95,7 @@ function CashFlowDashboard({ data, setData, toast }) {
           <div className="page-sub">Weekly Expenditure Forecast Plan · {cf.month} · ข้อมูล ณ วันที่ {fmtDate(data.meta.asOf)}</div>
         </div>
         <div className="page-head-r">
+          <PrintButton label="พิมพ์ / PDF" />
           <button className="btn btn-ghost"><Icon name="refresh" size={14} /> รีเฟรชจาก Excel</button>
           <a className="btn btn-primary" href="#data_forecast">
             <Icon name="plus" size={14} /> จัดการประมาณการนอกระบบ

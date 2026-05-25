@@ -366,6 +366,7 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
           title="Bank Diary · บันทึกรายการธนาคาร"
         />
         <PrintButton />
+        {(window.WTPAuth ? window.WTPAuth.can('canEdit') : true) && (
         <button
           className="btn-primary"
           onClick={() => setShowAddTransfer(true)}
@@ -376,6 +377,7 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
           </svg>
           บันทึกการโอน
         </button>
+        )}
         </div>
       </div>
 

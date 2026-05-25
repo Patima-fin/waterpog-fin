@@ -5,6 +5,13 @@ const { useState: dxState, useMemo: dxMemo, useEffect: dxEffect } = React;
 
 // ─── Generic CRUD page ────────────────────────────────────────────────────────
 function DataCrudPage({ data, setData, toast, config }) {
+  // Role gating — viewer/owner can only see; staff can edit but not delete;
+  // manager can do everything. Page config can downgrade further (allowDelete).
+  const userCanEdit   = window.WTPAuth ? window.WTPAuth.can('canEdit')   : true;
+  const userCanDelete = window.WTPAuth ? window.WTPAuth.can('canDelete') : true;
+  const effectiveReadOnly = config.readOnlyRows || !userCanEdit;
+  const effectiveAllowDelete = (config.allowDelete || !config.readOnlyRows) && userCanDelete;
+
   const [edit, setEdit] = dxState(null);
   const [view, setView] = dxState(null);  // popup for viewing row details (read-only)
   const [query, setQuery] = dxState('');
@@ -81,8 +88,10 @@ function DataCrudPage({ data, setData, toast, config }) {
             title={config.title}
           />
           <PrintButton />
-          <button className="btn btn-ghost"><Icon name="upload" size={14} /> นำเข้า Excel</button>
-          {!config.readOnlyRows && (
+          {userCanEdit && (
+            <button className="btn btn-ghost"><Icon name="upload" size={14} /> นำเข้า Excel</button>
+          )}
+          {!effectiveReadOnly && (
             <button className="btn btn-primary" onClick={() => setEdit({ ...config.emptyRow, id: null })}>
               <Icon name="plus" size={14} /> {config.addLabel || 'เพิ่ม'}
             </button>
@@ -132,12 +141,12 @@ function DataCrudPage({ data, setData, toast, config }) {
                   <SortHeader key={i} label={c.label} sortKey={c.key} sort={sort} toggle={toggleSort}
                     align={c.headerAlign || 'center'} width={c.width} />
                 ))}
-                {(!config.readOnlyRows || config.allowDelete) && <th style={{ width: 80 }}></th>}
+                {(!effectiveReadOnly || effectiveAllowDelete) && <th style={{ width: 80 }}></th>}
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 && (
-                <tr><td colSpan={config.columns.length + ((!config.readOnlyRows || config.allowDelete) ? 1 : 0)} style={{ padding: 36, textAlign: 'center' }} className="muted">ไม่พบข้อมูล</td></tr>
+                <tr><td colSpan={config.columns.length + ((!effectiveReadOnly || effectiveAllowDelete) ? 1 : 0)} style={{ padding: 36, textAlign: 'center' }} className="muted">ไม่พบข้อมูล</td></tr>
               )}
               {sortedFiltered.map(row => (
                 <tr key={row.id}
@@ -153,13 +162,15 @@ function DataCrudPage({ data, setData, toast, config }) {
                       )}
                     </td>
                   ))}
-                  {(!config.readOnlyRows || config.allowDelete) && (
+                  {(!effectiveReadOnly || effectiveAllowDelete) && (
                     <td onClick={e => e.stopPropagation()}>
                       <div className="row-act">
-                        {!config.readOnlyRows && (
+                        {!effectiveReadOnly && (
                           <button className="btn-icon" onClick={() => setEdit(row)} title="แก้ไข"><Icon name="edit" size={14} /></button>
                         )}
-                        <button className="btn-icon danger" onClick={() => remove(row.id)} title="ลบ"><Icon name="trash" size={14} /></button>
+                        {effectiveAllowDelete && (
+                          <button className="btn-icon danger" onClick={() => remove(row.id)} title="ลบ"><Icon name="trash" size={14} /></button>
+                        )}
                       </div>
                     </td>
                   )}
@@ -174,20 +185,18 @@ function DataCrudPage({ data, setData, toast, config }) {
       </div>
 
       {/* View popup — opens on row click (read-only).
-          - Editable pages (readOnlyRows=false): show "แก้ไข" + "ลบ" in footer
-          - Read-only-with-delete (readOnlyRows + allowDelete): show "ลบ" only
-          - Pure read-only: no buttons */}
+          Footer buttons (แก้ไข / ลบ) gated by user role */}
       <GenericViewModal
         row={view}
         onClose={() => setView(null)}
         fields={config.modalFields}
         title={`ข้อมูล ${config.singular || 'รายการ'}`}
-        onEdit={config.readOnlyRows ? undefined : (row) => setEdit(row)}
-        onDelete={(!config.readOnlyRows || config.allowDelete) ? remove : undefined}
+        onEdit={effectiveReadOnly ? undefined : (row) => setEdit(row)}
+        onDelete={effectiveAllowDelete ? remove : undefined}
       />
 
-      {/* Edit modal — opens via pencil button OR "เพิ่ม" button (only on editable pages) */}
-      {!config.readOnlyRows && (
+      {/* Edit modal — opens via pencil button OR "เพิ่ม" button (only when user can edit) */}
+      {!effectiveReadOnly && (
         <GenericEditModal
           row={edit}
           onClose={() => setEdit(null)}

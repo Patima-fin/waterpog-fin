@@ -96,6 +96,9 @@ function DailyRevenueDashboard({ data, setData, toast }) {
           <h1 className="page-title">สรุปรายงานรับเงินประจำวัน</h1>
           <div className="page-sub">Daily Revenue Report · ข้อมูล ณ {todayLabel}</div>
         </div>
+        <div className="page-head-r">
+          <PrintButton label="พิมพ์ / PDF" />
+        </div>
       </div>
 
       {/* Hero banner */}
