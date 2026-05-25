@@ -62,8 +62,10 @@ function DailyRevenueDashboard({ data, setData, toast }) {
       const cj = drNormJobNo(iv.jobNo);
       const f  = financeByCode[cj] || financeByCode[iv.contractRef] || {};
       const p  = projectByCode[cj] || projectByCode[iv.contractRef] || {};
-      const debt    = Number(f.debt ?? f['ภาระหนี้'] ?? 0);
       const balance = Number(iv.balance) || 0;
+      // ใช้ resolveDebt/resolveAssignee → respect admin override บน IV
+      const debt     = (window.resolveDebt     ? window.resolveDebt(iv, f)     : Number(f.debt ?? f['ภาระหนี้'] ?? 0));
+      const assignee = (window.resolveAssignee ? window.resolveAssignee(iv, f) : (f.assignee || f['ผู้รับโอนสิทธิ์'] || '—'));
       return [{
         ...iv,
         jobNo: cj,
@@ -71,6 +73,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
         invType: drInvType(iv),
         balance,
         projectName: p['พื้นที่'] || p.name || iv.projectName || '—',
+        assignee,
         debt,
         netExpected: balance - debt,
       }];

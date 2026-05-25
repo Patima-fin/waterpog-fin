@@ -22,6 +22,30 @@ function normalizeJobNo(raw) {
   return { jobNo: s, productType: '' };
 }
 
+// ── helper: resolve assignee/debt — Override บน IV ทับ lookup จากโครงการ ───
+// ผูกข้อมูลภาระหนี้: ปกติดึงจาก projects[].debt + projects[].assignee
+// แต่ admin override ราย IV ได้ผ่าน iv.assigneeOverride / iv.debtOverride
+function resolveAssignee(iv, f) {
+  const ov = iv && iv.assigneeOverride;
+  if (ov != null && String(ov).trim() !== '') return String(ov);
+  return (f && (f.assignee || f['ผู้รับโอนสิทธิ์'])) || '—';
+}
+function resolveDebt(iv, f) {
+  const ov = iv && iv.debtOverride;
+  if (ov != null && String(ov).trim() !== '') return Number(ov) || 0;
+  return Number((f && (f.debt ?? f['ภาระหนี้'])) || 0);
+}
+function ivHasAssigneeOverride(iv) {
+  const ov = iv && iv.assigneeOverride;
+  return ov != null && String(ov).trim() !== '';
+}
+function ivHasDebtOverride(iv) {
+  const ov = iv && iv.debtOverride;
+  return ov != null && String(ov).trim() !== '';
+}
+// expose globally so page_daily/page_warroom_p1 can reuse without duplication
+Object.assign(window, { resolveAssignee, resolveDebt, ivHasAssigneeOverride, ivHasDebtOverride });
+
 // ── helper: ค่าที่ใช้แสดงใน filter dropdown สำหรับแต่ละ column ──────────────
 function ivColDisplayVal(colKey, iv) {
   switch (colKey) {
@@ -262,9 +286,11 @@ function InvoicesPage({ data, setData, toast }) {
 
     const p = projectByCode[cleanJobNo] || projectByCode[iv.contractRef] || {};
     const f = financeByCode[cleanJobNo] || financeByCode[iv.contractRef] || {};
-    const debt     = Number(f.debt ?? f['ภาระหนี้'] ?? 0);
     const balance  = Number(iv.balance) || 0;
-    const assignee = f.assignee || f['ผู้รับโอนสิทธิ์'] || '—';
+    const debt     = resolveDebt(iv, f);
+    const assignee = resolveAssignee(iv, f);
+    const debtIsOverride     = ivHasDebtOverride(iv);
+    const assigneeIsOverride = ivHasAssigneeOverride(iv);
     const rawStatus = (iv.status || '').toString().trim();
     const aliased   = STATUS_ALIAS[rawStatus] != null ? STATUS_ALIAS[rawStatus] : rawStatus;
     const status    = VALID_STATUS.has(aliased) ? aliased : 'pending_inspection';
@@ -280,7 +306,9 @@ function InvoicesPage({ data, setData, toast }) {
       balance,
       projectName: p['พื้นที่'] || p.name || iv.projectName || '—',
       assignee,
+      assigneeIsOverride,
       debt,
+      debtIsOverride,
       netExpected: balance - debt,
     };
   }), [data.invoices, projectByCode, financeByCode]);
@@ -724,12 +752,22 @@ function InvoicesPage({ data, setData, toast }) {
                   })()}
                 </td>
                 <td className="num strong" style={{ whiteSpace: 'nowrap' }}>{fmtNum(iv.balance, 0)}</td>
-                <td style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
+                <td style={{ whiteSpace: 'nowrap', textAlign: 'center' }} title={iv.assigneeIsOverride ? '✏️ Override โดย admin' : '📋 จากข้อมูลโครงการ'}>
                   {iv.assignee && iv.assignee !== '—' ? (
-                    <Badge kind="b-violet" dot={false}>{iv.assignee}</Badge>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                      <Badge kind="b-violet" dot={false}>{iv.assignee}</Badge>
+                      {iv.assigneeIsOverride && <span style={{ fontSize: 10, color: 'var(--brand-600)' }} title="แก้ไขโดย admin">✏️</span>}
+                    </span>
                   ) : <span className="muted">ไม่โอน</span>}
                 </td>
-                <td className="num" style={{ whiteSpace: 'nowrap', color: iv.debt ? 'var(--bad)' : 'inherit' }}>{iv.debt ? '-' + fmtNum(iv.debt, 0) : <span className="muted">—</span>}</td>
+                <td className="num" style={{ whiteSpace: 'nowrap', color: iv.debt ? 'var(--bad)' : 'inherit' }} title={iv.debtIsOverride ? '✏️ Override โดย admin' : '📋 จากข้อมูลโครงการ'}>
+                  {iv.debt ? (
+                    <span>
+                      {'-' + fmtNum(iv.debt, 0)}
+                      {iv.debtIsOverride && <span style={{ fontSize: 10, color: 'var(--brand-600)', marginLeft: 3 }}>✏️</span>}
+                    </span>
+                  ) : <span className="muted">—</span>}
+                </td>
                 <td className="num" style={{ whiteSpace: 'nowrap', color: 'var(--good)', fontWeight: 700 }}>{fmtNum(iv.netExpected, 0)}</td>
                 <td style={{ whiteSpace: 'nowrap', textAlign: 'center', padding: '4px 6px' }} onClick={(e) => e.stopPropagation()}>
                   {iv.status === 'paid' ? (
@@ -1168,8 +1206,9 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
   const isPaid   = draft.status === 'paid';
   const project  = projectByCode[draft.jobNo];
   const finance  = financeByCode[draft.jobNo];
-  const debt     = finance?.debt || 0;
+  const debt     = resolveDebt(draft, finance);
   const netExpected = (draft.balance || 0) - debt;
+  const canEdit  = window.WTPAuth ? window.WTPAuth.can('canEdit') : true;
 
   // Computed: เงินเข้าบัญชีสุทธิ
   const ar       = draft.actualReceive;
@@ -1306,30 +1345,76 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
 
           {/* ── ข้อมูลจากระบบ ──────────────────────────────────────────────── */}
           <div>
-            <SectionHdr label="ข้อมูลจากระบบ — แก้ไขไม่ได้" icon="lock" muted />
+            <SectionHdr label={canEdit ? "ข้อมูลจากระบบ — admin override ภาระหนี้ได้" : "ข้อมูลจากระบบ — แก้ไขไม่ได้"} icon="lock" muted />
             <div style={{ display: 'grid', gridTemplateColumns: '108px 140px 130px 1fr 115px 152px', gap: '0 12px' }}>
               <ROField fkey="invoiceDate" label="วันที่ IV" />
               <ROField fkey="ivNo"        label="เลขที่ IV"  mono />
               <RONum   value={draft.balance} label="Balance" />
+              {/* ── ผู้รับโอนสิทธิ — Override-able by admin ── */}
               <div className="field">
                 <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'flex', alignItems: 'center', gap: 3 }}>
-                  <span style={{ fontSize: 10, opacity: 0.5 }}>🔒</span>ผู้รับโอนสิทธิ
+                  {canEdit ? <span style={{ fontSize: 10, color: 'var(--brand-500)' }}>✏️</span> : <span style={{ fontSize: 10, opacity: 0.5 }}>🔒</span>}
+                  ผู้รับโอนสิทธิ
+                  {ivHasAssigneeOverride(draft) && <span style={{ fontSize: 9, fontWeight: 700, background: 'var(--brand-500)', color: '#fff', borderRadius: 4, padding: '0 4px', marginLeft: 'auto' }}>OVERRIDE</span>}
                 </label>
-                <div style={{ height: 32, borderRadius: 7, border: '1px solid var(--ink-100)', background: 'var(--ink-50)', padding: '0 9px', display: 'flex', alignItems: 'center', fontSize: 12.5, color: finance?.assignee ? 'var(--ink-800)' : 'var(--ink-300)', cursor: 'default', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {finance?.assignee || '—'}
-                </div>
+                {canEdit ? (
+                  <div style={{ position: 'relative' }}>
+                    <input className="input" type="text"
+                      placeholder={finance?.assignee || finance?.['ผู้รับโอนสิทธิ์'] || '— จากโครงการ —'}
+                      value={draft.assigneeOverride || ''}
+                      onChange={(e) => set('assigneeOverride', e.target.value)}
+                      title="ว่าง = ใช้ค่าจากโครงการ · กรอก = override"
+                      style={{ fontSize: 12.5, height: 32 }} />
+                    {(draft.assigneeOverride || '') !== '' && (
+                      <button type="button" onClick={() => set('assigneeOverride', '')} title="ล้าง override กลับไปใช้ค่าจากโครงการ"
+                        style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--ink-400)', fontSize: 14, padding: '0 4px' }}>×</button>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ height: 32, borderRadius: 7, border: '1px solid var(--ink-100)', background: 'var(--ink-50)', padding: '0 9px', display: 'flex', alignItems: 'center', fontSize: 12.5, color: resolveAssignee(draft, finance) !== '—' ? 'var(--ink-800)' : 'var(--ink-300)', cursor: 'default', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {resolveAssignee(draft, finance) || '—'}
+                  </div>
+                )}
               </div>
-              <RONum value={debt} label="ภาระหนี้" negative />
+              {/* ── ภาระหนี้ — Override-able by admin ── */}
+              <div className="field">
+                <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'flex', alignItems: 'center', gap: 3 }}>
+                  {canEdit ? <span style={{ fontSize: 10, color: 'var(--brand-500)' }}>✏️</span> : <span style={{ fontSize: 10, opacity: 0.5 }}>🔒</span>}
+                  ภาระหนี้
+                  {ivHasDebtOverride(draft) && <span style={{ fontSize: 9, fontWeight: 700, background: 'var(--brand-500)', color: '#fff', borderRadius: 4, padding: '0 4px', marginLeft: 'auto' }}>OVERRIDE</span>}
+                </label>
+                {canEdit ? (
+                  <div style={{ position: 'relative' }}>
+                    <input className="input" type="number" min="0" step="0.01"
+                      placeholder={Number(finance?.debt ?? finance?.['ภาระหนี้']) ? String(Number(finance?.debt ?? finance?.['ภาระหนี้'])) : '— จากโครงการ —'}
+                      value={draft.debtOverride ?? ''}
+                      onChange={(e) => set('debtOverride', e.target.value === '' ? null : Number(e.target.value))}
+                      title="ว่าง = ใช้ค่าจากโครงการ · กรอก = override"
+                      style={{ fontSize: 12.5, height: 32, textAlign: 'right', fontFamily: 'ui-monospace', fontWeight: 600, color: 'var(--bad)' }} />
+                    {draft.debtOverride != null && draft.debtOverride !== '' && (
+                      <button type="button" onClick={() => set('debtOverride', null)} title="ล้าง override กลับไปใช้ค่าจากโครงการ"
+                        style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--ink-400)', fontSize: 14, padding: '0 4px' }}>×</button>
+                    )}
+                  </div>
+                ) : (
+                  <RONum value={resolveDebt(draft, finance)} label="" negative />
+                )}
+              </div>
               <div className="field">
                 <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'flex', alignItems: 'center', gap: 3 }}>
                   <span style={{ fontSize: 10, opacity: 0.5 }}>🔒</span>คาดรับสุทธิ <span style={{ fontSize: 10, opacity: 0.6, marginLeft: 3 }}>(คำนวณ)</span>
                 </label>
                 <div style={{ height: 32, borderRadius: 7, padding: '0 22px 0 9px', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', background: 'color-mix(in oklch, var(--good) 10%, transparent)', border: '1px solid color-mix(in oklch, var(--good) 25%, transparent)', fontFamily: 'ui-monospace', fontSize: 13, fontWeight: 700, color: 'var(--good)' }}>
-                  {fmtNum(netExpected, 0)}
+                  {fmtNum((draft.balance || 0) - resolveDebt(draft, finance), 0)}
                   <span style={{ position: 'absolute', right: 7, fontSize: 10, color: 'var(--ink-400)', fontWeight: 400 }}>฿</span>
                 </div>
               </div>
             </div>
+            {canEdit && (
+              <div style={{ fontSize: 11, color: 'var(--ink-500)', marginTop: 6, fontStyle: 'italic' }}>
+                💡 ว่าง = ใช้ค่าจากข้อมูลโครงการ · กรอก = override เฉพาะ IV นี้
+              </div>
+            )}
           </div>
 
           {/* ── ข้อมูลติดตาม ───────────────────────────────────────────────── */}

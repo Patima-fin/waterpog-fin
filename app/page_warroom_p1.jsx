@@ -91,9 +91,10 @@ function WarRoomPage1({ data, setData, toast }) {
     const mx = s.match(/^(.+)-([A-Z]{2,6})$/);
     const cj = mx ? mx[1] : s;
     const f        = financeByCode[cj] || financeByCode[iv.contractRef] || {};
-    const debt     = Number(f.debt ?? f['ภาระหนี้'] ?? 0);
     const balance  = Number(iv.balance) || 0;
-    const assignee = f.assignee || f['ผู้รับโอนสิทธิ์'] || '';
+    // ใช้ resolveDebt/resolveAssignee → respect admin override บน IV
+    const debt     = (window.resolveDebt     ? window.resolveDebt(iv, f)     : Number(f.debt ?? f['ภาระหนี้'] ?? 0));
+    const assignee = (window.resolveAssignee ? window.resolveAssignee(iv, f) : (f.assignee || f['ผู้รับโอนสิทธิ์'] || ''));
     return [{ ...iv, jobNo: cj, status, invType: wrInvType(iv), debt, balance, netExpected: balance - debt, assignee }];
   }), [data.invoices, financeByCode, ivTypeFilter]);
 
