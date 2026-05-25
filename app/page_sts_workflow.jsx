@@ -131,12 +131,59 @@ function computeStsRow(receipt, match, params, debtEvents) {
   };
 }
 
+// Compute STS calc for a PROJECT — sums ALL receipts in the same jobNo so the
+// management fee is calculated correctly against total project revenue, and
+// interest is computed up to the LATEST receipt date (closing date of project).
+function computeStsRowMulti(projectReceipts, match, params, debtEvents) {
+  const mgmtRate = Number(params.mgmtRate) || DEFAULT_MGMT_FEE_RATE;
+  const whtMgmt  = Number(params.whtMgmt) || DEFAULT_WHT_MGMT;
+  const whtInt   = Number(params.whtInterest) || DEFAULT_WHT_INTEREST;
+
+  const sortedR  = [...(projectReceipts || [])].sort(
+    (a, b) => (a.receiptDate || '').localeCompare(b.receiptDate || '')
+  );
+  const earliestDate = sortedR.length ? sortedR[0].receiptDate : null;
+  const latestDate   = sortedR.length ? sortedR[sortedR.length - 1].receiptDate : null;
+  const baseAmount   = sortedR.reduce((s, r) => s + (Number(r.grossAmount) || 0), 0);
+
+  // All drawdowns earn interest up to the LATEST receipt date
+  const stsDraws = match?.sts ? expandDrawdowns(match.sts, debtEvents) : [];
+  const stsLegs  = stsDraws.map(d => legInterest(d.date, latestDate, d.amount, d.rate || DEFAULT_STS_INT_RATE));
+  const wciDraws = match?.wci ? expandDrawdowns(match.wci, debtEvents) : [];
+  const wciLegs  = wciDraws.map(d => legInterest(d.date, latestDate, d.amount, d.rate || 0.10));
+
+  const stsInterest   = stsLegs.reduce((s, l) => s + l.interest, 0);
+  const wciInterest   = wciLegs.reduce((s, l) => s + l.interest, 0);
+  const totalInterest = stsInterest + wciInterest;
+
+  const mgmtGross = baseAmount * mgmtRate;
+  const mgmtNet   = mgmtGross - totalInterest;
+  const whtOnMgmt = mgmtGross * whtMgmt;
+  const whtOnInt  = totalInterest * whtInt;
+  const encompassPayable = mgmtNet - whtOnMgmt + whtOnInt;
+
+  return {
+    receiptCount: sortedR.length,
+    earliestDate, latestDate,
+    days: stsLegs[0]?.days || 0,
+    baseAmount, mgmtRate, mgmtGross,
+    interest: totalInterest, stsInterest, wciInterest,
+    stsLegs, wciLegs,
+    mgmtNet, whtOnMgmt, whtOnInt, encompassPayable,
+  };
+}
+
 // ── Drawer for a single receipt ───────────────────────────────────────────
 // Same layout as page_sts_calc (full calculator-style view) — but pulls real
 // data from the matched receipt + debtMaster contract instead of being editable.
-function StsCalcDrawer({ receipt, match, calcResult, isOpen, onClose, onConfirm, params, setParams, debtEvents }) {
+function StsCalcDrawer({ projectReceipts, match, calcResult, isOpen, onClose, onConfirm, params, setParams, debtEvents }) {
   if (!isOpen) return null;
   const contract = match?.sts;
+  // Use the latest receipt as the "primary" for display labels (project name / code)
+  const sortedReceipts = [...(projectReceipts || [])].sort(
+    (a, b) => (a.receiptDate || '').localeCompare(b.receiptDate || '')
+  );
+  const primaryReceipt = sortedReceipts[sortedReceipts.length - 1] || projectReceipts?.[0];
 
   // Error state — no matching STS contract
   if (!contract) {
@@ -145,7 +192,7 @@ function StsCalcDrawer({ receipt, match, calcResult, isOpen, onClose, onConfirm,
         <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, padding: 28, maxWidth: 520, boxShadow: '0 24px 60px rgba(15,36,77,0.18)' }}>
           <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 10 }}>ไม่พบสัญญา STS ที่ตรงกับใบรับนี้</div>
           <div style={{ fontSize: 12, color: 'var(--ink-500)' }}>
-            Project: <strong>{receipt.projectCode || '—'}</strong> · {receipt.projectName || '—'}
+            Project: <strong>{primaryReceipt?.projectCode || '—'}</strong> · {primaryReceipt?.projectName || '—'}
           </div>
           <div style={{ fontSize: 11, color: 'var(--ink-400)', marginTop: 8 }}>
             ตรวจสอบว่ามีสัญญา STS-* ใน debtMaster ที่ projectCode/jobNo ตรงกับใบรับนี้
@@ -156,9 +203,9 @@ function StsCalcDrawer({ receipt, match, calcResult, isOpen, onClose, onConfirm,
     );
   }
 
-  const c            = computeStsRow(receipt, match, params, debtEvents);
+  const c            = computeStsRowMulti(projectReceipts, match, params, debtEvents);
   const wci          = match?.wci;
-  const contractValue= Number(contract.contractValueIncVAT) || Number(receipt.grossAmount) || 0;
+  const contractValue= Number(contract.contractValueIncVAT) || c.baseAmount || 0;
   const stsRate      = Number(contract.interestRate) || DEFAULT_STS_INT_RATE;
   const wciRate      = wci ? (Number(wci.interestRate) || 0.10) : 0.10;
   const stsDraws     = expandDrawdowns(contract, debtEvents);
@@ -178,9 +225,9 @@ function StsCalcDrawer({ receipt, match, calcResult, isOpen, onClose, onConfirm,
         {/* Header */}
         <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, background: '#fff', zIndex: 5 }}>
           <div>
-            <div style={{ fontWeight: 700, fontSize: 17 }}>STS Calculator · {receipt.receiptNo || receipt.invoiceNo || '—'}</div>
+            <div style={{ fontWeight: 700, fontSize: 17 }}>STS Calculator · {match.jobNo || contract.contractNo || '—'}</div>
             <div style={{ fontSize: 12, color: 'var(--ink-500)', marginTop: 2 }}>
-              คำนวณดอกเบี้ย STS+WCI และค่าบริการเอนคอมพาส
+              คำนวณดอกเบี้ย STS+WCI และค่าบริการเอนคอมพาส · {c.receiptCount} ใบรับ · ยอดรวม {bMoney(c.baseAmount)} ฿
             </div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 24, cursor: 'pointer', color: 'var(--ink-400)', lineHeight: 1, padding: 4 }}>×</button>
@@ -206,7 +253,7 @@ function StsCalcDrawer({ receipt, match, calcResult, isOpen, onClose, onConfirm,
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
               <div>
                 <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'block', marginBottom: 3 }}>ชื่อโครงการ</label>
-                <input value={contract.projectName || receipt.projectName || ''} readOnly style={roInput} />
+                <input value={contract.projectName || primaryReceipt?.projectName || ''} readOnly style={roInput} />
               </div>
               <div>
                 <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'block', marginBottom: 3 }}>เลขที่สัญญา / อ้างอิง</label>
@@ -306,22 +353,41 @@ function StsCalcDrawer({ receipt, match, calcResult, isOpen, onClose, onConfirm,
             </table>
           </div>
 
-          {/* ── Government receipt (the one being processed) ─────────────── */}
+          {/* ── Government receipts — ALL receipts for this project ───── */}
           <div className="card" style={{ padding: 0, marginBottom: 16, overflow: 'hidden' }}>
-            <div style={{ padding: '10px 16px', background: '#f0fdf4', borderBottom: '1px solid #bbf7d0' }}>
-              <div style={{ fontWeight: 700, fontSize: 13 }}>🏛 รับเงินจากราชการ</div>
+            <div style={{ padding: '10px 16px', background: '#f0fdf4', borderBottom: '1px solid #bbf7d0', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>🏛 รับเงินจากราชการ ({c.receiptCount} ใบ)</div>
+              <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>โครงการ <strong>{match.jobNo}</strong></div>
             </div>
             <table className="tbl" style={{ width: '100%', fontSize: 12 }}>
               <thead>
-                <tr><th style={{ width: 100 }}>เลขที่ใบรับ</th><th style={{ width: 130 }}>วันที่รับ</th><th style={{ width: 120 }}>ใบแจ้งหนี้</th><th style={{ textAlign: 'right' }}>จำนวนเงิน (gross)</th></tr>
+                <tr>
+                  <th style={{ width: 50 }}>#</th>
+                  <th style={{ width: 110 }}>เลขที่ใบรับ</th>
+                  <th style={{ width: 110 }}>วันที่รับ</th>
+                  <th style={{ width: 120 }}>ใบแจ้งหนี้</th>
+                  <th style={{ textAlign: 'right' }}>จำนวนเงิน (gross)</th>
+                </tr>
               </thead>
               <tbody>
-                <tr>
-                  <td style={{ fontFamily: 'ui-monospace', fontWeight: 600 }}>{receipt.receiptNo || '—'}</td>
-                  <td>{fmtDate(receipt.receiptDate)}</td>
-                  <td style={{ fontFamily: 'ui-monospace', fontSize: 11 }}>{receipt.invoiceNo || '—'}</td>
-                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: '#0369a1' }}>{bMoney2(receipt.grossAmount)}</td>
-                </tr>
+                {sortedReceipts.length === 0 && (
+                  <tr><td colSpan={5} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-400)' }}>ไม่มีใบรับเงิน</td></tr>
+                )}
+                {sortedReceipts.map((r, i) => (
+                  <tr key={r.id || i}>
+                    <td style={{ fontSize: 11, color: 'var(--ink-500)' }}>{i + 1}</td>
+                    <td style={{ fontFamily: 'ui-monospace', fontWeight: 600 }}>{r.receiptNo || '—'}</td>
+                    <td>{fmtDate(r.receiptDate) || r.receiptDate || '—'}</td>
+                    <td style={{ fontFamily: 'ui-monospace', fontSize: 11 }}>{r.invoiceNo || '—'}</td>
+                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{bMoney2(r.grossAmount)}</td>
+                  </tr>
+                ))}
+                {sortedReceipts.length > 0 && (
+                  <tr style={{ background: '#dcfce7', fontWeight: 700 }}>
+                    <td colSpan={4} style={{ textAlign: 'right', paddingRight: 12 }}>รวมยอดรับทั้งโครงการ</td>
+                    <td style={{ textAlign: 'right', color: '#15803d', fontVariantNumeric: 'tabular-nums' }}>{bMoney2(c.baseAmount)}</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -329,7 +395,7 @@ function StsCalcDrawer({ receipt, match, calcResult, isOpen, onClose, onConfirm,
           {/* ── Interest calculation details ────────────────────────────── */}
           <div className="card" style={{ padding: 0, marginBottom: 16, overflow: 'hidden' }}>
             <div style={{ padding: '10px 16px', background: '#fff7ed', borderBottom: '1px solid #fed7aa' }}>
-              <div style={{ fontWeight: 700, fontSize: 13 }}>📈 รายละเอียดดอกเบี้ย (คำนวณถึงวันรับเงิน {fmtDate(receipt.receiptDate)})</div>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>📈 รายละเอียดดอกเบี้ย (คำนวณถึงวันรับเงินใบล่าสุด {fmtDate(c.latestDate)})</div>
             </div>
             <table className="tbl" style={{ width: '100%', fontSize: 12 }}>
               <thead>
@@ -442,7 +508,7 @@ function StsWorkflowPage({ data, setData, toast }) {
     whtMgmt: DEFAULT_WHT_MGMT,
     whtInterest: DEFAULT_WHT_INTEREST,
   });
-  const [openReceiptId, setOpenReceiptId] = React.useState(null);
+  const [openJobNo, setOpenJobNo] = React.useState(null);
   const [filter, setFilter] = React.useState('all'); // all | pending | done
 
   // STS contract index
@@ -457,52 +523,79 @@ function StsWorkflowPage({ data, setData, toast }) {
     }).filter(m => m.match); // STS-relevant only
   }, [receipts, stsIdx, invoices, calcResults]);
 
-  const filtered = React.useMemo(() => {
-    if (filter === 'pending') return matched.filter(m => !m.result);
-    if (filter === 'done')    return matched.filter(m =>  m.result);
-    return matched;
-  }, [matched, filter]);
+  // Group matched receipts by project (jobNo) — 1 row per project, not per receipt
+  const groupedProjects = React.useMemo(() => {
+    const byJob = new Map();
+    matched.forEach(m => {
+      const job = m.match.jobNo;
+      if (!byJob.has(job)) {
+        byJob.set(job, { jobNo: job, match: m.match, receipts: [], results: [] });
+      }
+      const g = byJob.get(job);
+      g.receipts.push(m.receipt);
+      if (m.result) g.results.push(m.result);
+    });
+    byJob.forEach(g => g.receipts.sort((a, b) => (a.receiptDate || '').localeCompare(b.receiptDate || '')));
+    return Array.from(byJob.values());
+  }, [matched]);
 
-  // KPIs
-  const pendingCount = matched.filter(m => !m.result).length;
-  const doneCount    = matched.filter(m =>  m.result).length;
+  // A project is "done" when ALL its receipts have a calc result
+  const isProjectDone    = (g) => g.results.length > 0 && g.results.length === g.receipts.length;
+  const isProjectPartial = (g) => g.results.length > 0 && g.results.length <  g.receipts.length;
+
+  const filtered = React.useMemo(() => {
+    if (filter === 'pending') return groupedProjects.filter(g => !isProjectDone(g));
+    if (filter === 'done')    return groupedProjects.filter(g =>  isProjectDone(g));
+    return groupedProjects;
+  }, [groupedProjects, filter]);
+
+  // KPIs — counted per PROJECT (no duplication across receipts)
+  const pendingCount = groupedProjects.filter(g => !isProjectDone(g)).length;
+  const doneCount    = groupedProjects.filter(g =>  isProjectDone(g)).length;
   let totalSts = 0, totalWci = 0, totalEncompass = 0;
-  matched.forEach(m => {
-    const c = computeStsRow(m.receipt, m.match, params, debtEvents);
-    totalSts      += c.stsInterest;
-    totalWci      += c.wciInterest;
-    totalEncompass+= c.encompassPayable;
+  groupedProjects.forEach(g => {
+    const c = computeStsRowMulti(g.receipts, g.match, params, debtEvents);
+    totalSts       += c.stsInterest;
+    totalWci       += c.wciInterest;
+    totalEncompass += c.encompassPayable;
   });
   const totalInterest = totalSts + totalWci;
 
-  // Confirm handler — save to stsCalcResult (local state; needs Sheet write to persist)
+  // Confirm handler — save 1 calc result per receipt in the project
+  // (uses receipt.id as pendingCalcId to fit the existing schema)
   const handleConfirm = (calcVals) => {
-    if (!openReceiptId) return;
-    const m = matched.find(x => x.receipt.id === openReceiptId);
-    if (!m) return;
-    const debtIds = [m.match.sts?.id, m.match.wci?.id].filter(Boolean);
-    const newResult = {
+    if (!openJobNo) return;
+    const g = groupedProjects.find(x => x.jobNo === openJobNo);
+    if (!g) return;
+    const debtIds = [g.match.sts?.id, g.match.wci?.id].filter(Boolean);
+    const stamp   = new Date().toISOString();
+    const dateOnly= stamp.slice(0, 10);
+    const newResults = g.receipts.map(r => ({
       id: 'cr_' + Math.random().toString(36).slice(2, 10),
-      pendingCalcId: m.receipt.id,
+      pendingCalcId: r.id,
       debtIds,
       interestTotal: calcVals.interest,
       serviceFeeFull: calcVals.mgmtGross,
       serviceFeeNet:  calcVals.mgmtNet,
       encompassPayableId: '',
-      note: 'คำนวณ STS วันที่ ' + new Date().toISOString().slice(0, 10),
-      calculatedAt: new Date().toISOString(),
-    };
+      note: 'คำนวณ STS โครงการ ' + g.jobNo + ' วันที่ ' + dateOnly,
+      calculatedAt: stamp,
+    }));
+    const receiptIdsInProject = new Set(g.receipts.map(r => r.id));
     if (setData) {
       setData(d => ({
         ...d,
-        stsCalcResult: [...((d.stsCalcResult) || []).filter(x => x.pendingCalcId !== match.receipt.id), newResult],
+        stsCalcResult: [
+          ...((d.stsCalcResult) || []).filter(x => !receiptIdsInProject.has(x.pendingCalcId)),
+          ...newResults,
+        ],
       }));
     }
-    if (toast) toast('บันทึกผลการคำนวณแล้ว (ยังไม่ส่งกลับ Google Sheet)');
-    setOpenReceiptId(null);
+    if (toast) toast(`บันทึกผลการคำนวณ ${g.receipts.length} ใบรับ (โครงการ ${g.jobNo})`);
+    setOpenJobNo(null);
   };
 
-  const openMatch = matched.find(m => m.receipt.id === openReceiptId);
+  const openGroup = groupedProjects.find(g => g.jobNo === openJobNo);
 
   return (
     <div className="page">
@@ -516,15 +609,15 @@ function StsWorkflowPage({ data, setData, toast }) {
       </div>
 
       <div className="grid grid-4 anim-stagger" style={{ marginBottom: 16 }}>
-        <KpiTile animate={false} label="รอ Review"            value={pendingCount}   accent="var(--bad)"            icon="invoice" unit=" ใบ" digits={0} />
-        <KpiTile animate={false} label="ตรวจสอบแล้ว"          value={doneCount}      accent="var(--good)"           icon="coin"    unit=" ใบ" digits={0} />
+        <KpiTile animate={false} label="โครงการรอ Review"      value={pendingCount}   accent="var(--bad)"            icon="invoice" unit=" โครงการ" digits={0} />
+        <KpiTile animate={false} label="โครงการตรวจสอบแล้ว"    value={doneCount}      accent="var(--good)"           icon="coin"    unit=" โครงการ" digits={0} />
         <KpiTile animate={false} label="ดอกเบี้ย STS+WCI รวม" value={totalInterest}  accent="var(--brand-500)"      icon="money" />
         <KpiTile animate={false} label="ค่าบริการเอนคอมพาส"   value={totalEncompass} accent="oklch(52% 0.16 220)"   icon="bank" />
       </div>
 
       <div className="card" style={{ padding: '10px 14px', marginBottom: 12, display: 'flex', gap: 10, alignItems: 'center' }}>
         <div className="tabnav" style={{ flex: 'none' }}>
-          <button className={filter === 'all'     ? 'active' : ''} onClick={() => setFilter('all')}>ทั้งหมด ({matched.length})</button>
+          <button className={filter === 'all'     ? 'active' : ''} onClick={() => setFilter('all')}>ทั้งหมด ({groupedProjects.length})</button>
           <button className={filter === 'pending' ? 'active' : ''} onClick={() => setFilter('pending')}>รอ review ({pendingCount})</button>
           <button className={filter === 'done'    ? 'active' : ''} onClick={() => setFilter('done')}>ตรวจแล้ว ({doneCount})</button>
         </div>
@@ -533,7 +626,7 @@ function StsWorkflowPage({ data, setData, toast }) {
         </div>
       </div>
 
-      {matched.length === 0 && (
+      {groupedProjects.length === 0 && (
         <div className="card" style={{ padding: 40, textAlign: 'center' }}>
           <div style={{ fontSize: 32, marginBottom: 12 }}>🔍</div>
           <div style={{ fontWeight: 600, color: 'var(--ink-600)', marginBottom: 8 }}>ไม่พบใบรับที่ match กับสัญญา STS</div>
@@ -543,52 +636,53 @@ function StsWorkflowPage({ data, setData, toast }) {
         </div>
       )}
 
-      {matched.length > 0 && (
+      {groupedProjects.length > 0 && (
         <div className="card anim-in" style={{ padding: 0, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'min(480px, calc(100vh - 400px))' }}>
-            <table className="tbl" style={{ minWidth: 1100, fontSize: 12 }}>
+            <table className="tbl" style={{ minWidth: 1180, fontSize: 12 }}>
               <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--surface)' }}>
                 <tr>
-                  <th style={{ width: 100 }}>วันที่รับเงิน</th>
-                  <th style={{ width: 120 }}>เลขที่ใบรับ / IV</th>
-                  <th style={{ width: 90 }}>รหัสโครงการ</th>
+                  <th style={{ width: 100 }}>รหัสโครงการ</th>
+                  <th style={{ width: 60, textAlign: 'right' }}>ใบรับ</th>
+                  <th style={{ width: 110 }}>รับเงินล่าสุด</th>
                   <th>สัญญา STS</th>
-                  <th style={{ textAlign: 'right', width: 110 }}>ยอดรับ (฿)</th>
+                  <th style={{ textAlign: 'right', width: 130 }}>ยอดรวมที่รับ (฿)</th>
                   <th style={{ textAlign: 'right', width: 70 }}>จำนวนวัน</th>
                   <th style={{ textAlign: 'right', width: 120 }}>ดอกเบี้ยรวม (฿)</th>
                   <th style={{ textAlign: 'right', width: 120 }}>ค่าบริการ (฿)</th>
-                  <th style={{ width: 100 }}>สถานะ</th>
+                  <th style={{ width: 130 }}>สถานะ</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(m => {
-                  const c = computeStsRow(m.receipt, m.match, params, debtEvents);
-                  const isDone = !!m.result;
-                  const sts = m.match.sts;
-                  const wciCount = m.match.wci ? expandDrawdowns(m.match.wci, debtEvents).length : 0;
+                {filtered.map(g => {
+                  const c = computeStsRowMulti(g.receipts, g.match, params, debtEvents);
+                  const sts = g.match.sts;
+                  const wciCount = g.match.wci ? expandDrawdowns(g.match.wci, debtEvents).length : 0;
                   const stsCount = sts ? expandDrawdowns(sts, debtEvents).length : 0;
+                  const done    = isProjectDone(g);
+                  const partial = isProjectPartial(g);
                   return (
-                    <tr key={m.receipt.id} onClick={() => setOpenReceiptId(m.receipt.id)} style={{ cursor: 'pointer', background: isDone ? '#f0fdf4' : undefined }}>
-                      <td>{fmtDate(m.receipt.receiptDate)}</td>
-                      <td style={{ fontFamily: 'ui-monospace', fontSize: 11 }}>
-                        <div>{m.receipt.receiptNo || '—'}</div>
-                        <div style={{ fontSize: 10, color: 'var(--ink-400)' }}>{m.receipt.invoiceNo || '—'}</div>
+                    <tr key={g.jobNo} onClick={() => setOpenJobNo(g.jobNo)}
+                        style={{ cursor: 'pointer', background: done ? '#f0fdf4' : partial ? '#fffbeb' : undefined }}>
+                      <td style={{ fontFamily: 'ui-monospace', fontSize: 11, fontWeight: 600 }}>{g.jobNo}</td>
+                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
+                        {g.receipts.length}
                       </td>
-                      <td style={{ fontFamily: 'ui-monospace', fontSize: 11 }}>{m.receipt.projectCode || '—'}</td>
+                      <td>{fmtDate(c.latestDate)}</td>
                       <td style={{ fontSize: 11 }}>
                         <div style={{ fontWeight: 600 }}>{sts.contractNo}</div>
                         <div style={{ fontSize: 10, color: 'var(--ink-400)' }}>
                           STS {bMoney(sts.principalAmount)} ฿{stsCount > 1 ? ' (' + stsCount + ' งวด)' : ''} · WCI {wciCount} งวด
                         </div>
                       </td>
-                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{bMoney(m.receipt.grossAmount)}</td>
+                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{bMoney(c.baseAmount)}</td>
                       <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{c.days}</td>
                       <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#9b1c1c' }}>{bMoney(c.interest)}</td>
                       <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: '#0369a1' }}>{bMoney(c.encompassPayable)}</td>
                       <td>
-                        {isDone
-                          ? <Badge kind="b-green" dot={false}>✓ ตรวจแล้ว</Badge>
-                          : <Badge kind="b-amber" dot={false}>รอ review</Badge>}
+                        {done    ? <Badge kind="b-green" dot={false}>✓ ตรวจแล้ว</Badge>
+                        : partial ? <Badge kind="b-amber" dot={false}>บางส่วน ({g.results.length}/{g.receipts.length})</Badge>
+                                  : <Badge kind="b-amber" dot={false}>รอ review</Badge>}
                       </td>
                     </tr>
                   );
@@ -600,11 +694,11 @@ function StsWorkflowPage({ data, setData, toast }) {
       )}
 
       <StsCalcDrawer
-        receipt={openMatch?.receipt}
-        match={openMatch?.match}
-        calcResult={openMatch?.result}
-        isOpen={!!openMatch}
-        onClose={() => setOpenReceiptId(null)}
+        projectReceipts={openGroup?.receipts}
+        match={openGroup?.match}
+        calcResult={openGroup?.results?.[0]}
+        isOpen={!!openGroup}
+        onClose={() => setOpenJobNo(null)}
         onConfirm={handleConfirm}
         params={params}
         setParams={setParams}
