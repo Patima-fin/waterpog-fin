@@ -7,6 +7,220 @@
 
 const { useState: ivState, useMemo: ivMemo, useRef: ivRef, useEffect: ivEffect } = React;
 
+// ── helper: ค่าที่ใช้แสดงใน filter dropdown สำหรับแต่ละ column ──────────────
+function ivColDisplayVal(colKey, iv) {
+  switch (colKey) {
+    case 'status':          return WTPData.IV_STATUS_META[iv.status]?.label || iv.status || '—';
+    case 'invoiceDate':     return fmtDate(iv.invoiceDate) || '—';
+    case 'expectedReceive': return fmtDate(iv.expectedReceive) || '—';
+    default: {
+      const v = iv[colKey];
+      return (v == null || v === '' || v === '—') ? '—' : String(v);
+    }
+  }
+}
+
+// ── Dropdown portal (fixed-position เพื่อข้าม overflow ของตาราง) ─────────────
+function IvColFilterDropdown({ btnRef, colKey, allRows, active, onApply, onClose }) {
+  const [search, setSearch] = ivState('');
+  const [pos, setPos]       = ivState(null);
+  const selfRef             = ivRef(null);
+
+  // คำนวณตำแหน่งจาก button
+  ivEffect(() => {
+    const calc = () => {
+      if (!btnRef.current) return;
+      const r = btnRef.current.getBoundingClientRect();
+      setPos({ top: r.bottom + 4, left: Math.min(r.left, window.innerWidth - 290) });
+    };
+    calc();
+    window.addEventListener('scroll', calc, true);
+    window.addEventListener('resize', calc);
+    return () => { window.removeEventListener('scroll', calc, true); window.removeEventListener('resize', calc); };
+  }, []);
+
+  // ปิดเมื่อคลิกข้างนอก
+  ivEffect(() => {
+    const h = (e) => {
+      if (selfRef.current && !selfRef.current.contains(e.target) &&
+          btnRef.current  && !btnRef.current.contains(e.target)) onClose();
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  // unique values + count
+  const allVals = ivMemo(() => {
+    const map = new Map();
+    allRows.forEach(iv => {
+      const v = ivColDisplayVal(colKey, iv);
+      map.set(v, (map.get(v) || 0) + 1);
+    });
+    return [...map.entries()].sort((a, b) => {
+      if (a[0] === '—') return 1; if (b[0] === '—') return -1;
+      return a[0].localeCompare(b[0], 'th');
+    });
+  }, [allRows, colKey]);
+
+  const visibleVals = search.trim()
+    ? allVals.filter(([v]) => v.toLowerCase().includes(search.trim().toLowerCase()))
+    : allVals;
+
+  const isAllSelected = !active || active.size === 0;
+  const isChecked = (v) => isAllSelected || (active && active.has(v));
+
+  const toggle = (val) => {
+    let next;
+    if (isAllSelected) {
+      next = new Set(allVals.map(([v]) => v));
+      next.delete(val);
+    } else {
+      next = new Set(active);
+      if (next.has(val)) next.delete(val); else next.add(val);
+    }
+    onApply(next.size === 0 || next.size === allVals.length ? null : next);
+  };
+
+  if (!pos) return null;
+
+  const dropdown = (
+    <div ref={selfRef} onClick={e => e.stopPropagation()} style={{
+      position: 'fixed', top: pos.top, left: pos.left, zIndex: 99999,
+      background: 'var(--surface, #fff)', border: '1.5px solid var(--ink-200, #dde3ee)',
+      borderRadius: 10, boxShadow: '0 10px 40px rgba(0,0,0,0.18)',
+      minWidth: 230, maxWidth: 300, fontSize: 12.5,
+    }}>
+      {/* ช่องค้นหาใน dropdown */}
+      <div style={{ padding: '8px 10px 6px' }}>
+        <input autoFocus className="input"
+          style={{ fontSize: 12, padding: '4px 8px', width: '100%', boxSizing: 'border-box' }}
+          placeholder="ค้นหาใน dropdown..." value={search}
+          onChange={e => setSearch(e.target.value)}
+          onKeyDown={e => e.key === 'Escape' && onClose()} />
+      </div>
+
+      {/* เลือกทั้งหมด */}
+      <div style={{ borderTop: '1px solid var(--ink-100)', borderBottom: '1px solid var(--ink-100)' }}>
+        <label style={{
+          display: 'flex', alignItems: 'center', gap: 8, padding: '5px 12px', cursor: 'pointer',
+          background: isAllSelected ? 'color-mix(in oklch,var(--brand-500) 8%,transparent)' : '',
+        }}>
+          <input type="checkbox" checked={isAllSelected} onChange={() => onApply(null)}
+            style={{ width: 14, height: 14, cursor: 'pointer', flexShrink: 0 }} />
+          <span style={{ fontWeight: 600, color: 'var(--ink-700)', flex: 1 }}>(เลือกทั้งหมด)</span>
+          <span style={{ color: 'var(--ink-400)', fontSize: 11 }}>{allRows.length}</span>
+        </label>
+      </div>
+
+      {/* รายการค่า */}
+      <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+        {visibleVals.length === 0 && (
+          <div style={{ padding: '10px 12px', color: 'var(--ink-400)' }}>ไม่พบค่าที่ตรงกัน</div>
+        )}
+        {visibleVals.map(([val, count]) => {
+          const checked = isChecked(val);
+          return (
+            <label key={val} style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '5px 12px', cursor: 'pointer',
+              borderBottom: '1px solid var(--ink-50)',
+              background: checked && !isAllSelected ? 'color-mix(in oklch,var(--brand-500) 5%,transparent)' : '',
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = 'var(--ink-50)'}
+            onMouseLeave={e => e.currentTarget.style.background = checked && !isAllSelected ? 'color-mix(in oklch,var(--brand-500) 5%,transparent)' : ''}>
+              <input type="checkbox" checked={checked} onChange={() => toggle(val)}
+                style={{ width: 14, height: 14, cursor: 'pointer', flexShrink: 0 }} />
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{val}</span>
+              <span style={{ flexShrink: 0, color: 'var(--ink-400)', fontSize: 11 }}>{count}</span>
+            </label>
+          );
+        })}
+      </div>
+
+      {/* Footer */}
+      <div style={{ borderTop: '1px solid var(--ink-100)', padding: '6px 10px', display: 'flex', justifyContent: 'space-between', gap: 6 }}>
+        <button className="btn btn-ghost btn-sm"
+          style={{ fontSize: 11, color: 'var(--bad)', padding: '2px 8px' }}
+          onClick={() => { onApply(null); onClose(); }}>
+          ล้างตัวกรอง
+        </button>
+        <button className="btn btn-sm"
+          style={{ fontSize: 11, padding: '2px 10px', background: 'var(--brand-500)', color: '#fff', border: 'none', borderRadius: 5 }}
+          onClick={onClose}>
+          ✓ ตกลง
+        </button>
+      </div>
+    </div>
+  );
+
+  return ReactDOM.createPortal(dropdown, document.body);
+}
+
+// ── Column header: sort + filter icon ────────────────────────────────────────
+function IvColHeader({ label, sortKey, sort, sortToggle, align = 'center', width,
+                       colKey, colFilters, setColFilters, openCol, setOpenCol, allRows }) {
+  const btnRef    = ivRef(null);
+  const active    = colFilters[colKey];
+  const isActive  = active && active.size > 0;
+  const isOpen    = openCol === colKey;
+  const sortOn    = sort.key === sortKey;
+
+  const applyFilter = (vals) => setColFilters(prev => {
+    const next = { ...prev };
+    if (!vals) delete next[colKey]; else next[colKey] = vals;
+    return next;
+  });
+
+  return (
+    <th style={{ width, textAlign: align, userSelect: 'none', position: 'relative' }}>
+      <div style={{
+        display: 'inline-flex', alignItems: 'center', gap: 3,
+        width: '100%', justifyContent: align === 'right' ? 'flex-end' : 'center',
+      }}>
+        {/* Sort label */}
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}
+          onClick={() => sortToggle(sortKey)}>
+          {label}
+          <span style={{ opacity: sortOn ? 1 : 0.25, fontSize: 9, display: 'inline-flex', flexDirection: 'column', lineHeight: 1 }}>
+            <span style={{ color: sortOn && sort.dir === 'asc' ? 'var(--brand-600)' : 'inherit' }}>▲</span>
+            <span style={{ color: sortOn && sort.dir === 'desc' ? 'var(--brand-600)' : 'inherit', marginTop: -2 }}>▼</span>
+          </span>
+        </span>
+
+        {/* Filter button */}
+        <button ref={btnRef}
+          onClick={(e) => { e.stopPropagation(); setOpenCol(isOpen ? null : colKey); }}
+          title={isActive ? `กรองอยู่ ${active.size} ค่า — คลิกแก้ไข` : 'กรองคอลัมน์'}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 2,
+            background: isActive ? 'var(--brand-500)' : 'transparent',
+            color: isActive ? '#fff' : isOpen ? 'var(--brand-500)' : 'var(--ink-350,#aab)',
+            border: isActive ? 'none' : `1px solid ${isOpen ? 'var(--brand-300)' : 'transparent'}`,
+            borderRadius: 4, padding: '1px 3px', cursor: 'pointer',
+            fontSize: 10, lineHeight: 1, flexShrink: 0,
+            transition: 'background 120ms, color 120ms',
+          }}
+          onMouseEnter={e => { if (!isActive) { e.currentTarget.style.color = 'var(--brand-500)'; e.currentTarget.style.borderColor = 'var(--brand-200)'; }}}
+          onMouseLeave={e => { if (!isActive) { e.currentTarget.style.color = isOpen ? 'var(--brand-500)' : 'var(--ink-350,#aab)'; e.currentTarget.style.borderColor = isOpen ? 'var(--brand-300)' : 'transparent'; }}}>
+          {/* funnel icon */}
+          <svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor">
+            <path d="M1 1.5h8L6.2 5v3.5l-2.4-1V5L1 1.5z"/>
+          </svg>
+          {isActive && <span style={{ fontSize: 9, fontWeight: 700 }}>{active.size}</span>}
+        </button>
+      </div>
+
+      {/* Dropdown */}
+      {isOpen && (
+        <IvColFilterDropdown
+          btnRef={btnRef} colKey={colKey} allRows={allRows} active={active}
+          onApply={applyFilter} onClose={() => setOpenCol(null)}
+        />
+      )}
+    </th>
+  );
+}
+
 function InvoicesPage({ data, setData, toast }) {
   const [filter, setFilter] = ivState('all');
   const [query, setQuery] = ivState('');
@@ -15,6 +229,8 @@ function InvoicesPage({ data, setData, toast }) {
   const [payModal, setPayModal] = ivState(null);
   const [sugOpen, setSugOpen] = ivState(false);
   const searchBoxRef = ivRef(null);
+  const [colFilters, setColFilters] = ivState({});   // { colKey: Set<displayVal> }
+  const [openCol, setOpenCol]       = ivState(null); // colKey ของ dropdown ที่เปิดอยู่
 
   const { projectByCode, financeByCode } = ivMemo(() => WTPData.buildLookups(data), [data.projects]);
 
@@ -66,8 +282,14 @@ function InvoicesPage({ data, setData, toast }) {
       const q = query.toLowerCase();
       xs = xs.filter(iv => matchQuery(iv, q));
     }
+    // ── column filters (Excel-style) ──────────────────────────────────────
+    for (const [key, vals] of Object.entries(colFilters)) {
+      if (vals && vals.size > 0) {
+        xs = xs.filter(iv => vals.has(ivColDisplayVal(key, iv)));
+      }
+    }
     return xs;
-  }, [rows, filter, query]);
+  }, [rows, filter, query, colFilters]);
 
   // suggestions สำหรับ dropdown (สูงสุด 8 รายการ ค้นข้าม filter)
   const suggestions = ivMemo(() => {
@@ -269,20 +491,55 @@ function InvoicesPage({ data, setData, toast }) {
         </div>
       </div>
 
+      {/* ── active column filters summary bar ────────────────────────────────── */}
+      {Object.keys(colFilters).some(k => colFilters[k] && colFilters[k].size > 0) && (
+        <div style={{
+          display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6,
+          padding: '6px 12px', marginBottom: 8,
+          background: 'color-mix(in oklch,var(--brand-500) 7%,transparent)',
+          border: '1px solid color-mix(in oklch,var(--brand-500) 25%,transparent)',
+          borderRadius: 8, fontSize: 12,
+        }}>
+          <span style={{ color: 'var(--brand-700)', fontWeight: 600, fontSize: 11 }}>🔽 กรองอยู่:</span>
+          {Object.entries(colFilters).filter(([, v]) => v && v.size > 0).map(([key, vals]) => {
+            const labelMap = { jobNo:'Job No.', ivNo:'IV No.', invoiceDate:'วันที่ออก IV', projectName:'ชื่อโครงการ', balance:'ยอดค้างชำระ', assignee:'ผู้รับโอนสิทธิ์', debt:'ภาระหนี้', netExpected:'คาดรับสุทธิ', expectedReceive:'วันคาดรับเงิน', status:'สถานะ' };
+            const preview = [...vals].slice(0, 2).join(', ') + (vals.size > 2 ? ` +${vals.size - 2}` : '');
+            return (
+              <span key={key} style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+                background: 'var(--brand-500)', color: '#fff',
+                borderRadius: 20, padding: '2px 8px', fontSize: 11,
+              }}>
+                <strong>{labelMap[key] || key}</strong>: {preview}
+                <button onClick={() => setColFilters(p => { const n={...p}; delete n[key]; return n; })}
+                  style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: 0, marginLeft: 2, fontSize: 13, lineHeight: 1 }}>×</button>
+              </span>
+            );
+          })}
+          <button onClick={() => setColFilters({})}
+            style={{ background: 'none', border: '1px solid var(--brand-400)', color: 'var(--brand-700)', borderRadius: 5, padding: '2px 8px', cursor: 'pointer', fontSize: 11 }}>
+            ล้างทั้งหมด
+          </button>
+          <span style={{ marginLeft: 'auto', color: 'var(--ink-500)', fontSize: 11 }}>
+            แสดง {filtered.length} / {rows.length} รายการ
+          </span>
+        </div>
+      )}
+
       <div className="card anim-in" style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'min(480px, calc(100vh - 400px))' }}>
         <table className="tbl">
           <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--surface)' }}>
             <tr>
-              <SortHeader label="Job No."          sortKey="jobNo"           sort={sort} toggle={toggle} align="center" width={90} />
-              <SortHeader label="เลขที่ IV"        sortKey="ivNo"            sort={sort} toggle={toggle} align="center" width={110} />
-              <SortHeader label="วันที่ออก IV"     sortKey="invoiceDate"     sort={sort} toggle={toggle} align="center" width={95} />
-              <SortHeader label="ชื่อโครงการ"      sortKey="projectName"     sort={sort} toggle={toggle} align="center" />
-              <SortHeader label="ยอดค้างชำระ (฿)" sortKey="balance"         sort={sort} toggle={toggle} align="right"  width={130} />
-              <SortHeader label="ผู้รับโอนสิทธิ์"  sortKey="assignee"        sort={sort} toggle={toggle} align="center" width={110} />
-              <SortHeader label="ภาระหนี้ (฿)"    sortKey="debt"            sort={sort} toggle={toggle} align="right"  width={110} />
-              <SortHeader label="คาดรับสุทธิ (฿)" sortKey="netExpected"     sort={sort} toggle={toggle} align="right"  width={120} />
-              <SortHeader label="วันคาดรับเงิน"    sortKey="expectedReceive" sort={sort} toggle={toggle} align="center" width={105} />
+              <IvColHeader label="Job No."          sortKey="jobNo"           colKey="jobNo"           sort={sort} sortToggle={toggle} align="center" width={90}  colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
+              <IvColHeader label="เลขที่ IV"        sortKey="ivNo"            colKey="ivNo"            sort={sort} sortToggle={toggle} align="center" width={110} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
+              <IvColHeader label="วันที่ออก IV"     sortKey="invoiceDate"     colKey="invoiceDate"     sort={sort} sortToggle={toggle} align="center" width={95}  colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
+              <IvColHeader label="ชื่อโครงการ"      sortKey="projectName"     colKey="projectName"     sort={sort} sortToggle={toggle} align="center"            colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
+              <IvColHeader label="ยอดค้างชำระ (฿)" sortKey="balance"         colKey="balance"         sort={sort} sortToggle={toggle} align="right"  width={130} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
+              <IvColHeader label="ผู้รับโอนสิทธิ์"  sortKey="assignee"        colKey="assignee"        sort={sort} sortToggle={toggle} align="center" width={110} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
+              <IvColHeader label="ภาระหนี้ (฿)"    sortKey="debt"            colKey="debt"            sort={sort} sortToggle={toggle} align="right"  width={110} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
+              <IvColHeader label="คาดรับสุทธิ (฿)" sortKey="netExpected"     colKey="netExpected"     sort={sort} sortToggle={toggle} align="right"  width={120} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
+              <IvColHeader label="วันคาดรับเงิน"    sortKey="expectedReceive" colKey="expectedReceive" sort={sort} sortToggle={toggle} align="center" width={105} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
               <th style={{ width: 150, textAlign: 'center' }}>สถานะ</th>
             </tr>
           </thead>
