@@ -17,6 +17,7 @@ function InvoicesPage({ data, setData, toast }) {
   const { projectByCode, financeByCode } = ivMemo(() => WTPData.buildLookups(data), [data.projects]);
 
   // Joined rows: invoice + project name + finance (assignee, debt)
+  const VALID_STATUS = new Set(['pending_inspection', 'tracking', 'issue', 'paid']);
   const rows = ivMemo(() => data.invoices.map(iv => {
     // lookup ด้วย jobNo (Project No. เช่น PP064) → fallback ด้วย contractRef (Ref.code เช่น 6901-01)
     const p = projectByCode[iv.jobNo] || projectByCode[iv.contractRef] || {};
@@ -26,6 +27,8 @@ function InvoicesPage({ data, setData, toast }) {
     const assignee = f.assignee || f['ผู้รับโอนสิทธิ์'] || '—';
     return {
       ...iv,
+      // normalize status ที่ไม่รู้จัก → pending_inspection เพื่อให้นับแท็บถูกต้อง
+      status: VALID_STATUS.has(iv.status) ? iv.status : 'pending_inspection',
       // fallback ลำดับ: project lookup (พื้นที่) → iv.projectName (parse จาก proj_dpt ตอน import) → '—'
       projectName: p['พื้นที่'] || p.name || iv.projectName || '—',
       assignee,
