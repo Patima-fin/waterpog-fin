@@ -22,7 +22,7 @@ function metaFor(cat) {
 }
 
 // ── Detail row ────────────────────────────────────────────────────────────────
-function DebtRow({ r }) {
+function DebtRow({ r, onClick }) {
   const meta     = metaFor(r.debtCategory);
   const isActive = r.status === 'Active';
   const balance  = Number(r.balance || r.principalAmount) || 0;
@@ -31,7 +31,7 @@ function DebtRow({ r }) {
   const isUSD    = r.currency === 'USD';
 
   return (
-    <tr style={{ opacity: isActive ? 1 : 0.6 }}>
+    <tr onClick={onClick} style={{ opacity: isActive ? 1 : 0.6, cursor: onClick ? 'pointer' : 'default' }}>
       <td>
         <Badge kind="b-blue" dot={false}
           style={{ background: meta.bg, color: meta.color, border: `1px solid ${meta.color}33` }}>
@@ -88,6 +88,7 @@ function DebtPage({ data }) {
   const [tab,           setTab]           = React.useState('all');   // all | Active | Close
   const [categoryFilter, setCategoryFilter] = React.useState('all');
   const [query,         setQuery]         = React.useState('');
+  const [view,          setView]          = React.useState(null);    // row to show in popup
   const today = new Date().toISOString().slice(0, 10);
 
   // ── KPIs ──────────────────────────────────────────────────────────────────
@@ -311,7 +312,7 @@ function DebtPage({ data }) {
                     </td>
                   </tr>
                 )}
-                {sorted.map(r => <DebtRow key={r.id || r.contractNo} r={r} />)}
+                {sorted.map(r => <DebtRow key={r.id || r.contractNo} r={r} onClick={() => setView(r)} />)}
               </tbody>
               {sorted.length > 0 && (
                 <tfoot>
@@ -330,6 +331,128 @@ function DebtPage({ data }) {
           </div>
         </div>
       )}
+
+      {/* ── Detail Popup (read-only view) ────────────────────────────────── */}
+      {view && (() => {
+        const m       = metaFor(view.debtCategory);
+        const isActive= view.status === 'Active';
+        const isUSD   = view.currency === 'USD';
+        const bal     = Number(view.balance || view.principalAmount) || 0;
+        const princ   = Number(view.principalAmount) || 0;
+        const rate    = Number(view.interestRate) || 0;
+        const paid    = princ > 0 ? Math.max(0, princ - bal) : 0;
+        const paidPct = princ > 0 ? Math.min(100, (paid / princ) * 100) : 0;
+        const fld = (label, value, opts = {}) => (
+          <div className="field" style={opts.span ? { gridColumn: `span ${opts.span}` } : (opts.full ? { gridColumn: '1/-1' } : {})}>
+            <label style={{ fontSize: 12, color: 'var(--ink-500)' }}>{label}</label>
+            <div style={{
+              minHeight: 34, borderRadius: 7, border: '1px solid var(--ink-100)',
+              padding: '6px 10px', fontSize: 13, lineHeight: 1.5,
+              background: opts.highlight ? 'color-mix(in oklch, var(--bad) 9%, transparent)' : 'var(--ink-25, #f9fafb)',
+              color: opts.highlight ? 'var(--bad)' : 'var(--ink-700)',
+              fontWeight: opts.highlight ? 700 : (opts.bold ? 600 : 400),
+              fontFamily: opts.mono ? 'ui-monospace' : 'inherit',
+              textAlign: opts.right ? 'right' : 'left',
+              fontVariantNumeric: opts.right ? 'tabular-nums' : 'normal',
+              wordBreak: 'break-word', userSelect: 'text',
+            }}>{value || '—'}</div>
+          </div>
+        );
+        const Hdr = ({ label, icon }) => (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 7,
+            fontSize: 11, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase',
+            color: 'var(--brand-700)', paddingBottom: 6, marginTop: 6,
+            borderBottom: '1px solid var(--ink-100)', gridColumn: '1 / -1',
+          }}>
+            <Icon name={icon} size={13} />{label}
+          </div>
+        );
+
+        return (
+          <div className="modal-back" onClick={() => setView(null)}>
+            <div className="modal" style={{ maxWidth: 760 }} onClick={e => e.stopPropagation()}>
+              <div className="modal-hd">
+                <span className="modal-title" style={{ fontSize: 16 }}>
+                  ข้อมูลหนี้ · {view.contractNo || view.borrowerName || '—'}
+                </span>
+                <button className="btn btn-ghost btn-sm" onClick={() => setView(null)}>
+                  <Icon name="x" size={16} />
+                </button>
+              </div>
+
+              {/* Hero header — category, balance, repayment progress */}
+              <div style={{
+                padding: '14px 16px', borderRadius: 12, marginBottom: 16,
+                background: `linear-gradient(135deg, ${m.bg}, color-mix(in oklch, ${m.color} 4%, #ffffff))`,
+                border: `1px solid ${m.color}33`,
+                display: 'grid', gap: 12,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <Badge kind="b-blue" dot={false}
+                    style={{ background: m.bg, color: m.color, border: `1px solid ${m.color}55`, fontSize: 12 }}>
+                    {view.debtCategory || '—'}
+                  </Badge>
+                  <Badge kind={isActive ? 'b-blue' : 'b-gray'} dot={false}>
+                    {isActive ? 'Active' : view.status || 'Close'}
+                  </Badge>
+                  <div style={{ flex: 1 }} />
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 10.5, color: 'var(--ink-500)', textTransform: 'uppercase', letterSpacing: 0.5 }}>ยอดคงเหลือ</div>
+                    <div style={{ fontWeight: 700, fontSize: 22, color: bal > 0 ? 'var(--bad)' : 'var(--ink-400)', fontVariantNumeric: 'tabular-nums' }}>
+                      {fmtNum(bal, 0)} <span style={{ fontSize: 12, color: 'var(--ink-500)' }}>{isUSD ? 'USD' : '฿'}</span>
+                    </div>
+                  </div>
+                </div>
+                {princ > 0 && (
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--ink-500)', marginBottom: 4 }}>
+                      <span>ชำระแล้ว {fmtNum(paid, 0)} / วงเงิน {fmtNum(princ, 0)}</span>
+                      <span>{paidPct.toFixed(1)}%</span>
+                    </div>
+                    <div style={{ height: 6, borderRadius: 3, background: 'var(--ink-100)', overflow: 'hidden' }}>
+                      <div style={{ width: `${paidPct}%`, height: '100%', background: m.color, transition: 'width 240ms' }} />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Field grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px 12px' }}>
+
+                <Hdr label="สัญญา" icon="invoice" />
+                {fld('เลขที่สัญญา', view.contractNo, { mono: true, span: 2 })}
+                {fld('สกุลเงิน', view.currency || 'THB')}
+                {fld('ผู้กู้ / ผู้รับสินเชื่อ', view.borrowerName, { bold: true, span: 2 })}
+                {fld('ธนาคาร / เจ้าหนี้', view.bankName)}
+
+                <Hdr label="ระยะเวลา" icon="forecast" />
+                {fld('วันที่รับเงิน', fmtDate(view.receiveDate || view.startDate))}
+                {fld('วันเริ่มสัญญา', fmtDate(view.startDate))}
+                {fld('วันครบกำหนด', fmtDate(view.maturityDate || view.endDate))}
+
+                <Hdr label="ยอดเงิน & อัตรา" icon="coin" />
+                {fld('วงเงิน (Principal)', fmtNum(princ, 2), { right: true, bold: true })}
+                {fld('อัตราดอกเบี้ย / ปี', rate > 0 ? (rate * 100).toFixed(4) + ' %' : '—', { right: true })}
+                {fld('ยอดคงเหลือ (Balance)', fmtNum(bal, 2), { right: true, highlight: bal > 0 })}
+
+                <Hdr label="โครงการที่ผูก" icon="projects" />
+                {fld('รหัสโครงการ', view.projectCode, { mono: true })}
+                {fld('ชื่อโครงการ', view.projectName, { span: 2 })}
+
+                {view.note && <>
+                  <Hdr label="หมายเหตุ" icon="edit" />
+                  {fld('Note', view.note, { full: true })}
+                </>}
+              </div>
+
+              <div className="modal-foot">
+                <button className="btn btn-ghost" onClick={() => setView(null)}>ปิด</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

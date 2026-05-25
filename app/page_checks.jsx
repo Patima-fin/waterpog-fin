@@ -49,6 +49,7 @@ const ChecksPage = ({ data: propData }) => {
   const [tab, setTab]       = React.useState('all');
   const [query, setQuery]   = React.useState('');
   const [edit, setEdit]     = React.useState(null);   // null = closed, {} = new, {...} = editing
+  const [view, setView]     = React.useState(null);   // popup for viewing check (read-only)
   const [form, setForm]     = React.useState(emptyForm);
 
   const { sorted, sort, toggle: requestSort } = useSortable(checks, 'checkDate', 'asc');
@@ -175,7 +176,8 @@ const ChecksPage = ({ data: propData }) => {
                 const isUrgent  = c.status === 'pending' && c.checkDate >= today && c.checkDate <= in7;
                 const meta = CHECKS_STATUS_META[c.status] || { label: c.status, color:'badge-gray' };
                 return (
-                  <tr key={c.id} style={{ background: isOverdue ? '#fff5f5' : isUrgent ? '#fffbeb' : undefined }}>
+                  <tr key={c.id} onClick={() => setView(c)}
+                      style={{ background: isOverdue ? '#fff5f5' : isUrgent ? '#fffbeb' : undefined, cursor:'pointer' }}>
                     <td style={{ fontWeight: 600, fontSize: 12 }}>{c.checkNo}</td>
                     <td style={{ fontSize: 12, color: isOverdue ? '#e53e3e' : isUrgent ? '#dd6b20' : undefined }}>
                       {fmtDate(c.checkDate)}
@@ -190,7 +192,7 @@ const ChecksPage = ({ data: propData }) => {
                     <td style={{ fontSize: 11, color:'#718096' }}>{c.referenceNo || '—'}</td>
                     <td><span className={`badge ${meta.color}`}>{meta.label}</span></td>
                     <td style={{ fontSize: 11, color:'#718096' }}>{c.note || '—'}</td>
-                    <td>
+                    <td onClick={e => e.stopPropagation()}>
                       <div style={{ display:'flex', gap: 4 }}>
                         <button className="btn btn-ghost" style={{ padding:'2px 8px', fontSize: 11 }}
                                 onClick={() => openEdit(c)}>แก้ไข</button>
@@ -290,6 +292,81 @@ const ChecksPage = ({ data: propData }) => {
           </div>
         </div>
       )}
+
+      {/* View Modal — read-only popup for inspecting a check */}
+      {view && (() => {
+        const meta = CHECKS_STATUS_META[view.status] || { label: view.status || '—', color:'b-gray' };
+        const isOverdue = view.status === 'pending' && view.checkDate < today;
+        const isUrgent  = view.status === 'pending' && view.checkDate >= today && view.checkDate <= in7;
+        const fld = (label, value, highlight) => (
+          <div className="field">
+            <label style={{ fontSize: 12, color: 'var(--ink-500)' }}>{label}</label>
+            <div style={{
+              minHeight: 34, borderRadius: 7, border: '1px solid var(--ink-100)',
+              padding: '6px 10px', fontSize: 13, lineHeight: 1.5,
+              background: highlight ? 'color-mix(in oklch, var(--bad) 9%, transparent)' : 'var(--ink-25, #f9fafb)',
+              color: highlight ? 'var(--bad)' : 'var(--ink-700)',
+              fontWeight: highlight ? 700 : 400,
+              wordBreak: 'break-word', userSelect: 'text',
+            }}>{value || '—'}</div>
+          </div>
+        );
+        return (
+          <div className="modal-back" onClick={() => setView(null)}>
+            <div className="modal" style={{ maxWidth: 640 }} onClick={e => e.stopPropagation()}>
+              <div className="modal-hd">
+                <span className="modal-title" style={{ fontSize: 16 }}>
+                  ข้อมูลเช็ค · {view.checkNo || '—'}
+                </span>
+                <button className="btn btn-ghost btn-sm" onClick={() => setView(null)}>
+                  <Icon name="x" size={16} />
+                </button>
+              </div>
+
+              {/* Status header banner */}
+              <div style={{
+                padding: '12px 14px', borderRadius: 10, marginBottom: 14,
+                background: isOverdue ? '#fff5f5' : isUrgent ? '#fffbeb' : 'var(--ink-50)',
+                border: '1px solid ' + (isOverdue ? '#fed7d7' : isUrgent ? '#fde68a' : 'var(--line)'),
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+              }}>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--ink-500)', textTransform: 'uppercase', letterSpacing: 0.5 }}>สถานะ</div>
+                  <div style={{ marginTop: 4 }}>
+                    <span className={`badge ${meta.color}`}>{meta.label}</span>
+                    {isOverdue && <span style={{ marginLeft: 6, fontSize: 11, color:'#e53e3e', fontWeight:600 }}>⚠ เกินกำหนด</span>}
+                    {isUrgent  && <span style={{ marginLeft: 6, fontSize: 11, color:'#dd6b20', fontWeight:600 }}>ใกล้ครบกำหนด</span>}
+                  </div>
+                </div>
+                <div style={{ textAlign:'right' }}>
+                  <div style={{ fontSize: 11, color: 'var(--ink-500)', textTransform: 'uppercase', letterSpacing: 0.5 }}>จำนวนเงิน</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--bad)', fontVariantNumeric: 'tabular-nums' }}>
+                    {fmtMoney(view.amount)} <span style={{ fontSize: 12, color:'var(--ink-500)' }}>฿</span>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap: 12 }}>
+                {fld('เลขที่เช็ค', view.checkNo)}
+                {fld('วันที่เช็ค', fmtDate(view.checkDate) || view.checkDate, isOverdue || isUrgent)}
+                <div style={{ gridColumn: '1/-1' }}>{fld('ผู้รับเงิน', view.payee)}</div>
+                {fld('ธนาคาร', view.bankName)}
+                {fld('เลขที่บัญชี', view.accountNo)}
+                {fld('เลขอ้างอิง / PO', view.referenceNo)}
+                {fld('โครงการ', view.linkedProjectCode)}
+                <div style={{ gridColumn: '1/-1' }}>{fld('หมายเหตุ', view.note)}</div>
+              </div>
+
+              <div className="modal-foot">
+                <button className="btn btn-ghost" onClick={() => setView(null)}>ปิด</button>
+                <button className="btn btn-primary" onClick={() => { setView(null); openEdit(view); }}>
+                  <Icon name="edit" size={14} /> แก้ไข
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

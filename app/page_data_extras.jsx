@@ -6,6 +6,7 @@ const { useState: dxState, useMemo: dxMemo, useEffect: dxEffect } = React;
 // ─── Generic CRUD page ────────────────────────────────────────────────────────
 function DataCrudPage({ data, setData, toast, config }) {
   const [edit, setEdit] = dxState(null);
+  const [view, setView] = dxState(null);  // popup for viewing row details (read-only)
   const [query, setQuery] = dxState('');
   const [filter, setFilter] = dxState('all');
   const [sortKey, setSortKey] = dxState(null);
@@ -130,8 +131,8 @@ function DataCrudPage({ data, setData, toast, config }) {
               )}
               {sortedFiltered.map(row => (
                 <tr key={row.id}
-                  style={{ cursor: config.readOnlyRows ? 'pointer' : 'default' }}
-                  onClick={config.readOnlyRows ? () => setEdit(row) : undefined}>
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => setView(row)}>
                   {config.columns.map((c, i) => (
                     <td key={i} style={{ textAlign: c.align || 'left' }} className={c.numeric ? 'num' : ''}>
                       {c.render ? c.render(row) : (
@@ -160,14 +161,16 @@ function DataCrudPage({ data, setData, toast, config }) {
         </div>
       </div>
 
-      {config.readOnlyRows ? (
-        <GenericViewModal
-          row={edit}
-          onClose={() => setEdit(null)}
-          fields={config.modalFields}
-          title={`ข้อมูล ${config.singular || 'รายการ'}`}
-        />
-      ) : (
+      {/* View popup — opens on row click (read-only) */}
+      <GenericViewModal
+        row={view}
+        onClose={() => setView(null)}
+        fields={config.modalFields}
+        title={`ข้อมูล ${config.singular || 'รายการ'}`}
+      />
+
+      {/* Edit modal — opens via pencil button OR "เพิ่ม" button (only on editable pages) */}
+      {!config.readOnlyRows && (
         <GenericEditModal
           row={edit}
           onClose={() => setEdit(null)}
