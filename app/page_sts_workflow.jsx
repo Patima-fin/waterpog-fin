@@ -24,16 +24,23 @@ function bMoney2(n) { return (Number(n) || 0).toLocaleString('th-TH', { minimumF
 // Expand a debtMaster row into a list of drawdown legs:
 // (a) the primary drawdown (receiveDate + principalAmount), plus
 // (b) every debtEvents row with type='drawdown' for this contract.
+// Each leg carries _sourceType + _source so callers can show full detail.
 function expandDrawdowns(row, allEvents) {
   const out = [];
   const rate = Number(row.interestRate) || 0;
   if (row.receiveDate && Number(row.principalAmount)) {
-    out.push({ date: row.receiveDate, amount: Number(row.principalAmount), rate, note: 'ครั้งที่ 1' });
+    out.push({
+      date: row.receiveDate, amount: Number(row.principalAmount), rate, note: 'ครั้งที่ 1',
+      _sourceType: 'contract', _source: row,
+    });
   }
   (allEvents || []).filter(e =>
     e.eventType === 'drawdown' && (e.contractId === row.id || e.contractNo === row.contractNo)
   ).forEach(e => {
-    out.push({ date: e.eventDate, amount: Number(e.amount), rate, note: e.note || '' });
+    out.push({
+      date: e.eventDate, amount: Number(e.amount), rate, note: e.note || '',
+      _sourceType: 'event', _source: e,
+    });
   });
   return out;
 }
@@ -146,11 +153,19 @@ function computeStsRowMulti(projectReceipts, match, params, debtEvents) {
   const latestDate   = sortedR.length ? sortedR[sortedR.length - 1].receiptDate : null;
   const baseAmount   = sortedR.reduce((s, r) => s + (Number(r.grossAmount) || 0), 0);
 
-  // All drawdowns earn interest up to the LATEST receipt date
+  // All drawdowns earn interest up to the LATEST receipt date.
+  // Preserve _sourceType + _source on each leg so the UI can let users
+  // click a leg to view its source contract/event.
   const stsDraws = match?.sts ? expandDrawdowns(match.sts, debtEvents) : [];
-  const stsLegs  = stsDraws.map(d => legInterest(d.date, latestDate, d.amount, d.rate || DEFAULT_STS_INT_RATE));
+  const stsLegs  = stsDraws.map(d => ({
+    ...legInterest(d.date, latestDate, d.amount, d.rate || DEFAULT_STS_INT_RATE),
+    _sourceType: d._sourceType, _source: d._source,
+  }));
   const wciDraws = match?.wci ? expandDrawdowns(match.wci, debtEvents) : [];
-  const wciLegs  = wciDraws.map(d => legInterest(d.date, latestDate, d.amount, d.rate || 0.10));
+  const wciLegs  = wciDraws.map(d => ({
+    ...legInterest(d.date, latestDate, d.amount, d.rate || 0.10),
+    _sourceType: d._sourceType, _source: d._source,
+  }));
 
   const stsInterest   = stsLegs.reduce((s, l) => s + l.interest, 0);
   const wciInterest   = wciLegs.reduce((s, l) => s + l.interest, 0);
@@ -171,6 +186,87 @@ function computeStsRowMulti(projectReceipts, match, params, debtEvents) {
     stsLegs, wciLegs,
     mgmtNet, whtOnMgmt, whtOnInt, encompassPayable,
   };
+}
+
+// Thai labels for common fields shown in DetailSubModal
+const STS_FIELD_LABELS = {
+  // debtMaster
+  contractNo: 'เลขที่สัญญา', borrowerName: 'ผู้กู้ / เจ้าหนี้', debtCategory: 'หมวด',
+  principalAmount: 'วงเงิน (Principal)', interestRate: 'อัตราดอกเบี้ย/ปี',
+  receiveDate: 'วันรับเงิน', startDate: 'วันเริ่มสัญญา', maturityDate: 'วันครบกำหนด',
+  endDate: 'วันสิ้นสุด', balance: 'ยอดคงเหลือ', currency: 'สกุลเงิน',
+  bankName: 'ธนาคาร', status: 'สถานะ', projectCode: 'รหัสโครงการ',
+  projectName: 'ชื่อโครงการ', note: 'หมายเหตุ',
+  // debtEvents
+  eventDate: 'วันที่เหตุการณ์', eventType: 'ประเภท', amount: 'จำนวนเงิน',
+  contractId: 'Contract ID', paymentDate: 'วันที่ชำระ',
+  // receipts
+  receiptNo: 'เลขที่ใบรับ', receiptDate: 'วันที่รับเงิน',
+  invoiceNo: 'เลขที่ใบแจ้งหนี้', grossAmount: 'จำนวนเงิน (Gross)',
+  netAmount: 'จำนวนเงินสุทธิ', whtAmount: 'หัก ณ ที่จ่าย', bankAc: 'บัญชีรับเงิน',
+};
+
+// Sub-modal that opens above the main drawer — shows all populated fields
+function StsDetailSubModal({ open, title, record, onClose }) {
+  if (!open || !record) return null;
+  // Filter out internal _xxx fields, empty values, and the bare `id`
+  const entries = Object.entries(record).filter(([k, v]) =>
+    !k.startsWith('_') && v != null && v !== '' && k !== 'id'
+  );
+  // Sort: known labels first (in label-dictionary order), then others alphabetically
+  const knownKeys = Object.keys(STS_FIELD_LABELS);
+  entries.sort((a, b) => {
+    const ai = knownKeys.indexOf(a[0]); const bi = knownKeys.indexOf(b[0]);
+    if (ai >= 0 && bi >= 0) return ai - bi;
+    if (ai >= 0) return -1;
+    if (bi >= 0) return 1;
+    return a[0].localeCompare(b[0]);
+  });
+  return (
+    <div onClick={onClose}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(15,36,77,0.55)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ background: '#fff', borderRadius: 14, width: 'min(560px, 92vw)', maxHeight: '82vh', overflow: 'auto', boxShadow: '0 24px 60px rgba(15,36,77,0.28)' }}>
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, background: '#fff', zIndex: 2 }}>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>{title}</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: 'var(--ink-400)', lineHeight: 1 }}>×</button>
+        </div>
+        <div style={{ padding: 18, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          {entries.length === 0 && (
+            <div className="muted" style={{ gridColumn: '1/-1', textAlign: 'center', padding: 20 }}>ไม่มีข้อมูล</div>
+          )}
+          {entries.map(([k, v]) => {
+            const label = STS_FIELD_LABELS[k] || k;
+            // Smart formatting per field
+            let display;
+            if (typeof v === 'object') display = JSON.stringify(v);
+            else if (/Date|date$/.test(k))   display = fmtDate(v) || String(v);
+            else if (k === 'interestRate')   display = (Number(v) * 100).toFixed(4) + ' %';
+            else if (typeof v === 'number')  display = bMoney2(v);
+            else if (/Amount|balance|principalAmount|grossAmount|netAmount|whtAmount/.test(k))
+              display = bMoney2(Number(v) || 0);
+            else display = String(v);
+            const isFull = /Name|note$|projectName/.test(k) && String(display).length > 30;
+            return (
+              <div key={k} className="field" style={{ gridColumn: isFull ? '1/-1' : 'auto' }}>
+                <label style={{ fontSize: 11, color: 'var(--ink-500)' }}>{label}</label>
+                <div style={{
+                  minHeight: 32, padding: '6px 10px',
+                  border: '1px solid var(--ink-100)', borderRadius: 6,
+                  background: 'var(--ink-25, #f9fafb)', fontSize: 12,
+                  color: 'var(--ink-700)', wordBreak: 'break-word',
+                  userSelect: 'text', lineHeight: 1.5,
+                }}>{display}</div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ padding: '10px 18px', background: '#f8fafc', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', position: 'sticky', bottom: 0 }}>
+          <button onClick={onClose} className="btn btn-ghost">ปิด</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ── Drawer for a single receipt ───────────────────────────────────────────
@@ -217,6 +313,11 @@ function StsCalcDrawer({ projectReceipts, match, calcResult, isOpen, onClose, on
   const roInput = { width: '100%', padding: 8, border: '1px solid var(--line)', borderRadius: 6, fontSize: 12, background: '#f8fafc', color: 'var(--ink-700)', cursor: 'default' };
   const roInputRight = { ...roInput, textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
   const editInput = { width: '100%', padding: 8, border: '1px solid #cbd5e0', borderRadius: 6, fontSize: 12, textAlign: 'right' };
+
+  // Detail sub-modal state — opens above this drawer when a row is clicked
+  const [detail, setDetail] = React.useState(null);   // { title, record }
+  const closeDetail = () => setDetail(null);
+  const clickableTr = { cursor: 'pointer' };
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,36,77,0.45)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
@@ -303,7 +404,11 @@ function StsCalcDrawer({ projectReceipts, match, calcResult, isOpen, onClose, on
                   <tr><td colSpan={4} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-400)' }}>ไม่มีรายการเบิกเงิน STS</td></tr>
                 )}
                 {stsDraws.map((d, i) => (
-                  <tr key={'sts-d-'+i}>
+                  <tr key={'sts-d-'+i} style={clickableTr}
+                      onClick={() => setDetail({
+                        title: `ข้อมูลเงินกู้ STS #${i + 1} (${d._sourceType === 'event' ? 'จาก debtEvents' : 'สัญญาหลัก'})`,
+                        record: d._source || d,
+                      })}>
                     <td style={{ fontSize: 11 }}>STS #{i + 1}</td>
                     <td>{fmtDate(d.date) || d.date}</td>
                     <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{bMoney2(d.amount)}</td>
@@ -335,7 +440,11 @@ function StsCalcDrawer({ projectReceipts, match, calcResult, isOpen, onClose, on
                   <tr><td colSpan={4} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-400)' }}>ไม่มีรายการเบิกเงิน WCI</td></tr>
                 )}
                 {wciDraws.map((d, i) => (
-                  <tr key={'wci-d-'+i}>
+                  <tr key={'wci-d-'+i} style={clickableTr}
+                      onClick={() => setDetail({
+                        title: `ข้อมูลเงินกู้ WCI #${i + 1} (${d._sourceType === 'event' ? 'จาก debtEvents' : 'สัญญาหลัก'})`,
+                        record: d._source || d,
+                      })}>
                     <td style={{ fontSize: 11 }}>WCI #{i + 1}</td>
                     <td>{fmtDate(d.date) || d.date}</td>
                     <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{bMoney2(d.amount)}</td>
@@ -374,7 +483,11 @@ function StsCalcDrawer({ projectReceipts, match, calcResult, isOpen, onClose, on
                   <tr><td colSpan={5} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-400)' }}>ไม่มีใบรับเงิน</td></tr>
                 )}
                 {sortedReceipts.map((r, i) => (
-                  <tr key={r.id || i}>
+                  <tr key={r.id || i} style={clickableTr}
+                      onClick={() => setDetail({
+                        title: `ข้อมูลใบรับเงิน · ${r.receiptNo || '#' + (i + 1)}`,
+                        record: r,
+                      })}>
                     <td style={{ fontSize: 11, color: 'var(--ink-500)' }}>{i + 1}</td>
                     <td style={{ fontFamily: 'ui-monospace', fontWeight: 600 }}>{r.receiptNo || '—'}</td>
                     <td>{fmtDate(r.receiptDate) || r.receiptDate || '—'}</td>
@@ -410,7 +523,11 @@ function StsCalcDrawer({ projectReceipts, match, calcResult, isOpen, onClose, on
               </thead>
               <tbody>
                 {c.stsLegs.map((l, i) => (
-                  <tr key={'sts-l-'+i}>
+                  <tr key={'sts-l-'+i} style={clickableTr}
+                      onClick={() => setDetail({
+                        title: `ดอกเบี้ย STS leg #${i + 1} · ${fmtDate(l.drawdown)}`,
+                        record: l._source || l,
+                      })}>
                     <td><Badge kind="b-blue" dot={false}>STS</Badge></td>
                     <td>{fmtDate(l.drawdown) || l.drawdown}</td>
                     <td style={{ textAlign: 'right' }}>{l.days}</td>
@@ -420,7 +537,11 @@ function StsCalcDrawer({ projectReceipts, match, calcResult, isOpen, onClose, on
                   </tr>
                 ))}
                 {c.wciLegs.map((l, i) => (
-                  <tr key={'wci-l-'+i}>
+                  <tr key={'wci-l-'+i} style={clickableTr}
+                      onClick={() => setDetail({
+                        title: `ดอกเบี้ย WCI leg #${i + 1} · ${fmtDate(l.drawdown)}`,
+                        record: l._source || l,
+                      })}>
                     <td><Badge kind="b-violet" dot={false}>WCI</Badge></td>
                     <td>{fmtDate(l.drawdown) || l.drawdown}</td>
                     <td style={{ textAlign: 'right' }}>{l.days}</td>
@@ -492,6 +613,14 @@ function StsCalcDrawer({ projectReceipts, match, calcResult, isOpen, onClose, on
           </div>
         </div>
       </div>
+
+      {/* Sub-popup — opens above the drawer when a row is clicked */}
+      <StsDetailSubModal
+        open={!!detail}
+        title={detail?.title || ''}
+        record={detail?.record}
+        onClose={closeDetail}
+      />
     </div>
   );
 }
