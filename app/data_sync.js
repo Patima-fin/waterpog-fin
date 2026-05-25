@@ -33,7 +33,7 @@
                        'debtLedger', 'receipts', 'bankEntries', 'checks',
                        'debtMaster', 'bankTransfers',
                        'stsServiceFee', 'stsPendingCalc', 'stsCalcResult',
-                       'debtEvents', 'users'];
+                       'debtEvents', 'users', 'cashflowSnapshots'];
 
   // jsonFields per entity — for proper rowsToObjects parsing during safety re-fetch
   var ENTITY_JSON_FIELDS = {
@@ -175,6 +175,7 @@
       'stsServiceFee', 'stsPendingCalc', 'stsCalcResult',
       'debtEvents',
       'users',                  // user accounts (manager-only management)
+      'cashflowSnapshots',      // daily bank balance snapshots
     ];
 
     return Promise.all(sheetOrder.map(fetchSheet)).then(function (results) {
@@ -209,6 +210,7 @@
       var stsCalcResult   = rowsToObjects(results[i++], ['debtIds']);
       var debtEvents      = rowsToObjects(results[i++]);
       var users           = rowsToObjects(results[i++]);
+      var cashflowSnapshots = rowsToObjects(results[i++]);
 
       var data = {
         meta: {
@@ -301,6 +303,7 @@
         stsCalcResult:   stsCalcResult,
         debtEvents:      debtEvents,
         users:           users,
+        cashflowSnapshots: cashflowSnapshots,
       };
 
       // Preserve app-only fields from localStorage that aren't yet in the Sheet

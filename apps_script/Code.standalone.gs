@@ -50,6 +50,7 @@ var SHEETS = {
   DEBT_EVENTS:      'debtEvents',
   AUDIT_LOG:        'auditLog',     // ผู้ใช้-การกระทำ-เวลา (auto-logged on every CRUD)
   USERS:            'users',        // user accounts (id, username, password, displayName, role)
+  CASHFLOW_SNAPS:   'cashflowSnapshots', // daily snapshot of each bank balance
 };
 
 /* ── 1. WEB APP ENDPOINTS ───────────────────────────────────────── */
@@ -169,6 +170,7 @@ function getAll() {
     stsCalcResult:         readTable(SHEETS.STS_CALC_RESULT),
     debtEvents:            readTable(SHEETS.DEBT_EVENTS),
     users:                 readTable(SHEETS.USERS),
+    cashflowSnapshots:     readTable(SHEETS.CASHFLOW_SNAPS),
   };
 }
 
@@ -200,6 +202,7 @@ function getEntity(name) {
     case 'stsCalcResult':         return readTable(SHEETS.STS_CALC_RESULT);
     case 'debtEvents':            return readTable(SHEETS.DEBT_EVENTS);
     case 'users':                 return readTable(SHEETS.USERS);
+    case 'cashflowSnapshots':     return readTable(SHEETS.CASHFLOW_SNAPS);
   }
   return { error: 'unknown entity: ' + name };
 }
@@ -219,6 +222,7 @@ var JSON_FIELDS = {
   debtMaster:      [],
   debtEvents:      [],
   users:           [],
+  cashflowSnapshots: [],
   bankTransfers:   [],
   stsServiceFee:   [],
   stsPendingCalc:  [],
@@ -420,12 +424,32 @@ var ENTITY_HEADERS = {
     'dueDate','assignee','contractor','category',
     'actualReceiveDate','currentStatus','arNo','docType','refCode'
   ],
+  // forecastEntries — extended for full cashflow lifecycle.
+  //   STATUS:        PLANNED → ACTUAL → BOOKED  (or CANCELED).
+  //                  PLANNED  = ประมาณการ ยังไม่เกิด
+  //                  ACTUAL   = เห็นใน statement แล้ว แต่บัญชียังไม่ลง
+  //                  BOOKED   = บัญชีลงระบบแล้ว มี ref doc
+  //   CATEGORY:      1=ดำเนินงาน · 2=โครงการ · 3=ฝ่ายการเงิน · 4=เงินเดือน  (for cashflow page)
+  //   CFS_ACTIVITY:  operating | investing | financing  (for future Cash Flow Statement)
+  //   ACTUAL_*:      what actually appeared in bank statement
+  //   REF_DOC:       JV / PV / AP voucher number when booked
   forecastEntries: [
     'id','DATE','PAYMENT_DATE','EXPENSE_TYPE','DESCRIPTION','JOB_NO',
-    'PROJECT_NAME','AMOUNT','Bank_AC','STATUS','CATEGORY','IS_ACCRUED','NOTE'
+    'PROJECT_NAME','AMOUNT','Bank_AC','STATUS','CATEGORY','IS_ACCRUED','NOTE',
+    'ACTUAL_AMOUNT','ACTUAL_DATE','REF_DOC','BOOKED_AT','CFS_ACTIVITY'
   ],
+  // bankAccounts — added accountType: main = หมุนเวียนรายวัน (ต้องบันทึกยอดทุกวัน),
+  //                                  dormant = เงินนิ่ง (ฝากประจำ/ค้ำประกัน),
+  //                                  closed = ปิดแล้ว (hide)
   bankAccounts: [
-    'id','DATE','BANK_NAME','Bank_AC','BALANCE','AVAILABLE_BALANCE','HOLD_AMOUNT','NOTE'
+    'id','DATE','BANK_NAME','Bank_AC','BALANCE','AVAILABLE_BALANCE','HOLD_AMOUNT','NOTE',
+    'accountType'
+  ],
+  // cashflowSnapshots — daily snapshot of each bank balance, manually keyed
+  //   (or automatically captured via Apps Script trigger).
+  //   1 row per (date × bankAc).
+  cashflowSnapshots: [
+    'id','date','bankAc','bankName','balance','takenAt','enteredBy','source','note'
   ],
   pvVouchers: [
     'id','Project_Dpt','Ref_Code','PL_PV_No','jobcode','Pmt_Date','Type_of_Pmt','Option',
@@ -475,8 +499,12 @@ var ENTITY_HEADERS = {
   debtEvents: [
     'id','contractId','contractNo','eventType','eventDate','amount','note'
   ],
+  // users — added notifyDailyBalance (boolean). When true, this user sees the
+  //   "ยังไม่บันทึกยอดธนาคารวันนี้" reminder banner + auto-modal in the cashflow
+  //   and daily-revenue pages. Default false (don't bother most users).
   users: [
-    'id','username','password','displayName','role','active','note'
+    'id','username','password','displayName','role','active','note',
+    'notifyDailyBalance'
   ],
   bankTransfers: [
     'id','maincode','acct_no','PL_PV_No','paytype','Type_of_Pmt',
@@ -517,6 +545,7 @@ function _entitySheet(entity) {
     stsCalcResult:   SHEETS.STS_CALC_RESULT,
     debtEvents:      SHEETS.DEBT_EVENTS,
     users:           SHEETS.USERS,
+    cashflowSnapshots: SHEETS.CASHFLOW_SNAPS,
   };
   if (!map[entity]) throw new Error('CRUD ไม่รองรับ entity: ' + entity);
   return { name: map[entity], headers: ENTITY_HEADERS[entity] };
@@ -688,6 +717,7 @@ function ensureV2Headers() {
     stsCalcResult:   SHEETS.STS_CALC_RESULT,
     debtEvents:      SHEETS.DEBT_EVENTS,
     users:           SHEETS.USERS,
+    cashflowSnapshots: SHEETS.CASHFLOW_SNAPS,
   };
   var results = [];
   Object.keys(entityMap).forEach(function (entity) {
