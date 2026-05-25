@@ -161,12 +161,15 @@ function DataCrudPage({ data, setData, toast, config }) {
         </div>
       </div>
 
-      {/* View popup — opens on row click (read-only) */}
+      {/* View popup — opens on row click (read-only).
+          On editable pages, also expose "แก้ไข" + "ลบ" buttons in footer. */}
       <GenericViewModal
         row={view}
         onClose={() => setView(null)}
         fields={config.modalFields}
         title={`ข้อมูล ${config.singular || 'รายการ'}`}
+        onEdit={config.readOnlyRows ? undefined : (row) => setEdit(row)}
+        onDelete={config.readOnlyRows ? undefined : remove}
       />
 
       {/* Edit modal — opens via pencil button OR "เพิ่ม" button (only on editable pages) */}
@@ -268,13 +271,44 @@ function GenericEditModal({ row, onClose, onSave, fields, title, header }) {
 }
 
 // ─── Read-only view modal ─────────────────────────────────────────────────────
-function GenericViewModal({ row, onClose, fields, title }) {
+function GenericViewModal({ row, onClose, fields, title, onDelete, onEdit }) {
   if (!row) return null;
   const roStyle = { minHeight: 34, borderRadius: 7, border: '1px solid var(--ink-100)', background: 'var(--ink-25, #f9fafb)', padding: '6px 10px', fontSize: 13, color: 'var(--ink-700)', cursor: 'default', userSelect: 'text', lineHeight: 1.5, wordBreak: 'break-word' };
   const roHighlight = { ...roStyle, background: 'color-mix(in oklch, var(--bad) 9%, transparent)', border: '1px solid color-mix(in oklch, var(--bad) 26%, transparent)', color: 'var(--bad)', fontWeight: 700, fontFamily: 'ui-monospace', fontSize: 14, textAlign: 'right', padding: '6px 14px' };
+  const handleDelete = () => {
+    if (!onDelete) return;
+    if (!confirm('ยืนยันการลบรายการนี้?')) return;
+    onDelete(row.id);
+    onClose();
+  };
+  const handleEdit = () => {
+    if (!onEdit) return;
+    onEdit(row);
+    onClose();
+  };
   return (
     <Modal open={!!row} title={title} maxWidth={760} onClose={onClose}
-      footer={<button className="btn btn-ghost" onClick={onClose}>ปิด</button>}>
+      footer={
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', width: '100%' }}>
+          {/* Left: delete (destructive — separated visually) */}
+          <div>
+            {onDelete && (
+              <button className="btn btn-danger" onClick={handleDelete}>
+                <Icon name="trash" size={14} /> ลบ
+              </button>
+            )}
+          </div>
+          {/* Right: edit + close */}
+          <div style={{ display: 'flex', gap: 8 }}>
+            {onEdit && (
+              <button className="btn btn-ghost" onClick={handleEdit}>
+                <Icon name="edit" size={14} /> แก้ไข
+              </button>
+            )}
+            <button className="btn btn-primary" onClick={onClose}>ปิด</button>
+          </div>
+        </div>
+      }>
       <div style={{ display: 'grid', gap: 16 }}>
         {(() => {
           const groups = [];
