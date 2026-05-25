@@ -276,6 +276,7 @@ function InvoicesPage({ data, setData, toast }) {
   const [colFilters, setColFilters] = ivState({});   // { colKey: Set<displayVal> }
   const [openCol, setOpenCol]       = ivState(null); // colKey ของ dropdown ที่เปิดอยู่
   const [fullscreen, setFullscreen] = ivState(false); // ขยายตารางเต็มจอ
+  const [showDiag, setShowDiag]     = ivState(false); // diagnostic panel
 
   const { projectByCode, financeByCode } = ivMemo(() => WTPData.buildLookups(data), [data.projects, data.debtLedger]);
 
@@ -492,6 +493,10 @@ function InvoicesPage({ data, setData, toast }) {
           {(window.WTPAuth ? window.WTPAuth.can('canEdit') : true) && (
             <button className="btn btn-ghost" onClick={() => setShowImport(true)}><Icon name="upload" size={14} /> วาง RAW_IV_OUTSTANDING</button>
           )}
+          <button className="btn btn-ghost" onClick={() => setShowDiag(true)}
+            title="ตรวจสอบการเชื่อมโยงข้อมูล project/debt → IV">
+            🔍 ตรวจสอบ Lookup
+          </button>
         </div>
       </div>
       )}
@@ -857,6 +862,16 @@ function InvoicesPage({ data, setData, toast }) {
           toast(msgs.join(' · ') || 'ไม่มีการเปลี่ยนแปลง');
         }}
       />
+
+      {showDiag && (
+        <DiagnosticPanel
+          data={data}
+          financeByCode={financeByCode}
+          projectByCode={projectByCode}
+          rows={rows}
+          onClose={() => setShowDiag(false)}
+        />
+      )}
     </div>
   );
 }
@@ -1658,6 +1673,158 @@ function QuickPayModal({ open, iv, draft, bankAccounts, onChangeDraft, onConfirm
 
 // Import RAW_IV_OUTSTANDING — paste TSV/CSV → auto-detect new IVs vs existing
 // ────────────────────────────────────────────────────────────────────────────
+/* ── Diagnostic Panel — show project/debt lookup status for each IV ─────── */
+function DiagnosticPanel({ data, financeByCode, projectByCode, rows, onClose }) {
+  const [search, setSearch] = ivState('');
+  const q = search.trim().toLowerCase();
+
+  // Build per-IV lookup status
+  const ivStats = rows.map(iv => {
+    const f = financeByCode[iv.jobNo] || financeByCode[iv.contractRef] || {};
+    const p = projectByCode[iv.jobNo] || projectByCode[iv.contractRef] || {};
+    return {
+      jobNo: iv.jobNo,
+      ivNo: iv.ivNo,
+      projectName: iv.projectName,
+      hasProject: !!(p['Contract No.'] || p.code || p['Project No.']),
+      hasDebt: (f.debtContracts || []).length > 0,
+      debt: iv.debt,
+      assignee: iv.assignee,
+      debtContracts: f.debtContracts || [],
+    };
+  });
+
+  const filtered = q ? ivStats.filter(s =>
+    s.jobNo.toLowerCase().includes(q) || s.ivNo.toLowerCase().includes(q) ||
+    (s.projectName || '').toLowerCase().includes(q)
+  ) : ivStats;
+
+  // counts
+  const total = ivStats.length;
+  const noProject = ivStats.filter(s => !s.hasProject).length;
+  const noDebt    = ivStats.filter(s => !s.hasDebt).length;
+  const hasBoth   = ivStats.filter(s => s.hasProject && s.hasDebt).length;
+  const debtLedgerCount = (data.debtLedger || []).length;
+
+  // Find debtLedger entries that DON'T have matching IV
+  const ledgerKeys = new Set();
+  Object.keys(financeByCode).forEach(k => {
+    if ((financeByCode[k].debtContracts || []).length > 0) ledgerKeys.add(k);
+  });
+  const ivKeys = new Set(rows.map(r => r.jobNo));
+  const orphanLedger = [...ledgerKeys].filter(k => !ivKeys.has(k));
+
+  return (
+    <div className="modal-back" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 1100, width: '95vw', maxHeight: '88vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+        <div className="modal-hd">
+          <div>
+            <div className="modal-title" style={{ fontSize: 16 }}>🔍 ตรวจสอบการเชื่อมโยงข้อมูล</div>
+            <div style={{ fontSize: 12, color: 'var(--ink-400)', marginTop: 2 }}>
+              ดู IV แต่ละใบ ว่าเชื่อมกับ project + debtLedger ได้ครบหรือไม่
+            </div>
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}><Icon name="x" size={16} /></button>
+        </div>
+
+        {/* Summary stats */}
+        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--line)', display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
+          <DiagStat label="IV ทั้งหมด" value={total} color="#2a6fdb" />
+          <DiagStat label="🤝 ครบทั้ง 2" value={hasBoth} color="#276749" />
+          <DiagStat label="❌ ไม่เจอ project" value={noProject} color="#c53030" />
+          <DiagStat label="💰 ไม่เจอ debt" value={noDebt} color="#dd6b20" />
+          <DiagStat label="debtLedger" value={debtLedgerCount} color="#6b46c1" />
+        </div>
+
+        {/* Orphan debtLedger warning */}
+        {orphanLedger.length > 0 && (
+          <div style={{ padding: '8px 18px', background: '#fffbeb', borderBottom: '1px solid #fde68a', fontSize: 12 }}>
+            <strong style={{ color: '#b45309' }}>⚠️ พบ {orphanLedger.length} project ใน debtLedger ที่ไม่มี IV ตรงกัน:</strong>
+            &nbsp;<span style={{ fontFamily: 'ui-monospace', color: '#b45309' }}>{orphanLedger.slice(0, 12).join(', ')}{orphanLedger.length > 12 ? `, +${orphanLedger.length - 12}` : ''}</span>
+            <div style={{ fontSize: 10.5, color: 'var(--ink-500)', marginTop: 2 }}>
+              อาจเป็นเพราะ jobNo ของ IV ไม่ตรง projectCode ใน debt — ลองเช็คความสะกด
+            </div>
+          </div>
+        )}
+
+        {/* Search */}
+        <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--line)' }}>
+          <input className="input" placeholder="ค้นหา jobNo / IV / โครงการ..." value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ width: '100%', fontSize: 13 }} />
+        </div>
+
+        {/* Table */}
+        <div style={{ overflowY: 'auto', flex: 1 }}>
+          <table className="tbl tbl-compact">
+            <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 2 }}>
+              <tr>
+                <th style={{ width: 80 }}>jobNo</th>
+                <th style={{ width: 100 }}>เลข IV</th>
+                <th>ชื่อโครงการ</th>
+                <th style={{ width: 90, textAlign: 'center' }}>project?</th>
+                <th style={{ width: 80, textAlign: 'center' }}>debt?</th>
+                <th style={{ width: 140 }}>ผู้รับโอนสิทธิ์</th>
+                <th style={{ width: 100, textAlign: 'right' }}>ภาระหนี้</th>
+                <th>debt contracts</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 && (
+                <tr><td colSpan={8} style={{ padding: 30, textAlign: 'center', color: 'var(--ink-400)' }}>ไม่พบรายการ</td></tr>
+              )}
+              {filtered.slice(0, 200).map((s, i) => (
+                <tr key={i}>
+                  <td><span style={{ fontFamily: 'ui-monospace', fontWeight: 700, color: 'var(--brand-700)' }}>{s.jobNo}</span></td>
+                  <td><span style={{ fontFamily: 'ui-monospace', fontSize: 11.5 }}>{s.ivNo}</span></td>
+                  <td style={{ overflow: 'hidden', maxWidth: 0 }}>
+                    <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={s.projectName}>{s.projectName}</span>
+                  </td>
+                  <td style={{ textAlign: 'center' }}>{s.hasProject ? '✓' : <span style={{ color: '#c53030' }}>✗</span>}</td>
+                  <td style={{ textAlign: 'center' }}>{s.hasDebt ? '✓' : <span style={{ color: '#dd6b20' }}>—</span>}</td>
+                  <td style={{ overflow: 'hidden', maxWidth: 0 }}>
+                    <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={s.assignee}>
+                      {s.assignee && s.assignee !== '—' ? s.assignee : <span className="muted">—</span>}
+                    </span>
+                  </td>
+                  <td className="num" style={{ color: s.debt > 0 ? 'var(--bad)' : 'var(--ink-300)' }}>{s.debt > 0 ? fmtNum(s.debt, 0) : '—'}</td>
+                  <td style={{ fontSize: 11, color: 'var(--ink-500)' }}>
+                    {s.debtContracts.length === 0 ? <span className="muted">—</span> : s.debtContracts.map((c, ci) => (
+                      <div key={ci} style={{ borderLeft: '2px solid var(--brand-300)', paddingLeft: 6, marginBottom: 2 }}>
+                        <span style={{ fontFamily: 'ui-monospace' }}>{c.debtNo || c['เลขที่สัญญา'] || '?'}</span>
+                        {' · '}{c.bankName || c['ธนาคาร'] || '?'}
+                        {' · '}<strong>{fmtNum(Number(c.balance) || Number(c.principalAmount) || 0, 0)}</strong>
+                      </div>
+                    ))}
+                  </td>
+                </tr>
+              ))}
+              {filtered.length > 200 && (
+                <tr><td colSpan={8} style={{ padding: 12, textAlign: 'center', color: 'var(--ink-400)', fontStyle: 'italic' }}>
+                  แสดง 200 แถวแรก · ใช้ค้นหาเพื่อกรอง
+                </td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="modal-foot">
+          <button className="btn btn-ghost" onClick={onClose}>ปิด</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DiagStat({ label, value, color }) {
+  return (
+    <div style={{ padding: '8px 10px', background: 'var(--ink-50)', borderRadius: 8, borderLeft: `3px solid ${color}` }}>
+      <div style={{ fontSize: 10.5, color: 'var(--ink-500)', fontWeight: 500 }}>{label}</div>
+      <div style={{ fontSize: 20, fontWeight: 800, color, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+    </div>
+  );
+}
+
 function ImportRawIvModal({ open, onClose, existing, onImport }) {
   const [raw, setRaw] = ivState('');
   const [parsed, setParsed] = ivState({ all: [], existing: [], updated: [], new_: [] });
