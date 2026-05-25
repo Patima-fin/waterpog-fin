@@ -7,6 +7,58 @@ const { useMemo: wr1Memo, useState: wr1State } = React;
 function WarRoomPage1({ data, setData, toast }) {
   const { ytdRevenue, weeklyExpectedReceipt, warroomP1, meta } = data;
 
+  // ── Live finance lookups ──────────────────────────────────────────────────
+  const { financeByCode } = wr1Memo(() => WTPData.buildLookups(data), [data.projects]);
+
+  // ── Live outstanding rows from data.invoices ──────────────────────────────
+  const WR_ALIAS = { pending: 'tracking', '': 'pending_inspection' };
+  const WR_VALID = new Set(['pending_inspection', 'tracking', 'issue', 'paid']);
+  const liveRows = wr1Memo(() => {
+    return (data.invoices || []).flatMap(iv => {
+      const rawStatus = (iv.status || '').toString().trim();
+      const aliased   = WR_ALIAS[rawStatus] != null ? WR_ALIAS[rawStatus] : rawStatus;
+      const status    = WR_VALID.has(aliased) ? aliased : 'pending_inspection';
+      if (status === 'paid') return [];
+      const s  = (iv.jobNo || '').trim();
+      const mx = s.match(/^(.+)-([A-Z]{2,6})$/);
+      const cj = mx ? mx[1] : s;
+      const f  = financeByCode[cj] || financeByCode[iv.contractRef] || {};
+      const debt = Number(f.debt ?? f['ภาระหนี้'] ?? 0);
+      return [{ ...iv, jobNo: cj, status, debt, netExpected: (iv.balance || 0) - debt }];
+    });
+  }, [data.invoices, financeByCode]);
+
+  const liveToday     = new Date().toISOString().slice(0, 10);
+  const liveThisMonth = liveToday.slice(0, 7);
+
+  // group by status
+  const liveByStatus = wr1Memo(() => {
+    const m = { pending_inspection: [], tracking: [], issue: [] };
+    liveRows.forEach(iv => { if (m[iv.status]) m[iv.status].push(iv); });
+    return m;
+  }, [liveRows]);
+
+  // group by expected month, sorted chronologically (ไม่ระบุ last)
+  const liveByMonth = wr1Memo(() => {
+    const m = {};
+    liveRows.forEach(iv => {
+      const key = iv.expectedReceive ? iv.expectedReceive.slice(0, 7) : 'ไม่ระบุ';
+      (m[key] = m[key] || []).push(iv);
+    });
+    return Object.entries(m).sort(([a], [b]) => {
+      if (a === 'ไม่ระบุ') return 1;
+      if (b === 'ไม่ระบุ') return -1;
+      return a.localeCompare(b);
+    });
+  }, [liveRows]);
+
+  const liveTotal = wr1Memo(() => ({
+    count: liveRows.length,
+    gross: liveRows.reduce((s, iv) => s + (iv.balance || 0), 0),
+    debt:  liveRows.reduce((s, iv) => s + (iv.debt || 0), 0),
+    net:   liveRows.reduce((s, iv) => s + (iv.netExpected || 0), 0),
+  }), [liveRows]);
+
   const totalYtd = wr1Memo(() => {
     return ytdRevenue.reduce((acc, m) => {
       acc.count += m.count;
@@ -204,6 +256,98 @@ function WarRoomPage1({ data, setData, toast }) {
       </SectionCard>
 
       {/* (bottom callouts removed per user request — info already shown in section headers above) */}
+
+      {/* SECTION 05 — Live Outstanding from data.invoices */}
+      <SectionCard num="05" title="ประมาณการจากใบแจ้งหนี้คงค้าง (Live)" subtitle="คำนวณตรงจากระบบใบแจ้งหนี้ · ข้อมูลล่าสุด ณ ขณะนี้" totalLabel="ยอดคาดรับสุทธิรวม" total={liveTotal.net}>
+
+        {/* Status breakdown strip */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 0, padding: '12px 18px', borderBottom: '1px dashed var(--line)', background: 'linear-gradient(180deg, var(--ink-50), white)' }}>
+          <OutstandingMiniStat
+            label="รอใบตรวจรับ"
+            count={liveByStatus.pending_inspection.length}
+            net={liveByStatus.pending_inspection.reduce((s, iv) => s + (iv.netExpected || 0), 0)}
+            accent="var(--ink-700)"
+            anchor="left"
+            hint="ยังไม่เริ่มติดตาม"
+          />
+          <OutstandingMiniStat
+            label="กำลังติดตาม"
+            count={liveByStatus.tracking.length}
+            net={liveByStatus.tracking.reduce((s, iv) => s + (iv.netExpected || 0), 0)}
+            accent="var(--brand-700)"
+            anchor="center"
+            hint="มีวันคาดรับ / อยู่ระหว่างติดตาม"
+          />
+          <OutstandingMiniStat
+            label="ติดปัญหา"
+            count={liveByStatus.issue.length}
+            net={liveByStatus.issue.reduce((s, iv) => s + (iv.netExpected || 0), 0)}
+            accent="var(--bad)"
+            anchor="right"
+            hint="ต้องจัดการด่วน"
+            highlight={liveByStatus.issue.length > 0}
+          />
+        </div>
+
+        {/* By expected-receipt month */}
+        <table className="tbl">
+          <thead>
+            <tr>
+              <th>เดือนที่คาดรับ</th>
+              <th style={{ width: 90, textAlign: 'center' }}>จำนวน</th>
+              <th style={{ textAlign: 'right' }}>Balance (GROSS)</th>
+              <th style={{ textAlign: 'right' }}>หักภาระหนี้ (Debt)</th>
+              <th style={{ textAlign: 'right' }}>คาดรับสุทธิ (NET)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {liveByMonth.length === 0 && (
+              <tr><td colSpan={5} style={{ padding: '24px 14px', textAlign: 'center', color: 'var(--ink-400)' }}>ไม่มีข้อมูลใบแจ้งหนี้คงค้าง</td></tr>
+            )}
+            {liveByMonth.map(([month, ivs], i) => {
+              const gross = ivs.reduce((s, iv) => s + (iv.balance || 0), 0);
+              const debt  = ivs.reduce((s, iv) => s + (iv.debt  || 0), 0);
+              const net   = ivs.reduce((s, iv) => s + (iv.netExpected || 0), 0);
+              const isThis = month === liveThisMonth;
+              let monthLabel;
+              if (month === 'ไม่ระบุ') {
+                monthLabel = <span className="muted">ยังไม่ระบุวันคาดรับ</span>;
+              } else {
+                const d = new Date(month + '-01T12:00:00');
+                const thai = d.toLocaleDateString('th-TH-u-ca-gregory', { month: 'long', year: 'numeric' });
+                monthLabel = (
+                  <>
+                    <span style={{ fontWeight: isThis ? 700 : 600 }}>{thai}</span>
+                    <span className="muted" style={{ fontSize: 11.5, marginLeft: 6, fontWeight: 400 }}>({month})</span>
+                    {isThis && <Badge kind="b-blue" dot={false} style={{ marginLeft: 8, fontSize: 10 }}>เดือนนี้</Badge>}
+                  </>
+                );
+              }
+              return (
+                <tr key={i} style={{ background: isThis ? 'color-mix(in oklch,var(--brand-500) 5%,transparent)' : '' }}>
+                  <td>{monthLabel}</td>
+                  <td style={{ textAlign: 'center' }}>{ivs.length}</td>
+                  <td className="num">{fmtNum(gross, 2)}</td>
+                  <td className="num" style={{ color: debt ? 'var(--bad)' : 'var(--ink-400)' }}>
+                    {debt ? '(' + fmtNum(Math.abs(debt), 2) + ')' : '-'}
+                  </td>
+                  <td className="num strong">{fmtNum(net, 2)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td>Total · คงค้างทั้งหมด</td>
+              <td style={{ textAlign: 'center' }}>{liveTotal.count}</td>
+              <td className="num">{fmtNum(liveTotal.gross, 2)}</td>
+              <td className="num" style={{ color: 'var(--bad)' }}>({fmtNum(Math.abs(liveTotal.debt), 2)})</td>
+              <td className="num">{fmtNum(liveTotal.net, 2)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </SectionCard>
+
     </div>
   );
 }
