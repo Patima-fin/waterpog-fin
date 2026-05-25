@@ -714,6 +714,23 @@ function APEditModal({ row, onClose, onSave, onDelete }) {
 }
 
 // ─── AP Outstanding page ─────────────────────────────────────────────────────
+// Canonical field name for due date is 'due2'.
+// Different Excel exports / Google Sheet imports may use different column names;
+// normalise them all to 'due2' so the table and popup always have it.
+const _DUE_ALT_KEYS = [
+  'due', 'due1', 'DUE', 'DUE2', 'Due', 'Due2', 'Due1',
+  'due_date', 'due_date2', 'DUE_DATE', 'DUE_DATE2',
+  'duedate', 'DUEDATE', 'DueDate',
+  'maturity', 'MATURITY',
+];
+function _normPayableRow(r) {
+  if (r.due2) return r;                          // already canonical
+  for (const k of _DUE_ALT_KEYS) {
+    if (r[k]) return { ...r, due2: r[k] };       // promote first found variant
+  }
+  return r;
+}
+
 function DataPayablePage({ data, setData, toast }) {
   const [edit, setEdit]             = dxState(null);
   const [query, setQuery]           = dxState('');
@@ -725,7 +742,8 @@ function DataPayablePage({ data, setData, toast }) {
   const [showImport, setShowImport] = dxState(false);
   const [importText, setImportText] = dxState('');
 
-  const rows = data.payables || [];
+  // Normalise due-date field variants → 'due2' before any filtering / display
+  const rows = dxMemo(() => (data.payables || []).map(_normPayableRow), [data.payables]);
 
   const getDocType = (vchno) => {
     if (!vchno) return 'other';
@@ -778,7 +796,7 @@ function DataPayablePage({ data, setData, toast }) {
 
   // KPI — netpayment (col Q) tracks filtered rows
   const fNet    = filtered.reduce((s, r) => s + parseNum(r.netpayment), 0);
-  const overdueRows = filtered.filter(r => { const d = parseDue(r.due2||r.due); return d && d < new Date(); });
+  const overdueRows = filtered.filter(r => { const d = parseDue(r.due2); return d && d < new Date(); });
   const overdue = overdueRows.length;
   const overdueNet = overdueRows.reduce((s, r) => s + parseNum(r.netpayment), 0);
 
@@ -832,6 +850,10 @@ function DataPayablePage({ data, setData, toast }) {
       if (cols.every(c => !c.trim())) continue;
       const obj = { id: WTPData.newId() };
       headers.forEach((h, j) => { obj[h] = cols[j] != null ? cols[j].trim() : ''; });
+      // Normalise due-date column name variants → canonical 'due2'
+      if (!obj.due2) {
+        for (const k of _DUE_ALT_KEYS) { if (obj[k]) { obj.due2 = obj[k]; break; } }
+      }
       if (obj.vchno && existing.has(obj.vchno)) { skipped++; continue; }
       if (obj.vchno) existing.add(obj.vchno);
       newRows.push(obj);
@@ -952,7 +974,7 @@ function DataPayablePage({ data, setData, toast }) {
                 <tr><td colSpan={8} style={{ padding: 40, textAlign: 'center' }} className="muted">ไม่พบข้อมูล</td></tr>
               )}
               {filtered.map(row => {
-                const due = parseDue(row.due2 || row.due);
+                const due = parseDue(row.due2);
                 const days = due ? Math.ceil((due - new Date()) / 86400000) : null;
                 const dueColor = days === null ? 'var(--ink-400)' : days < 0 ? 'var(--bad)' : days < 7 ? 'oklch(60% 0.16 75)' : days < 30 ? 'oklch(70% 0.16 60)' : 'var(--ink-400)';
                 const netPay = parseNum(row.netpayment);
@@ -963,7 +985,11 @@ function DataPayablePage({ data, setData, toast }) {
                     <td style={vt}><span style={{ fontWeight: 600, color: 'var(--brand-700)', fontFamily: 'ui-monospace' }}>{row.vchno || '—'}</span></td>
                     <td style={vt}>{row.cust_name || <span className="muted">—</span>}</td>
                     <td style={vt}>{row.dpt_code ? <Badge kind="b-blue" dot={false}>{row.dpt_code}</Badge> : <span className="muted">—</span>}</td>
-                    <td style={{ ...vt, whiteSpace: 'nowrap', color: dueColor }}>{fmtDate(row.due2 || row.due) || row.due2 || row.due || <span className="muted">—</span>}</td>
+                    <td style={{ ...vt, whiteSpace: 'nowrap', color: dueColor }}>
+                      {due
+                        ? `${String(due.getDate()).padStart(2,'0')}/${String(due.getMonth()+1).padStart(2,'0')}/${due.getFullYear()}`
+                        : (row.due2 || <span className="muted">—</span>)}
+                    </td>
                     <td style={{ ...vt, textAlign: 'center' }}>
                       {days === null ? <span className="muted">—</span>
                         : days < 0 ? <span style={{ background: 'var(--bad)', color: '#fff', borderRadius: 5, padding: '2px 6px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>{Math.abs(days)} วัน</span>
