@@ -122,12 +122,12 @@ function DataCrudPage({ data, setData, toast, config }) {
                   <SortHeader key={i} label={c.label} sortKey={c.key} sort={sort} toggle={toggleSort}
                     align={c.headerAlign || 'center'} width={c.width} />
                 ))}
-                {!config.readOnlyRows && <th style={{ width: 80 }}></th>}
+                {(!config.readOnlyRows || config.allowDelete) && <th style={{ width: 80 }}></th>}
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 && (
-                <tr><td colSpan={config.columns.length + (config.readOnlyRows ? 0 : 1)} style={{ padding: 36, textAlign: 'center' }} className="muted">ไม่พบข้อมูล</td></tr>
+                <tr><td colSpan={config.columns.length + ((!config.readOnlyRows || config.allowDelete) ? 1 : 0)} style={{ padding: 36, textAlign: 'center' }} className="muted">ไม่พบข้อมูล</td></tr>
               )}
               {sortedFiltered.map(row => (
                 <tr key={row.id}
@@ -143,10 +143,12 @@ function DataCrudPage({ data, setData, toast, config }) {
                       )}
                     </td>
                   ))}
-                  {!config.readOnlyRows && (
+                  {(!config.readOnlyRows || config.allowDelete) && (
                     <td onClick={e => e.stopPropagation()}>
                       <div className="row-act">
-                        <button className="btn-icon" onClick={() => setEdit(row)} title="แก้ไข"><Icon name="edit" size={14} /></button>
+                        {!config.readOnlyRows && (
+                          <button className="btn-icon" onClick={() => setEdit(row)} title="แก้ไข"><Icon name="edit" size={14} /></button>
+                        )}
                         <button className="btn-icon danger" onClick={() => remove(row.id)} title="ลบ"><Icon name="trash" size={14} /></button>
                       </div>
                     </td>
@@ -162,14 +164,16 @@ function DataCrudPage({ data, setData, toast, config }) {
       </div>
 
       {/* View popup — opens on row click (read-only).
-          On editable pages, also expose "แก้ไข" + "ลบ" buttons in footer. */}
+          - Editable pages (readOnlyRows=false): show "แก้ไข" + "ลบ" in footer
+          - Read-only-with-delete (readOnlyRows + allowDelete): show "ลบ" only
+          - Pure read-only: no buttons */}
       <GenericViewModal
         row={view}
         onClose={() => setView(null)}
         fields={config.modalFields}
         title={`ข้อมูล ${config.singular || 'รายการ'}`}
         onEdit={config.readOnlyRows ? undefined : (row) => setEdit(row)}
-        onDelete={config.readOnlyRows ? undefined : remove}
+        onDelete={(!config.readOnlyRows || config.allowDelete) ? remove : undefined}
       />
 
       {/* Edit modal — opens via pencil button OR "เพิ่ม" button (only on editable pages) */}
@@ -551,7 +555,8 @@ function DataPVPage({ data, setData, toast }) {
         Amount: 0, Down_payment: 0, Deduct: 0, Vat: 0, Ret: 0,
         Before_WHT: 0, WHT: 0, Less_Other: 0, Total: 0, Minus_Other: 0, Net_Amount: 0,
       },
-      readOnlyRows: true,
+      readOnlyRows: true,    // PV records come from accounting system — don't edit them
+      allowDelete: true,     // …but allow deleting stale entries that never actually paid out
       tableMaxHeight: 'min(480px, calc(100vh - 400px))',
       columns: [
         { key: 'Pmt_Date',   label: 'วันที่จ่าย',   type: 'date',  width: 100, align: 'center' },
