@@ -242,12 +242,12 @@ function DailyRevenueDashboard({ data, setData, toast }) {
         transition: 'max-width .25s',
       }}>
 
-      {/* ── Hero — branded + screenshot-friendly ────────────────────────── */}
+      {/* ── Hero — branded + screenshot-friendly (muted slate palette) ──── */}
       <div className="anim-in" style={{
-        marginBottom: isPortrait ? 16 : 20, padding: isPortrait ? '20px 24px' : '22px 28px',
-        borderRadius: 20, position: 'relative', overflow: 'hidden',
-        background: 'linear-gradient(135deg, #0f2c6a 0%, #1a4490 50%, #2a6fdb 100%)',
-        boxShadow: '0 12px 32px rgba(15, 44, 106, 0.32)',
+        marginBottom: isPortrait ? 14 : 20, padding: isPortrait ? '18px 22px' : '22px 28px',
+        borderRadius: 18, position: 'relative', overflow: 'hidden',
+        background: 'linear-gradient(135deg, #233857 0%, #2c4569 50%, #3a567f 100%)',
+        boxShadow: '0 8px 22px rgba(35, 56, 87, 0.22)',
         color: 'white',
       }}>
         {/* decorative water-wave SVG */}
@@ -313,37 +313,37 @@ function DailyRevenueDashboard({ data, setData, toast }) {
 
       {/* ── Summary pills: YTD / MTD / Today (paid) ─ screenshot-friendly ──── */}
       <div style={{ display: 'grid', gridTemplateColumns: isPortrait ? '1fr' : 'repeat(3, 1fr)', gap: isPortrait ? 10 : 14, marginBottom: isPortrait ? 16 : 24 }} className="anim-stagger daily-pill-grid">
-        {/* YTD */}
+        {/* YTD — muted navy */}
         <DailyPillCard
           title={`มูลค่ารับสะสมในปี ${thisYear}`}
           subtitle="Year-to-date"
           icon="📈"
           count={ytdList.length}
           value={sumBal(ytdList)}
-          gradient="linear-gradient(135deg, #2a6fdb 0%, #1a4490 100%)"
-          accent="#4a90e2"
+          gradient="linear-gradient(135deg, #4a6491 0%, #324966 100%)"
+          accent="#7a96bf"
           onClick={() => setDrillModal({ title: `มูลค่ารับสะสมในปี ${thisYear}`, list: ytdList })}
         />
-        {/* MTD */}
+        {/* MTD — muted sage/teal */}
         <DailyPillCard
           title="มูลค่ารับสะสมในเดือนนี้"
           subtitle="Month-to-date"
           icon="🏦"
           count={monthList.length}
           value={sumBal(monthList)}
-          gradient="linear-gradient(135deg, #38b2ac 0%, #14807d 100%)"
-          accent="#4fd1c5"
+          gradient="linear-gradient(135deg, #5e8a83 0%, #406863 100%)"
+          accent="#9bbfb8"
           onClick={() => setDrillModal({ title: 'มูลค่ารับสะสมในเดือนนี้', list: monthList })}
         />
-        {/* Today — highlighted */}
+        {/* Today — muted bronze/amber (toned down from neon orange) */}
         <DailyPillCard
           title="โครงการที่รับเงินวันนี้"
           subtitle="Today's receipts"
           icon="💰"
           count={todayList.length}
           value={sumBal(todayList)}
-          gradient="linear-gradient(135deg, #f59e0b 0%, #d97706 100%)"
-          accent="#fbbf24"
+          gradient="linear-gradient(135deg, #c08a4b 0%, #9a6a30 100%)"
+          accent="#deb275"
           isHero
         />
       </div>
@@ -515,64 +515,61 @@ function DailyRevenueDashboard({ data, setData, toast }) {
   );
 }
 
-/* ── Daily KPI card — large, branded, screenshot-friendly ────────────── */
+/* ── Daily KPI card — compact, branded, screenshot-friendly ────────────── */
 function DailyPillCard({ title, subtitle, icon, count, value, gradient, accent, isHero, onClick }) {
   const clickable = !!onClick;
   return (
     <div onClick={onClick}
       style={{
         position: 'relative', overflow: 'hidden',
-        borderRadius: 16, padding: '18px 20px',
+        borderRadius: 14, padding: '13px 18px',
         background: gradient,
         color: 'white',
         boxShadow: isHero
-          ? '0 12px 28px rgba(217, 119, 6, .35), 0 0 0 3px rgba(251, 191, 36, .25)'
-          : '0 6px 18px rgba(31, 86, 184, .18)',
+          ? '0 6px 18px rgba(154, 106, 48, .22), 0 0 0 2px rgba(222, 178, 117, .22)'
+          : '0 4px 12px rgba(50, 73, 102, .15)',
         cursor: clickable ? 'pointer' : 'default',
         transition: 'transform .15s, box-shadow .15s',
-        minHeight: 158,
-        display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+        display: 'flex', flexDirection: 'column', gap: 10,
       }}
       onMouseEnter={clickable ? (e) => { e.currentTarget.style.transform = 'translateY(-2px)'; } : undefined}
       onMouseLeave={clickable ? (e) => { e.currentTarget.style.transform = ''; } : undefined}
       title={clickable ? 'คลิกเพื่อดูรายละเอียด' : ''}>
 
-      {/* Decorative glow */}
-      <div style={{ position: 'absolute', right: -40, top: -40, width: 140, height: 140, borderRadius: '50%', background: 'rgba(255,255,255,0.12)', pointerEvents: 'none' }} />
-      <div style={{ position: 'absolute', right: -20, bottom: -50, width: 100, height: 100, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', pointerEvents: 'none' }} />
+      {/* Decorative glow — subtle */}
+      <div style={{ position: 'absolute', right: -50, top: -50, width: 130, height: 130, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', pointerEvents: 'none' }} />
+      <div style={{ position: 'absolute', right: -10, bottom: -40, width: 80, height: 80, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', pointerEvents: 'none' }} />
 
       {/* Header: icon + title */}
-      <div style={{ position: 'relative', zIndex: 1 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{
-            width: 38, height: 38, borderRadius: 10,
-            background: 'rgba(255,255,255,0.18)',
-            display: 'grid', placeItems: 'center', fontSize: 20,
-            backdropFilter: 'blur(4px)',
-          }}>{icon}</div>
-          <div>
-            <div style={{ fontSize: 13.5, fontWeight: 700, letterSpacing: '.01em', lineHeight: 1.2 }}>{title}</div>
-            <div style={{ fontSize: 10.5, opacity: 0.75, marginTop: 2, letterSpacing: '.08em', textTransform: 'uppercase' }}>{subtitle}</div>
-          </div>
-          {clickable && (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: .55, marginLeft: 'auto', flexShrink: 0 }}>
-              <polyline points="9 6 15 12 9 18"/>
-            </svg>
-          )}
+      <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{
+          width: 32, height: 32, borderRadius: 8,
+          background: 'rgba(255,255,255,0.16)',
+          display: 'grid', placeItems: 'center', fontSize: 16,
+          flexShrink: 0,
+        }}>{icon}</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '.01em', lineHeight: 1.2 }}>{title}</div>
+          <div style={{ fontSize: 10, opacity: 0.72, marginTop: 2, letterSpacing: '.08em', textTransform: 'uppercase' }}>{subtitle}</div>
         </div>
+        {clickable && (
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: .5, flexShrink: 0 }}>
+            <polyline points="9 6 15 12 9 18"/>
+          </svg>
+        )}
       </div>
 
-      {/* Big value */}
-      <div style={{ position: 'relative', zIndex: 1 }}>
-        <div style={{ fontSize: 28, fontWeight: 800, fontVariantNumeric: 'tabular-nums', letterSpacing: '-.02em', lineHeight: 1.1 }}>
+      {/* Big value + count in one row for compactness */}
+      <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 24, fontWeight: 800, fontVariantNumeric: 'tabular-nums', letterSpacing: '-.02em', lineHeight: 1.1 }}>
           <AnimatedNumber value={value} digits={2} />
-          <span style={{ fontSize: 13, opacity: 0.85, fontWeight: 500, marginLeft: 4 }}>฿</span>
+          <span style={{ fontSize: 12, opacity: 0.82, fontWeight: 500, marginLeft: 3 }}>฿</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 6, opacity: 0.92 }}>
-          <span style={{ fontSize: 18, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, opacity: 0.88 }}>
+          <span style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
             <AnimatedNumber value={count} digits={0} />
           </span>
-          <span style={{ fontSize: 11.5, opacity: 0.8 }}>ใบ</span>
+          <span style={{ fontSize: 10.5, opacity: 0.75 }}>ใบ</span>
         </div>
       </div>
     </div>
