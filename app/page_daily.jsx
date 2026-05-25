@@ -33,6 +33,8 @@ function DailyRevenueDashboard({ data, setData, toast }) {
   const [drillModal, setDrillModal] = dRState(null); // { title, list } — paid drill
   const [fcModal,    setFcModal]    = dRState(null); // { title, list } — forecast drill
   const [ivTypeFilter, setIvTypeFilter] = dRState('all'); // 'all' | 'P' | 'O'
+  const [captureMode, setCaptureMode] = dRState('landscape'); // 'landscape' | 'portrait'
+  const isPortrait = captureMode === 'portrait';
 
   // invType filter (P=โครงการ, O=อื่นๆ) — default 'P' if missing
   const drInvType = iv => ((iv.invType || iv.invtype || 'P').toString().trim().toUpperCase() === 'O' ? 'O' : 'P');
@@ -169,33 +171,81 @@ function DailyRevenueDashboard({ data, setData, toast }) {
         </div>
       </div>
 
-      {/* invType filter toggle */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }} className="anim-in">
-        <span style={{ fontSize: 12, color: 'var(--ink-500)' }}>กรองประเภทใบแจ้งหนี้:</span>
-        {[
-          { k: 'all', label: 'ทั้งหมด',           bg: '#f8fafc', color: '#2d3748', bd: '#cbd5e0' },
-          { k: 'P',   label: '📋 โครงการ (P)',    bg: '#ebf8ff', color: '#1e4fbd', bd: '#63b3ed' },
-          { k: 'O',   label: '🛒 อื่นๆ (O)',       bg: '#faf5ff', color: '#6b46c1', bd: '#b794f4' },
-        ].map(t => {
-          const active = ivTypeFilter === t.k;
-          return (
-            <button key={t.k} onClick={() => setIvTypeFilter(t.k)}
-              style={{
-                fontSize: 12, padding: '5px 12px', borderRadius: 16, cursor: 'pointer',
-                border: `1.5px solid ${active ? t.bd : 'transparent'}`,
-                background: active ? t.bg : 'transparent',
-                color: active ? t.color : 'var(--ink-500)',
-                fontWeight: active ? 700 : 500,
-              }}>
-              {t.label}
-            </button>
-          );
-        })}
+      {/* Top toolbar — invType filter + capture-mode toggle */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14, flexWrap: 'wrap' }} className="anim-in no-print">
+        {/* invType filter */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 12, color: 'var(--ink-500)' }}>กรองประเภท:</span>
+          {[
+            { k: 'all', label: 'ทั้งหมด',           bg: '#f8fafc', color: '#2d3748', bd: '#cbd5e0' },
+            { k: 'P',   label: '📋 โครงการ (P)',    bg: '#ebf8ff', color: '#1e4fbd', bd: '#63b3ed' },
+            { k: 'O',   label: '🛒 อื่นๆ (O)',       bg: '#faf5ff', color: '#6b46c1', bd: '#b794f4' },
+          ].map(t => {
+            const active = ivTypeFilter === t.k;
+            return (
+              <button key={t.k} onClick={() => setIvTypeFilter(t.k)}
+                style={{
+                  fontSize: 12, padding: '5px 12px', borderRadius: 16, cursor: 'pointer',
+                  border: `1.5px solid ${active ? t.bd : 'transparent'}`,
+                  background: active ? t.bg : 'transparent',
+                  color: active ? t.color : 'var(--ink-500)',
+                  fontWeight: active ? 700 : 500,
+                }}>
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Capture mode toggle */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto', padding: '4px 6px', background: 'var(--ink-50, #f7fafc)', borderRadius: 22, border: '1px solid var(--ink-100, #e2e8f0)' }}>
+          <span style={{ fontSize: 11, color: 'var(--ink-500)', marginLeft: 6, fontWeight: 500 }}>📷 รูปแบบแคป:</span>
+          <button onClick={() => setCaptureMode('landscape')}
+            title="แนวนอน — สำหรับโพสต์ในกลุ่มไลน์/อีเมล หรือคอมพิวเตอร์"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              fontSize: 12, fontWeight: 600,
+              padding: '5px 12px', borderRadius: 18, cursor: 'pointer',
+              border: `1.5px solid ${!isPortrait ? 'var(--brand-500)' : 'transparent'}`,
+              background: !isPortrait ? 'var(--brand-500)' : 'transparent',
+              color: !isPortrait ? 'white' : 'var(--ink-500)',
+              transition: 'all .12s',
+            }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="6" width="20" height="12" rx="2"/>
+            </svg>
+            แนวนอน
+          </button>
+          <button onClick={() => setCaptureMode('portrait')}
+            title="แนวตั้ง — สำหรับแคปบนมือถือ หรือเช็คใน Line preview แบบสูง"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              fontSize: 12, fontWeight: 600,
+              padding: '5px 12px', borderRadius: 18, cursor: 'pointer',
+              border: `1.5px solid ${isPortrait ? 'var(--brand-500)' : 'transparent'}`,
+              background: isPortrait ? 'var(--brand-500)' : 'transparent',
+              color: isPortrait ? 'white' : 'var(--ink-500)',
+              transition: 'all .12s',
+            }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="6" y="2" width="12" height="20" rx="2"/>
+            </svg>
+            แนวตั้ง
+          </button>
+        </div>
       </div>
+
+      {/* ═══ Report capture area ═══ (toggle landscape/portrait via captureMode) */}
+      <div className="report-capture-area" style={{
+        maxWidth: isPortrait ? 440 : 'none',
+        margin: isPortrait ? '0 auto' : '0',
+        transition: 'max-width .25s',
+      }}>
 
       {/* ── Hero — branded + screenshot-friendly ────────────────────────── */}
       <div className="anim-in" style={{
-        marginBottom: 20, padding: '22px 28px', borderRadius: 20, position: 'relative', overflow: 'hidden',
+        marginBottom: isPortrait ? 14 : 20, padding: isPortrait ? '16px 18px' : '22px 28px',
+        borderRadius: 20, position: 'relative', overflow: 'hidden',
         background: 'linear-gradient(135deg, #0f2c6a 0%, #1a4490 50%, #2a6fdb 100%)',
         boxShadow: '0 12px 32px rgba(15, 44, 106, 0.32)',
         color: 'white',
@@ -210,39 +260,51 @@ function DailyRevenueDashboard({ data, setData, toast }) {
         <div style={{ position: 'absolute', right: -90, top: -90, width: 240, height: 240, borderRadius: '50%', background: 'rgba(255,255,255,0.06)', pointerEvents: 'none' }} />
         <div style={{ position: 'absolute', left: -50, top: -50, width: 140, height: 140, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', pointerEvents: 'none' }} />
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'relative', zIndex: 1, gap: 24 }}>
+        <div style={{
+          display: 'flex',
+          flexDirection: isPortrait ? 'column' : 'row',
+          justifyContent: 'space-between',
+          alignItems: isPortrait ? 'flex-start' : 'center',
+          position: 'relative', zIndex: 1, gap: isPortrait ? 14 : 24,
+        }}>
           {/* Left — Logo + Title */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: isPortrait ? 12 : 18 }}>
             <div style={{
-              background: 'white', borderRadius: 16, padding: 8,
+              background: 'white', borderRadius: isPortrait ? 12 : 16, padding: isPortrait ? 6 : 8,
               boxShadow: '0 6px 18px rgba(0,0,0,0.18)',
-              width: 76, height: 76, display: 'grid', placeItems: 'center', flexShrink: 0,
+              width: isPortrait ? 56 : 76, height: isPortrait ? 56 : 76, display: 'grid', placeItems: 'center', flexShrink: 0,
             }}>
               <img src="waterpog_Logo-02.png" alt="Water POG"
                 style={{ width: '100%', height: 'auto', display: 'block', objectFit: 'contain' }} />
             </div>
             <div>
-              <div style={{ fontSize: 11, opacity: 0.88, letterSpacing: '.18em', textTransform: 'uppercase', fontWeight: 600 }}>
+              <div style={{ fontSize: isPortrait ? 10 : 11, opacity: 0.88, letterSpacing: '.18em', textTransform: 'uppercase', fontWeight: 600 }}>
                 {meta.companyName}
               </div>
-              <div style={{ fontSize: 28, fontWeight: 800, letterSpacing: '-.01em', lineHeight: 1.15, marginTop: 4 }}>
+              <div style={{ fontSize: isPortrait ? 19 : 28, fontWeight: 800, letterSpacing: '-.01em', lineHeight: 1.15, marginTop: 4 }}>
                 สรุปรายงานรับเงินประจำวัน
               </div>
-              <div style={{ fontSize: 13, opacity: 0.78, marginTop: 3, letterSpacing: '.04em' }}>
+              <div style={{ fontSize: isPortrait ? 11.5 : 13, opacity: 0.78, marginTop: 3, letterSpacing: '.04em' }}>
                 Daily Revenue Report
               </div>
             </div>
           </div>
 
           {/* Right — Date */}
-          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+          <div style={{
+            textAlign: isPortrait ? 'left' : 'right',
+            flexShrink: 0,
+            width: isPortrait ? '100%' : 'auto',
+            borderTop: isPortrait ? '1px solid rgba(255,255,255,0.18)' : 'none',
+            paddingTop: isPortrait ? 12 : 0,
+          }}>
             <div style={{ fontSize: 10.5, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '.18em', fontWeight: 600 }}>
               วันที่ของรายงาน
             </div>
-            <div style={{ fontSize: 36, fontWeight: 800, marginTop: 4, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
+            <div style={{ fontSize: isPortrait ? 28 : 36, fontWeight: 800, marginTop: 4, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
               {fmtDate(todayStr)}
             </div>
-            <div style={{ fontSize: 12, opacity: 0.85, marginTop: 4 }}>
+            <div style={{ fontSize: isPortrait ? 11.5 : 12, opacity: 0.85, marginTop: 4 }}>
               {todayLabel}
             </div>
           </div>
@@ -250,7 +312,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
       </div>
 
       {/* ── Summary pills: YTD / MTD / Today (paid) ─ screenshot-friendly ──── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 24 }} className="anim-stagger daily-pill-grid">
+      <div style={{ display: 'grid', gridTemplateColumns: isPortrait ? '1fr' : 'repeat(3, 1fr)', gap: isPortrait ? 10 : 14, marginBottom: isPortrait ? 16 : 24 }} className="anim-stagger daily-pill-grid">
         {/* YTD */}
         <DailyPillCard
           title={`มูลค่ารับสะสมในปี ${thisYear}`}
@@ -309,7 +371,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
       </div>
 
       {/* Forecast KPI tiles ─────────────────────────────────────────────────── */}
-      <div className="grid grid-4 anim-stagger" style={{ marginBottom: 18 }}>
+      <div className="anim-stagger" style={{ marginBottom: 18, display: 'grid', gridTemplateColumns: isPortrait ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 12 }}>
 
         {/* เกินกำหนด */}
         <div onClick={() => overdueForecast.length > 0 && setFcModal({ title: '🚨 เกินกำหนดชำระ', list: overdueForecast })}
@@ -437,6 +499,8 @@ function DailyRevenueDashboard({ data, setData, toast }) {
           <span style={{ fontStyle: 'italic' }}>เอกสารใช้ภายในเท่านั้น</span>
         </div>
       </div>
+
+      </div>{/* ═══ End report capture area ═══ */}
 
       {/* Paid drill-down popup */}
       {drillModal && (
