@@ -633,7 +633,6 @@
   // Helpers for cross-source lookups
   const buildLookups = (data) => {
     // projectByCode: key ด้วย Project No. (เช่น PP064), Contract No., Ref.code, และ .code (เก่า)
-    // → invoice.jobNo จาก parseProjDpt = Project No. (PP064, TTI040, MA-926 ฯลฯ) → lookup เจอ → ได้ p['พื้นที่']
     const projectByCode = {};
     (data.projects || []).forEach(p => {
       const k1 = p['Contract No.'] || p.code;
@@ -643,9 +642,55 @@
       if (k2 && k2 !== k1) projectByCode[k2] = p;
       if (k3 && k3 !== k1 && k3 !== k2) projectByCode[k3] = p;
     });
-    // financeByCode: ใช้ข้อมูลจาก projects โดยตรง (projectFinance sheet ถูกลบแล้ว)
-    // assignee / debt / transferRights มาจาก projects.assignee, projects.debt
-    const financeByCode = Object.assign({}, projectByCode);
+
+    // ── Build debt summary from debtLedger keyed by project code ─────────────
+    // Strip product-type suffix (e.g. PP073-AYT → PP073) so we can match invoice.jobNo
+    // Sum outstanding balances per project, collect bankNames (= ผู้รับโอนสิทธิ์)
+    const debtByCode = {};
+    (data.debtLedger || []).forEach(d => {
+      if (d.status && d.status !== 'active' && d.status !== 'Active') return;
+      const rawCode = d.projectCode || d.linkedProjectCode || '';
+      if (!rawCode) return;
+      const m = String(rawCode).match(/^(.+)-([A-Z]{2,6})$/);
+      const cleanCode = m ? m[1] : rawCode;
+      // Push to BOTH normalized and raw forms so lookup works either way
+      [cleanCode, rawCode].forEach(k => {
+        if (!k) return;
+        if (!debtByCode[k]) debtByCode[k] = { totalDebt: 0, assignees: [], contracts: [] };
+        const bal = Number(d.balance) || Number(d.outstandingBalance) || Number(d.principalAmount) || 0;
+        debtByCode[k].totalDebt += bal;
+        const bank = d.bankName || d.assignee || '';
+        if (bank && debtByCode[k].assignees.indexOf(bank) < 0) {
+          debtByCode[k].assignees.push(bank);
+        }
+        debtByCode[k].contracts.push(d);
+      });
+    });
+
+    // ── financeByCode: project record + auto-resolved debt + assignee ─────────
+    // Priority: project's own debt/assignee fields → fall back to debtLedger aggregate
+    const financeByCode = {};
+    Object.keys(projectByCode).forEach(k => {
+      const p = projectByCode[k];
+      const di = debtByCode[k] || {};
+      const projectDebt     = Number(p.debt ?? p['ภาระหนี้']) || 0;
+      const projectAssignee = p.assignee || p['ผู้รับโอนสิทธิ์'] || '';
+      financeByCode[k] = Object.assign({}, p, {
+        debt:     projectDebt > 0 ? projectDebt : (di.totalDebt || 0),
+        assignee: projectAssignee || (di.assignees && di.assignees.length ? di.assignees.join(', ') : ''),
+        debtContracts: di.contracts || [],
+      });
+    });
+    // Also include debt-only entries (projects in debtLedger but not in projects sheet)
+    Object.keys(debtByCode).forEach(k => {
+      if (financeByCode[k]) return;
+      const di = debtByCode[k];
+      financeByCode[k] = {
+        debt:     di.totalDebt,
+        assignee: (di.assignees || []).join(', '),
+        debtContracts: di.contracts,
+      };
+    });
     return { projectByCode, financeByCode };
   };
   // คำนวณดอกเบี้ยค้างชำระ ณ วันที่กำหนด (ส่ง record จาก debtLedger)
