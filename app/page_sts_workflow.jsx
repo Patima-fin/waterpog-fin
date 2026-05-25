@@ -222,14 +222,19 @@ function StsDetailSubModal({ open, title, record, onClose }) {
     if (bi >= 0) return 1;
     return a[0].localeCompare(b[0]);
   });
+  // Wrap close handlers with stopPropagation so clicking the sub-modal's
+  // backdrop or close button doesn't bubble up to the drawer behind it
+  // (which would close the main popup too).
+  const handleBackdropClick = (e) => { e.stopPropagation(); onClose(); };
+  const handleCloseClick    = (e) => { e.stopPropagation(); onClose(); };
   return (
-    <div onClick={onClose}
+    <div onClick={handleBackdropClick}
       style={{ position: 'fixed', inset: 0, background: 'rgba(15,36,77,0.55)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
       <div onClick={e => e.stopPropagation()}
         style={{ background: '#fff', borderRadius: 14, width: 'min(560px, 92vw)', maxHeight: '82vh', overflow: 'auto', boxShadow: '0 24px 60px rgba(15,36,77,0.28)' }}>
         <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, background: '#fff', zIndex: 2 }}>
           <div style={{ fontWeight: 700, fontSize: 15 }}>{title}</div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: 'var(--ink-400)', lineHeight: 1 }}>×</button>
+          <button onClick={handleCloseClick} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: 'var(--ink-400)', lineHeight: 1 }}>×</button>
         </div>
         <div style={{ padding: 18, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           {entries.length === 0 && (
@@ -262,7 +267,7 @@ function StsDetailSubModal({ open, title, record, onClose }) {
           })}
         </div>
         <div style={{ padding: '10px 18px', background: '#f8fafc', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end', position: 'sticky', bottom: 0 }}>
-          <button onClick={onClose} className="btn btn-ghost">ปิด</button>
+          <button onClick={handleCloseClick} className="btn btn-ghost">ปิด</button>
         </div>
       </div>
     </div>
