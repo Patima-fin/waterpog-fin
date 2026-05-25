@@ -393,6 +393,7 @@ function InvoicesPage({ data, setData, toast }) {
     invoiceDate: data.meta.asOf, balance: 0,
     status: 'pending_inspection', expectedReceive: '',
     contactName: '', contactPhone: '',
+    invType: 'P',
     followUps: [], actualReceive: null,
   });
 
@@ -659,19 +660,19 @@ function InvoicesPage({ data, setData, toast }) {
 
       <div className="card anim-in" style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: fullscreen ? 'calc(100vh - 140px)' : 'min(480px, calc(100vh - 400px))' }}>
-        <table className="tbl" style={{ tableLayout: 'fixed', width: '100%', minWidth: 1080 }}>
+        <table className="tbl tbl-compact" style={{ tableLayout: 'fixed', width: '100%', minWidth: 940, fontSize: 12 }}>
           <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--surface)' }}>
             <tr>
-              <IvColHeader label="Job No."          sortKey="jobNo"           colKey="jobNo"           sort={sort} sortToggle={toggle} align="center" width={90}  colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
-              <IvColHeader label="เลขที่ IV"        sortKey="ivNo"            colKey="ivNo"            sort={sort} sortToggle={toggle} align="center" width={110} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
-              <IvColHeader label="วันที่ออก IV"     sortKey="invoiceDate"     colKey="invoiceDate"     sort={sort} sortToggle={toggle} align="center" width={95}  colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
-              <IvColHeader label="ชื่อโครงการ"      sortKey="projectName"     colKey="projectName"     sort={sort} sortToggle={toggle} align="center"            colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
-              <IvColHeader label="ยอดค้างชำระ (฿)" sortKey="balance"         colKey="balance"         sort={sort} sortToggle={toggle} align="right"  width={130} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
-              <IvColHeader label="ผู้รับโอนสิทธิ์"  sortKey="assignee"        colKey="assignee"        sort={sort} sortToggle={toggle} align="center" width={110} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
-              <IvColHeader label="ภาระหนี้ (฿)"    sortKey="debt"            colKey="debt"            sort={sort} sortToggle={toggle} align="right"  width={110} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
-              <IvColHeader label="คาดรับสุทธิ (฿)" sortKey="netExpected"     colKey="netExpected"     sort={sort} sortToggle={toggle} align="right"  width={120} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
-              <IvColHeader label="วันที่"             sortKey="expectedReceive" colKey="expectedReceive" sort={sort} sortToggle={toggle} align="center" width={105} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
-              <th style={{ width: 150, textAlign: 'center' }}>สถานะ</th>
+              <IvColHeader label="Job No."         sortKey="jobNo"           colKey="jobNo"           sort={sort} sortToggle={toggle} align="center" width={76}  colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
+              <IvColHeader label="เลข IV"          sortKey="ivNo"            colKey="ivNo"            sort={sort} sortToggle={toggle} align="center" width={92}  colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
+              <IvColHeader label="วันที่ IV"        sortKey="invoiceDate"     colKey="invoiceDate"     sort={sort} sortToggle={toggle} align="center" width={84}  colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
+              <IvColHeader label="ชื่อโครงการ"      sortKey="projectName"     colKey="projectName"     sort={sort} sortToggle={toggle} align="center"             colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
+              <IvColHeader label="ยอดค้าง (฿)"     sortKey="balance"         colKey="balance"         sort={sort} sortToggle={toggle} align="right"  width={108} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
+              <IvColHeader label="ผู้รับโอนสิทธิ์"   sortKey="assignee"        colKey="assignee"        sort={sort} sortToggle={toggle} align="center" width={86}  colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
+              <IvColHeader label="ภาระหนี้ (฿)"    sortKey="debt"            colKey="debt"            sort={sort} sortToggle={toggle} align="right"  width={92}  colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
+              <IvColHeader label="สุทธิ (฿)"         sortKey="netExpected"     colKey="netExpected"     sort={sort} sortToggle={toggle} align="right"  width={104} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
+              <IvColHeader label="วันที่"            sortKey="expectedReceive" colKey="expectedReceive" sort={sort} sortToggle={toggle} align="center" width={92}  colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
+              <IvColHeader label="สถานะ"            sortKey="status"          colKey="status"          sort={sort} sortToggle={toggle} align="center" width={132} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
             </tr>
           </thead>
           <tbody>
@@ -1240,6 +1241,12 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
               {Object.entries(WTPData.IV_STATUS_META).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
             </select>
           </div>
+          <div className="field"><label>ประเภทใบแจ้งหนี้</label>
+            <select className="select input" value={draft.invType || 'P'} onChange={(e) => set('invType', e.target.value)}>
+              <option value="P">📋 ลูกหนี้จากโครงการ (P)</option>
+              <option value="O">🛒 ลูกหนี้อื่นๆ (O)</option>
+            </select>
+          </div>
           <div className="field"><label>ชื่อผู้ติดต่อ</label><input className="input" value={draft.contactName || ''} onChange={(e) => set('contactName', e.target.value)} placeholder="เช่น คุณสมหญิง" /></div>
           <div className="field"><label>เบอร์โทร</label><input className="input" value={draft.contactPhone || ''} onChange={(e) => set('contactPhone', e.target.value)} placeholder="0XX-XXX-XXXX" /></div>
           <div className="field"><label>วันที่คาดว่าจะได้รับเงิน</label><input className="input" type="date" value={draft.expectedReceive || ''} onChange={(e) => set('expectedReceive', e.target.value)} /></div>
@@ -1279,12 +1286,20 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
           {/* ── ข้อมูลติดตาม ───────────────────────────────────────────────── */}
           <div>
             <SectionHdr label="ข้อมูลติดตาม — กรอกได้" icon="edit" />
-            <div style={{ display: 'grid', gridTemplateColumns: '72px 160px 140px 1fr 155px', gap: '0 12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '64px 152px 130px 120px 1fr 130px', gap: '0 10px' }}>
               <div className="field">
                 <label style={{ fontSize: 12 }}>งวดที่</label>
                 <input className="input" type="number" min="1" value={draft.period || 1}
                   onChange={(e) => set('period', Number(e.target.value))}
                   style={{ textAlign: 'center', fontWeight: 700, fontSize: 15 }} />
+              </div>
+              <div className="field">
+                <label style={{ fontSize: 12 }}>ประเภทใบแจ้งหนี้</label>
+                <select className="select input" value={draft.invType || 'P'}
+                  onChange={(e) => set('invType', e.target.value)}>
+                  <option value="P">📋 ลูกหนี้จากโครงการ (P)</option>
+                  <option value="O">🛒 ลูกหนี้อื่นๆ (O)</option>
+                </select>
               </div>
               <div className="field">
                 <label style={{ fontSize: 12 }}>สถานะ</label>

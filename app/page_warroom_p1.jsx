@@ -8,6 +8,7 @@ const { useMemo: wr1Memo, useState: wr1State } = React;
 function WarRoomPage1({ data, setData, toast }) {
   const { warroomP1, meta } = data;
   const [ivTypeFilter, setIvTypeFilter] = wr1State('all'); // 'all' | 'P' | 'O'
+  const [drillModal, setDrillModal]     = wr1State(null);  // { kind: 'month'|'week', title, items }
   const wrInvType = iv => ((iv.invType || iv.invtype || 'P').toString().trim().toUpperCase() === 'O' ? 'O' : 'P');
   const matchType = iv => ivTypeFilter === 'all' || wrInvType(iv) === ivTypeFilter;
 
@@ -50,12 +51,14 @@ function WarRoomPage1({ data, setData, toast }) {
       .map(([m, recs]) => {
         const d = new Date(m + '-01T12:00:00');
         return {
-          month: d.toLocaleDateString('th-TH-u-ca-gregory', { month: 'long' }),
-          en:    d.toLocaleString('en-US', { month: 'short' }),
-          count: recs.length,
-          gross: recs.reduce((s, r) => s + (Number(r.grossAmount)         || 0), 0),
-          debt:  recs.reduce((s, r) => s + (Number(r.transferDeduction)   || 0), 0),
-          net:   recs.reduce((s, r) => s + (Number(r.netReceived)         || 0), 0),
+          monthKey: m,                                                   // YYYY-MM
+          month:    d.toLocaleDateString('th-TH-u-ca-gregory', { month: 'long' }),
+          en:       d.toLocaleString('en-US', { month: 'short' }),
+          count:    recs.length,
+          gross:    recs.reduce((s, r) => s + (Number(r.grossAmount)         || 0), 0),
+          debt:     recs.reduce((s, r) => s + (Number(r.transferDeduction)   || 0), 0),
+          net:      recs.reduce((s, r) => s + (Number(r.netReceived)         || 0), 0),
+          recs,                                                          // keep list for drill-down
         };
       });
   }, [data.receipts, liveYear, ivTypeFilter, ivTypeByInvNo]);
@@ -99,7 +102,7 @@ function WarRoomPage1({ data, setData, toast }) {
 
   // จัดกลุ่มตามสัปดาห์ภายในเดือน: สัปดาห์ 1=วันที่ 1-7, 2=8-14, 3=15-21, 4=22-28, 5=29+
   const thisMthByWeek = wr1Memo(() => {
-    const weeks = [1,2,3,4,5].map(w => ({ week: w, count: 0, gross: 0, debt: 0, net: 0 }));
+    const weeks = [1,2,3,4,5].map(w => ({ week: w, count: 0, gross: 0, debt: 0, net: 0, ivs: [] }));
     thisMthIvs.forEach(iv => {
       const day  = parseInt((iv.expectedReceive || '').slice(8, 10), 10) || 1;
       const wIdx = Math.min(Math.ceil(day / 7), 5) - 1;
@@ -107,6 +110,7 @@ function WarRoomPage1({ data, setData, toast }) {
       weeks[wIdx].gross += iv.balance;
       weeks[wIdx].debt  += iv.debt;
       weeks[wIdx].net   += iv.netExpected;
+      weeks[wIdx].ivs.push(iv);
     });
     return weeks;
   }, [thisMthIvs]);
@@ -209,20 +213,29 @@ function WarRoomPage1({ data, setData, toast }) {
             {liveYtd.length === 0 && (
               <tr><td colSpan={5} style={{ padding: '24px 14px', textAlign: 'center', color: 'var(--ink-400)' }}>ไม่มีข้อมูลใบรับเงินในปีนี้</td></tr>
             )}
-            {liveYtd.map((m, i) => (
-              <tr key={i}>
-                <td>
-                  <span style={{ fontWeight: 600 }}>{m.month}</span>
-                  <span className="muted" style={{ fontSize: 11.5, marginLeft: 6, fontWeight: 400 }}>({m.en})</span>
-                </td>
-                <td style={{ textAlign: 'center' }}>{m.count}</td>
-                <td className="num">{fmtNum(m.gross, 2)}</td>
-                <td className="num" style={{ color: m.debt ? 'var(--bad)' : 'var(--ink-400)' }}>
-                  {m.debt ? '(' + fmtNum(m.debt, 2) + ')' : '-'}
-                </td>
-                <td className="num strong">{fmtNum(m.net, 2)}</td>
-              </tr>
-            ))}
+            {liveYtd.map((m, i) => {
+              const isThis = m.monthKey === liveThisMonth;
+              return (
+                <tr key={i} onClick={() => setDrillModal({ kind: 'month', title: `รายรับเดือน${m.month} (${m.en})`, items: m.recs, totals: { count: m.count, gross: m.gross, debt: m.debt, net: m.net } })}
+                  style={{ cursor: 'pointer', background: isThis ? 'color-mix(in oklch,var(--brand-500) 5%,transparent)' : '' }}
+                  title="คลิกดูรายละเอียดทุกใบรับเงิน">
+                  <td>
+                    <span style={{ fontWeight: isThis ? 700 : 600 }}>{m.month}</span>
+                    <span className="muted" style={{ fontSize: 11.5, marginLeft: 6, fontWeight: 400 }}>({m.en})</span>
+                    {isThis && <Badge kind="b-blue" dot={false} style={{ marginLeft: 8 }}>เดือนนี้</Badge>}
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" style={{ marginLeft: 8, opacity: .35 }}>
+                      <polyline points="9 6 15 12 9 18"/>
+                    </svg>
+                  </td>
+                  <td style={{ textAlign: 'center' }}>{m.count}</td>
+                  <td className="num">{fmtNum(m.gross, 2)}</td>
+                  <td className="num" style={{ color: m.debt ? 'var(--bad)' : 'var(--ink-400)' }}>
+                    {m.debt ? '(' + fmtNum(m.debt, 2) + ')' : '-'}
+                  </td>
+                  <td className="num strong">{fmtNum(m.net, 2)}</td>
+                </tr>
+              );
+            })}
           </tbody>
           <tfoot>
             <tr>
@@ -235,6 +248,61 @@ function WarRoomPage1({ data, setData, toast }) {
           </tfoot>
         </table>
       </SectionCard>
+
+      {/* ── Combined this-month callout: รับแล้วในเดือนนี้ + คาดรับเพิ่ม = รวมเดือนนี้ ── */}
+      {(() => {
+        const paidThisMonth = liveYtd.find(m => m.monthKey === liveThisMonth);
+        const paidNet  = paidThisMonth ? paidThisMonth.net   : 0;
+        const paidCnt  = paidThisMonth ? paidThisMonth.count : 0;
+        const fcNet    = thisMthTotal.net;
+        const fcCnt    = thisMthTotal.count;
+        const sumNet   = paidNet + fcNet;
+        return (
+          <div className="card anim-in" style={{
+            marginBottom: 18, padding: 0, overflow: 'hidden',
+            background: 'linear-gradient(135deg, oklch(96% 0.04 200), oklch(98% 0.02 240))',
+            border: '1.5px solid color-mix(in oklch, var(--brand-500) 30%, transparent)',
+          }}>
+            <div style={{ padding: '14px 20px', display: 'grid', gridTemplateColumns: '1fr 24px 1fr 24px 1.2fr', alignItems: 'center', gap: 8 }}>
+              {/* รับแล้ว */}
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--ink-500)', fontWeight: 600, marginBottom: 4 }}>
+                  ✓ รับแล้ว · {liveMonthName}
+                </div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: '#276749', fontVariantNumeric: 'tabular-nums' }}>
+                  <AnimatedNumber value={paidNet} digits={2} /> <span style={{ fontSize: 12, color: 'var(--ink-500)', fontWeight: 500 }}>บาท</span>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--ink-400)' }}>{paidCnt} ใบ · จากชีทประวัติรับเงิน</div>
+              </div>
+              <div style={{ textAlign: 'center', fontSize: 22, color: 'var(--ink-400)', fontWeight: 300 }}>+</div>
+              {/* คาดรับเพิ่ม */}
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--ink-500)', fontWeight: 600, marginBottom: 4 }}>
+                  ⏳ คาดรับเพิ่ม · ที่เหลือในเดือนนี้
+                </div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: 'oklch(60% 0.16 75)', fontVariantNumeric: 'tabular-nums' }}>
+                  <AnimatedNumber value={fcNet} digits={2} /> <span style={{ fontSize: 12, color: 'var(--ink-500)', fontWeight: 500 }}>บาท</span>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--ink-400)' }}>{fcCnt} ใบ · จากการติดตาม IV</div>
+              </div>
+              <div style={{ textAlign: 'center', fontSize: 22, color: 'var(--ink-400)', fontWeight: 300 }}>=</div>
+              {/* รวมเดือนนี้ */}
+              <div style={{
+                background: 'linear-gradient(135deg, var(--brand-500), var(--brand-700))',
+                borderRadius: 12, padding: '10px 16px', color: 'white',
+              }}>
+                <div style={{ fontSize: 11, opacity: 0.9, fontWeight: 600, marginBottom: 4 }}>
+                  💰 ประมาณการรับรวม · {liveMonthName}
+                </div>
+                <div style={{ fontSize: 26, fontWeight: 800, fontVariantNumeric: 'tabular-nums', letterSpacing: '-.01em' }}>
+                  <AnimatedNumber value={sumNet} digits={2} /> <span style={{ fontSize: 13, opacity: 0.85, fontWeight: 500 }}>บาท</span>
+                </div>
+                <div style={{ fontSize: 11, opacity: 0.85 }}>{paidCnt + fcCnt} ใบรวม (รับแล้ว + คาดรับ)</div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* SECTION 02 — This-month forecast (from data.invoices, expectedReceive = this month) */}
       <SectionCard num="02" title="คาดการณ์ได้รับเพิ่มในเดือนปัจจุบัน" subtitle={`รายสัปดาห์ · ${liveMonthName} · จากการติดตาม IV ที่ระบุวันคาดรับไว้ในเดือนนี้`} totalLabel="คาดการณ์ยอดรับสุทธิในเดือนนี้" total={thisMthTotal.net}>
@@ -252,17 +320,31 @@ function WarRoomPage1({ data, setData, toast }) {
             {thisMthTotal.count === 0 && (
               <tr><td colSpan={5} style={{ padding: '24px 14px', textAlign: 'center', color: 'var(--ink-400)' }}>ไม่มีใบแจ้งหนี้ที่ระบุวันคาดรับในเดือนนี้</td></tr>
             )}
-            {thisMthTotal.count > 0 && thisMthByWeek.map((w, i) => (
-              <tr key={i}>
-                <td>สัปดาห์ที่ {w.week} <span className="muted" style={{ fontSize: 11 }}>({['1–7','8–14','15–21','22–28','29+'][i]})</span></td>
-                <td style={{ textAlign: 'center' }}>{w.count}</td>
-                <td className="num">{w.gross ? fmtNum(w.gross, 2) : <span className="muted">-</span>}</td>
-                <td className="num" style={{ color: w.debt ? 'var(--bad)' : 'var(--ink-400)' }}>
-                  {w.debt ? '(' + fmtNum(w.debt, 2) + ')' : '-'}
-                </td>
-                <td className="num strong">{w.net ? fmtNum(w.net, 2) : <span className="muted">-</span>}</td>
-              </tr>
-            ))}
+            {thisMthTotal.count > 0 && thisMthByWeek.map((w, i) => {
+              const clickable = w.count > 0;
+              const range = ['1–7','8–14','15–21','22–28','29+'][i];
+              return (
+                <tr key={i}
+                  onClick={() => clickable && setDrillModal({ kind: 'week', title: `สัปดาห์ที่ ${w.week} (${range}) · ${liveMonthName}`, items: w.ivs, totals: { count: w.count, gross: w.gross, debt: w.debt, net: w.net } })}
+                  style={{ cursor: clickable ? 'pointer' : 'default' }}
+                  title={clickable ? 'คลิกดู IV ทั้งหมดในสัปดาห์นี้' : ''}>
+                  <td>
+                    สัปดาห์ที่ {w.week} <span className="muted" style={{ fontSize: 11 }}>({range})</span>
+                    {clickable && (
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" style={{ marginLeft: 8, opacity: .35 }}>
+                        <polyline points="9 6 15 12 9 18"/>
+                      </svg>
+                    )}
+                  </td>
+                  <td style={{ textAlign: 'center' }}>{w.count}</td>
+                  <td className="num">{w.gross ? fmtNum(w.gross, 2) : <span className="muted">-</span>}</td>
+                  <td className="num" style={{ color: w.debt ? 'var(--bad)' : 'var(--ink-400)' }}>
+                    {w.debt ? '(' + fmtNum(w.debt, 2) + ')' : '-'}
+                  </td>
+                  <td className="num strong">{w.net ? fmtNum(w.net, 2) : <span className="muted">-</span>}</td>
+                </tr>
+              );
+            })}
           </tbody>
           <tfoot>
             <tr>
@@ -372,6 +454,124 @@ function WarRoomPage1({ data, setData, toast }) {
         </table>
       </SectionCard>
 
+      {/* Drill-down modal */}
+      {drillModal && (
+        <WarroomDrillModal data={drillModal} onClose={() => setDrillModal(null)} />
+      )}
+
+    </div>
+  );
+}
+
+/* ── Warroom drill-down modal — month receipts OR week-forecast invoices ── */
+function WarroomDrillModal({ data, onClose }) {
+  const { kind, title, items, totals } = data;
+  const isMonth = kind === 'month';
+  return (
+    <div className="modal-back" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 980, width: '95vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+        <div className="modal-hd">
+          <div>
+            <div className="modal-title" style={{ fontSize: 16 }}>{title}</div>
+            <div style={{ fontSize: 12, color: 'var(--ink-400)', marginTop: 2 }}>
+              {totals.count} {isMonth ? 'ใบรับ' : 'ใบแจ้งหนี้'} · Gross {fmtNum(totals.gross, 2)} ฿ · NET <strong>{fmtNum(totals.net, 2)}</strong> ฿
+            </div>
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={onClose}><Icon name="x" size={16} /></button>
+        </div>
+
+        <div style={{ overflowY: 'auto', flex: 1, padding: 0 }}>
+          <table className="tbl tbl-compact" style={{ fontSize: 12 }}>
+            <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)' }}>
+              {isMonth ? (
+                <tr>
+                  <th style={{ width: 36 }}>#</th>
+                  <th style={{ width: 95 }}>วันที่รับ</th>
+                  <th style={{ width: 100 }}>เลขรับเงิน</th>
+                  <th style={{ width: 100 }}>เลข IV</th>
+                  <th>โครงการ</th>
+                  <th style={{ width: 50, textAlign: 'center' }}>งวด</th>
+                  <th style={{ textAlign: 'right', width: 110 }}>GROSS</th>
+                  <th style={{ textAlign: 'right', width: 100 }}>หักสิทธิ์</th>
+                  <th style={{ textAlign: 'right', width: 110 }}>NET</th>
+                </tr>
+              ) : (
+                <tr>
+                  <th style={{ width: 36 }}>#</th>
+                  <th style={{ width: 75 }}>Job</th>
+                  <th style={{ width: 95 }}>เลข IV</th>
+                  <th>โครงการ</th>
+                  <th style={{ width: 92, textAlign: 'center' }}>วันคาดรับ</th>
+                  <th style={{ textAlign: 'right', width: 110 }}>Balance</th>
+                  <th style={{ textAlign: 'right', width: 100 }}>ภาระหนี้</th>
+                  <th style={{ textAlign: 'right', width: 110 }}>คาดรับสุทธิ</th>
+                  <th style={{ width: 90, textAlign: 'center' }}>สถานะ</th>
+                </tr>
+              )}
+            </thead>
+            <tbody>
+              {items.length === 0 && (
+                <tr><td colSpan={isMonth ? 9 : 9} style={{ padding: 36, textAlign: 'center', color: 'var(--ink-400)' }}>ไม่มีข้อมูล</td></tr>
+              )}
+              {isMonth && items.map((r, i) => (
+                <tr key={r.id || i}>
+                  <td>{i + 1}</td>
+                  <td>{fmtDate(r.receiptDate)}</td>
+                  <td><span style={{ fontFamily: 'ui-monospace', fontWeight: 600, fontSize: 11.5 }}>{r.receiptNo}</span></td>
+                  <td><span style={{ fontFamily: 'ui-monospace', color: 'var(--ink-500)', fontSize: 11.5 }}>{r.invoiceNo}</span></td>
+                  <td style={{ overflow: 'hidden', maxWidth: 0 }}>
+                    <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.projectName}>
+                      <span style={{ fontFamily: 'ui-monospace', fontWeight: 700, color: 'var(--brand-700)', marginRight: 6, fontSize: 11.5 }}>{r.projectCode}</span>
+                      {r.projectName}
+                    </span>
+                  </td>
+                  <td style={{ textAlign: 'center' }}>{r.period}</td>
+                  <td className="num">{fmtNum(r.grossAmount, 2)}</td>
+                  <td className="num" style={{ color: r.transferDeduction > 0 ? 'var(--bad)' : 'var(--ink-400)' }}>
+                    {r.transferDeduction > 0 ? '(' + fmtNum(r.transferDeduction, 2) + ')' : '-'}
+                  </td>
+                  <td className="num strong" style={{ color: '#276749' }}>{fmtNum(r.netReceived, 2)}</td>
+                </tr>
+              ))}
+              {!isMonth && items.map((iv, i) => {
+                const sMeta = WTPData.IV_STATUS_META[iv.status] || { label: iv.status, badge: 'b-gray' };
+                return (
+                  <tr key={iv.id || i}>
+                    <td>{i + 1}</td>
+                    <td><span style={{ fontFamily: 'ui-monospace', fontWeight: 700, color: 'var(--brand-700)', fontSize: 11.5 }}>{iv.jobNo}</span></td>
+                    <td><span style={{ fontFamily: 'ui-monospace', fontSize: 11.5 }}>{iv.ivNo}</span></td>
+                    <td style={{ overflow: 'hidden', maxWidth: 0 }}>
+                      <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={iv.projectName}>{iv.projectName}</span>
+                    </td>
+                    <td style={{ textAlign: 'center' }}>{iv.expectedReceive ? fmtDate(iv.expectedReceive) : <span className="muted">—</span>}</td>
+                    <td className="num strong">{fmtNum(iv.balance, 2)}</td>
+                    <td className="num" style={{ color: iv.debt ? 'var(--bad)' : 'var(--ink-400)' }}>
+                      {iv.debt ? '(' + fmtNum(iv.debt, 2) + ')' : '-'}
+                    </td>
+                    <td className="num strong" style={{ color: '#276749' }}>{fmtNum(iv.netExpected, 2)}</td>
+                    <td style={{ textAlign: 'center' }}><Badge kind={sMeta.badge}>{sMeta.label}</Badge></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            {items.length > 0 && (
+              <tfoot>
+                <tr>
+                  <td colSpan={isMonth ? 6 : 5}>รวม {items.length} {isMonth ? 'ใบรับ' : 'ใบ'}</td>
+                  <td className="num">{fmtNum(totals.gross, 2)}</td>
+                  <td className="num" style={{ color: 'var(--bad)' }}>{totals.debt > 0 ? '(' + fmtNum(totals.debt, 2) + ')' : '-'}</td>
+                  <td className="num" style={{ color: '#276749' }}>{fmtNum(totals.net, 2)}</td>
+                  {!isMonth && <td></td>}
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+
+        <div className="modal-foot">
+          <button className="btn btn-ghost" onClick={onClose}>ปิด</button>
+        </div>
+      </div>
     </div>
   );
 }
