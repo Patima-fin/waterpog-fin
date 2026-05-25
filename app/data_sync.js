@@ -300,6 +300,18 @@
         debtEvents:      debtEvents,
       };
 
+      // Preserve app-only fields from localStorage that aren't yet in the Sheet
+      // (e.g. invType on receipts). Without this, every loadFromServer would
+      // wipe user edits of fields that don't have a corresponding sheet column.
+      try {
+        var localData = WTPData.load();
+        CRUD_ENTITIES.forEach(function (e) {
+          if (Array.isArray(data[e]) && Array.isArray(localData && localData[e])) {
+            data[e] = preserveAppOnlyFields(data[e], localData[e]);
+          }
+        });
+      } catch (_) { /* if localStorage parse fails, skip — non-fatal */ }
+
       // Cache snapshots so the next save doesn't re-push unchanged entities
       CRUD_ENTITIES.forEach(function (e) {
         lastSnapshot[e] = JSON.stringify(data[e] || []);
@@ -377,6 +389,32 @@
       if (!(k in result)) result[k] = sheetRow[k];
     });
     return result;
+  }
+
+  /* ── Preserve app-only fields (fields present in localStorage but NOT in sheet)
+   * Use case: app adds new fields (e.g. invType on receipts) before the user
+   * adds the matching column in the Sheet. Without this, loadFromServer would
+   * wipe those edits every time it runs.
+   * Match strategy per entity: try id → receiptNo → ivNo → invoiceNo → fallback
+   * to position. */
+  function rowKey(r) {
+    return r.id || r.receiptNo || r.ivNo || r.invoiceNo || null;
+  }
+  function preserveAppOnlyFields(sheetRows, localRows) {
+    if (!localRows || !localRows.length) return sheetRows;
+    var localByKey = {};
+    localRows.forEach(function (r) { var k = rowKey(r); if (k) localByKey[k] = r; });
+    return sheetRows.map(function (sr) {
+      var k = rowKey(sr);
+      var lr = k && localByKey[k];
+      if (!lr) return sr;
+      var merged = Object.assign({}, sr);
+      Object.keys(lr).forEach(function (key) {
+        // Copy local field only when sheet doesn't have it at all (column missing)
+        if (!(key in sr)) merged[key] = lr[key];
+      });
+      return merged;
+    });
   }
 
   function syncDiff(data) {
