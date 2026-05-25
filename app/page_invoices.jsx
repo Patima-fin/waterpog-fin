@@ -5,7 +5,7 @@
 // - Paste RAW_IV_OUTSTANDING (TSV/JSON) → ระบบหาว่าใบไหนใหม่ → import เฉพาะใหม่
 // - Sort + Filter + Search
 
-const { useState: ivState, useMemo: ivMemo } = React;
+const { useState: ivState, useMemo: ivMemo, useRef: ivRef, useEffect: ivEffect } = React;
 
 function InvoicesPage({ data, setData, toast }) {
   const [filter, setFilter] = ivState('all');
@@ -13,11 +13,15 @@ function InvoicesPage({ data, setData, toast }) {
   const [detail, setDetail] = ivState(null);
   const [showImport, setShowImport] = ivState(false);
   const [payModal, setPayModal] = ivState(null);
+  const [sugOpen, setSugOpen] = ivState(false);
+  const searchBoxRef = ivRef(null);
 
   const { projectByCode, financeByCode } = ivMemo(() => WTPData.buildLookups(data), [data.projects]);
 
   // Joined rows: invoice + project name + finance (assignee, debt)
   const VALID_STATUS = new Set(['pending_inspection', 'tracking', 'issue', 'paid']);
+  // map รหัสสถานะแบบเก่า/ทางเลือก → สถานะ canonical 4 ตัว
+  const STATUS_ALIAS = { pending: 'tracking', '': 'pending_inspection' };
   const rows = ivMemo(() => data.invoices.map(iv => {
     // lookup ด้วย jobNo (Project No. เช่น PP064) → fallback ด้วย contractRef (Ref.code เช่น 6901-01)
     const p = projectByCode[iv.jobNo] || projectByCode[iv.contractRef] || {};
@@ -25,10 +29,13 @@ function InvoicesPage({ data, setData, toast }) {
     // Support both old schema (f.debt, f.assignee) and new RAW schema (p['ภาระหนี้'], p['ผู้รับโอนสิทธิ์'])
     const debt     = Number(f.debt ?? f['ภาระหนี้'] ?? 0);
     const assignee = f.assignee || f['ผู้รับโอนสิทธิ์'] || '—';
+    // normalize: trim + alias map + fallback → 4 canonical statuses
+    const rawStatus = (iv.status || '').toString().trim();
+    const aliased   = STATUS_ALIAS[rawStatus] != null ? STATUS_ALIAS[rawStatus] : rawStatus;
+    const status    = VALID_STATUS.has(aliased) ? aliased : 'pending_inspection';
     return {
       ...iv,
-      // normalize status ที่ไม่รู้จัก → pending_inspection เพื่อให้นับแท็บถูกต้อง
-      status: VALID_STATUS.has(iv.status) ? iv.status : 'pending_inspection',
+      status,
       // fallback ลำดับ: project lookup (พื้นที่) → iv.projectName (parse จาก proj_dpt ตอน import) → '—'
       projectName: p['พื้นที่'] || p.name || iv.projectName || '—',
       assignee,
@@ -37,20 +44,58 @@ function InvoicesPage({ data, setData, toast }) {
     };
   }), [data.invoices, projectByCode, financeByCode]);
 
+  // match function: ค้นหาทุก column ที่อ่านได้
+  const matchQuery = (iv, q) => {
+    if (!q) return true;
+    const fields = [
+      iv.ivNo, iv.jobNo, iv.projectName, iv.contactName, iv.contactPhone,
+      iv.remark, iv.customer, iv.productType, iv.assignee, iv.contractRef,
+      iv.invoiceDate, iv.expectedReceive,
+      iv.balance != null ? String(iv.balance) : '',
+      iv.debt    != null ? String(iv.debt)    : '',
+      iv.netExpected != null ? String(iv.netExpected) : '',
+      WTPData.IV_STATUS_META[iv.status]?.label || '',
+    ];
+    return fields.some(v => (v || '').toString().toLowerCase().includes(q));
+  };
+
   const filtered = ivMemo(() => {
     let xs = rows;
     if (filter !== 'all') xs = xs.filter(iv => iv.status === filter);
     if (query.trim()) {
       const q = query.toLowerCase();
-      xs = xs.filter(iv =>
-        iv.ivNo.toLowerCase().includes(q) ||
-        (iv.jobNo || '').toLowerCase().includes(q) ||
-        (iv.projectName || '').toLowerCase().includes(q) ||
-        (iv.contactName || '').toLowerCase().includes(q)
-      );
+      xs = xs.filter(iv => matchQuery(iv, q));
     }
     return xs;
   }, [rows, filter, query]);
+
+  // suggestions สำหรับ dropdown (สูงสุด 8 รายการ ค้นข้าม filter)
+  const suggestions = ivMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return rows.filter(iv => matchQuery(iv, q)).slice(0, 8);
+  }, [rows, query]);
+
+  // ปิด suggestions เมื่อคลิกนอก search box
+  ivEffect(() => {
+    if (!sugOpen) return;
+    const handler = (e) => {
+      if (searchBoxRef.current && !searchBoxRef.current.contains(e.target)) setSugOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [sugOpen]);
+
+  // highlight ส่วนที่ตรงกับคำค้นใน text
+  const highlight = (text, q) => {
+    if (!q || !text) return text || '';
+    const s = String(text);
+    const i = s.toLowerCase().indexOf(q);
+    if (i < 0) return s;
+    return (
+      <>{s.slice(0, i)}<mark style={{ background: 'oklch(95% 0.12 95)', color: 'inherit', padding: 0, borderRadius: 2 }}>{s.slice(i, i + q.length)}</mark>{s.slice(i + q.length)}</>
+    );
+  };
 
   const { sorted, sort, toggle } = useSortable(filtered, 'invoiceDate', 'desc');
 
@@ -138,9 +183,89 @@ function InvoicesPage({ data, setData, toast }) {
           <button className={filter === 'issue' ? 'active' : ''} onClick={() => setFilter('issue')}>ติดปัญหา ({counts.issue})</button>
           <button className={filter === 'paid' ? 'active' : ''} onClick={() => setFilter('paid')}>รับชำระแล้ว ({counts.paid})</button>
         </div>
-        <div className="tb-search" style={{ width: 320 }}>
-          <Icon name="search" size={14} />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ค้นหา IV / Job no / ชื่อโครงการ / ผู้ติดต่อ…" />
+        <div ref={searchBoxRef} style={{ position: 'relative', width: 360 }}>
+          <div className="tb-search" style={{ width: '100%' }}>
+            <Icon name="search" size={14} />
+            <input
+              value={query}
+              onChange={(e) => { setQuery(e.target.value); setSugOpen(true); }}
+              onFocus={() => query.trim() && setSugOpen(true)}
+              onKeyDown={(e) => { if (e.key === 'Escape') setSugOpen(false); }}
+              placeholder="ค้นหาทุกคอลัมน์ — IV / Job / โครงการ / จังหวัด / ยอดเงิน / สถานะ…"
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => { setQuery(''); setSugOpen(false); }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-400)', padding: '0 4px', fontSize: 14 }}
+                title="ล้างคำค้นหา"
+              >×</button>
+            )}
+          </div>
+
+          {sugOpen && query.trim() && (
+            <div style={{
+              position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 50,
+              background: 'var(--surface, #fff)', border: '1px solid var(--ink-200, #e2e8f0)',
+              borderRadius: 9, boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+              maxHeight: 360, overflowY: 'auto',
+            }}>
+              {suggestions.length === 0 ? (
+                <div style={{ padding: '12px 14px', fontSize: 12, color: 'var(--ink-400)' }}>
+                  ไม่พบรายการที่ตรงกับ "{query}"
+                </div>
+              ) : (
+                <>
+                  <div style={{ padding: '6px 12px', fontSize: 10.5, color: 'var(--ink-400)', textTransform: 'uppercase', letterSpacing: 0.5, borderBottom: '1px solid var(--ink-100)' }}>
+                    ผลที่แนะนำ · {suggestions.length}{rows.filter(iv => matchQuery(iv, query.trim().toLowerCase())).length > suggestions.length ? '+' : ''} จาก {rows.length}
+                  </div>
+                  {suggestions.map(iv => {
+                    const q = query.trim().toLowerCase();
+                    const sMeta = WTPData.IV_STATUS_META[iv.status] || { label: iv.status, badge: 'b-gray' };
+                    return (
+                      <div
+                        key={iv.id}
+                        onClick={() => { setDetail(iv); setSugOpen(false); }}
+                        style={{
+                          padding: '8px 12px', cursor: 'pointer',
+                          borderBottom: '1px solid var(--ink-50, #f1f5f9)',
+                          display: 'flex', alignItems: 'center', gap: 10,
+                          transition: 'background 100ms',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'var(--ink-50, #f7fafc)'}
+                        onMouseLeave={e => e.currentTarget.style.background = ''}
+                      >
+                        <div style={{ minWidth: 80 }}>
+                          <div style={{ fontFamily: 'ui-monospace', fontWeight: 700, fontSize: 11.5, color: 'var(--brand-700)' }}>
+                            {highlight(iv.jobNo, q)}
+                          </div>
+                          <div style={{ fontFamily: 'ui-monospace', fontSize: 10.5, color: 'var(--ink-500)' }}>
+                            {highlight(iv.ivNo, q)}
+                          </div>
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {highlight(iv.projectName, q)}
+                          </div>
+                          {(iv.contactName || iv.customer || iv.remark) && (
+                            <div style={{ fontSize: 10.5, color: 'var(--ink-500)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {highlight(iv.contactName || iv.customer || iv.remark, q)}
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ textAlign: 'right', minWidth: 90 }}>
+                          <div style={{ fontFamily: 'ui-monospace', fontSize: 11.5, fontWeight: 600 }}>
+                            {fmtNum(iv.balance, 0)} ฿
+                          </div>
+                          <Badge kind={sMeta.badge}>{sMeta.label}</Badge>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
