@@ -13,7 +13,7 @@ function WarRoomPage1({ data, setData, toast }) {
   const matchType = iv => ivTypeFilter === 'all' || wrInvType(iv) === ivTypeFilter;
 
   // ── Finance lookup for debt enrichment ──────────────────────────────────────
-  const { financeByCode } = wr1Memo(() => WTPData.buildLookups(data), [data.projects]);
+  const { financeByCode } = wr1Memo(() => WTPData.buildLookups(data), [data.projects, data.debtLedger]);
 
   const liveToday     = new Date().toISOString().slice(0, 10);
   const liveYear      = liveToday.slice(0, 4);

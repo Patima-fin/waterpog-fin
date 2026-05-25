@@ -669,15 +669,19 @@
 
     // ── financeByCode: project record + auto-resolved debt + assignee ─────────
     // Priority: project's own debt/assignee fields → fall back to debtLedger aggregate
+    // Treat placeholders ('—', '-', '') as empty so they don't block the fallback
+    const isEmptyVal = v => v == null || v === '' || v === '—' || v === '-';
     const financeByCode = {};
     Object.keys(projectByCode).forEach(k => {
       const p = projectByCode[k];
       const di = debtByCode[k] || {};
-      const projectDebt     = Number(p.debt ?? p['ภาระหนี้']) || 0;
-      const projectAssignee = p.assignee || p['ผู้รับโอนสิทธิ์'] || '';
+      const projectDebt    = Number(p.debt ?? p['ภาระหนี้']) || 0;
+      const rawAssignee    = !isEmptyVal(p.assignee) ? p.assignee
+                          : (!isEmptyVal(p['ผู้รับโอนสิทธิ์']) ? p['ผู้รับโอนสิทธิ์'] : '');
+      const debtAssignees  = (di.assignees && di.assignees.length) ? di.assignees.join(', ') : '';
       financeByCode[k] = Object.assign({}, p, {
         debt:     projectDebt > 0 ? projectDebt : (di.totalDebt || 0),
-        assignee: projectAssignee || (di.assignees && di.assignees.length ? di.assignees.join(', ') : ''),
+        assignee: rawAssignee || debtAssignees,
         debtContracts: di.contracts || [],
       });
     });

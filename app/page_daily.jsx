@@ -40,7 +40,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
   const drInvType = iv => ((iv.invType || iv.invtype || 'P').toString().trim().toUpperCase() === 'O' ? 'O' : 'P');
   const matchType = iv => ivTypeFilter === 'all' || drInvType(iv) === ivTypeFilter;
 
-  const { projectByCode, financeByCode } = dRMemo(() => WTPData.buildLookups(data), [data.projects]);
+  const { projectByCode, financeByCode } = dRMemo(() => WTPData.buildLookups(data), [data.projects, data.debtLedger]);
 
   // ── PAID items: รวม data.receipts (ประวัติรับเงินจริง) + invoices.status=paid ──
   // Map invoiceNo → invType (for filtering receipts by invType lookup)

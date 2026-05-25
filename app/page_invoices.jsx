@@ -28,7 +28,12 @@ function normalizeJobNo(raw) {
 function resolveAssignee(iv, f) {
   const ov = iv && iv.assigneeOverride;
   if (ov != null && String(ov).trim() !== '') return String(ov);
-  return (f && (f.assignee || f['ผู้รับโอนสิทธิ์'])) || '—';
+  // skip placeholder dashes so debtLedger fallback can win
+  const a1 = f && f.assignee;
+  if (a1 && a1 !== '—' && a1 !== '-') return a1;
+  const a2 = f && f['ผู้รับโอนสิทธิ์'];
+  if (a2 && a2 !== '—' && a2 !== '-') return a2;
+  return '—';
 }
 function resolveDebt(iv, f) {
   const ov = iv && iv.debtOverride;
@@ -272,7 +277,7 @@ function InvoicesPage({ data, setData, toast }) {
   const [openCol, setOpenCol]       = ivState(null); // colKey ของ dropdown ที่เปิดอยู่
   const [fullscreen, setFullscreen] = ivState(false); // ขยายตารางเต็มจอ
 
-  const { projectByCode, financeByCode } = ivMemo(() => WTPData.buildLookups(data), [data.projects]);
+  const { projectByCode, financeByCode } = ivMemo(() => WTPData.buildLookups(data), [data.projects, data.debtLedger]);
 
   // Joined rows: invoice + project name + finance (assignee, debt)
   const VALID_STATUS = new Set(['pending_inspection', 'tracking', 'issue', 'paid']);
