@@ -312,6 +312,15 @@ function UserEditModal({ row, onSave, onClose }) {
             onChange={e => set('note', e.target.value)}
             placeholder="ฝ่าย / หน่วยงาน" />
         </div>
+        <div className="field" style={{ gridColumn: '1/-1' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <input type="checkbox"
+              checked={String(draft.notifyDailyBalance || 'false') === 'true'}
+              onChange={e => set('notifyDailyBalance', e.target.checked ? 'true' : 'false')}
+              style={{ cursor: 'pointer' }} />
+            🔔 เตือนบันทึกยอดธนาคารรายวัน — user นี้จะเห็น pill เตือนใน sidebar ถ้ายังไม่บันทึก
+          </label>
+        </div>
       </div>
     </Modal>
   );

@@ -217,6 +217,7 @@ function App() {
     data_payable:  { label: 'DATA เจ้าหนี้คงค้าง', title: 'Accounts Payable', icon: 'invoice' },
     audit_log:     { label: 'Audit Log',           title: 'Audit Log — ประวัติแก้ไข', icon: 'settings' },
     users:         { label: 'จัดการผู้ใช้',         title: 'Users · จัดการผู้ใช้ระบบ', icon: 'settings' },
+    daily_balance: { label: 'บันทึกยอดธนาคาร',     title: 'บันทึกยอดธนาคารรายวัน', icon: 'bank' },
   };
 
   let page;
@@ -241,6 +242,7 @@ function App() {
     case 'data_payable':   page = <DataPayablePage data={data} setData={setData} toast={pushToast} />; break;
     case 'audit_log':      page = <AuditLogPage data={data} toast={pushToast} />; break;
     case 'users':          page = <UsersPage data={data} setData={setData} toast={pushToast} />; break;
+    case 'daily_balance':  page = <DailyBalancePage data={data} setData={setData} toast={pushToast} />; break;
     case 'daily':
     default:               page = <DailyRevenueDashboard data={data} setData={setData} toast={pushToast} />;
   }
@@ -323,6 +325,21 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
     bank_diary:    null,
     interest_calc: null,
     checks:        data.checks?.filter(c => c.status === 'pending' || c.status === 'clearing').length || null,
+    daily_balance: (() => {
+      // Number of MAIN bank accounts that don't have today's snapshot yet.
+      // Only shows for users who opted into daily-balance reminders.
+      if (!currentUser || !currentUser.notifyDailyBalance) return null;
+      const today = new Date().toISOString().slice(0, 10);
+      const mains = (data.bankAccounts || []).filter(a => {
+        const t = (a.accountType || 'main').toLowerCase();
+        return t !== 'closed' && t !== 'dormant';
+      });
+      const snapped = new Set((data.cashflowSnapshots || [])
+        .filter(s => s.date === today)
+        .map(s => s.bankAc));
+      const missing = mains.filter(a => !snapped.has(a.Bank_AC)).length;
+      return missing > 0 ? missing : null;
+    })(),
   };
 
   const secHdrStyle = {
@@ -414,6 +431,7 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
             ['data_bank',     'บัญชีธนาคาร',      'bank'],
             ['data_pv',       'ใบสำคัญจ่าย',      'money'],
             ['data_payable',  'เจ้าหนี้คงค้าง',   'arrow_up'],
+            ['daily_balance', 'บันทึกยอดธนาคาร',  'bank'],
           ])}
         </div>
 
