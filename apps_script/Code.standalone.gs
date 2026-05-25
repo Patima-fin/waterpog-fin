@@ -48,6 +48,7 @@ var SHEETS = {
   STS_PENDING_CALC: 'stsPendingCalc',
   STS_CALC_RESULT:  'stsCalcResult',
   DEBT_EVENTS:      'debtEvents',
+  AUDIT_LOG:        'auditLog',     // ผู้ใช้-การกระทำ-เวลา (auto-logged on every CRUD)
 };
 
 /* ── 1. WEB APP ENDPOINTS ───────────────────────────────────────── */
@@ -70,6 +71,8 @@ function doPost(e) {
     var entity  = body.entity;
     var payload = body.payload || {};
     var id      = body.id;
+    // Audit metadata sent by client — best-effort, doesn't block on error
+    var meta    = body.meta || {};   // { user, displayName, role, diffSummary }
     var result;
     switch (action) {
       case 'getAll':     result = getAll();                        break;
@@ -80,10 +83,43 @@ function doPost(e) {
       case 'setKV':      result = setKV(entity, payload);          break;
       default: result = { error: 'unknown action: ' + action };
     }
+    // Append audit log entry for mutating actions (skip on error result)
+    if (!result || !result.error) {
+      try {
+        if (action === 'add' || action === 'update' || action === 'delete' || action === 'replaceAll') {
+          appendAuditLog_({
+            timestamp: new Date(),
+            user: meta.user || 'unknown',
+            displayName: meta.displayName || '',
+            role: meta.role || '',
+            entity: entity || '',
+            action: action,
+            rowsAffected: Array.isArray(payload) ? payload.length : (id ? 1 : 0),
+            summary: meta.diffSummary || '',
+          });
+        }
+      } catch (logErr) { /* never block CRUD on audit log failure */ }
+    }
     return respond(result, e);
   } catch (err) {
     return respond({ error: String(err && err.message || err) }, e);
   }
+}
+
+// Append one row to the auditLog sheet (creates sheet+header if missing)
+function appendAuditLog_(entry) {
+  var ss = _ss();
+  var sh = ss.getSheetByName(SHEETS.AUDIT_LOG);
+  var headers = ['timestamp', 'user', 'displayName', 'role', 'entity', 'action', 'rowsAffected', 'summary'];
+  if (!sh) {
+    sh = ss.insertSheet(SHEETS.AUDIT_LOG);
+    sh.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#f0f4f8');
+    sh.setFrozenRows(1);
+  }
+  sh.appendRow(headers.map(function (h) {
+    if (h === 'timestamp') return entry.timestamp || new Date();
+    return entry[h] != null ? entry[h] : '';
+  }));
 }
 
 function respond(obj, e) {

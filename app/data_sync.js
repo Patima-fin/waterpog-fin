@@ -326,12 +326,34 @@
     }).then(function (r) { return r.json(); });
   }
 
-  function pushEntity(entity, rows) {
-    return postToServer({ action: 'replaceAll', entity: entity, payload: rows })
-      .then(function (resp) {
-        if (resp && resp.error) throw new Error(entity + ': ' + resp.error);
-        return resp;
-      });
+  // Pull current session info — populated by app.jsx login flow.
+  // Used to stamp who-did-what on every write so Apps Script can log it.
+  function _currentMeta(entity, oldRows, newRows) {
+    var sess = null;
+    try { sess = JSON.parse(localStorage.getItem('wtp-session') || 'null'); } catch (_) {}
+    var oldCount = (oldRows && oldRows.length) || 0;
+    var newCount = (newRows && newRows.length) || 0;
+    var delta    = newCount - oldCount;
+    var summary  = entity + ': ' + oldCount + ' → ' + newCount + ' rows' +
+                   (delta === 0 ? ' (edits only)' : ' (' + (delta > 0 ? '+' : '') + delta + ')');
+    return {
+      user:        (sess && sess.username) || 'unknown',
+      displayName: (sess && sess.displayName) || '',
+      role:        (sess && sess.role) || '',
+      diffSummary: summary,
+    };
+  }
+
+  function pushEntity(entity, rows, oldRows) {
+    return postToServer({
+      action: 'replaceAll',
+      entity: entity,
+      payload: rows,
+      meta: _currentMeta(entity, oldRows, rows),
+    }).then(function (resp) {
+      if (resp && resp.error) throw new Error(entity + ': ' + resp.error);
+      return resp;
+    });
   }
 
   /* ── Merge helper: prefer non-empty Sheet values for fields empty in app ──
@@ -373,6 +395,13 @@
     inSyncDiff = true;
     setSyncStatus('syncing');
 
+    // Capture pre-change snapshots for audit log BEFORE step 3 overwrites them
+    var preSnapshots = {};
+    changes.forEach(function (c) {
+      try { preSnapshots[c.entity] = JSON.parse(lastSnapshot[c.entity] || '[]'); }
+      catch (_) { preSnapshots[c.entity] = []; }
+    });
+
     // STEP 1: Re-fetch the Sheet for each changed entity (safety check).
     // Prevents stale empty values in the app from overwriting fresh manual
     // edits the user made directly in the Sheet.
@@ -405,9 +434,9 @@
       origSave(mergedData);
       subscribers.forEach(function (cb) { cb(mergedData); });
 
-      // STEP 4: Push merged data to Sheet
+      // STEP 4: Push merged data to Sheet (with audit metadata — old vs new row counts)
       return Promise.all(safeChanges.map(function (c) {
-        return pushEntity(c.entity, c.rows);
+        return pushEntity(c.entity, c.rows, preSnapshots[c.entity] || []);
       }));
     }).then(function () {
       setSyncStatus('ok');

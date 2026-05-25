@@ -105,6 +105,187 @@ function exportRowsToExcel(rows, columns, opts = {}) {
   XLSX.writeFile(wb, filename);
 }
 
+// ─── Excel-like column filter (dropdown of unique values) ─────────────────
+//
+// Apply to any sortable table — pair with FilterableColHeader. Parent owns
+// state: `colFilters` = { [colKey]: Set<displayValue> | null }.
+// `getValue(row, colKey)` returns the display string used for both rendering
+// and matching. Defaults to row[colKey].
+function ColFilterDropdown({ btnRef, colKey, allRows, active, getValue, onApply, onClose }) {
+  const [search, setSearch] = useState('');
+  const [pos, setPos] = useState(null);
+  const selfRef = useRef(null);
+  const _val = getValue || ((r, k) => { const v = r[k]; return v == null || v === '' ? '—' : String(v); });
+
+  useEffect(() => {
+    const calc = () => {
+      if (!btnRef.current) return;
+      const r = btnRef.current.getBoundingClientRect();
+      setPos({ top: r.bottom + 4, left: Math.min(r.left, window.innerWidth - 290) });
+    };
+    calc();
+    window.addEventListener('scroll', calc, true);
+    window.addEventListener('resize', calc);
+    return () => { window.removeEventListener('scroll', calc, true); window.removeEventListener('resize', calc); };
+  }, []);
+
+  useEffect(() => {
+    const h = (e) => {
+      if (selfRef.current && !selfRef.current.contains(e.target) &&
+          btnRef.current  && !btnRef.current.contains(e.target)) onClose();
+    };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  const allVals = useMemo(() => {
+    const map = new Map();
+    allRows.forEach(r => {
+      const v = _val(r, colKey);
+      map.set(v, (map.get(v) || 0) + 1);
+    });
+    return [...map.entries()].sort((a, b) => {
+      if (a[0] === '—') return 1; if (b[0] === '—') return -1;
+      return String(a[0]).localeCompare(String(b[0]), 'th');
+    });
+  }, [allRows, colKey]);
+
+  const visibleVals = search.trim()
+    ? allVals.filter(([v]) => String(v).toLowerCase().includes(search.trim().toLowerCase()))
+    : allVals;
+
+  const isAllSelected = !active || active.size === 0;
+  const isChecked = (v) => isAllSelected || (active && active.has(v));
+  const toggle = (val) => {
+    let next;
+    if (isAllSelected) {
+      next = new Set(allVals.map(([v]) => v));
+      next.delete(val);
+    } else {
+      next = new Set(active);
+      if (next.has(val)) next.delete(val); else next.add(val);
+    }
+    onApply(next.size === 0 || next.size === allVals.length ? null : next);
+  };
+
+  if (!pos) return null;
+  const dropdown = (
+    <div ref={selfRef} onClick={e => e.stopPropagation()} style={{
+      position: 'fixed', top: pos.top, left: pos.left, zIndex: 99999,
+      background: 'var(--surface, #fff)', border: '1.5px solid var(--ink-200, #dde3ee)',
+      borderRadius: 10, boxShadow: '0 10px 40px rgba(0,0,0,0.18)',
+      minWidth: 230, maxWidth: 300, fontSize: 12.5,
+    }}>
+      <div style={{ padding: '8px 10px 6px' }}>
+        <input autoFocus className="input"
+          style={{ fontSize: 12, padding: '4px 8px', width: '100%', boxSizing: 'border-box' }}
+          placeholder="ค้นหาใน dropdown..." value={search}
+          onChange={e => setSearch(e.target.value)}
+          onKeyDown={e => e.key === 'Escape' && onClose()} />
+      </div>
+      <div style={{ borderTop: '1px solid var(--ink-100)', borderBottom: '1px solid var(--ink-100)' }}>
+        <label style={{
+          display: 'flex', alignItems: 'center', gap: 8, padding: '5px 12px', cursor: 'pointer',
+          background: isAllSelected ? 'color-mix(in oklch,var(--brand-500) 8%,transparent)' : '',
+        }}>
+          <input type="checkbox" checked={isAllSelected} onChange={() => onApply(null)}
+            style={{ width: 14, height: 14, cursor: 'pointer', flexShrink: 0 }} />
+          <span style={{ fontWeight: 600, color: 'var(--ink-700)', flex: 1 }}>(เลือกทั้งหมด)</span>
+          <span style={{ color: 'var(--ink-400)', fontSize: 11 }}>{allRows.length}</span>
+        </label>
+      </div>
+      <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+        {visibleVals.length === 0 && (
+          <div style={{ padding: '10px 12px', color: 'var(--ink-400)' }}>ไม่พบค่าที่ตรงกัน</div>
+        )}
+        {visibleVals.map(([val, count]) => {
+          const checked = isChecked(val);
+          return (
+            <label key={val} style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '5px 12px', cursor: 'pointer',
+              borderBottom: '1px solid var(--ink-50)',
+              background: checked && !isAllSelected ? 'color-mix(in oklch,var(--brand-500) 5%,transparent)' : '',
+            }}>
+              <input type="checkbox" checked={checked} onChange={() => toggle(val)}
+                style={{ width: 14, height: 14, cursor: 'pointer', flexShrink: 0 }} />
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{val}</span>
+              <span style={{ flexShrink: 0, color: 'var(--ink-400)', fontSize: 11 }}>{count}</span>
+            </label>
+          );
+        })}
+      </div>
+      <div style={{ borderTop: '1px solid var(--ink-100)', padding: '6px 10px', display: 'flex', justifyContent: 'space-between', gap: 6 }}>
+        <button className="btn btn-ghost btn-sm"
+          style={{ fontSize: 11, color: 'var(--bad)', padding: '2px 8px' }}
+          onClick={() => { onApply(null); onClose(); }}>ล้างตัวกรอง</button>
+        <button className="btn btn-sm"
+          style={{ fontSize: 11, padding: '2px 10px', background: 'var(--brand-500)', color: '#fff', border: 'none', borderRadius: 5 }}
+          onClick={onClose}>✓ ตกลง</button>
+      </div>
+    </div>
+  );
+  return ReactDOM.createPortal(dropdown, document.body);
+}
+
+// FilterableColHeader — drop-in replacement for SortHeader, adds funnel button
+function FilterableColHeader({ label, sortKey, sort, sortToggle, align = 'center', width,
+                               colKey, colFilters, setColFilters, openCol, setOpenCol, allRows, getValue }) {
+  const btnRef = useRef(null);
+  const active = colFilters[colKey || sortKey];
+  const isActive = active && active.size > 0;
+  const isOpen = openCol === (colKey || sortKey);
+  const sortOn = sort.key === sortKey;
+  const effectiveKey = colKey || sortKey;
+
+  const applyFilter = (vals) => setColFilters(prev => {
+    const next = { ...prev };
+    if (!vals) delete next[effectiveKey]; else next[effectiveKey] = vals;
+    return next;
+  });
+
+  return (
+    <th style={{ width, textAlign: align, userSelect: 'none', position: 'relative' }}>
+      <div style={{
+        display: 'inline-flex', alignItems: 'center', gap: 3,
+        width: '100%', justifyContent: align === 'right' ? 'flex-end' : 'center',
+      }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: sortKey ? 'pointer' : 'default' }}
+          onClick={() => sortKey && sortToggle && sortToggle(sortKey)}>
+          {label}
+          {sortKey && (
+            <span style={{ opacity: sortOn ? 1 : 0.25, fontSize: 9, display: 'inline-flex', flexDirection: 'column', lineHeight: 1 }}>
+              <span style={{ color: sortOn && sort.dir === 'asc' ? 'var(--brand-600)' : 'inherit' }}>▲</span>
+              <span style={{ color: sortOn && sort.dir === 'desc' ? 'var(--brand-600)' : 'inherit', marginTop: -2 }}>▼</span>
+            </span>
+          )}
+        </span>
+        <button ref={btnRef}
+          onClick={(e) => { e.stopPropagation(); setOpenCol(isOpen ? null : effectiveKey); }}
+          title={isActive ? `กรองอยู่ ${active.size} ค่า` : 'กรองคอลัมน์'}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 2,
+            background: isActive ? 'var(--brand-500)' : 'transparent',
+            color: isActive ? '#fff' : isOpen ? 'var(--brand-500)' : 'var(--ink-350,#aab)',
+            border: isActive ? 'none' : `1px solid ${isOpen ? 'var(--brand-300)' : 'transparent'}`,
+            borderRadius: 4, padding: '1px 3px', cursor: 'pointer',
+            fontSize: 10, lineHeight: 1, flexShrink: 0,
+          }}>
+          <svg width="9" height="9" viewBox="0 0 10 10" fill="currentColor">
+            <path d="M1 1.5h8L6.2 5v3.5l-2.4-1V5L1 1.5z"/>
+          </svg>
+          {isActive && <span style={{ fontSize: 9, fontWeight: 700 }}>{active.size}</span>}
+        </button>
+      </div>
+      {isOpen && (
+        <ColFilterDropdown btnRef={btnRef} colKey={effectiveKey} allRows={allRows}
+          active={active} getValue={getValue}
+          onApply={applyFilter} onClose={() => setOpenCol(null)} />
+      )}
+    </th>
+  );
+}
+
 // ─── Reusable export + print button ────────────────────────────────────────
 // Drop-in button that calls exportRowsToExcel with the current rows. Use:
 // <ExportButton rows={filtered} columns={[{key,label},..]} filename="invoices" />
@@ -369,4 +550,5 @@ Object.assign(window, {
   useCountUp, AnimatedNumber, Icon, Modal, useToasts, Badge, KpiTile, EditableCell,
   useSortable, SortHeader, StatusPill,
   exportRowsToExcel, ExportButton, PrintButton,
+  ColFilterDropdown, FilterableColHeader,
 });

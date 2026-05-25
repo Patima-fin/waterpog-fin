@@ -24,19 +24,19 @@ const ROLE_PERMS = {
     pages: new Set(['daily', 'warroom1', 'warroom2']),
     canEdit: false, canDelete: false, canApprove: false, canManageUsers: false,
   },
-  // ฝ่ายการเงิน — ทำงานปกติ เพิ่ม/แก้ได้ แต่ลบไม่ได้ + ไม่เห็นจัดการ users
+  // ฝ่ายการเงิน — ทำงานปกติ เพิ่ม/แก้ได้ แต่ลบไม่ได้ + ไม่เห็น audit + users
   staff: {
-    pages: '*', excludePages: new Set(['users']),
+    pages: '*', excludePages: new Set(['users', 'audit_log']),
     canEdit: true, canDelete: false, canApprove: true, canManageUsers: false,
   },
-  // หัวหน้า — ทำได้ทุกอย่าง รวมจัดการ users
+  // หัวหน้า — ทำได้ทุกอย่าง รวมจัดการ users + ดู audit log
   manager: {
     pages: '*',
     canEdit: true, canDelete: true, canApprove: true, canManageUsers: true,
   },
-  // เจ้าของ — ดูได้ทุกหน้า แต่แก้/ลบไม่ได้ + ไม่เห็นจัดการ users
+  // เจ้าของ — ดูได้ทุกหน้า แต่แก้/ลบไม่ได้ + ไม่เห็น audit + users
   owner: {
-    pages: '*', excludePages: new Set(['users']),
+    pages: '*', excludePages: new Set(['users', 'audit_log']),
     canEdit: false, canDelete: false, canApprove: false, canManageUsers: false,
   },
 };
@@ -209,6 +209,7 @@ function App() {
     data_bank:     { label: 'DATA BANK', title: 'Bank Accounts', icon: 'bank' },
     data_pv:       { label: 'DATA PV', title: 'Payment Vouchers', icon: 'money' },
     data_payable:  { label: 'DATA เจ้าหนี้คงค้าง', title: 'Accounts Payable', icon: 'invoice' },
+    audit_log:     { label: 'Audit Log',           title: 'Audit Log — ประวัติแก้ไข', icon: 'settings' },
   };
 
   let page;
@@ -231,6 +232,7 @@ function App() {
     case 'data_bank':      page = <DataBankPage data={data} setData={setData} toast={pushToast} />; break;
     case 'data_pv':        page = <DataPVPage data={data} setData={setData} toast={pushToast} />; break;
     case 'data_payable':   page = <DataPayablePage data={data} setData={setData} toast={pushToast} />; break;
+    case 'audit_log':      page = <AuditLogPage data={data} toast={pushToast} />; break;
     case 'daily':
     default:               page = <DailyRevenueDashboard data={data} setData={setData} toast={pushToast} />;
   }
@@ -389,6 +391,7 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
             ['interest_calc', 'คำนวณดอกเบี้ย',         'money'],
             ['sts_calc',      'STS Calculator',         'money'],
             ['sts_workflow',  'STS Workflow',           'invoice'],
+            ['audit_log',     'Audit Log',              'settings'],
           ])}
         </div>
 

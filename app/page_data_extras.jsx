@@ -18,6 +18,23 @@ function DataCrudPage({ data, setData, toast, config }) {
   const [filter, setFilter] = dxState('all');
   const [sortKey, setSortKey] = dxState(null);
   const [sortDir, setSortDir] = dxState('asc');
+  // Bulk selection (Set of row IDs) — only meaningful when user can delete
+  const [selected, setSelected] = dxState(() => new Set());
+  // Clear selection whenever the filter/search changes so stale ids don't linger
+  dxEffect(() => { setSelected(new Set()); }, [filter, query]);
+  // Excel-like per-column filters — { [colKey]: Set<displayValue> }
+  const [colFilters, setColFilters] = dxState({});
+  const [openCol, setOpenCol] = dxState(null);
+  // Helper: get display value for a column (uses column config's render if applicable, else raw)
+  const colDisplay = (row, colKey) => {
+    const col = config.columns.find(c => c.key === colKey);
+    if (!col) return String(row[colKey] ?? '—');
+    const raw = row[colKey];
+    if (raw == null || raw === '') return '—';
+    if (col.type === 'date') return fmtDate(raw) || String(raw);
+    if (col.type === 'money' || col.numeric) return fmtNum(raw, col.digits ?? 2);
+    return String(raw);
+  };
 
   const rows = data[config.dataKey] || [];
 
@@ -30,8 +47,13 @@ function DataCrudPage({ data, setData, toast, config }) {
       const q = query.toLowerCase();
       xs = xs.filter(r => config.searchKeys.some(k => String(r[k] || '').toLowerCase().includes(q)));
     }
+    // Apply per-column filters (Excel-like)
+    const activeKeys = Object.keys(colFilters).filter(k => colFilters[k] && colFilters[k].size > 0);
+    if (activeKeys.length > 0) {
+      xs = xs.filter(r => activeKeys.every(k => colFilters[k].has(colDisplay(r, k))));
+    }
     return xs;
-  }, [rows, filter, query]);
+  }, [rows, filter, query, colFilters]);
 
   const sortedFiltered = dxMemo(() => {
     if (!sortKey) return filtered;
@@ -68,6 +90,27 @@ function DataCrudPage({ data, setData, toast, config }) {
     if (!confirm('ยืนยันการลบรายการนี้?')) return;
     setData(d => ({ ...d, [config.dataKey]: d[config.dataKey].filter(x => x.id !== id) }));
     toast('ลบรายการแล้ว');
+  };
+
+  // Bulk-delete: filter out everything currently in `selected`
+  const bulkRemove = () => {
+    if (selected.size === 0) return;
+    if (!confirm(`ยืนยันการลบ ${selected.size} รายการที่เลือก?`)) return;
+    setData(d => ({
+      ...d,
+      [config.dataKey]: (d[config.dataKey] || []).filter(r => !selected.has(r.id)),
+    }));
+    toast(`ลบแล้ว ${selected.size} รายการ`);
+    setSelected(new Set());
+  };
+
+  const toggleSelectOne = (id) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   const stats = config.summary ? config.summary(rows) : [];
@@ -137,21 +180,69 @@ function DataCrudPage({ data, setData, toast, config }) {
           <table className="tbl">
             <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--surface)' }}>
               <tr>
+                {/* Bulk-select header — only visible if user can delete */}
+                {effectiveAllowDelete && (
+                  <th style={{ width: 34, textAlign: 'center', padding: '6px 4px' }}>
+                    <input
+                      type="checkbox"
+                      checked={sortedFiltered.length > 0 && sortedFiltered.every(r => selected.has(r.id))}
+                      ref={el => {
+                        if (el) {
+                          const some = sortedFiltered.some(r => selected.has(r.id));
+                          const all  = sortedFiltered.length > 0 && sortedFiltered.every(r => selected.has(r.id));
+                          el.indeterminate = some && !all;
+                        }
+                      }}
+                      onChange={() => {
+                        const allSelected = sortedFiltered.length > 0 && sortedFiltered.every(r => selected.has(r.id));
+                        if (allSelected) setSelected(new Set());
+                        else setSelected(new Set(sortedFiltered.map(r => r.id)));
+                      }}
+                      title="เลือกทั้งหมด"
+                      style={{ cursor: 'pointer' }}
+                    />
+                  </th>
+                )}
                 {config.columns.map((c, i) => (
-                  <SortHeader key={i} label={c.label} sortKey={c.key} sort={sort} toggle={toggleSort}
-                    align={c.headerAlign || 'center'} width={c.width} />
+                  <FilterableColHeader
+                    key={i}
+                    label={c.label}
+                    sortKey={c.key}
+                    colKey={c.key}
+                    sort={sort}
+                    sortToggle={toggleSort}
+                    align={c.headerAlign || 'center'}
+                    width={c.width}
+                    colFilters={colFilters}
+                    setColFilters={setColFilters}
+                    openCol={openCol}
+                    setOpenCol={setOpenCol}
+                    allRows={rows}
+                    getValue={colDisplay}
+                  />
                 ))}
                 {(!effectiveReadOnly || effectiveAllowDelete) && <th style={{ width: 80 }}></th>}
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 && (
-                <tr><td colSpan={config.columns.length + ((!effectiveReadOnly || effectiveAllowDelete) ? 1 : 0)} style={{ padding: 36, textAlign: 'center' }} className="muted">ไม่พบข้อมูล</td></tr>
+                <tr><td colSpan={config.columns.length + ((!effectiveReadOnly || effectiveAllowDelete) ? 1 : 0) + (effectiveAllowDelete ? 1 : 0)} style={{ padding: 36, textAlign: 'center' }} className="muted">ไม่พบข้อมูล</td></tr>
               )}
               {sortedFiltered.map(row => (
                 <tr key={row.id}
-                  style={{ cursor: 'pointer' }}
+                  style={{ cursor: 'pointer', background: selected.has(row.id) ? 'var(--brand-50)' : undefined }}
                   onClick={() => setView(row)}>
+                  {/* Per-row checkbox — stopPropagation so the row click → view modal doesn't fire */}
+                  {effectiveAllowDelete && (
+                    <td onClick={e => e.stopPropagation()} style={{ textAlign: 'center', padding: '6px 4px' }}>
+                      <input
+                        type="checkbox"
+                        checked={selected.has(row.id)}
+                        onChange={() => toggleSelectOne(row.id)}
+                        style={{ cursor: 'pointer' }}
+                      />
+                    </td>
+                  )}
                   {config.columns.map((c, i) => (
                     <td key={i} style={{ textAlign: c.align || 'left' }} className={c.numeric ? 'num' : ''}>
                       {c.render ? c.render(row) : (
@@ -183,6 +274,51 @@ function DataCrudPage({ data, setData, toast, config }) {
           </table>
         </div>
       </div>
+
+      {/* Floating bulk-action bar — appears at bottom when 1+ rows selected */}
+      {selected.size > 0 && effectiveAllowDelete && (
+        <div style={{
+          position: 'fixed',
+          bottom: 24,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: 'var(--ink-900)',
+          color: '#fff',
+          borderRadius: 12,
+          padding: '10px 14px 10px 20px',
+          boxShadow: '0 12px 32px rgba(15,36,77,0.28)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 14,
+          zIndex: 950,
+          minWidth: 320,
+          maxWidth: 'min(560px, calc(100vw - 32px))',
+        }}>
+          <div style={{ flex: 1, fontSize: 13 }}>
+            <strong>{selected.size}</strong> รายการถูกเลือก
+          </div>
+          <button
+            onClick={() => setSelected(new Set())}
+            className="btn btn-ghost"
+            style={{ color: '#fff', background: 'transparent', border: '1px solid rgba(255,255,255,0.2)' }}
+          >ยกเลิก</button>
+          <ExportButton
+            rows={(data[config.dataKey] || []).filter(r => selected.has(r.id))}
+            columns={config.columns.map(c => ({ key: c.key, label: c.label, type: c.type || (c.numeric ? 'number' : undefined) }))}
+            filename={`${config.dataKey || 'data'}_selected`}
+            sheetName={config.singular || 'ข้อมูล'}
+            title={`${config.title} — รายการที่เลือก`}
+            label={`Excel`}
+          />
+          <button
+            onClick={bulkRemove}
+            className="btn btn-danger"
+            style={{ background: 'var(--bad)', color: '#fff', borderColor: 'var(--bad)' }}
+          >
+            <Icon name="trash" size={14} /> ลบที่เลือก
+          </button>
+        </div>
+      )}
 
       {/* View popup — opens on row click (read-only).
           Footer buttons (แก้ไข / ลบ) gated by user role */}
