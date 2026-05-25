@@ -132,13 +132,17 @@ function computeStsRow(receipt, match, params, debtEvents) {
 }
 
 // ── Drawer for a single receipt ───────────────────────────────────────────
+// Same layout as page_sts_calc (full calculator-style view) — but pulls real
+// data from the matched receipt + debtMaster contract instead of being editable.
 function StsCalcDrawer({ receipt, match, calcResult, isOpen, onClose, onConfirm, params, setParams, debtEvents }) {
   if (!isOpen) return null;
   const contract = match?.sts;
+
+  // Error state — no matching STS contract
   if (!contract) {
     return (
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-        <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 30, maxWidth: 520 }}>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,36,77,0.45)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+        <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, padding: 28, maxWidth: 520, boxShadow: '0 24px 60px rgba(15,36,77,0.18)' }}>
           <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 10 }}>ไม่พบสัญญา STS ที่ตรงกับใบรับนี้</div>
           <div style={{ fontSize: 12, color: 'var(--ink-500)' }}>
             Project: <strong>{receipt.projectCode || '—'}</strong> · {receipt.projectName || '—'}
@@ -151,111 +155,272 @@ function StsCalcDrawer({ receipt, match, calcResult, isOpen, onClose, onConfirm,
       </div>
     );
   }
-  const c = computeStsRow(receipt, match, params, debtEvents);
+
+  const c            = computeStsRow(receipt, match, params, debtEvents);
+  const wci          = match?.wci;
+  const contractValue= Number(contract.contractValueIncVAT) || Number(receipt.grossAmount) || 0;
+  const stsRate      = Number(contract.interestRate) || DEFAULT_STS_INT_RATE;
+  const wciRate      = wci ? (Number(wci.interestRate) || 0.10) : 0.10;
+  const stsDraws     = expandDrawdowns(contract, debtEvents);
+  const wciDraws     = wci ? expandDrawdowns(wci, debtEvents) : [];
+  const totalStsDraw = stsDraws.reduce((s, d) => s + (Number(d.amount) || 0), 0);
+  const totalWciDraw = wciDraws.reduce((s, d) => s + (Number(d.amount) || 0), 0);
+
+  // Reused styles for read-only input look (parallels sts_calc edit inputs but disabled)
+  const roInput = { width: '100%', padding: 8, border: '1px solid var(--line)', borderRadius: 6, fontSize: 12, background: '#f8fafc', color: 'var(--ink-700)', cursor: 'default' };
+  const roInputRight = { ...roInput, textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
+  const editInput = { width: '100%', padding: 8, border: '1px solid #cbd5e0', borderRadius: 6, fontSize: 12, textAlign: 'right' };
+
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, width: 'min(880px, 95vw)', maxHeight: '90vh', overflow: 'auto' }}>
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between' }}>
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(15,36,77,0.45)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, width: 'min(960px, 95vw)', maxHeight: '92vh', overflow: 'auto', boxShadow: '0 24px 60px rgba(15,36,77,0.18)' }}>
+
+        {/* Header */}
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, background: '#fff', zIndex: 5 }}>
           <div>
-            <div style={{ fontWeight: 700, fontSize: 16 }}>คำนวณ STS สำหรับใบรับ {receipt.receiptNo || receipt.invoiceNo}</div>
-            <div style={{ fontSize: 11, color: 'var(--ink-500)', marginTop: 3 }}>
-              ใบรับ {fmtDate(receipt.receiptDate)} · {bMoney(receipt.grossAmount)} ฿
+            <div style={{ fontWeight: 700, fontSize: 17 }}>STS Calculator · {receipt.receiptNo || receipt.invoiceNo || '—'}</div>
+            <div style={{ fontSize: 12, color: 'var(--ink-500)', marginTop: 2 }}>
+              คำนวณดอกเบี้ย STS+WCI และค่าบริการเอนคอมพาส
             </div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: 'var(--ink-400)' }}>×</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 24, cursor: 'pointer', color: 'var(--ink-400)', lineHeight: 1, padding: 4 }}>×</button>
         </div>
 
-        <div style={{ padding: 18, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          <div style={{ background: '#f0f9ff', padding: 12, borderRadius: 8 }}>
-            <div style={{ fontWeight: 700, fontSize: 12, color: '#0369a1', marginBottom: 8 }}>📋 ใบรับเงินจากราชการ</div>
-            <div style={{ fontSize: 12, lineHeight: 1.7 }}>
-              <div>เลขที่: <strong>{receipt.receiptNo || '—'}</strong></div>
-              <div>วันที่รับ: <strong>{fmtDate(receipt.receiptDate)}</strong></div>
-              <div>ใบแจ้งหนี้: {receipt.invoiceNo || '—'}</div>
-              <div>โครงการ: <strong>{receipt.projectCode || '—'}</strong></div>
-              <div>ยอดรับ (gross): <strong style={{ color: '#0369a1' }}>{bMoney(receipt.grossAmount)} ฿</strong></div>
+        <div style={{ padding: 18 }}>
+
+          {/* ── Formula explainer (orange box) ──────────────────────────── */}
+          <div className="card" style={{ padding: '14px 16px', marginBottom: 16, background: '#fffbeb', borderLeft: '4px solid #f6ad55' }}>
+            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>📐 สูตรคำนวณ</div>
+            <div style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--ink-700)' }}>
+              1. <strong>ดอกเบี้ย STS (#1)</strong> = เงินต้น × {(stsRate*100).toFixed(2)}%/ปี × วันที่กู้ถึงวันรับเงินจากราชการ ÷ 365<br/>
+              2. <strong>ดอกเบี้ย WCI (#2)</strong> = เงินต้น × {(wciRate*100).toFixed(2)}%/ปี × วันที่กู้ถึงวันรับเงิน ÷ 365<br/>
+              3. <strong>ค่าบริการเอนคอมพาส (เต็ม)</strong> = ยอดรับจากราชการ × {(params.mgmtRate*100).toFixed(2)}%<br/>
+              4. <strong>ค่าบริการสุทธิ</strong> = ค่าบริการ (เต็ม) − ดอกเบี้ยรวม (STS + WCI)<br/>
+              5. <strong>หัก WHT</strong>: {(params.whtMgmt*100).toFixed(0)}% ค่าบริการ / {(params.whtInterest*100).toFixed(0)}% ดอกเบี้ย (รับคืน)
             </div>
           </div>
 
-          <div style={{ background: '#fff7ed', padding: 12, borderRadius: 8 }}>
-            <div style={{ fontWeight: 700, fontSize: 12, color: '#9a3412', marginBottom: 8 }}>💰 สัญญา STS</div>
-            <div style={{ fontSize: 12, lineHeight: 1.7 }}>
-              <div>เลขที่สัญญา: <strong>{contract.contractNo}</strong></div>
-              <div>วันเบิกเงินกู้: <strong>{fmtDate(contract.receiveDate || contract.startDate)}</strong></div>
-              <div>วงเงินกู้ STS: <strong>{bMoney(contract.principalAmount)} ฿</strong></div>
-              <div>อัตราดอกเบี้ย: <strong>{((Number(contract.interestRate) || 0) * 100).toFixed(2)}% / ปี</strong></div>
-              <div>หมวด: <strong>{contract.debtCategory}</strong></div>
+          {/* ── Contract parameters ─────────────────────────────────────── */}
+          <div className="card" style={{ padding: 16, marginBottom: 16 }}>
+            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 12 }}>⚙ ข้อมูลสัญญา</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
+              <div>
+                <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'block', marginBottom: 3 }}>ชื่อโครงการ</label>
+                <input value={contract.projectName || receipt.projectName || ''} readOnly style={roInput} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'block', marginBottom: 3 }}>เลขที่สัญญา / อ้างอิง</label>
+                <input value={contract.contractNo || ''} readOnly style={roInput} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'block', marginBottom: 3 }}>มูลค่าสัญญา (รวม VAT)</label>
+                <input value={bMoney2(contractValue)} readOnly style={roInputRight} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'block', marginBottom: 3 }}>Mgmt fee (เอนคอมพาส) %</label>
+                <input type="number" step="0.001" value={params.mgmtRate}
+                  onChange={e => setParams(p => ({ ...p, mgmtRate: Number(e.target.value) }))} style={editInput} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'block', marginBottom: 3 }}>ดอกเบี้ย STS (#1) /ปี</label>
+                <input value={stsRate} readOnly style={roInputRight} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'block', marginBottom: 3 }}>ดอกเบี้ย WCI (#2) /ปี</label>
+                <input value={wciRate} readOnly style={roInputRight} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'block', marginBottom: 3 }}>WHT mgmt %</label>
+                <input type="number" step="0.01" value={params.whtMgmt}
+                  onChange={e => setParams(p => ({ ...p, whtMgmt: Number(e.target.value) }))} style={editInput} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'block', marginBottom: 3 }}>WHT interest %</label>
+                <input type="number" step="0.01" value={params.whtInterest}
+                  onChange={e => setParams(p => ({ ...p, whtInterest: Number(e.target.value) }))} style={editInput} />
+              </div>
             </div>
           </div>
+
+          {/* ── STS drawdowns ────────────────────────────────────────────── */}
+          <div className="card" style={{ padding: 0, marginBottom: 16, overflow: 'hidden' }}>
+            <div style={{ padding: '10px 16px', background: '#f0f9ff', borderBottom: '1px solid #bfdbfe' }}>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>💰 เงินกู้ STS (#1)</div>
+            </div>
+            <table className="tbl" style={{ width: '100%', fontSize: 12 }}>
+              <thead>
+                <tr><th style={{ width: 70 }}>รายการ</th><th style={{ width: 130 }}>วันที่</th><th style={{ width: 140, textAlign: 'right' }}>จำนวนเงิน</th><th>หมายเหตุ</th></tr>
+              </thead>
+              <tbody>
+                {stsDraws.length === 0 && (
+                  <tr><td colSpan={4} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-400)' }}>ไม่มีรายการเบิกเงิน STS</td></tr>
+                )}
+                {stsDraws.map((d, i) => (
+                  <tr key={'sts-d-'+i}>
+                    <td style={{ fontSize: 11 }}>STS #{i + 1}</td>
+                    <td>{fmtDate(d.date) || d.date}</td>
+                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{bMoney2(d.amount)}</td>
+                    <td style={{ fontSize: 11, color: 'var(--ink-500)' }}>{d.note || '—'}</td>
+                  </tr>
+                ))}
+                {stsDraws.length > 0 && (
+                  <tr style={{ background: '#fafbfc', fontWeight: 700 }}>
+                    <td colSpan={2}>รวม STS</td>
+                    <td style={{ textAlign: 'right' }}>{bMoney2(totalStsDraw)}</td>
+                    <td></td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* ── WCI drawdowns ────────────────────────────────────────────── */}
+          <div className="card" style={{ padding: 0, marginBottom: 16, overflow: 'hidden' }}>
+            <div style={{ padding: '10px 16px', background: '#f5f3ff', borderBottom: '1px solid #ddd6fe' }}>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>💰 เงินกู้ WCI (#2)</div>
+            </div>
+            <table className="tbl" style={{ width: '100%', fontSize: 12 }}>
+              <thead>
+                <tr><th style={{ width: 70 }}>รายการ</th><th style={{ width: 130 }}>วันที่</th><th style={{ width: 140, textAlign: 'right' }}>จำนวนเงิน</th><th>หมายเหตุ</th></tr>
+              </thead>
+              <tbody>
+                {wciDraws.length === 0 && (
+                  <tr><td colSpan={4} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-400)' }}>ไม่มีรายการเบิกเงิน WCI</td></tr>
+                )}
+                {wciDraws.map((d, i) => (
+                  <tr key={'wci-d-'+i}>
+                    <td style={{ fontSize: 11 }}>WCI #{i + 1}</td>
+                    <td>{fmtDate(d.date) || d.date}</td>
+                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{bMoney2(d.amount)}</td>
+                    <td style={{ fontSize: 11, color: 'var(--ink-500)' }}>{d.note || '—'}</td>
+                  </tr>
+                ))}
+                {wciDraws.length > 0 && (
+                  <tr style={{ background: '#fafbfc', fontWeight: 700 }}>
+                    <td colSpan={2}>รวม WCI</td>
+                    <td style={{ textAlign: 'right' }}>{bMoney2(totalWciDraw)}</td>
+                    <td></td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* ── Government receipt (the one being processed) ─────────────── */}
+          <div className="card" style={{ padding: 0, marginBottom: 16, overflow: 'hidden' }}>
+            <div style={{ padding: '10px 16px', background: '#f0fdf4', borderBottom: '1px solid #bbf7d0' }}>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>🏛 รับเงินจากราชการ</div>
+            </div>
+            <table className="tbl" style={{ width: '100%', fontSize: 12 }}>
+              <thead>
+                <tr><th style={{ width: 100 }}>เลขที่ใบรับ</th><th style={{ width: 130 }}>วันที่รับ</th><th style={{ width: 120 }}>ใบแจ้งหนี้</th><th style={{ textAlign: 'right' }}>จำนวนเงิน (gross)</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style={{ fontFamily: 'ui-monospace', fontWeight: 600 }}>{receipt.receiptNo || '—'}</td>
+                  <td>{fmtDate(receipt.receiptDate)}</td>
+                  <td style={{ fontFamily: 'ui-monospace', fontSize: 11 }}>{receipt.invoiceNo || '—'}</td>
+                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: '#0369a1' }}>{bMoney2(receipt.grossAmount)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* ── Interest calculation details ────────────────────────────── */}
+          <div className="card" style={{ padding: 0, marginBottom: 16, overflow: 'hidden' }}>
+            <div style={{ padding: '10px 16px', background: '#fff7ed', borderBottom: '1px solid #fed7aa' }}>
+              <div style={{ fontWeight: 700, fontSize: 13 }}>📈 รายละเอียดดอกเบี้ย (คำนวณถึงวันรับเงิน {fmtDate(receipt.receiptDate)})</div>
+            </div>
+            <table className="tbl" style={{ width: '100%', fontSize: 12 }}>
+              <thead>
+                <tr>
+                  <th style={{ width: 90 }}>ฝ่าย</th>
+                  <th style={{ width: 130 }}>วันที่กู้</th>
+                  <th style={{ width: 80, textAlign: 'right' }}>จำนวนวัน</th>
+                  <th style={{ width: 140, textAlign: 'right' }}>เงินต้น</th>
+                  <th style={{ width: 90, textAlign: 'right' }}>อัตรา</th>
+                  <th style={{ width: 150, textAlign: 'right' }}>ดอกเบี้ย</th>
+                </tr>
+              </thead>
+              <tbody>
+                {c.stsLegs.map((l, i) => (
+                  <tr key={'sts-l-'+i}>
+                    <td><Badge kind="b-blue" dot={false}>STS</Badge></td>
+                    <td>{fmtDate(l.drawdown) || l.drawdown}</td>
+                    <td style={{ textAlign: 'right' }}>{l.days}</td>
+                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{bMoney2(l.principal)}</td>
+                    <td style={{ textAlign: 'right' }}>{(l.rate*100).toFixed(2)}%</td>
+                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: '#9b1c1c' }}>{bMoney2(l.interest)}</td>
+                  </tr>
+                ))}
+                {c.wciLegs.map((l, i) => (
+                  <tr key={'wci-l-'+i}>
+                    <td><Badge kind="b-violet" dot={false}>WCI</Badge></td>
+                    <td>{fmtDate(l.drawdown) || l.drawdown}</td>
+                    <td style={{ textAlign: 'right' }}>{l.days}</td>
+                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{bMoney2(l.principal)}</td>
+                    <td style={{ textAlign: 'right' }}>{(l.rate*100).toFixed(2)}%</td>
+                    <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: '#6b46c1' }}>{bMoney2(l.interest)}</td>
+                  </tr>
+                ))}
+                {(c.stsLegs.length + c.wciLegs.length) === 0 && (
+                  <tr><td colSpan={6} style={{ textAlign: 'center', padding: 20, color: 'var(--ink-400)' }}>ไม่มีข้อมูลดอกเบี้ย</td></tr>
+                )}
+                <tr style={{ background: '#fef3c7', fontWeight: 700 }}>
+                  <td colSpan={5} style={{ textAlign: 'right', paddingRight: 12 }}>รวมดอกเบี้ย STS</td>
+                  <td style={{ textAlign: 'right', color: '#9b1c1c', fontVariantNumeric: 'tabular-nums' }}>{bMoney2(c.stsInterest)}</td>
+                </tr>
+                <tr style={{ background: '#fef3c7', fontWeight: 700 }}>
+                  <td colSpan={5} style={{ textAlign: 'right', paddingRight: 12 }}>รวมดอกเบี้ย WCI</td>
+                  <td style={{ textAlign: 'right', color: '#6b46c1', fontVariantNumeric: 'tabular-nums' }}>{bMoney2(c.wciInterest)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* ── Final summary (gradient card) ───────────────────────────── */}
+          <div className="card" style={{ padding: 18, background: 'linear-gradient(135deg, #fff7ed, #fefce8)' }}>
+            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 14, color: '#9a3412' }}>💰 สรุปสำหรับเอนคอมพาส</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>ค่าบริการ (เต็ม) — {(c.mgmtRate*100).toFixed(2)}% × ยอดรับ</div>
+                <div style={{ fontWeight: 700, fontSize: 18, fontVariantNumeric: 'tabular-nums' }}>{bMoney(c.mgmtGross)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>(−) หักดอกเบี้ยรวม (STS + WCI)</div>
+                <div style={{ fontWeight: 700, fontSize: 18, fontVariantNumeric: 'tabular-nums', color: '#9b1c1c' }}>−{bMoney(c.interest)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>= ค่าบริการสุทธิ</div>
+                <div style={{ fontWeight: 700, fontSize: 20, fontVariantNumeric: 'tabular-nums', color: '#276749' }}>{bMoney(c.mgmtNet)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>(−) WHT ค่าบริการ {(params.whtMgmt*100).toFixed(0)}%</div>
+                <div style={{ fontWeight: 600, fontSize: 14, fontVariantNumeric: 'tabular-nums' }}>−{bMoney(c.whtOnMgmt)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>(+) WHT ดอกเบี้ย {(params.whtInterest*100).toFixed(0)}% (รับคืน)</div>
+                <div style={{ fontWeight: 600, fontSize: 14, fontVariantNumeric: 'tabular-nums' }}>+{bMoney(c.whtOnInt)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>= สุทธิจ่ายเอนคอมพาส</div>
+                <div style={{ fontWeight: 700, fontSize: 22, fontVariantNumeric: 'tabular-nums', color: '#0369a1' }}>
+                  {bMoney(c.encompassPayable)}
+                </div>
+              </div>
+            </div>
+          </div>
+
         </div>
 
-        <div style={{ padding: '0 18px 18px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-          <div>
-            <label style={{ fontSize: 10, color: 'var(--ink-500)', display: 'block' }}>Mgmt fee %</label>
-            <input type="number" step="0.001" value={params.mgmtRate} onChange={e => setParams(p => ({ ...p, mgmtRate: Number(e.target.value) }))}
-              style={{ width: '100%', padding: 6, border: '1px solid #cbd5e0', borderRadius: 4, fontSize: 12, textAlign: 'right' }} />
-          </div>
-          <div>
-            <label style={{ fontSize: 10, color: 'var(--ink-500)', display: 'block' }}>WHT mgmt %</label>
-            <input type="number" step="0.01" value={params.whtMgmt} onChange={e => setParams(p => ({ ...p, whtMgmt: Number(e.target.value) }))}
-              style={{ width: '100%', padding: 6, border: '1px solid #cbd5e0', borderRadius: 4, fontSize: 12, textAlign: 'right' }} />
-          </div>
-          <div>
-            <label style={{ fontSize: 10, color: 'var(--ink-500)', display: 'block' }}>WHT interest %</label>
-            <input type="number" step="0.01" value={params.whtInterest} onChange={e => setParams(p => ({ ...p, whtInterest: Number(e.target.value) }))}
-              style={{ width: '100%', padding: 6, border: '1px solid #cbd5e0', borderRadius: 4, fontSize: 12, textAlign: 'right' }} />
-          </div>
-          <div>
-            <label style={{ fontSize: 10, color: 'var(--ink-500)', display: 'block' }}>จำนวนวัน</label>
-            <input value={c.days} readOnly
-              style={{ width: '100%', padding: 6, border: '1px solid #cbd5e0', borderRadius: 4, fontSize: 12, textAlign: 'right', background: '#f8fafc' }} />
-          </div>
-        </div>
-
-        <div style={{ padding: '0 18px 18px' }}>
-          <div style={{ fontWeight: 700, fontSize: 12, color: '#475569', marginBottom: 6 }}>📈 รายละเอียดดอกเบี้ยแต่ละ leg</div>
-          <table className="tbl" style={{ width: '100%', fontSize: 11.5, marginBottom: 12 }}>
-            <thead>
-              <tr><th style={{ width: 80 }}>ฝ่าย</th><th>วันที่กู้</th><th style={{ textAlign: 'right' }}>วัน</th><th style={{ textAlign: 'right' }}>เงินต้น</th><th style={{ textAlign: 'right' }}>อัตรา</th><th style={{ textAlign: 'right' }}>ดอกเบี้ย</th></tr>
-            </thead>
-            <tbody>
-              {c.stsLegs.map((l, i) => (
-                <tr key={'sts-'+i}><td><Badge kind="b-blue" dot={false}>STS</Badge></td><td>{l.drawdown}</td><td style={{ textAlign: 'right' }}>{l.days}</td><td style={{ textAlign: 'right' }}>{bMoney(l.principal)}</td><td style={{ textAlign: 'right' }}>{(l.rate*100).toFixed(2)}%</td><td style={{ textAlign: 'right', fontWeight: 600, color: '#9b1c1c' }}>{bMoney2(l.interest)}</td></tr>
-              ))}
-              {c.wciLegs.map((l, i) => (
-                <tr key={'wci-'+i}><td><Badge kind="b-violet" dot={false}>WCI</Badge></td><td>{l.drawdown}</td><td style={{ textAlign: 'right' }}>{l.days}</td><td style={{ textAlign: 'right' }}>{bMoney(l.principal)}</td><td style={{ textAlign: 'right' }}>{(l.rate*100).toFixed(2)}%</td><td style={{ textAlign: 'right', fontWeight: 600, color: '#6b46c1' }}>{bMoney2(l.interest)}</td></tr>
-              ))}
-              <tr style={{ background: '#fef3c7', fontWeight: 700 }}><td colSpan={5} style={{ textAlign: 'right', paddingRight: 10 }}>รวมดอกเบี้ย STS</td><td style={{ textAlign: 'right', color: '#9b1c1c' }}>{bMoney2(c.stsInterest)}</td></tr>
-              <tr style={{ background: '#fef3c7', fontWeight: 700 }}><td colSpan={5} style={{ textAlign: 'right', paddingRight: 10 }}>รวมดอกเบี้ย WCI</td><td style={{ textAlign: 'right', color: '#6b46c1' }}>{bMoney2(c.wciInterest)}</td></tr>
-            </tbody>
-          </table>
-
-          <table className="tbl" style={{ width: '100%', fontSize: 12 }}>
-            <tbody>
-              <tr><td>ค่าบริการเอนคอมพาส (gross) = {(c.mgmtRate*100).toFixed(2)}% × {bMoney(c.baseAmount)}</td>
-                  <td style={{ textAlign: 'right' }}>{bMoney2(c.mgmtGross)}</td></tr>
-              <tr style={{ background: '#fffbeb' }}><td>(−) หักดอกเบี้ยรวม (STS + WCI)</td>
-                  <td style={{ textAlign: 'right', color: '#9b1c1c' }}>−{bMoney2(c.interest)}</td></tr>
-              <tr style={{ borderTop: '2px solid var(--line)' }}><td><strong>= ค่าบริการสุทธิ</strong></td>
-                  <td style={{ textAlign: 'right', fontWeight: 700, color: '#276749' }}>{bMoney2(c.mgmtNet)}</td></tr>
-              <tr><td>(−) WHT ค่าบริการ {(params.whtMgmt*100).toFixed(0)}%</td>
-                  <td style={{ textAlign: 'right', fontSize: 11 }}>−{bMoney2(c.whtOnMgmt)}</td></tr>
-              <tr><td>(+) WHT ดอกเบี้ย {(params.whtInterest*100).toFixed(0)}% (รับคืน)</td>
-                  <td style={{ textAlign: 'right', fontSize: 11 }}>+{bMoney2(c.whtOnInt)}</td></tr>
-              <tr style={{ background: '#f0f9ff', borderTop: '2px solid #2a6fdb' }}>
-                  <td><strong>= สุทธิจ่ายเอนคอมพาส</strong></td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, fontSize: 16, color: '#0369a1' }}>{bMoney(c.encompassPayable)}</td></tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div style={{ padding: '12px 18px', background: '#f8fafc', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between' }}>
+        {/* Footer */}
+        <div style={{ padding: '12px 18px', background: '#f8fafc', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', bottom: 0, zIndex: 5 }}>
           <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>
-            {calcResult ? `✓ บันทึกแล้ว ${calcResult.calculatedAt || ''}` : 'ยังไม่บันทึก'}
+            {calcResult ? `✓ บันทึกแล้ว ${calcResult.calculatedAt ? new Date(calcResult.calculatedAt).toLocaleString('th-TH') : ''}` : 'ยังไม่บันทึก'}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={onClose} style={{ padding: '7px 14px', border: '1px solid #cbd5e0', background: '#fff', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>ปิด</button>
-            <button onClick={() => onConfirm(c)} style={{ padding: '7px 16px', background: '#0369a1', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+            <button onClick={onClose} className="btn btn-ghost">ปิด</button>
+            <button onClick={() => onConfirm(c)} className="btn btn-primary">
               {calcResult ? 'บันทึกใหม่' : 'ยืนยัน + บันทึก'}
             </button>
           </div>
