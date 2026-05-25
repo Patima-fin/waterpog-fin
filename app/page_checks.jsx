@@ -54,6 +54,7 @@ const ChecksPage = ({ data: propData }) => {
   // Column filters (Excel-like) + bulk selection
   const [colFilters, setColFilters] = React.useState({});
   const [openCol, setOpenCol]       = React.useState(null);
+  const [bulkMode, setBulkMode]     = React.useState(false);   // toggle bulk-select UI
   const [selected, setSelected]     = React.useState(() => new Set());
   // Role gating
   const userCanEdit   = window.WTPAuth ? window.WTPAuth.can('canEdit')   : true;
@@ -95,8 +96,8 @@ const ChecksPage = ({ data: propData }) => {
     return rows;
   }, [sorted, tab, query, colFilters]);
 
-  // Reset selection when filter changes
-  React.useEffect(() => { setSelected(new Set()); }, [tab, query, colFilters]);
+  // Reset selection when filter / mode changes
+  React.useEffect(() => { setSelected(new Set()); }, [tab, query, colFilters, bulkMode]);
 
   const toggleSelectOne = (id) => {
     setSelected(prev => {
@@ -191,7 +192,15 @@ const ChecksPage = ({ data: propData }) => {
             title="เช็คจ่ายล่วงหน้า"
           />
           <PrintButton />
-          {(window.WTPAuth ? window.WTPAuth.can('canEdit') : true) && (
+          {userCanDelete && (
+            <button
+              className={`btn ${bulkMode ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => setBulkMode(v => !v)}
+              title={bulkMode ? 'ปิดโหมดเลือกหลายรายการ' : 'เปิดโหมดเลือกหลายรายการ'}>
+              <Icon name="check" size={14} /> {bulkMode ? 'ปิดเลือก' : 'เลือกหลายรายการ'}
+            </button>
+          )}
+          {userCanEdit && (
             <button className="btn btn-primary" onClick={openNew}>+ เพิ่มเช็ค</button>
           )}
         </div>
@@ -224,7 +233,7 @@ const ChecksPage = ({ data: propData }) => {
           <table className="tbl" style={{ minWidth: 850 }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--surface)' }}>
               <tr>
-                {userCanDelete && (
+                {userCanDelete && bulkMode && (
                   <th style={{ width: 34, textAlign: 'center' }}>
                     <input type="checkbox"
                       checked={filtered.length > 0 && filtered.every(r => selected.has(r.id))}
@@ -251,7 +260,7 @@ const ChecksPage = ({ data: propData }) => {
             </thead>
             <tbody>
               {filtered.length === 0 && (
-                <tr><td colSpan={userCanDelete ? 11 : 10} style={{ textAlign:'center', color:'#8a94a6', padding:32 }}>ไม่พบข้อมูล</td></tr>
+                <tr><td colSpan={(userCanDelete && bulkMode) ? 11 : 10} style={{ textAlign:'center', color:'#8a94a6', padding:32 }}>ไม่พบข้อมูล</td></tr>
               )}
               {filtered.map(c => {
                 const isOverdue = c.status === 'pending' && c.checkDate < today;
@@ -259,9 +268,10 @@ const ChecksPage = ({ data: propData }) => {
                 const meta = CHECKS_STATUS_META[c.status] || { label: c.status, color:'badge-gray' };
                 const isSelected = selected.has(c.id);
                 return (
-                  <tr key={c.id} onClick={() => setView(c)}
+                  <tr key={c.id}
+                      onClick={() => bulkMode ? toggleSelectOne(c.id) : setView(c)}
                       style={{ background: isSelected ? 'var(--brand-50)' : (isOverdue ? '#fff5f5' : isUrgent ? '#fffbeb' : undefined), cursor:'pointer' }}>
-                    {userCanDelete && (
+                    {userCanDelete && bulkMode && (
                       <td onClick={e => e.stopPropagation()} style={{ textAlign:'center' }}>
                         <input type="checkbox" checked={isSelected}
                           onChange={() => toggleSelectOne(c.id)} style={{ cursor:'pointer' }} />
@@ -300,7 +310,7 @@ const ChecksPage = ({ data: propData }) => {
             {filtered.length > 0 && (
               <tfoot>
                 <tr style={{ background:'#edf2ff', fontWeight: 700 }}>
-                  <td colSpan={userCanDelete ? 4 : 3} style={{ textAlign:'right', paddingRight: 8 }}>
+                  <td colSpan={(userCanDelete && bulkMode) ? 4 : 3} style={{ textAlign:'right', paddingRight: 8 }}>
                     รวม ({filtered.length} ฉบับ)
                   </td>
                   <td style={{ textAlign:'right', fontVariantNumeric:'tabular-nums' }}>
@@ -314,8 +324,8 @@ const ChecksPage = ({ data: propData }) => {
         </div>
       </div>
 
-      {/* Floating bulk-action bar */}
-      {selected.size > 0 && userCanDelete && (
+      {/* Floating bulk-action bar — only in bulkMode */}
+      {bulkMode && selected.size > 0 && userCanDelete && (
         <div style={{
           position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
           background: 'var(--ink-900)', color: '#fff', borderRadius: 12,

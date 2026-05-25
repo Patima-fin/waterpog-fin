@@ -18,10 +18,12 @@ function DataCrudPage({ data, setData, toast, config }) {
   const [filter, setFilter] = dxState('all');
   const [sortKey, setSortKey] = dxState(null);
   const [sortDir, setSortDir] = dxState('asc');
-  // Bulk selection (Set of row IDs) — only meaningful when user can delete
+  // Bulk-select mode — off by default; user toggles ON when they want to
+  // multi-select for delete/export. Hides checkbox column otherwise.
+  const [bulkMode, setBulkMode] = dxState(false);
   const [selected, setSelected] = dxState(() => new Set());
-  // Clear selection whenever the filter/search changes so stale ids don't linger
-  dxEffect(() => { setSelected(new Set()); }, [filter, query]);
+  // Clear selection whenever the filter/search/mode changes
+  dxEffect(() => { setSelected(new Set()); }, [filter, query, bulkMode]);
   // Excel-like per-column filters — { [colKey]: Set<displayValue> }
   const [colFilters, setColFilters] = dxState({});
   const [openCol, setOpenCol] = dxState(null);
@@ -131,6 +133,14 @@ function DataCrudPage({ data, setData, toast, config }) {
             title={config.title}
           />
           <PrintButton />
+          {effectiveAllowDelete && (
+            <button
+              className={`btn ${bulkMode ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => setBulkMode(v => !v)}
+              title={bulkMode ? 'ปิดโหมดเลือกหลายรายการ' : 'เปิดโหมดเลือกหลายรายการ (เพื่อลบ/Export พร้อมกัน)'}>
+              <Icon name="check" size={14} /> {bulkMode ? 'ปิดเลือก' : 'เลือกหลายรายการ'}
+            </button>
+          )}
           {userCanEdit && (
             <button className="btn btn-ghost"><Icon name="upload" size={14} /> นำเข้า Excel</button>
           )}
@@ -180,8 +190,8 @@ function DataCrudPage({ data, setData, toast, config }) {
           <table className="tbl">
             <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--surface)' }}>
               <tr>
-                {/* Bulk-select header — only visible if user can delete */}
-                {effectiveAllowDelete && (
+                {/* Bulk-select header — only visible when bulkMode is on */}
+                {effectiveAllowDelete && bulkMode && (
                   <th style={{ width: 34, textAlign: 'center', padding: '6px 4px' }}>
                     <input
                       type="checkbox"
@@ -226,14 +236,14 @@ function DataCrudPage({ data, setData, toast, config }) {
             </thead>
             <tbody>
               {filtered.length === 0 && (
-                <tr><td colSpan={config.columns.length + ((!effectiveReadOnly || effectiveAllowDelete) ? 1 : 0) + (effectiveAllowDelete ? 1 : 0)} style={{ padding: 36, textAlign: 'center' }} className="muted">ไม่พบข้อมูล</td></tr>
+                <tr><td colSpan={config.columns.length + ((!effectiveReadOnly || effectiveAllowDelete) ? 1 : 0) + ((effectiveAllowDelete && bulkMode) ? 1 : 0)} style={{ padding: 36, textAlign: 'center' }} className="muted">ไม่พบข้อมูล</td></tr>
               )}
               {sortedFiltered.map(row => (
                 <tr key={row.id}
                   style={{ cursor: 'pointer', background: selected.has(row.id) ? 'var(--brand-50)' : undefined }}
-                  onClick={() => setView(row)}>
-                  {/* Per-row checkbox — stopPropagation so the row click → view modal doesn't fire */}
-                  {effectiveAllowDelete && (
+                  onClick={() => bulkMode ? toggleSelectOne(row.id) : setView(row)}>
+                  {/* Per-row checkbox — only visible in bulkMode */}
+                  {effectiveAllowDelete && bulkMode && (
                     <td onClick={e => e.stopPropagation()} style={{ textAlign: 'center', padding: '6px 4px' }}>
                       <input
                         type="checkbox"
@@ -275,8 +285,8 @@ function DataCrudPage({ data, setData, toast, config }) {
         </div>
       </div>
 
-      {/* Floating bulk-action bar — appears at bottom when 1+ rows selected */}
-      {selected.size > 0 && effectiveAllowDelete && (
+      {/* Floating bulk-action bar — only in bulkMode when 1+ rows selected */}
+      {bulkMode && selected.size > 0 && effectiveAllowDelete && (
         <div style={{
           position: 'fixed',
           bottom: 24,
