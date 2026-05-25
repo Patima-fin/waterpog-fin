@@ -34,15 +34,20 @@ function WarRoomPage1({ data, setData, toast }) {
     return m;
   }, [data.invoices]);
 
+  // helper: resolve invType for a receipt — own field overrides invoice lookup
+  const receiptInvType = r => {
+    const own = (r.invType || '').toString().trim().toUpperCase();
+    if (own === 'O' || own === 'P') return own;
+    return ivTypeByInvNo[r.invoiceNo] || 'P';
+  };
+
   const liveYtd = wr1Memo(() => {
     const map = {};
     (data.receipts || []).forEach(r => {
       const m = r.receiptDate ? r.receiptDate.slice(0, 7) : null;
       if (!m || !m.startsWith(liveYear)) return;
-      // filter by invType (default to 'P' if not found in invoices)
       if (ivTypeFilter !== 'all') {
-        const t = ivTypeByInvNo[r.invoiceNo] || 'P';
-        if (t !== ivTypeFilter) return;
+        if (receiptInvType(r) !== ivTypeFilter) return;
       }
       (map[m] = map[m] || []).push(r);
     });
@@ -216,7 +221,7 @@ function WarRoomPage1({ data, setData, toast }) {
             {liveYtd.map((m, i) => {
               const isThis = m.monthKey === liveThisMonth;
               return (
-                <tr key={i} onClick={() => setDrillModal({ kind: 'month', title: `รายรับเดือน${m.month} (${m.en})`, items: m.recs, totals: { count: m.count, gross: m.gross, debt: m.debt, net: m.net } })}
+                <tr key={i} onClick={() => setDrillModal({ kind: 'month', monthKey: m.monthKey, title: `รายรับเดือน${m.month} (${m.en})` })}
                   style={{ cursor: 'pointer', background: isThis ? 'color-mix(in oklch,var(--brand-500) 5%,transparent)' : '' }}
                   title="คลิกดูรายละเอียดทุกใบรับเงิน">
                   <td>
@@ -325,7 +330,7 @@ function WarRoomPage1({ data, setData, toast }) {
               const range = ['1–7','8–14','15–21','22–28','29+'][i];
               return (
                 <tr key={i}
-                  onClick={() => clickable && setDrillModal({ kind: 'week', title: `สัปดาห์ที่ ${w.week} (${range}) · ${liveMonthName}`, items: w.ivs, totals: { count: w.count, gross: w.gross, debt: w.debt, net: w.net } })}
+                  onClick={() => clickable && setDrillModal({ kind: 'week', weekIdx: i, title: `สัปดาห์ที่ ${w.week} (${range}) · ${liveMonthName}` })}
                   style={{ cursor: clickable ? 'pointer' : 'default' }}
                   title={clickable ? 'คลิกดู IV ทั้งหมดในสัปดาห์นี้' : ''}>
                   <td>
@@ -456,44 +461,102 @@ function WarRoomPage1({ data, setData, toast }) {
 
       {/* Drill-down modal */}
       {drillModal && (
-        <WarroomDrillModal data={drillModal} onClose={() => setDrillModal(null)} />
+        <WarroomDrillModal
+          drill={drillModal}
+          data={data}
+          setData={setData}
+          thisMthByWeek={thisMthByWeek}
+          liveMonthName={liveMonthName}
+          ivTypeFilter={ivTypeFilter}
+          receiptInvType={receiptInvType}
+          onClose={() => setDrillModal(null)}
+        />
       )}
 
     </div>
   );
 }
 
-/* ── Warroom drill-down modal — month receipts OR week-forecast invoices ── */
-function WarroomDrillModal({ data, onClose }) {
-  const { kind, title, items, totals } = data;
+/* ── Warroom drill-down modal — month receipts (editable) OR week forecast ── */
+function WarroomDrillModal({ drill, data, setData, thisMthByWeek, liveMonthName, ivTypeFilter, receiptInvType, onClose }) {
+  const { kind, title, monthKey, weekIdx } = drill;
   const isMonth = kind === 'month';
+
+  // ── derive live items based on drill kind ──
+  const items = wr1Memo(() => {
+    if (isMonth) {
+      return (data.receipts || []).filter(r => {
+        if (!r.receiptDate || !r.receiptDate.startsWith(monthKey)) return false;
+        if (ivTypeFilter !== 'all' && receiptInvType(r) !== ivTypeFilter) return false;
+        return true;
+      });
+    }
+    // week kind
+    return (thisMthByWeek[weekIdx] && thisMthByWeek[weekIdx].ivs) || [];
+  }, [data.receipts, monthKey, ivTypeFilter, thisMthByWeek, weekIdx, isMonth]);
+
+  // totals computed from live items
+  const totals = wr1Memo(() => {
+    if (isMonth) {
+      return items.reduce((acc, r) => ({
+        count: acc.count + 1,
+        gross: acc.gross + (Number(r.grossAmount)       || 0),
+        debt:  acc.debt  + (Number(r.transferDeduction) || 0),
+        net:   acc.net   + (Number(r.netReceived)       || 0),
+      }), { count: 0, gross: 0, debt: 0, net: 0 });
+    }
+    return items.reduce((acc, iv) => ({
+      count: acc.count + 1,
+      gross: acc.gross + (Number(iv.balance)     || 0),
+      debt:  acc.debt  + (Number(iv.debt)        || 0),
+      net:   acc.net   + (Number(iv.netExpected) || 0),
+    }), { count: 0, gross: 0, debt: 0, net: 0 });
+  }, [items, isMonth]);
+
+  // ── update receipt field + auto-recalc netReceived ──
+  const updateReceipt = (id, patch) => {
+    setData(d => ({
+      ...d,
+      receipts: (d.receipts || []).map(r => {
+        if (r.id !== id) return r;
+        const merged = { ...r, ...patch };
+        if (patch.grossAmount != null || patch.transferDeduction != null) {
+          merged.netReceived = (Number(merged.grossAmount) || 0) - (Number(merged.transferDeduction) || 0);
+        }
+        return merged;
+      }),
+    }));
+  };
+
   return (
     <div className="modal-back" onClick={onClose}>
-      <div className="modal" style={{ maxWidth: 980, width: '95vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+      <div className="modal" style={{ maxWidth: isMonth ? 1080 : 980, width: '95vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
         <div className="modal-hd">
           <div>
             <div className="modal-title" style={{ fontSize: 16 }}>{title}</div>
             <div style={{ fontSize: 12, color: 'var(--ink-400)', marginTop: 2 }}>
               {totals.count} {isMonth ? 'ใบรับ' : 'ใบแจ้งหนี้'} · Gross {fmtNum(totals.gross, 2)} ฿ · NET <strong>{fmtNum(totals.net, 2)}</strong> ฿
+              {isMonth && <span style={{ marginLeft: 8, color: 'var(--brand-600)', fontStyle: 'italic' }}>· คลิกที่หักสิทธิ์/ประเภท เพื่อแก้ไข</span>}
             </div>
           </div>
           <button className="btn btn-ghost btn-sm" onClick={onClose}><Icon name="x" size={16} /></button>
         </div>
 
         <div style={{ overflowY: 'auto', flex: 1, padding: 0 }}>
-          <table className="tbl tbl-compact" style={{ fontSize: 12 }}>
-            <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)' }}>
+          <table className="tbl tbl-compact">
+            <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 2 }}>
               {isMonth ? (
                 <tr>
-                  <th style={{ width: 36 }}>#</th>
-                  <th style={{ width: 95 }}>วันที่รับ</th>
-                  <th style={{ width: 100 }}>เลขรับเงิน</th>
-                  <th style={{ width: 100 }}>เลข IV</th>
+                  <th style={{ width: 34 }}>#</th>
+                  <th style={{ width: 88 }}>วันที่รับ</th>
+                  <th style={{ width: 96 }}>เลขรับเงิน</th>
+                  <th style={{ width: 96 }}>เลข IV</th>
                   <th>โครงการ</th>
-                  <th style={{ width: 50, textAlign: 'center' }}>งวด</th>
-                  <th style={{ textAlign: 'right', width: 110 }}>GROSS</th>
-                  <th style={{ textAlign: 'right', width: 100 }}>หักสิทธิ์</th>
-                  <th style={{ textAlign: 'right', width: 110 }}>NET</th>
+                  <th style={{ width: 46, textAlign: 'center' }}>งวด</th>
+                  <th style={{ textAlign: 'right', width: 108 }}>GROSS</th>
+                  <th style={{ textAlign: 'right', width: 118 }}>หักสิทธิ์ ✏️</th>
+                  <th style={{ textAlign: 'right', width: 108 }}>NET</th>
+                  <th style={{ width: 72, textAlign: 'center' }}>ประเภท ✏️</th>
                 </tr>
               ) : (
                 <tr>
@@ -511,28 +574,53 @@ function WarroomDrillModal({ data, onClose }) {
             </thead>
             <tbody>
               {items.length === 0 && (
-                <tr><td colSpan={isMonth ? 9 : 9} style={{ padding: 36, textAlign: 'center', color: 'var(--ink-400)' }}>ไม่มีข้อมูล</td></tr>
+                <tr><td colSpan={isMonth ? 10 : 9} style={{ padding: 36, textAlign: 'center', color: 'var(--ink-400)' }}>ไม่มีข้อมูล</td></tr>
               )}
-              {isMonth && items.map((r, i) => (
-                <tr key={r.id || i}>
-                  <td>{i + 1}</td>
-                  <td>{fmtDate(r.receiptDate)}</td>
-                  <td><span style={{ fontFamily: 'ui-monospace', fontWeight: 600, fontSize: 11.5 }}>{r.receiptNo}</span></td>
-                  <td><span style={{ fontFamily: 'ui-monospace', color: 'var(--ink-500)', fontSize: 11.5 }}>{r.invoiceNo}</span></td>
-                  <td style={{ overflow: 'hidden', maxWidth: 0 }}>
-                    <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.projectName}>
-                      <span style={{ fontFamily: 'ui-monospace', fontWeight: 700, color: 'var(--brand-700)', marginRight: 6, fontSize: 11.5 }}>{r.projectCode}</span>
-                      {r.projectName}
-                    </span>
-                  </td>
-                  <td style={{ textAlign: 'center' }}>{r.period}</td>
-                  <td className="num">{fmtNum(r.grossAmount, 2)}</td>
-                  <td className="num" style={{ color: r.transferDeduction > 0 ? 'var(--bad)' : 'var(--ink-400)' }}>
-                    {r.transferDeduction > 0 ? '(' + fmtNum(r.transferDeduction, 2) + ')' : '-'}
-                  </td>
-                  <td className="num strong" style={{ color: '#276749' }}>{fmtNum(r.netReceived, 2)}</td>
-                </tr>
-              ))}
+              {isMonth && items.map((r, i) => {
+                const t = receiptInvType(r);
+                return (
+                  <tr key={r.id || i}>
+                    <td>{i + 1}</td>
+                    <td>{fmtDate(r.receiptDate)}</td>
+                    <td><span style={{ fontFamily: 'ui-monospace', fontWeight: 600, fontSize: 11.5 }}>{r.receiptNo}</span></td>
+                    <td><span style={{ fontFamily: 'ui-monospace', color: 'var(--ink-500)', fontSize: 11.5 }}>{r.invoiceNo}</span></td>
+                    <td style={{ overflow: 'hidden', maxWidth: 0 }}>
+                      <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.projectName}>
+                        <span style={{ fontFamily: 'ui-monospace', fontWeight: 700, color: 'var(--brand-700)', marginRight: 6, fontSize: 11.5 }}>{r.projectCode}</span>
+                        {r.projectName}
+                      </span>
+                    </td>
+                    <td style={{ textAlign: 'center' }}>{r.period}</td>
+                    <td className="num">{fmtNum(r.grossAmount, 2)}</td>
+                    {/* Editable transferDeduction */}
+                    <td style={{ padding: '4px 6px' }}>
+                      <RcDeductInput
+                        value={Number(r.transferDeduction) || 0}
+                        max={Number(r.grossAmount) || 0}
+                        onSave={(v) => updateReceipt(r.id, { transferDeduction: v })}
+                      />
+                    </td>
+                    <td className="num strong" style={{ color: '#276749' }}>{fmtNum(r.netReceived, 2)}</td>
+                    {/* Editable invType */}
+                    <td style={{ padding: '4px 6px', textAlign: 'center' }}>
+                      <select value={t}
+                        onChange={(e) => updateReceipt(r.id, { invType: e.target.value })}
+                        title={t === 'O' ? 'ลูกหนี้อื่นๆ' : 'ลูกหนี้จากโครงการ'}
+                        style={{
+                          fontSize: 11.5, fontWeight: 700,
+                          padding: '3px 5px', borderRadius: 5,
+                          border: `1.5px solid ${t === 'O' ? '#b794f4' : '#63b3ed'}`,
+                          background: t === 'O' ? '#faf5ff' : '#ebf8ff',
+                          color:      t === 'O' ? '#6b46c1' : '#1e4fbd',
+                          cursor: 'pointer', width: '100%',
+                        }}>
+                        <option value="P">📋 P</option>
+                        <option value="O">🛒 O</option>
+                      </select>
+                    </td>
+                  </tr>
+                );
+              })}
               {!isMonth && items.map((iv, i) => {
                 const sMeta = WTPData.IV_STATUS_META[iv.status] || { label: iv.status, badge: 'b-gray' };
                 return (
@@ -561,7 +649,7 @@ function WarroomDrillModal({ data, onClose }) {
                   <td className="num">{fmtNum(totals.gross, 2)}</td>
                   <td className="num" style={{ color: 'var(--bad)' }}>{totals.debt > 0 ? '(' + fmtNum(totals.debt, 2) + ')' : '-'}</td>
                   <td className="num" style={{ color: '#276749' }}>{fmtNum(totals.net, 2)}</td>
-                  {!isMonth && <td></td>}
+                  {isMonth && <td></td>}
                 </tr>
               </tfoot>
             )}
@@ -572,6 +660,53 @@ function WarroomDrillModal({ data, onClose }) {
           <button className="btn btn-ghost" onClick={onClose}>ปิด</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ── Inline-editable deduction input (click → edit → save on blur/Enter) ── */
+function RcDeductInput({ value, max, onSave }) {
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft]     = React.useState(String(value || ''));
+  React.useEffect(() => { setDraft(String(value || '')); }, [value]);
+
+  const commit = () => {
+    const n = Math.max(0, parseFloat(String(draft).replace(/,/g, '')) || 0);
+    if (n !== value) onSave(n);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <input type="text" autoFocus value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter')  e.target.blur();
+          if (e.key === 'Escape') { setDraft(String(value || '')); setEditing(false); }
+        }}
+        placeholder="0.00"
+        style={{
+          width: '100%', boxSizing: 'border-box',
+          textAlign: 'right', fontFamily: 'ui-monospace', fontWeight: 600,
+          fontSize: 11.5, padding: '4px 6px',
+          border: '1.5px solid var(--brand-500)', borderRadius: 5, background: '#fff',
+        }} />
+    );
+  }
+  return (
+    <div onClick={() => setEditing(true)}
+      title="คลิกเพื่อแก้ไขหักโอนสิทธิ์"
+      style={{
+        cursor: 'pointer', padding: '4px 6px', borderRadius: 5,
+        textAlign: 'right', fontFamily: 'ui-monospace', fontWeight: 600,
+        fontSize: 11.5, border: '1px dashed transparent',
+        color: value > 0 ? 'var(--bad)' : 'var(--ink-300)',
+        transition: 'background .12s, border-color .12s',
+      }}
+      onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in oklch,var(--brand-500) 8%,transparent)'; e.currentTarget.style.borderColor = 'var(--brand-300, #90cdf4)'; }}
+      onMouseLeave={e => { e.currentTarget.style.background = ''; e.currentTarget.style.borderColor = 'transparent'; }}>
+      {value > 0 ? '(' + fmtNum(value, 2) + ')' : <span style={{ fontStyle: 'italic', fontWeight: 400 }}>+ กรอก</span>}
     </div>
   );
 }
