@@ -59,29 +59,58 @@ function buildStsIndex(debtMaster) {
   return { sts, wci };
 }
 
-// Find STS+WCI contracts matching a receipt → { sts, wciList, jobNo }
+// Strip trailing sub-phase suffix from a jobNo, e.g. 'TTI037-PL' → 'TTI037'.
+// Only strips when suffix is short (1-4 letters) so we don't accidentally
+// strip meaningful parts of the code.
+function stripJobSuffix(code) {
+  return String(code || '').replace(/-[A-Za-z]{1,4}$/, '');
+}
+
+// Look up an STS/WCI contract by jobNo, tolerating sub-phase suffix mismatch
+// between debtMaster and invoices (e.g. debtMaster uses 'TTI037' while
+// invoices/receipts use 'TTI037-PL', or vice versa).
+function lookupStsKey(code, idxMap) {
+  if (!code || !idxMap) return null;
+  // 1) Exact match — fast path
+  if (idxMap[code]) return code;
+  // 2) Strip suffix from the caller's code, then look up
+  const stripped = stripJobSuffix(code);
+  if (stripped !== code && idxMap[stripped]) return stripped;
+  // 3) Search idxMap for a key whose stripped form matches either form
+  for (const k of Object.keys(idxMap)) {
+    const ks = stripJobSuffix(k);
+    if (ks === code || ks === stripped) return k;
+  }
+  return null;
+}
+
+// Find STS+WCI contracts matching a receipt → { sts, wci, jobNo }
+// IMPORTANT: Only matches when projectCode (or invoice.jobNo) is the same
+// project (allowing sub-phase suffix differences). NO fuzzy projectName
+// matching — that caused unrelated projects with similar names (e.g.
+// "ตลาดกลางสินค้าเกษตรสระแก้ว…") to be pulled into the wrong STS contract.
 function matchStsContract(receipt, idx, invoices) {
   if (!receipt) return null;
   let jobNo = null;
-  // Try in order — each fallback if previous didn't find a match
-  if (receipt.projectCode && idx.sts[receipt.projectCode]) jobNo = receipt.projectCode;
+
+  // Try the receipt's own projectCode (with suffix-stripping fallback)
+  if (receipt.projectCode) {
+    jobNo = lookupStsKey(receipt.projectCode, idx.sts);
+  }
+
+  // Otherwise, look up the invoice → its jobNo (with suffix-stripping)
   if (!jobNo && receipt.invoiceNo && invoices) {
     const iv = invoices.find(i => i.ivNo === receipt.invoiceNo);
-    if (iv && iv.jobNo && idx.sts[iv.jobNo]) jobNo = iv.jobNo;
-  }
-  if (!jobNo && receipt.projectName) {
-    for (const k of Object.keys(idx.sts)) {
-      const c = idx.sts[k];
-      if (c.projectName && (c.projectName.includes((receipt.projectName || '').slice(0, 15)) || (receipt.projectName || '').includes((c.projectName || '').slice(0, 15)))) {
-        jobNo = k; break;
-      }
+    if (iv && iv.jobNo) {
+      jobNo = lookupStsKey(iv.jobNo, idx.sts);
     }
   }
+
   if (!jobNo) return null;
   return {
     jobNo,
     sts: idx.sts[jobNo],
-    wci: idx.wci[jobNo],
+    wci: idx.wci[jobNo] || idx.wci[stripJobSuffix(jobNo)],
   };
 }
 
