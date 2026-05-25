@@ -32,7 +32,6 @@ var SHEETS = {
   CF_INFLOW:     'cf_inflow',
   CF_OUTFLOW:    'cf_outflow',
   PROJECTS:      'projects',
-  PROJECT_FIN:   'projectFinance',
   INVOICES:      'invoices',
   FORECAST_E:    'forecastEntries',
   BANK:          'bankAccounts',
@@ -117,7 +116,6 @@ function getAll() {
     daily:                 readDaily_(),
     cashFlow:              readCashFlow_(),
     projects:              readTable(SHEETS.PROJECTS),
-    projectFinance:        readTable(SHEETS.PROJECT_FIN),
     invoices:              readTable(SHEETS.INVOICES),
     forecastEntries:       readTable(SHEETS.FORECAST_E),
     bankAccounts:          readTable(SHEETS.BANK),
@@ -148,7 +146,6 @@ function getEntity(name) {
     case 'weeklyExpectedReceipt': return readTable(SHEETS.WEEKLY_RECV);
     case 'monthlyForecast':       return readTable(SHEETS.MONTHLY_FCST);
     case 'projects':              return readTable(SHEETS.PROJECTS);
-    case 'projectFinance':        return readTable(SHEETS.PROJECT_FIN);
     case 'invoices':              return readTable(SHEETS.INVOICES);
     case 'forecastEntries':       return readTable(SHEETS.FORECAST_E);
     case 'bankAccounts':          return readTable(SHEETS.BANK);
@@ -176,7 +173,6 @@ var JSON_FIELDS = {
   bankAccounts:    [],
   pvVouchers:      [],
   payables:        [],
-  projectFinance:  [],
   debtLedger:      [],
   receipts:        [],
   bankEntries:     [],
@@ -375,12 +371,6 @@ var ENTITY_HEADERS = {
     'สถานะโครงการ','ผู้รับโอนสิทธิ์','ภาระหนี้','Remark',
     'status','expectedPay1','expectedPay2',
   ],
-  projectFinance: [
-    'id','code','debtType','debtorRef','status','startDate','endDate','totalDebt',
-    'period1Date','period1Amount','period1Status',
-    'period2Date','period2Amount','period2Status',
-    'totalPaid','balance','assignee','bank','remark'
-  ],
   invoices: [
     'id','ivNo','jobNo','period','invoiceDate','balance',
     'status','expectedReceive','contactName','contactPhone',
@@ -468,7 +458,6 @@ var ENTITY_HEADERS = {
 function _entitySheet(entity) {
   var map = {
     projects:        SHEETS.PROJECTS,
-    projectFinance:  SHEETS.PROJECT_FIN,
     invoices:        SHEETS.INVOICES,
     forecastEntries: SHEETS.FORECAST_E,
     bankAccounts:    SHEETS.BANK,
@@ -645,7 +634,6 @@ function ensureV2Headers() {
     bankEntries:     SHEETS.BANK_ENTRIES,
     payables:        SHEETS.PAYABLES,
     projects:        SHEETS.PROJECTS,
-    projectFinance:  SHEETS.PROJECT_FIN,
     bankAccounts:    SHEETS.BANK,
     pvVouchers:      SHEETS.PV_VOUCHERS,
     forecastEntries: SHEETS.FORECAST_E,

@@ -14,7 +14,7 @@ function InvoicesPage({ data, setData, toast }) {
   const [showImport, setShowImport] = ivState(false);
   const [payModal, setPayModal] = ivState(null);
 
-  const { projectByCode, financeByCode } = ivMemo(() => WTPData.buildLookups(data), [data.projects, data.projectFinance]);
+  const { projectByCode, financeByCode } = ivMemo(() => WTPData.buildLookups(data), [data.projects]);
 
   // Joined rows: invoice + project name + finance (assignee, debt)
   const rows = ivMemo(() => data.invoices.map(iv => {
@@ -1260,7 +1260,7 @@ function normalizeDate(s) {
 function IvReportStandalonePage({ data, setData, toast }) {
   const { projectByCode, financeByCode } = React.useMemo(
     () => WTPData.buildLookups(data),
-    [data.projects, data.projectFinance]
+    [data.projects]
   );
 
   const rows = React.useMemo(() => (data.invoices || []).map(iv => {

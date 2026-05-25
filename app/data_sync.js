@@ -28,7 +28,7 @@
   var BASE = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/gviz/tq?tqx=out:csv&sheet=';
 
   // Entities ที่รองรับ CRUD ผ่าน Apps Script POST
-  var CRUD_ENTITIES = ['projects', 'projectFinance', 'invoices', 'forecastEntries',
+  var CRUD_ENTITIES = ['projects', 'invoices', 'forecastEntries',
                        'bankAccounts', 'pvVouchers', 'payables',
                        'debtLedger', 'receipts', 'bankEntries', 'checks',
                        'debtMaster', 'bankTransfers',
@@ -167,7 +167,7 @@
       'meta', 'pipeline', 'warroomP1', 'warroomP2', 'daily', 'cashFlow',
       'ytdRevenue', 'weeklyExpectedReceipt', 'monthlyForecast',
       'daily_invoicesToday', 'cf_inflow', 'cf_outflow',
-      'projects', 'projectFinance', 'invoices', 'forecastEntries',
+      'projects', 'invoices', 'forecastEntries',
       'bankAccounts', 'pvVouchers', 'payables',
       // v2 additions
       'debtLedger', 'receipts', 'bankEntries', 'checks',
@@ -191,7 +191,6 @@
       var cfIn                  = rowsToObjects(results[i++]);
       var cfOut                 = rowsToObjects(results[i++]);
       var projects        = rowsToObjects(results[i++]);
-      var projectFinance  = rowsToObjects(results[i++]);
       var invoices        = rowsToObjects(results[i++], ['followUps', 'actualReceive']);
       var forecastEntries = rowsToObjects(results[i++]);
       var bankAccounts    = rowsToObjects(results[i++]);
@@ -283,7 +282,6 @@
           outflow: cfOut.map(function (r) { return { key:r.key, label:r.label, actual:tryParse(r.actual, []), plan:tryParse(r.plan, []) }; }),
         },
         projects:        projects,
-        projectFinance:  projectFinance,
         invoices:        invoices,
         forecastEntries: forecastEntries,
         bankAccounts:    bankAccounts,

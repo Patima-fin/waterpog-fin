@@ -26,7 +26,6 @@ var SHEETS = {
   CF_INFLOW:     'cf_inflow',
   CF_OUTFLOW:    'cf_outflow',
   PROJECTS:      'projects',
-  PROJECT_FIN:   'projectFinance',
   INVOICES:      'invoices',
   FORECAST_E:    'forecastEntries',
   BANK:          'bankAccounts',
@@ -124,7 +123,6 @@ function getAll() {
     daily:                 readDaily_(),
     cashFlow:              readCashFlow_(),
     projects:              readTable(SHEETS.PROJECTS),
-    projectFinance:        readTable(SHEETS.PROJECT_FIN),
     invoices:              readTable(SHEETS.INVOICES),
     forecastEntries:       readTable(SHEETS.FORECAST_E),
     bankAccounts:          readTable(SHEETS.BANK),
@@ -149,7 +147,6 @@ function getEntity(name) {
     case 'weeklyExpectedReceipt': return readTable(SHEETS.WEEKLY_RECV);
     case 'monthlyForecast':       return readTable(SHEETS.MONTHLY_FCST);
     case 'projects':              return readTable(SHEETS.PROJECTS);
-    case 'projectFinance':        return readTable(SHEETS.PROJECT_FIN);
     case 'invoices':              return readTable(SHEETS.INVOICES);
     case 'forecastEntries':       return readTable(SHEETS.FORECAST_E);
     case 'bankAccounts':          return readTable(SHEETS.BANK);
@@ -178,7 +175,6 @@ var JSON_FIELDS = {
   bankAccounts:   [],
   pvVouchers:     [],
   payables:       [],
-  projectFinance: [],
   debtLedger:     [],
   receipts:       [],
   bankEntries:    [],
@@ -391,14 +387,6 @@ var ENTITY_HEADERS = {
     'status','expectedPay1','expectedPay2',
   ],
 
-  // ── projectFinance: schema ใหม่ รองรับ LIT / KU / OTHER หลายแถวต่อโครงการ ──
-  projectFinance: [
-    'id','code','debtType','debtorRef','status','startDate','endDate','totalDebt',
-    'period1Date','period1Amount','period1Status',
-    'period2Date','period2Amount','period2Status',
-    'totalPaid','balance','assignee','bank','remark'
-  ],
-
   // ── invoices: schema คงเดิม (มี tracking fields พิเศษ) ────────────────
   invoices: [
     'id','ivNo','jobNo','period','invoiceDate','balance',
@@ -463,7 +451,6 @@ var ENTITY_HEADERS = {
 function _entitySheet(entity) {
   var map = {
     projects:       SHEETS.PROJECTS,
-    projectFinance: SHEETS.PROJECT_FIN,
     invoices:       SHEETS.INVOICES,
     forecastEntries:SHEETS.FORECAST_E,
     bankAccounts:   SHEETS.BANK,
@@ -623,7 +610,6 @@ function initEmpty() {
 
   // ── CRUD tables — headers only, NO sample rows ─────────────────
   writeTable(SHEETS.PROJECTS,     ENTITY_HEADERS.projects,       []);
-  writeTable(SHEETS.PROJECT_FIN,  ENTITY_HEADERS.projectFinance, []);
   writeTable(SHEETS.INVOICES,     ENTITY_HEADERS.invoices,        []);
   writeTable(SHEETS.FORECAST_E,   ENTITY_HEADERS.forecastEntries, []);
   writeTable(SHEETS.BANK,         ENTITY_HEADERS.bankAccounts,    []);
@@ -769,7 +755,6 @@ function initWorkbook() {
     seed.cashFlow.outflow.map(function (r) { return { key:r.key, label:r.label, actual:JSON.stringify(r.actual), plan:JSON.stringify(r.plan) }; }));
 
   writeTable(SHEETS.PROJECTS,     ENTITY_HEADERS.projects,        seed.projects);
-  writeTable(SHEETS.PROJECT_FIN,  ENTITY_HEADERS.projectFinance,  seed.projectFinance);
   writeTable(SHEETS.INVOICES,     ENTITY_HEADERS.invoices,         seed.invoices);
   writeTable(SHEETS.FORECAST_E,   ENTITY_HEADERS.forecastEntries,  seed.forecastEntries);
   writeTable(SHEETS.BANK,         ENTITY_HEADERS.bankAccounts,     seed.bankAccounts);
@@ -886,7 +871,6 @@ function _seedData_() {
       { id:id(), code:'PP101-PTL',   name:'ปรับปรุงระบบประปา ต.เพชรเมืองทอง อ.เมือง จ.ปัตตานี',startDate:'',          finishDate:'',           allocBudget:26000000, signedValue:28740000, status:'waiting_sign', delivery:'awaiting',    assignee:'',           debt:13420000,note:'', periods:'[]', stopTime:'', commenceDate:'', expectedPay1:'', expectedPay2:'' },
       { id:id(), code:'PP103-NSN',   name:'ระบบประปาหมู่บ้าน ต.หนองสองห้อง จ.ขอนแก่น',         startDate:'',          finishDate:'',           allocBudget:17500000, signedValue:19160000, status:'waiting_sign', delivery:'awaiting',    assignee:'',           debt:3229500, note:'', periods:'[]', stopTime:'', commenceDate:'', expectedPay1:'', expectedPay2:'' },
     ],
-    projectFinance: [],
     invoices: [
       { id:id(), ivNo:'IV2026-077', jobNo:'PP064-STIIS', period:1, invoiceDate:'2026-05-10', balance:231525,  status:'paid',               expectedReceive:'2026-05-15', contactName:'คุณสมชาย',     contactPhone:'074-555-1100', followUps:'[]', actualReceive:'{"date":"2026-05-15","amount":231525,"bankAccount":"กรุงเทพ","feeNote":""}' },
       { id:id(), ivNo:'IV2026-076', jobNo:'PP073-AYT',   period:2, invoiceDate:'2026-05-05', balance:4200000, status:'pending_inspection',  expectedReceive:'2026-05-22', contactName:'คุณวิไล',      contactPhone:'076-555-2200', followUps:'[]', actualReceive:'null' },

@@ -14,7 +14,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
 
   const [drillModal, setDrillModal] = dRState(null); // { title, list }
 
-  const { projectByCode } = dRMemo(() => WTPData.buildLookups(data), [data.projects, data.projectFinance]);
+  const { projectByCode } = dRMemo(() => WTPData.buildLookups(data), [data.projects]);
 
   // เฉพาะ paid ที่มี actualReceive.date
   const paidInvoices = dRMemo(() =>

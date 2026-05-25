@@ -251,25 +251,8 @@
     ],
 
     // ────────────────────────────────────────────────────────────────────────
-    // RAW_PROJECT_FINANCE — ข้อมูลฝั่งการเงิน (โอนสิทธิ + ภาระหนี้)
-    //   key = code (jobNo). อ้างจาก projects.code
-    // ────────────────────────────────────────────────────────────────────────
-    projectFinance: [
-      { id: id(), code: 'PP064-STIIS', assignee: '—',                              transferRights: false, debt: 0,        debtNote: '' },
-      { id: id(), code: 'PP073-AYT',   assignee: 'ธ.กสิกรไทย',                       transferRights: true,  debt: 4200000,  debtNote: 'โอนสิทธิเข้า OD' },
-      { id: id(), code: 'PP081-NKM',   assignee: 'ธ.กรุงเทพ',                        transferRights: true,  debt: 3500000,  debtNote: 'PN PS2026-014' },
-      { id: id(), code: 'PP084-SKN',   assignee: '—',                              transferRights: false, debt: 1800000,  debtNote: 'สินเชื่อภายใน' },
-      { id: id(), code: 'PP088-MTK',   assignee: 'ธ.ไทยพาณิชย์',                     transferRights: true,  debt: 11366800, debtNote: 'PN PS2026-016' },
-      { id: id(), code: 'PP091-CRI',   assignee: 'ธ.กสิกรไทย',                       transferRights: true,  debt: 6500000,  debtNote: '' },
-      { id: id(), code: 'PP094-PYO',   assignee: 'ธ.กรุงไทย',                        transferRights: true,  debt: 3240000,  debtNote: '' },
-      { id: id(), code: 'PP097-SKW',   assignee: 'ธ.กรุงเทพ',                        transferRights: true,  debt: 9720000,  debtNote: 'L/C ค้ำ' },
-      { id: id(), code: 'PP101-PTL',   assignee: 'ธ.กสิกรไทย (รอตรวจ)',              transferRights: true,  debt: 13420000, debtNote: 'รออนุมัติ' },
-      { id: id(), code: 'PP103-NSN',   assignee: '—',                              transferRights: false, debt: 3229500,  debtNote: '' },
-    ],
-
-    // ────────────────────────────────────────────────────────────────────────
     // RAW_IV_OUTSTANDING — ใบแจ้งหนี้คงค้าง (ราคามาจากระบบ)
-    //   จะแมพ assignee/debt จาก projectFinance ผ่าน jobNo
+    //   ข้อมูลโอนสิทธิ / ภาระหนี้ ดึงจาก projects.code โดยตรง (projectFinance ถูกลบไปแล้ว)
     // ────────────────────────────────────────────────────────────────────────
     invoices: [
       { id: id(), ivNo: 'IV2026-077', jobNo: 'PP064-STIIS', period: 1, invoiceDate: '2026-05-10', balance: 231525.00,
@@ -660,40 +643,9 @@
       if (k2 && k2 !== k1) projectByCode[k2] = p;
       if (k3 && k3 !== k1 && k3 !== k2) projectByCode[k3] = p;
     });
-    // financeByCode: aggregate หลายแถวต่อ 1 โครงการ (LIT + กู้ยืม + อื่น ๆ)
-    // → debt รวม = sum(balance), assignee = list ที่ unique
-    const financeByCode = {};
-    if ((data.projectFinance || []).length > 0) {
-      (data.projectFinance).forEach(f => {
-        const code = f.code || f['JOB No.'] || f.jobNo;
-        if (!code) return;
-        if (!financeByCode[code]) {
-          financeByCode[code] = {
-            code,
-            debt: 0,
-            'ภาระหนี้': 0,
-            assignees: new Set(),
-            debtRows: [],
-          };
-        }
-        const slot = financeByCode[code];
-        const bal = Number(f.balance ?? f['ภาระหนี้'] ?? f.debt ?? 0) || 0;
-        slot.debt += bal;
-        slot['ภาระหนี้'] += bal;
-        const a = f.assignee || f['ผู้รับโอนสิทธิ์'] || '';
-        if (a) slot.assignees.add(a);
-        slot.debtRows.push(f);
-      });
-      // convert Set → comma-joined string for display
-      Object.keys(financeByCode).forEach(k => {
-        const list = Array.from(financeByCode[k].assignees);
-        financeByCode[k].assignee = list.join(', ') || '—';
-        financeByCode[k]['ผู้รับโอนสิทธิ์'] = financeByCode[k].assignee;
-      });
-    } else {
-      // fallback: use projectByCode
-      Object.assign(financeByCode, projectByCode);
-    }
+    // financeByCode: ใช้ข้อมูลจาก projects โดยตรง (projectFinance sheet ถูกลบแล้ว)
+    // assignee / debt / transferRights มาจาก projects.assignee, projects.debt
+    const financeByCode = Object.assign({}, projectByCode);
     return { projectByCode, financeByCode };
   };
   // คำนวณดอกเบี้ยค้างชำระ ณ วันที่กำหนด (ส่ง record จาก debtLedger)
