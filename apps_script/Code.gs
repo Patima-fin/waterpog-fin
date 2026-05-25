@@ -36,6 +36,7 @@ var SHEETS = {
   BANK_ENTRIES:  'bankEntries',
   CHECKS:        'checks',
   AUDIT_LOG:     'auditLog',
+  USERS:         'users',
 };
 
 /* ── 1. MENU ────────────────────────────────────────────────────── */
@@ -494,6 +495,7 @@ function _entitySheet(entity) {
     receipts:       SHEETS.RECEIPTS,
     bankEntries:    SHEETS.BANK_ENTRIES,
     checks:         SHEETS.CHECKS,
+    users:          SHEETS.USERS,
   };
   if (!map[entity]) throw new Error('CRUD ไม่รองรับ entity: ' + entity);
   return { name: map[entity], headers: ENTITY_HEADERS[entity] };

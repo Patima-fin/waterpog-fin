@@ -49,6 +49,7 @@ var SHEETS = {
   STS_CALC_RESULT:  'stsCalcResult',
   DEBT_EVENTS:      'debtEvents',
   AUDIT_LOG:        'auditLog',     // ผู้ใช้-การกระทำ-เวลา (auto-logged on every CRUD)
+  USERS:            'users',        // user accounts (id, username, password, displayName, role)
 };
 
 /* ── 1. WEB APP ENDPOINTS ───────────────────────────────────────── */
@@ -167,6 +168,7 @@ function getAll() {
     stsPendingCalc:        readTable(SHEETS.STS_PENDING_CALC),
     stsCalcResult:         readTable(SHEETS.STS_CALC_RESULT),
     debtEvents:            readTable(SHEETS.DEBT_EVENTS),
+    users:                 readTable(SHEETS.USERS),
   };
 }
 
@@ -197,6 +199,7 @@ function getEntity(name) {
     case 'stsPendingCalc':        return readTable(SHEETS.STS_PENDING_CALC);
     case 'stsCalcResult':         return readTable(SHEETS.STS_CALC_RESULT);
     case 'debtEvents':            return readTable(SHEETS.DEBT_EVENTS);
+    case 'users':                 return readTable(SHEETS.USERS);
   }
   return { error: 'unknown entity: ' + name };
 }
@@ -215,6 +218,7 @@ var JSON_FIELDS = {
   checks:          [],
   debtMaster:      [],
   debtEvents:      [],
+  users:           [],
   bankTransfers:   [],
   stsServiceFee:   [],
   stsPendingCalc:  [],
@@ -471,6 +475,9 @@ var ENTITY_HEADERS = {
   debtEvents: [
     'id','contractId','contractNo','eventType','eventDate','amount','note'
   ],
+  users: [
+    'id','username','password','displayName','role','active','note'
+  ],
   bankTransfers: [
     'id','maincode','acct_no','PL_PV_No','paytype','Type_of_Pmt',
     'Payee','paydate','Document_No','Chq_No','Chq_Date',
@@ -509,6 +516,7 @@ function _entitySheet(entity) {
     stsPendingCalc:  SHEETS.STS_PENDING_CALC,
     stsCalcResult:   SHEETS.STS_CALC_RESULT,
     debtEvents:      SHEETS.DEBT_EVENTS,
+    users:           SHEETS.USERS,
   };
   if (!map[entity]) throw new Error('CRUD ไม่รองรับ entity: ' + entity);
   return { name: map[entity], headers: ENTITY_HEADERS[entity] };
@@ -679,6 +687,7 @@ function ensureV2Headers() {
     stsPendingCalc:  SHEETS.STS_PENDING_CALC,
     stsCalcResult:   SHEETS.STS_CALC_RESULT,
     debtEvents:      SHEETS.DEBT_EVENTS,
+    users:           SHEETS.USERS,
   };
   var results = [];
   Object.keys(entityMap).forEach(function (entity) {

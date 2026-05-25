@@ -51,9 +51,29 @@ const ChecksPage = ({ data: propData }) => {
   const [edit, setEdit]     = React.useState(null);   // null = closed, {} = new, {...} = editing
   const [view, setView]     = React.useState(null);   // popup for viewing check (read-only)
   const [form, setForm]     = React.useState(emptyForm);
+  // Column filters (Excel-like) + bulk selection
+  const [colFilters, setColFilters] = React.useState({});
+  const [openCol, setOpenCol]       = React.useState(null);
+  const [selected, setSelected]     = React.useState(() => new Set());
+  // Role gating
+  const userCanEdit   = window.WTPAuth ? window.WTPAuth.can('canEdit')   : true;
+  const userCanDelete = window.WTPAuth ? window.WTPAuth.can('canDelete') : true;
 
   const { sorted, sort, toggle: requestSort } = useSortable(checks, 'checkDate', 'asc');
   const sortKey = sort.key; const sortDir = sort.dir;
+
+  // Display value helper for column filter (formatted so dropdown shows readable values)
+  const colDisplay = (row, key) => {
+    const v = row[key];
+    if (v == null || v === '') return '—';
+    if (key === 'checkDate') return fmtDate(v) || String(v);
+    if (key === 'amount')    return fmtNum(parseFloat(v) || 0, 2);
+    if (key === 'status') {
+      const m = CHECKS_STATUS_META[v];
+      return m ? m.label : String(v);
+    }
+    return String(v);
+  };
 
   const filtered = React.useMemo(() => {
     let rows = sorted;
@@ -67,8 +87,34 @@ const ChecksPage = ({ data: propData }) => {
         (c.referenceNo||'').toLowerCase().includes(q)
       );
     }
+    // Apply per-column Excel-like filters
+    const activeKeys = Object.keys(colFilters).filter(k => colFilters[k] && colFilters[k].size > 0);
+    if (activeKeys.length > 0) {
+      rows = rows.filter(r => activeKeys.every(k => colFilters[k].has(colDisplay(r, k))));
+    }
     return rows;
-  }, [sorted, tab, query]);
+  }, [sorted, tab, query, colFilters]);
+
+  // Reset selection when filter changes
+  React.useEffect(() => { setSelected(new Set()); }, [tab, query, colFilters]);
+
+  const toggleSelectOne = (id) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const bulkRemove = () => {
+    if (selected.size === 0) return;
+    if (!window.confirm(`ลบเช็ค ${selected.size} ฉบับที่เลือก?`)) return;
+    const d = WTPData.load();
+    d.checks = (d.checks || []).filter(c => !selected.has(c.id));
+    WTPData.save(d);
+    setSelected(new Set());
+    window.location.reload();
+  };
 
   /* KPIs */
   const pendingTotal  = checks.filter(c => c.status === 'pending').reduce((s,c) => s+(parseFloat(c.amount)||0), 0);
@@ -178,29 +224,49 @@ const ChecksPage = ({ data: propData }) => {
           <table className="tbl" style={{ minWidth: 850 }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--surface)' }}>
               <tr>
-                <SortTh col="checkNo">เลขที่เช็ค</SortTh>
-                <SortTh col="checkDate">วันที่เช็ค</SortTh>
-                <SortTh col="payee">ผู้รับเงิน</SortTh>
-                <SortTh col="amount">จำนวนเงิน (฿)</SortTh>
-                <SortTh col="bankName">ธนาคาร</SortTh>
-                <th>เลขที่บัญชี</th>
-                <th>เลขอ้างอิง</th>
-                <SortTh col="status">สถานะ</SortTh>
+                {userCanDelete && (
+                  <th style={{ width: 34, textAlign: 'center' }}>
+                    <input type="checkbox"
+                      checked={filtered.length > 0 && filtered.every(r => selected.has(r.id))}
+                      ref={el => { if (el) el.indeterminate = filtered.some(r => selected.has(r.id)) && !filtered.every(r => selected.has(r.id)); }}
+                      onChange={() => {
+                        const all = filtered.length > 0 && filtered.every(r => selected.has(r.id));
+                        if (all) setSelected(new Set());
+                        else setSelected(new Set(filtered.map(r => r.id)));
+                      }}
+                      style={{ cursor:'pointer' }} title="เลือกทั้งหมด" />
+                  </th>
+                )}
+                <FilterableColHeader label="เลขที่เช็ค"    sortKey="checkNo"   colKey="checkNo"   sort={sort} sortToggle={requestSort} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={sorted} getValue={colDisplay} />
+                <FilterableColHeader label="วันที่เช็ค"    sortKey="checkDate" colKey="checkDate" sort={sort} sortToggle={requestSort} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={sorted} getValue={colDisplay} />
+                <FilterableColHeader label="ผู้รับเงิน"    sortKey="payee"     colKey="payee"     sort={sort} sortToggle={requestSort} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={sorted} getValue={colDisplay} />
+                <FilterableColHeader label="จำนวนเงิน (฿)" sortKey="amount"   colKey="amount"    sort={sort} sortToggle={requestSort} align="right" colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={sorted} getValue={colDisplay} />
+                <FilterableColHeader label="ธนาคาร"        sortKey="bankName" colKey="bankName"  sort={sort} sortToggle={requestSort} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={sorted} getValue={colDisplay} />
+                <FilterableColHeader label="เลขที่บัญชี"   colKey="accountNo"   sort={sort} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={sorted} getValue={colDisplay} />
+                <FilterableColHeader label="เลขอ้างอิง"   colKey="referenceNo" sort={sort} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={sorted} getValue={colDisplay} />
+                <FilterableColHeader label="สถานะ"         sortKey="status"   colKey="status"    sort={sort} sortToggle={requestSort} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={sorted} getValue={colDisplay} />
                 <th>หมายเหตุ</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 && (
-                <tr><td colSpan={10} style={{ textAlign:'center', color:'#8a94a6', padding:32 }}>ไม่พบข้อมูล</td></tr>
+                <tr><td colSpan={userCanDelete ? 11 : 10} style={{ textAlign:'center', color:'#8a94a6', padding:32 }}>ไม่พบข้อมูล</td></tr>
               )}
               {filtered.map(c => {
                 const isOverdue = c.status === 'pending' && c.checkDate < today;
                 const isUrgent  = c.status === 'pending' && c.checkDate >= today && c.checkDate <= in7;
                 const meta = CHECKS_STATUS_META[c.status] || { label: c.status, color:'badge-gray' };
+                const isSelected = selected.has(c.id);
                 return (
                   <tr key={c.id} onClick={() => setView(c)}
-                      style={{ background: isOverdue ? '#fff5f5' : isUrgent ? '#fffbeb' : undefined, cursor:'pointer' }}>
+                      style={{ background: isSelected ? 'var(--brand-50)' : (isOverdue ? '#fff5f5' : isUrgent ? '#fffbeb' : undefined), cursor:'pointer' }}>
+                    {userCanDelete && (
+                      <td onClick={e => e.stopPropagation()} style={{ textAlign:'center' }}>
+                        <input type="checkbox" checked={isSelected}
+                          onChange={() => toggleSelectOne(c.id)} style={{ cursor:'pointer' }} />
+                      </td>
+                    )}
                     <td style={{ fontWeight: 600, fontSize: 12 }}>{c.checkNo}</td>
                     <td style={{ fontSize: 12, color: isOverdue ? '#e53e3e' : isUrgent ? '#dd6b20' : undefined }}>
                       {fmtDate(c.checkDate)}
@@ -217,10 +283,14 @@ const ChecksPage = ({ data: propData }) => {
                     <td style={{ fontSize: 11, color:'#718096' }}>{c.note || '—'}</td>
                     <td onClick={e => e.stopPropagation()}>
                       <div style={{ display:'flex', gap: 4 }}>
-                        <button className="btn btn-ghost" style={{ padding:'2px 8px', fontSize: 11 }}
-                                onClick={() => openEdit(c)}>แก้ไข</button>
-                        <button className="btn btn-ghost" style={{ padding:'2px 8px', fontSize: 11, color:'#e53e3e' }}
-                                onClick={() => handleDelete(c.id)}>ลบ</button>
+                        {userCanEdit && (
+                          <button className="btn btn-ghost" style={{ padding:'2px 8px', fontSize: 11 }}
+                                  onClick={() => openEdit(c)}>แก้ไข</button>
+                        )}
+                        {userCanDelete && (
+                          <button className="btn btn-ghost" style={{ padding:'2px 8px', fontSize: 11, color:'#e53e3e' }}
+                                  onClick={() => handleDelete(c.id)}>ลบ</button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -230,7 +300,7 @@ const ChecksPage = ({ data: propData }) => {
             {filtered.length > 0 && (
               <tfoot>
                 <tr style={{ background:'#edf2ff', fontWeight: 700 }}>
-                  <td colSpan={3} style={{ textAlign:'right', paddingRight: 8 }}>
+                  <td colSpan={userCanDelete ? 4 : 3} style={{ textAlign:'right', paddingRight: 8 }}>
                     รวม ({filtered.length} ฉบับ)
                   </td>
                   <td style={{ textAlign:'right', fontVariantNumeric:'tabular-nums' }}>
@@ -243,6 +313,42 @@ const ChecksPage = ({ data: propData }) => {
           </table>
         </div>
       </div>
+
+      {/* Floating bulk-action bar */}
+      {selected.size > 0 && userCanDelete && (
+        <div style={{
+          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          background: 'var(--ink-900)', color: '#fff', borderRadius: 12,
+          padding: '10px 14px 10px 20px', boxShadow: '0 12px 32px rgba(15,36,77,0.28)',
+          display: 'flex', alignItems: 'center', gap: 14, zIndex: 950,
+          minWidth: 320, maxWidth: 'min(560px, calc(100vw - 32px))',
+        }}>
+          <div style={{ flex: 1, fontSize: 13 }}>
+            <strong>{selected.size}</strong> ฉบับถูกเลือก
+          </div>
+          <button onClick={() => setSelected(new Set())} className="btn btn-ghost"
+            style={{ color: '#fff', background: 'transparent', border: '1px solid rgba(255,255,255,0.2)' }}>ยกเลิก</button>
+          <ExportButton
+            rows={filtered.filter(c => selected.has(c.id))}
+            columns={[
+              { key: 'checkNo',     label: 'เลขที่เช็ค' },
+              { key: 'checkDate',   label: 'วันที่เช็ค', type: 'date' },
+              { key: 'payee',       label: 'ผู้รับเงิน' },
+              { key: 'amount',      label: 'จำนวนเงิน (฿)', type: 'number' },
+              { key: 'bankName',    label: 'ธนาคาร' },
+              { key: 'status',      label: 'สถานะ' },
+            ]}
+            filename="checks_selected"
+            sheetName="เช็คที่เลือก"
+            title="เช็คจ่ายล่วงหน้า — รายการที่เลือก"
+            label="Excel"
+          />
+          <button onClick={bulkRemove} className="btn btn-danger"
+            style={{ background: 'var(--bad)', color: '#fff', borderColor: 'var(--bad)' }}>
+            <Icon name="trash" size={14} /> ลบที่เลือก
+          </button>
+        </div>
+      )}
 
       {/* Add/Edit Modal */}
       {edit !== null && (

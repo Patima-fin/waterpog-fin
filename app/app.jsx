@@ -216,6 +216,7 @@ function App() {
     data_pv:       { label: 'DATA PV', title: 'Payment Vouchers', icon: 'money' },
     data_payable:  { label: 'DATA เจ้าหนี้คงค้าง', title: 'Accounts Payable', icon: 'invoice' },
     audit_log:     { label: 'Audit Log',           title: 'Audit Log — ประวัติแก้ไข', icon: 'settings' },
+    users:         { label: 'จัดการผู้ใช้',         title: 'Users · จัดการผู้ใช้ระบบ', icon: 'settings' },
   };
 
   let page;
@@ -239,6 +240,7 @@ function App() {
     case 'data_pv':        page = <DataPVPage data={data} setData={setData} toast={pushToast} />; break;
     case 'data_payable':   page = <DataPayablePage data={data} setData={setData} toast={pushToast} />; break;
     case 'audit_log':      page = <AuditLogPage data={data} toast={pushToast} />; break;
+    case 'users':          page = <UsersPage data={data} setData={setData} toast={pushToast} />; break;
     case 'daily':
     default:               page = <DailyRevenueDashboard data={data} setData={setData} toast={pushToast} />;
   }
@@ -289,7 +291,7 @@ function App() {
 }
 
 function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, currentUser, onLogout, isOpen, onClose }) {
-  const [sec, setSec] = aState({ dash: true, reports: true, manage: true });
+  const [sec, setSec] = aState({ dash: true, reports: true, manage: true, system: true });
   const tog = k => setSec(p => ({ ...p, [k]: !p[k] }));
 
   const syncLabel = (() => {
@@ -397,7 +399,6 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
             ['interest_calc', 'คำนวณดอกเบี้ย',         'money'],
             ['sts_calc',      'STS Calculator',         'money'],
             ['sts_workflow',  'STS Workflow',           'invoice'],
-            ['audit_log',     'Audit Log',              'settings'],
           ])}
         </div>
 
@@ -415,6 +416,19 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
             ['data_payable',  'เจ้าหนี้คงค้าง',   'arrow_up'],
           ])}
         </div>
+
+        {/* ระบบ — only visible to manager (audit_log + users) */}
+        {(window.WTPAuth && window.WTPAuth.can('canManageUsers')) && (
+          <div>
+            <div className="sb-section" style={secHdrStyle} onClick={() => tog('system')}>
+              <span>ระบบ</span>{chevron(sec.system !== false)}
+            </div>
+            {(sec.system !== false) && navItems([
+              ['audit_log',     'Audit Log',         'settings'],
+              ['users',         'จัดการผู้ใช้',     'settings'],
+            ])}
+          </div>
+        )}
       </nav>
 
       {/* ── Pinned user / logout ── */}
@@ -488,7 +502,24 @@ function LoginPage({ onLogin }) {
     e.preventDefault();
     setLoading(true);
     setError('');
-    const users = (window.WTP_CONFIG && window.WTP_CONFIG.USERS) || [];
+    // Build user list: Sheet users (from synced data) take priority,
+    // then config users as bootstrap fallback for first-ever login.
+    let users = [];
+    try {
+      const cached = JSON.parse(localStorage.getItem('wtp-fin-data-v8') || 'null');
+      const sheetUsers = (cached && Array.isArray(cached.users)) ? cached.users : [];
+      // Treat active='false' / 'no' / '0' as disabled; everything else is active
+      const isActive = (u) => {
+        const a = String(u.active == null ? 'true' : u.active).toLowerCase().trim();
+        return a !== 'false' && a !== 'no' && a !== '0' && a !== 'inactive' && a !== 'disabled';
+      };
+      users = sheetUsers.filter(isActive);
+    } catch (_) {}
+    const configUsers = (window.WTP_CONFIG && window.WTP_CONFIG.USERS) || [];
+    // Append config users that aren't already in Sheet users
+    const known = new Set(users.map(u => u.username));
+    configUsers.forEach(u => { if (!known.has(u.username)) users.push(u); });
+
     const match = users.find(u => u.username === username && u.password === password);
     setTimeout(() => {
       setLoading(false);
