@@ -99,8 +99,14 @@ function App() {
   const { push: pushToast, node: toastNode } = useToasts();
   const [syncInfo, setSyncInfo] = aState(() => WTPData.getSyncStatus ? WTPData.getSyncStatus() : { status: 'offline', time: null });
 
-  // Persist data on change
-  aEffect(() => { WTPData.save(data); }, [data]);
+  // Persist data on change + expose globally for debugging in DevTools console
+  aEffect(() => {
+    WTPData.save(data);
+    window.__wtpData = data;
+    if (WTPData.buildLookups) {
+      try { window.__wtpLookups = WTPData.buildLookups(data); } catch (_) {}
+    }
+  }, [data]);
 
   // Subscribe to server data updates (from data_sync.js)
   aEffect(() => {
