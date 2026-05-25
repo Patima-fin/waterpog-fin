@@ -664,7 +664,7 @@ function InvoicesPage({ data, setData, toast }) {
 
       <div className="card anim-in" style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: fullscreen ? 'calc(100vh - 140px)' : 'min(480px, calc(100vh - 400px))' }}>
-        <table className="tbl tbl-compact" style={{ tableLayout: 'fixed', width: '100%', minWidth: fullscreen ? 0 : 940, fontSize: 12 }}>
+        <table className="tbl tbl-compact" style={{ tableLayout: 'fixed', width: '100%', minWidth: fullscreen ? 0 : 940 }}>
           <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--surface)' }}>
             <tr>
               <IvColHeader label="Job No."         sortKey="jobNo"           colKey="jobNo"           sort={sort} sortToggle={toggle} align="center" width={fullscreen ?  82 : 76}  colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
@@ -691,6 +691,7 @@ function InvoicesPage({ data, setData, toast }) {
                 </td>
                 <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(iv.invoiceDate)}</td>
                 <td style={{ overflow: 'hidden', maxWidth: 0 }}>
+                  {/* Line 1: badges + project name */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5, overflow: 'hidden' }}>
                     {iv.invType === 'O' && (
                       <span title="ใบแจ้งหนี้อื่นๆ (Other)" style={{ fontSize: 10, fontWeight: 700, background: '#faf5ff', color: '#6b46c1', borderRadius: 4, padding: '1px 5px', letterSpacing: '0.03em', flexShrink: 0, border: '1px solid #d6bcfa' }}>
@@ -702,25 +703,25 @@ function InvoicesPage({ data, setData, toast }) {
                         {iv.productType}
                       </span>
                     )}
-                    <span style={{ fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }} title={iv.projectName}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }} title={iv.projectName}>
                       {iv.projectName}
                     </span>
-                    {iv.followUps && iv.followUps.length > 0 && (() => {
-                      const last = iv.followUps[iv.followUps.length - 1];
-                      return (
-                        <span title={`📞 ติดตาม ${iv.followUps.length} ครั้ง · ล่าสุด ${fmtDate(last.date)} — ${last.note}`}
-                          style={{
-                            flexShrink: 0, fontSize: 10.5, color: '#1e4fbd',
-                            background: '#ebf8ff', borderRadius: 10, padding: '1px 7px',
-                            border: '1px solid #bee3f8', cursor: 'help',
-                            maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                            fontWeight: 500,
-                          }}>
-                          💬 {last.note}
-                        </span>
-                      );
-                    })()}
                   </div>
+                  {/* Line 2: latest follow-up note (only when present) */}
+                  {iv.followUps && iv.followUps.length > 0 && (() => {
+                    const last = iv.followUps[iv.followUps.length - 1];
+                    return (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 3, overflow: 'hidden' }}
+                        title={`ติดตาม ${iv.followUps.length} ครั้ง · ล่าสุด ${fmtDate(last.date)}`}>
+                        <span style={{ flexShrink: 0, fontSize: 10, color: '#1e4fbd', background: '#ebf8ff', borderRadius: 4, padding: '0 5px', fontWeight: 700, border: '1px solid #bee3f8' }}>
+                          💬 {iv.followUps.length}
+                        </span>
+                        <span style={{ fontSize: 11, color: 'var(--ink-500)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, fontStyle: 'italic' }}>
+                          {last.note}
+                        </span>
+                      </div>
+                    );
+                  })()}
                 </td>
                 <td className="num strong" style={{ whiteSpace: 'nowrap' }}>{fmtNum(iv.balance, 0)}</td>
                 <td style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
