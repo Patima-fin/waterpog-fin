@@ -32,13 +32,18 @@ function DailyRevenueDashboard({ data, setData, toast }) {
 
   const [drillModal, setDrillModal] = dRState(null); // { title, list } — paid drill
   const [fcModal,    setFcModal]    = dRState(null); // { title, list } — forecast drill
+  const [ivTypeFilter, setIvTypeFilter] = dRState('all'); // 'all' | 'P' | 'O'
+
+  // invType filter (P=โครงการ, O=อื่นๆ) — default 'P' if missing
+  const drInvType = iv => ((iv.invType || iv.invtype || 'P').toString().trim().toUpperCase() === 'O' ? 'O' : 'P');
+  const matchType = iv => ivTypeFilter === 'all' || drInvType(iv) === ivTypeFilter;
 
   const { projectByCode, financeByCode } = dRMemo(() => WTPData.buildLookups(data), [data.projects]);
 
-  // ── PAID invoices ────────────────────────────────────────────────────────────
+  // ── PAID invoices (apply invType filter) ─────────────────────────────────────
   const paidInvoices = dRMemo(() =>
-    invoices.filter(iv => iv.status === 'paid' && iv.actualReceive?.date),
-    [invoices]
+    invoices.filter(iv => iv.status === 'paid' && iv.actualReceive?.date && matchType(iv)),
+    [invoices, ivTypeFilter]
   );
   const todayList = dRMemo(() => paidInvoices.filter(iv => iv.actualReceive.date === todayStr),              [paidInvoices, todayStr]);
   const monthList = dRMemo(() => paidInvoices.filter(iv => iv.actualReceive.date.startsWith(thisMonth)),    [paidInvoices, thisMonth]);
@@ -49,6 +54,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
   const IV_VALID  = new Set(['pending_inspection', 'tracking', 'issue', 'paid']);
   const outstandingRows = dRMemo(() =>
     invoices.flatMap(iv => {
+      if (!matchType(iv)) return [];
       const rawStatus = (iv.status || '').toString().trim();
       const aliased   = IV_ALIAS[rawStatus] != null ? IV_ALIAS[rawStatus] : rawStatus;
       const status    = IV_VALID.has(aliased) ? aliased : 'pending_inspection';
@@ -56,17 +62,20 @@ function DailyRevenueDashboard({ data, setData, toast }) {
       const cj = drNormJobNo(iv.jobNo);
       const f  = financeByCode[cj] || financeByCode[iv.contractRef] || {};
       const p  = projectByCode[cj] || projectByCode[iv.contractRef] || {};
-      const debt = Number(f.debt ?? f['ภาระหนี้'] ?? 0);
+      const debt    = Number(f.debt ?? f['ภาระหนี้'] ?? 0);
+      const balance = Number(iv.balance) || 0;
       return [{
         ...iv,
         jobNo: cj,
         status,
+        invType: drInvType(iv),
+        balance,
         projectName: p['พื้นที่'] || p.name || iv.projectName || '—',
         debt,
-        netExpected: (iv.balance || 0) - debt,
+        netExpected: balance - debt,
       }];
     }),
-    [invoices, financeByCode, projectByCode]
+    [invoices, financeByCode, projectByCode, ivTypeFilter]
   );
 
   // ── Forecast buckets ─────────────────────────────────────────────────────────
@@ -99,6 +108,30 @@ function DailyRevenueDashboard({ data, setData, toast }) {
         <div className="page-head-r">
           <PrintButton label="พิมพ์ / PDF" />
         </div>
+      </div>
+
+      {/* invType filter toggle */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }} className="anim-in">
+        <span style={{ fontSize: 12, color: 'var(--ink-500)' }}>กรองประเภทใบแจ้งหนี้:</span>
+        {[
+          { k: 'all', label: 'ทั้งหมด',           bg: '#f8fafc', color: '#2d3748', bd: '#cbd5e0' },
+          { k: 'P',   label: '📋 โครงการ (P)',    bg: '#ebf8ff', color: '#1e4fbd', bd: '#63b3ed' },
+          { k: 'O',   label: '🛒 อื่นๆ (O)',       bg: '#faf5ff', color: '#6b46c1', bd: '#b794f4' },
+        ].map(t => {
+          const active = ivTypeFilter === t.k;
+          return (
+            <button key={t.k} onClick={() => setIvTypeFilter(t.k)}
+              style={{
+                fontSize: 12, padding: '5px 12px', borderRadius: 16, cursor: 'pointer',
+                border: `1.5px solid ${active ? t.bd : 'transparent'}`,
+                background: active ? t.bg : 'transparent',
+                color: active ? t.color : 'var(--ink-500)',
+                fontWeight: active ? 700 : 500,
+              }}>
+              {t.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* Hero banner */}

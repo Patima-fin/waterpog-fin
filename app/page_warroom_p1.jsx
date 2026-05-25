@@ -3,10 +3,13 @@
 // Section 04 uses pre-computed sheet data (WIP construction)
 // Globals: React, KpiTile, AnimatedNumber, Badge, Icon, fmtNum, fmtMoney, fmtDate
 
-const { useMemo: wr1Memo } = React;
+const { useMemo: wr1Memo, useState: wr1State } = React;
 
 function WarRoomPage1({ data, setData, toast }) {
   const { warroomP1, meta } = data;
+  const [ivTypeFilter, setIvTypeFilter] = wr1State('all'); // 'all' | 'P' | 'O'
+  const wrInvType = iv => ((iv.invType || iv.invtype || 'P').toString().trim().toUpperCase() === 'O' ? 'O' : 'P');
+  const matchType = iv => ivTypeFilter === 'all' || wrInvType(iv) === ivTypeFilter;
 
   // ── Finance lookup for debt enrichment ──────────────────────────────────────
   const { financeByCode } = wr1Memo(() => WTPData.buildLookups(data), [data.projects]);
@@ -23,11 +26,23 @@ function WarRoomPage1({ data, setData, toast }) {
   // ════════════════════════════════════════════════════════════════════════════
   // SECTION 01 — YTD จาก data.receipts (ประวัติรับเงิน)
   // ════════════════════════════════════════════════════════════════════════════
+  // build map invoiceNo → invType (for filtering receipts by their source invoice)
+  const ivTypeByInvNo = wr1Memo(() => {
+    const m = {};
+    (data.invoices || []).forEach(iv => { if (iv.ivNo) m[iv.ivNo] = wrInvType(iv); });
+    return m;
+  }, [data.invoices]);
+
   const liveYtd = wr1Memo(() => {
     const map = {};
     (data.receipts || []).forEach(r => {
       const m = r.receiptDate ? r.receiptDate.slice(0, 7) : null;
       if (!m || !m.startsWith(liveYear)) return;
+      // filter by invType (default to 'P' if not found in invoices)
+      if (ivTypeFilter !== 'all') {
+        const t = ivTypeByInvNo[r.invoiceNo] || 'P';
+        if (t !== ivTypeFilter) return;
+      }
       (map[m] = map[m] || []).push(r);
     });
     return Object.entries(map)
@@ -43,7 +58,7 @@ function WarRoomPage1({ data, setData, toast }) {
           net:   recs.reduce((s, r) => s + (Number(r.netReceived)         || 0), 0),
         };
       });
-  }, [data.receipts, liveYear]);
+  }, [data.receipts, liveYear, ivTypeFilter, ivTypeByInvNo]);
 
   const liveYtdTotal = wr1Memo(() => liveYtd.reduce((acc, m) => ({
     count: acc.count + m.count,
@@ -59,6 +74,7 @@ function WarRoomPage1({ data, setData, toast }) {
   const WR_VALID = new Set(['pending_inspection', 'tracking', 'issue', 'paid']);
 
   const liveOuts = wr1Memo(() => (data.invoices || []).flatMap(iv => {
+    if (!matchType(iv)) return [];
     const rawStatus = (iv.status || '').toString().trim();
     const aliased   = WR_ALIAS[rawStatus] != null ? WR_ALIAS[rawStatus] : rawStatus;
     const status    = WR_VALID.has(aliased) ? aliased : 'pending_inspection';
@@ -68,10 +84,10 @@ function WarRoomPage1({ data, setData, toast }) {
     const cj = mx ? mx[1] : s;
     const f        = financeByCode[cj] || financeByCode[iv.contractRef] || {};
     const debt     = Number(f.debt ?? f['ภาระหนี้'] ?? 0);
-    const balance  = Number(iv.balance) || 0;              // ← Number() ป้องกัน string concat
+    const balance  = Number(iv.balance) || 0;
     const assignee = f.assignee || f['ผู้รับโอนสิทธิ์'] || '';
-    return [{ ...iv, jobNo: cj, status, debt, balance, netExpected: balance - debt, assignee }];
-  }), [data.invoices, financeByCode]);
+    return [{ ...iv, jobNo: cj, status, invType: wrInvType(iv), debt, balance, netExpected: balance - debt, assignee }];
+  }), [data.invoices, financeByCode, ivTypeFilter]);
 
   // ════════════════════════════════════════════════════════════════════════════
   // SECTION 02 — คาดการณ์รับเดือนปัจจุบัน (expectedReceive เดือนนี้)
@@ -151,6 +167,30 @@ function WarRoomPage1({ data, setData, toast }) {
           <a className="btn btn-ghost" href="#warroom2"><Icon name="arrow" size={14} /> หน้าถัดไป · ประมาณการรายปี</a>
           <button className="btn btn-ghost"><Icon name="download" size={14} /> ส่งออก PDF</button>
         </div>
+      </div>
+
+      {/* invType filter toggle */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }} className="anim-in">
+        <span style={{ fontSize: 12, color: 'var(--ink-500)' }}>กรองประเภทใบแจ้งหนี้:</span>
+        {[
+          { k: 'all', label: 'ทั้งหมด',           bg: '#f8fafc', color: '#2d3748', bd: '#cbd5e0' },
+          { k: 'P',   label: '📋 โครงการ (P)',    bg: '#ebf8ff', color: '#1e4fbd', bd: '#63b3ed' },
+          { k: 'O',   label: '🛒 อื่นๆ (O)',       bg: '#faf5ff', color: '#6b46c1', bd: '#b794f4' },
+        ].map(t => {
+          const active = ivTypeFilter === t.k;
+          return (
+            <button key={t.k} onClick={() => setIvTypeFilter(t.k)}
+              style={{
+                fontSize: 12, padding: '5px 12px', borderRadius: 16, cursor: 'pointer',
+                border: `1.5px solid ${active ? t.bd : 'transparent'}`,
+                background: active ? t.bg : 'transparent',
+                color: active ? t.color : 'var(--ink-500)',
+                fontWeight: active ? 700 : 500,
+              }}>
+              {t.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* SECTION 01 — Annual YTD (from data.receipts) */}

@@ -246,6 +246,7 @@ function InvoicesPage({ data, setData, toast }) {
   const searchBoxRef = ivRef(null);
   const [colFilters, setColFilters] = ivState({});   // { colKey: Set<displayVal> }
   const [openCol, setOpenCol]       = ivState(null); // colKey ของ dropdown ที่เปิดอยู่
+  const [fullscreen, setFullscreen] = ivState(false); // ขยายตารางเต็มจอ
 
   const { projectByCode, financeByCode } = ivMemo(() => WTPData.buildLookups(data), [data.projects]);
 
@@ -255,31 +256,32 @@ function InvoicesPage({ data, setData, toast }) {
   const STATUS_ALIAS = { pending: 'tracking', '': 'pending_inspection' };
   const rows = ivMemo(() => data.invoices.map(iv => {
     // ── normalize jobNo: ตัด productType suffix ออก ───────────────────────────
-    // INS049-PL → jobNo='INS049', productType='PL'  |  SV-878-PL → 'SV-878'
     const norm = normalizeJobNo(iv.jobNo);
     const cleanJobNo    = norm.jobNo;
     const inferredPType = norm.productType;
 
-    // lookup ด้วย cleanJobNo → fallback ด้วย contractRef (Ref.code เช่น 6901-01)
     const p = projectByCode[cleanJobNo] || projectByCode[iv.contractRef] || {};
     const f = financeByCode[cleanJobNo] || financeByCode[iv.contractRef] || {};
-    // Support both old schema (f.debt, f.assignee) and new RAW schema
     const debt     = Number(f.debt ?? f['ภาระหนี้'] ?? 0);
+    const balance  = Number(iv.balance) || 0;
     const assignee = f.assignee || f['ผู้รับโอนสิทธิ์'] || '—';
-    // normalize: trim + alias map + fallback → 4 canonical statuses
     const rawStatus = (iv.status || '').toString().trim();
     const aliased   = STATUS_ALIAS[rawStatus] != null ? STATUS_ALIAS[rawStatus] : rawStatus;
     const status    = VALID_STATUS.has(aliased) ? aliased : 'pending_inspection';
+    // invType: 'P' = ใบแจ้งหนี้โครงการ (default), 'O' = ใบแจ้งหนี้อื่นๆ
+    const rawIvType = (iv.invType || iv.invtype || 'P').toString().trim().toUpperCase();
+    const invType   = rawIvType === 'O' ? 'O' : 'P';
     return {
       ...iv,
-      jobNo:       cleanJobNo,                              // แสดง INS049 แทน INS049-PL
-      productType: iv.productType || inferredPType || '',   // ใช้ที่มีอยู่ หรือ infer จาก suffix
+      jobNo:       cleanJobNo,
+      productType: iv.productType || inferredPType || '',
       status,
-      // fallback ลำดับ: project lookup (พื้นที่) → iv.projectName (parse จาก proj_dpt ตอน import) → '—'
+      invType,
+      balance,
       projectName: p['พื้นที่'] || p.name || iv.projectName || '—',
       assignee,
       debt,
-      netExpected: (iv.balance || 0) - debt,
+      netExpected: balance - debt,
     };
   }), [data.invoices, projectByCode, financeByCode]);
 
@@ -298,14 +300,24 @@ function InvoicesPage({ data, setData, toast }) {
     return fields.some(v => (v || '').toString().toLowerCase().includes(q));
   };
 
+  // ── Tab classification helper ─────────────────────────────────────────────
+  // กลุ่ม "ลูกหนี้อื่นๆ" = non-paid AND invType==='O'
+  // กลุ่ม status (tracking/pending_inspection/issue) จะไม่นับ invType=='O' (ไม่ทับซ้อน)
+  const matchTab = (iv, tab) => {
+    if (tab === 'all') return true;
+    if (tab === 'paid')        return iv.status === 'paid';
+    if (tab === 'outstanding') return iv.status !== 'paid';
+    if (tab === 'other')       return iv.status !== 'paid' && iv.invType === 'O';
+    // status sub-tabs: exclude invType==='O'
+    return iv.status === tab && iv.invType !== 'O';
+  };
+
   const filtered = ivMemo(() => {
-    let xs = rows;
-    if (filter !== 'all') xs = xs.filter(iv => iv.status === filter);
+    let xs = rows.filter(iv => matchTab(iv, filter));
     if (query.trim()) {
       const q = query.toLowerCase();
       xs = xs.filter(iv => matchQuery(iv, q));
     }
-    // ── column filters (Excel-style) ──────────────────────────────────────
     for (const [key, vals] of Object.entries(colFilters)) {
       if (vals && vals.size > 0) {
         xs = xs.filter(iv => vals.has(ivColDisplayVal(key, iv)));
@@ -345,11 +357,13 @@ function InvoicesPage({ data, setData, toast }) {
   const { sorted, sort, toggle } = useSortable(filtered, 'invoiceDate', 'desc');
 
   const counts = {
-    all: rows.length,
-    pending_inspection: rows.filter(r => r.status === 'pending_inspection').length,
-    tracking:           rows.filter(r => r.status === 'tracking').length,
-    issue:              rows.filter(r => r.status === 'issue').length,
-    paid:               rows.filter(r => r.status === 'paid').length,
+    all:                rows.length,
+    paid:               rows.filter(r => matchTab(r, 'paid')).length,
+    outstanding:        rows.filter(r => matchTab(r, 'outstanding')).length,
+    tracking:           rows.filter(r => matchTab(r, 'tracking')).length,
+    pending_inspection: rows.filter(r => matchTab(r, 'pending_inspection')).length,
+    issue:              rows.filter(r => matchTab(r, 'issue')).length,
+    other:              rows.filter(r => matchTab(r, 'other')).length,
   };
   const sums = {
     balance:    rows.reduce((s, r) => s + (Number(r.balance) || 0), 0),
@@ -402,13 +416,22 @@ function InvoicesPage({ data, setData, toast }) {
   };
 
   return (
-    <div className="page">
+    <div className="page" style={fullscreen ? { padding: 8 } : undefined}>
+      {!fullscreen && (
       <div className="page-head anim-in">
         <div>
           <h1 className="page-title">ใบแจ้งหนี้คงค้าง</h1>
           <div className="page-sub">RAW_IV_OUTSTANDING · {rows.length} ใบ · ผู้ดูแล: ฝ่ายติดตามรับเงิน</div>
         </div>
         <div className="page-head-r">
+          <button className="btn btn-ghost" onClick={() => setFullscreen(true)}
+            title="ขยายตารางเต็มจอ — ซ่อนหัวสรุปด้านบน"
+            style={{ background: '#ebf8ff', color: '#1e4fbd', border: '1px solid #63b3ed' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
+            </svg>
+            ขยายเต็มจอ
+          </button>
           <ExportButton
             rows={filtered}
             columns={[
@@ -433,21 +456,85 @@ function InvoicesPage({ data, setData, toast }) {
           )}
         </div>
       </div>
+      )}
 
+      {!fullscreen && (
       <div className="grid grid-4 anim-stagger" style={{ marginBottom: 16 }}>
         <KpiTile label="ยอด Balance รวม" value={sums.balance} accent="var(--brand-500)" icon="invoice" />
         <KpiTile label="ภาระหนี้รวม"      value={sums.debt} accent="var(--bad)" icon="arrow_up" />
         <KpiTile label="คาดรับสุทธิ (ค้าง)" value={sums.pendingNet} accent="var(--good)" icon="coin" />
         <KpiTile label="ติดปัญหา"          value={counts.issue} unit=" ใบ" digits={0} accent="oklch(60% 0.22 25)" icon="invoice" />
       </div>
+      )}
+
+      {fullscreen && (
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          padding: '6px 12px', marginBottom: 8,
+          background: 'linear-gradient(90deg, #ebf8ff, transparent)',
+          border: '1px solid #bee3f8', borderRadius: 8,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <strong style={{ color: '#1e4fbd', fontSize: 13 }}>โหมดเต็มจอ · ใบแจ้งหนี้คงค้าง</strong>
+            <span style={{ fontSize: 11, color: 'var(--ink-500)' }}>
+              ทั้งหมด {rows.length} ใบ · ค้างชำระ {counts.outstanding} · ติดปัญหา {counts.issue}
+            </span>
+          </div>
+          <button onClick={() => setFullscreen(false)}
+            style={{ background: '#1e4fbd', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 14px', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: 'middle', marginRight: 4 }}>
+              <polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/>
+            </svg>
+            ออกจากเต็มจอ
+          </button>
+        </div>
+      )}
 
       <div className="card" style={{ padding: 14, marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-        <div className="tabnav">
-          <button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>ทั้งหมด ({counts.all})</button>
-          <button className={filter === 'pending_inspection' ? 'active' : ''} onClick={() => setFilter('pending_inspection')}>รอใบตรวจรับ ({counts.pending_inspection})</button>
-          <button className={filter === 'tracking' ? 'active' : ''} onClick={() => setFilter('tracking')}>กำลังติดตาม ({counts.tracking})</button>
-          <button className={filter === 'issue' ? 'active' : ''} onClick={() => setFilter('issue')}>ติดปัญหา ({counts.issue})</button>
-          <button className={filter === 'paid' ? 'active' : ''} onClick={() => setFilter('paid')}>รับชำระแล้ว ({counts.paid})</button>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+          {/* Primary groups */}
+          <div className="tabnav">
+            <button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>
+              ทั้งหมด ({counts.all})
+            </button>
+            <button className={filter === 'paid' ? 'active' : ''}
+              onClick={() => setFilter('paid')}
+              style={{ color: filter === 'paid' ? undefined : '#276749' }}>
+              ✓ ได้รับเงินแล้ว ({counts.paid})
+            </button>
+            <button className={filter === 'outstanding' ? 'active' : ''}
+              onClick={() => setFilter('outstanding')}
+              style={{ color: filter === 'outstanding' ? undefined : '#c05621' }}>
+              ⏳ ค้างชำระ ({counts.outstanding})
+            </button>
+          </div>
+
+          {/* Sub-tabs for outstanding (กำลังติดตาม / รอใบตรวจรับ / ติดปัญหา / ลูกหนี้อื่นๆ) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 4, paddingLeft: 8, borderLeft: '1px dashed var(--ink-200)' }}>
+            <span style={{ fontSize: 11, color: 'var(--ink-400)', marginRight: 2 }}>แยก:</span>
+            {[
+              { k: 'tracking',           label: 'กำลังติดตาม',   color: '#1e4fbd', bg: '#ebf8ff', bd: '#63b3ed' },
+              { k: 'pending_inspection', label: 'รอใบตรวจรับ',   color: '#b45309', bg: '#fffbeb', bd: '#f6ad55' },
+              { k: 'issue',              label: 'ติดปัญหา',       color: '#c53030', bg: '#fff5f5', bd: '#fc8181' },
+              { k: 'other',              label: 'ลูกหนี้อื่นๆ',   color: '#6b46c1', bg: '#faf5ff', bd: '#b794f4' },
+            ].map(s => {
+              const active = filter === s.k;
+              return (
+                <button key={s.k}
+                  onClick={() => setFilter(s.k)}
+                  style={{
+                    fontSize: 11.5, padding: '4px 10px', borderRadius: 14, cursor: 'pointer',
+                    border: `1.5px solid ${active ? s.bd : 'transparent'}`,
+                    background: active ? s.bg : 'transparent',
+                    color: active ? s.color : 'var(--ink-500)',
+                    fontWeight: active ? 700 : 500,
+                    transition: 'background .12s, border-color .12s',
+                  }}>
+                  {s.label} <span style={{ opacity: .7, fontSize: 10.5 }}>({counts[s.k]})</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
         <div ref={searchBoxRef} style={{ position: 'relative', width: 360 }}>
           <div className="tb-search" style={{ width: '100%' }}>
@@ -571,7 +658,7 @@ function InvoicesPage({ data, setData, toast }) {
       )}
 
       <div className="card anim-in" style={{ padding: 0, overflow: 'hidden' }}>
-        <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'min(480px, calc(100vh - 400px))' }}>
+        <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: fullscreen ? 'calc(100vh - 140px)' : 'min(480px, calc(100vh - 400px))' }}>
         <table className="tbl" style={{ tableLayout: 'fixed', width: '100%', minWidth: 1080 }}>
           <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--surface)' }}>
             <tr>
@@ -583,7 +670,7 @@ function InvoicesPage({ data, setData, toast }) {
               <IvColHeader label="ผู้รับโอนสิทธิ์"  sortKey="assignee"        colKey="assignee"        sort={sort} sortToggle={toggle} align="center" width={110} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
               <IvColHeader label="ภาระหนี้ (฿)"    sortKey="debt"            colKey="debt"            sort={sort} sortToggle={toggle} align="right"  width={110} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
               <IvColHeader label="คาดรับสุทธิ (฿)" sortKey="netExpected"     colKey="netExpected"     sort={sort} sortToggle={toggle} align="right"  width={120} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
-              <IvColHeader label="วันคาดรับเงิน"    sortKey="expectedReceive" colKey="expectedReceive" sort={sort} sortToggle={toggle} align="center" width={105} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
+              <IvColHeader label="วันที่"             sortKey="expectedReceive" colKey="expectedReceive" sort={sort} sortToggle={toggle} align="center" width={105} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
               <th style={{ width: 150, textAlign: 'center' }}>สถานะ</th>
             </tr>
           </thead>
@@ -600,6 +687,11 @@ function InvoicesPage({ data, setData, toast }) {
                 <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(iv.invoiceDate)}</td>
                 <td style={{ overflow: 'hidden', maxWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5, overflow: 'hidden' }}>
+                    {iv.invType === 'O' && (
+                      <span title="ใบแจ้งหนี้อื่นๆ (Other)" style={{ fontSize: 10, fontWeight: 700, background: '#faf5ff', color: '#6b46c1', borderRadius: 4, padding: '1px 5px', letterSpacing: '0.03em', flexShrink: 0, border: '1px solid #d6bcfa' }}>
+                        O
+                      </span>
+                    )}
                     {iv.productType && (
                       <span style={{ fontSize: 10, fontWeight: 700, background: 'var(--brand-100,#e0f0ff)', color: 'var(--brand-700)', borderRadius: 4, padding: '1px 5px', letterSpacing: '0.03em', flexShrink: 0 }}>
                         {iv.productType}
@@ -608,12 +700,21 @@ function InvoicesPage({ data, setData, toast }) {
                     <span style={{ fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }} title={iv.projectName}>
                       {iv.projectName}
                     </span>
-                    {iv.followUps && iv.followUps.length > 0 && (
-                      <span title={`📞 ติดตาม ${iv.followUps.length} ครั้ง · ล่าสุด ${fmtDate(iv.followUps[iv.followUps.length - 1].date)}`}
-                        style={{ flexShrink: 0, fontSize: 10, color: 'var(--ink-400)', background: 'var(--ink-100)', borderRadius: 10, padding: '1px 5px', cursor: 'help' }}>
-                        📞{iv.followUps.length}
-                      </span>
-                    )}
+                    {iv.followUps && iv.followUps.length > 0 && (() => {
+                      const last = iv.followUps[iv.followUps.length - 1];
+                      return (
+                        <span title={`📞 ติดตาม ${iv.followUps.length} ครั้ง · ล่าสุด ${fmtDate(last.date)} — ${last.note}`}
+                          style={{
+                            flexShrink: 0, fontSize: 10.5, color: '#1e4fbd',
+                            background: '#ebf8ff', borderRadius: 10, padding: '1px 7px',
+                            border: '1px solid #bee3f8', cursor: 'help',
+                            maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            fontWeight: 500,
+                          }}>
+                          💬 {last.note}
+                        </span>
+                      );
+                    })()}
                   </div>
                 </td>
                 <td className="num strong" style={{ whiteSpace: 'nowrap' }}>{fmtNum(iv.balance, 0)}</td>
@@ -624,7 +725,23 @@ function InvoicesPage({ data, setData, toast }) {
                 </td>
                 <td className="num" style={{ whiteSpace: 'nowrap', color: iv.debt ? 'var(--bad)' : 'inherit' }}>{iv.debt ? '-' + fmtNum(iv.debt, 0) : <span className="muted">—</span>}</td>
                 <td className="num" style={{ whiteSpace: 'nowrap', color: 'var(--good)', fontWeight: 700 }}>{fmtNum(iv.netExpected, 0)}</td>
-                <td style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{fmtDate(iv.expectedReceive)}</td>
+                <td style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
+                  {iv.status === 'paid' ? (
+                    iv.actualReceive?.date ? (
+                      <div>
+                        <div style={{ fontSize: 10, color: 'var(--good)', fontWeight: 600 }}>รับจริง</div>
+                        <div style={{ color: 'var(--good)', fontWeight: 600 }}>{fmtDate(iv.actualReceive.date)}</div>
+                      </div>
+                    ) : <span className="muted">—</span>
+                  ) : (
+                    iv.expectedReceive ? (
+                      <div>
+                        <div style={{ fontSize: 10, color: 'var(--ink-400)' }}>คาดรับ</div>
+                        <div>{fmtDate(iv.expectedReceive)}</div>
+                      </div>
+                    ) : <span className="muted">—</span>
+                  )}
+                </td>
                 <td onClick={(e) => e.stopPropagation()}>
                   <StatusPill
                     value={iv.status}
@@ -1435,6 +1552,7 @@ function ImportRawIvModal({ open, onClose, existing, onImport }) {
       productType: r.productType || '',
       projectName: r.projectName || '',
       contractRef: r.contractRef || '',
+      invType:     r.invType || 'P',
       remark: r.remark || '', customer: r.customer || '',
       status: 'pending_inspection', expectedReceive: '',
       contactName: '', contactPhone: '',
@@ -1446,6 +1564,7 @@ function ImportRawIvModal({ open, onClose, existing, onImport }) {
       projectName: r.projectName || '',
       productType: r.productType || '',
       contractRef: r.contractRef || '',
+      invType:     r.invType || 'P',
       remark: r.remark || '',
       customer: r.customer || '',
     }));
@@ -1619,6 +1738,7 @@ function parseRawIv(text) {
       if (!contractRef) contractRef = parsed.contractRef;
     }
 
+    const rawIvType = (cols[idx('invtype')] || cols[idx('inv_type')] || cols[idx('inv type')] || '').toString().trim().toUpperCase();
     const row = {
       jobNo,
       productType,
@@ -1631,6 +1751,7 @@ function parseRawIv(text) {
       customer:    (cols[idx('customer')] || '').trim(),
       overDue:     parseNum(cols[idx('over_due')]),
       period:      rawPeriod || extractPeriodFromRemark(remark),
+      invType:     rawIvType === 'O' ? 'O' : 'P',
     };
     if (row.ivNo) out.push(row);
   }
@@ -1655,6 +1776,7 @@ function normalizeIvRow(r) {
     if (!projectName) projectName = parsed.projectName;
     if (!contractRef) contractRef = parsed.contractRef;
   }
+  const rawIvType = (get('invtype', 'inv_type', 'inv type') || '').toString().trim().toUpperCase();
   return {
     jobNo,
     productType,
@@ -1667,6 +1789,7 @@ function normalizeIvRow(r) {
     customer:    (get('customer') || '').toString().trim(),
     overDue:     parseNum(get('over_due')),
     period:      rawPeriod || extractPeriodFromRemark(remark),
+    invType:     rawIvType === 'O' ? 'O' : 'P',
   };
 }
 // ดึงเลขงวดจาก remark เช่น "งวดที่ 2 (60%)" → 2
