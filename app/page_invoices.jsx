@@ -417,7 +417,11 @@ function InvoicesPage({ data, setData, toast }) {
   };
 
   return (
-    <div className="page" style={fullscreen ? { padding: 8 } : undefined}>
+    <div className="page" style={fullscreen ? {
+      position: 'fixed', inset: 0, zIndex: 999,
+      background: 'var(--bg, #f4f7fb)',
+      padding: '10px 14px', overflow: 'auto', maxWidth: 'none', margin: 0,
+    } : undefined}>
       {!fullscreen && (
       <div className="page-head anim-in">
         <div>
@@ -660,7 +664,7 @@ function InvoicesPage({ data, setData, toast }) {
 
       <div className="card anim-in" style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: fullscreen ? 'calc(100vh - 140px)' : 'min(480px, calc(100vh - 400px))' }}>
-        <table className="tbl tbl-compact" style={{ tableLayout: 'fixed', width: '100%', minWidth: 940, fontSize: 12 }}>
+        <table className="tbl tbl-compact" style={{ tableLayout: 'fixed', width: '100%', minWidth: fullscreen ? 0 : 940, fontSize: 12 }}>
           <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--surface)' }}>
             <tr>
               <IvColHeader label="Job No."         sortKey="jobNo"           colKey="jobNo"           sort={sort} sortToggle={toggle} align="center" width={76}  colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
@@ -726,7 +730,7 @@ function InvoicesPage({ data, setData, toast }) {
                 </td>
                 <td className="num" style={{ whiteSpace: 'nowrap', color: iv.debt ? 'var(--bad)' : 'inherit' }}>{iv.debt ? '-' + fmtNum(iv.debt, 0) : <span className="muted">—</span>}</td>
                 <td className="num" style={{ whiteSpace: 'nowrap', color: 'var(--good)', fontWeight: 700 }}>{fmtNum(iv.netExpected, 0)}</td>
-                <td style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
+                <td style={{ whiteSpace: 'nowrap', textAlign: 'center', padding: '4px 6px' }} onClick={(e) => e.stopPropagation()}>
                   {iv.status === 'paid' ? (
                     iv.actualReceive?.date ? (
                       <div>
@@ -735,12 +739,8 @@ function InvoicesPage({ data, setData, toast }) {
                       </div>
                     ) : <span className="muted">—</span>
                   ) : (
-                    iv.expectedReceive ? (
-                      <div>
-                        <div style={{ fontSize: 10, color: 'var(--ink-400)' }}>คาดรับ</div>
-                        <div>{fmtDate(iv.expectedReceive)}</div>
-                      </div>
-                    ) : <span className="muted">—</span>
+                    <InlineDateCell value={iv.expectedReceive}
+                      onChange={(v) => save({ ...iv, expectedReceive: v })} />
                   )}
                 </td>
                 <td onClick={(e) => e.stopPropagation()}>
@@ -1064,6 +1064,54 @@ function IvReportView({ rows, onOpen }) {
           <div style={{ fontWeight: 700, fontSize: 16, color: '#276749' }}>ไม่มีใบแจ้งหนี้ค้างชำระ</div>
           <div style={{ fontSize: 13, color: '#718096', marginTop: 4 }}>ทุกใบได้รับชำระแล้ว</div>
         </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Inline expected-date editor (click to edit, save on blur/change) ─── */
+function InlineDateCell({ value, onChange }) {
+  const [editing, setEditing] = ivState(false);
+  const [draft, setDraft]     = ivState(value || '');
+  ivEffect(() => { setDraft(value || ''); }, [value]);
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const isOverdue = value && value < todayStr;
+
+  if (editing) {
+    return (
+      <input type="date" autoFocus value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => { if ((draft || '') !== (value || '')) onChange(draft || ''); setEditing(false); }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter')  { e.target.blur(); }
+          if (e.key === 'Escape') { setDraft(value || ''); setEditing(false); }
+        }}
+        style={{
+          border: '1.5px solid var(--brand-500)', borderRadius: 5,
+          padding: '3px 5px', fontSize: 11.5, width: '100%', boxSizing: 'border-box',
+          fontFamily: 'inherit', background: '#fff',
+        }} />
+    );
+  }
+  return (
+    <div onClick={() => setEditing(true)}
+      title="คลิกเพื่อแก้ไขวันคาดรับ"
+      style={{
+        cursor: 'pointer', padding: '3px 4px', borderRadius: 5,
+        transition: 'background .12s',
+        border: '1px dashed transparent',
+      }}
+      onMouseEnter={e => { e.currentTarget.style.background = 'color-mix(in oklch,var(--brand-500) 8%,transparent)'; e.currentTarget.style.borderColor = 'var(--brand-300, #90cdf4)'; }}
+      onMouseLeave={e => { e.currentTarget.style.background = ''; e.currentTarget.style.borderColor = 'transparent'; }}>
+      {value ? (
+        <>
+          <div style={{ fontSize: 10, color: 'var(--ink-400)' }}>คาดรับ</div>
+          <div style={{ color: isOverdue ? '#e53e3e' : 'inherit', fontWeight: isOverdue ? 700 : 500 }}>
+            {fmtDate(value)}
+          </div>
+        </>
+      ) : (
+        <span style={{ color: 'var(--ink-300)', fontSize: 11, fontStyle: 'italic' }}>+ ระบุวัน</span>
       )}
     </div>
   );
