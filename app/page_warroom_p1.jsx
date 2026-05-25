@@ -1,107 +1,175 @@
 // War Room — Page 1: Revenue Collection & Receivables Overview
-// Matches "Present War room - 18052026 การเงินด้านรับ" PDF page 1.
+// Sections 01–03 use live data: data.receipts + data.invoices
+// Section 04 uses pre-computed sheet data (WIP construction)
 // Globals: React, KpiTile, AnimatedNumber, Badge, Icon, fmtNum, fmtMoney, fmtDate
 
-const { useMemo: wr1Memo, useState: wr1State } = React;
+const { useMemo: wr1Memo } = React;
 
 function WarRoomPage1({ data, setData, toast }) {
-  const { ytdRevenue, weeklyExpectedReceipt, warroomP1, meta } = data;
+  const { warroomP1, meta } = data;
 
-  // ── Live finance lookups ──────────────────────────────────────────────────
+  // ── Finance lookup for debt enrichment ──────────────────────────────────────
   const { financeByCode } = wr1Memo(() => WTPData.buildLookups(data), [data.projects]);
 
-  // ── Live outstanding rows from data.invoices ──────────────────────────────
-  const WR_ALIAS = { pending: 'tracking', '': 'pending_inspection' };
-  const WR_VALID = new Set(['pending_inspection', 'tracking', 'issue', 'paid']);
-  const liveRows = wr1Memo(() => {
-    return (data.invoices || []).flatMap(iv => {
-      const rawStatus = (iv.status || '').toString().trim();
-      const aliased   = WR_ALIAS[rawStatus] != null ? WR_ALIAS[rawStatus] : rawStatus;
-      const status    = WR_VALID.has(aliased) ? aliased : 'pending_inspection';
-      if (status === 'paid') return [];
-      const s  = (iv.jobNo || '').trim();
-      const mx = s.match(/^(.+)-([A-Z]{2,6})$/);
-      const cj = mx ? mx[1] : s;
-      const f  = financeByCode[cj] || financeByCode[iv.contractRef] || {};
-      const debt = Number(f.debt ?? f['ภาระหนี้'] ?? 0);
-      return [{ ...iv, jobNo: cj, status, debt, netExpected: (iv.balance || 0) - debt }];
-    });
-  }, [data.invoices, financeByCode]);
-
   const liveToday     = new Date().toISOString().slice(0, 10);
+  const liveYear      = liveToday.slice(0, 4);
   const liveThisMonth = liveToday.slice(0, 7);
 
-  // group by status
-  const liveByStatus = wr1Memo(() => {
-    const m = { pending_inspection: [], tracking: [], issue: [] };
-    liveRows.forEach(iv => { if (m[iv.status]) m[iv.status].push(iv); });
-    return m;
-  }, [liveRows]);
+  const liveMonthName = wr1Memo(() =>
+    new Date(liveThisMonth + '-01T12:00:00').toLocaleDateString('th-TH-u-ca-gregory', { month: 'long', year: 'numeric' }),
+    [liveThisMonth]
+  );
 
-  // group by expected month, sorted chronologically (ไม่ระบุ last)
-  const liveByMonth = wr1Memo(() => {
-    const m = {};
-    liveRows.forEach(iv => {
-      const key = iv.expectedReceive ? iv.expectedReceive.slice(0, 7) : 'ไม่ระบุ';
-      (m[key] = m[key] || []).push(iv);
+  // ════════════════════════════════════════════════════════════════════════════
+  // SECTION 01 — YTD จาก data.receipts (ประวัติรับเงิน)
+  // ════════════════════════════════════════════════════════════════════════════
+  const liveYtd = wr1Memo(() => {
+    const map = {};
+    (data.receipts || []).forEach(r => {
+      const m = r.receiptDate ? r.receiptDate.slice(0, 7) : null;
+      if (!m || !m.startsWith(liveYear)) return;
+      (map[m] = map[m] || []).push(r);
     });
-    return Object.entries(m).sort(([a], [b]) => {
-      if (a === 'ไม่ระบุ') return 1;
-      if (b === 'ไม่ระบุ') return -1;
-      return a.localeCompare(b);
+    return Object.entries(map)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([m, recs]) => {
+        const d = new Date(m + '-01T12:00:00');
+        return {
+          month: d.toLocaleDateString('th-TH-u-ca-gregory', { month: 'long' }),
+          en:    d.toLocaleString('en-US', { month: 'short' }),
+          count: recs.length,
+          gross: recs.reduce((s, r) => s + (Number(r.grossAmount)         || 0), 0),
+          debt:  recs.reduce((s, r) => s + (Number(r.transferDeduction)   || 0), 0),
+          net:   recs.reduce((s, r) => s + (Number(r.netReceived)         || 0), 0),
+        };
+      });
+  }, [data.receipts, liveYear]);
+
+  const liveYtdTotal = wr1Memo(() => liveYtd.reduce((acc, m) => ({
+    count: acc.count + m.count,
+    gross: acc.gross + m.gross,
+    debt:  acc.debt  + m.debt,
+    net:   acc.net   + m.net,
+  }), { count: 0, gross: 0, debt: 0, net: 0 }), [liveYtd]);
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // OUTSTANDING ROWS — base for Section 02 & 03
+  // ════════════════════════════════════════════════════════════════════════════
+  const WR_ALIAS = { pending: 'tracking', '': 'pending_inspection' };
+  const WR_VALID = new Set(['pending_inspection', 'tracking', 'issue', 'paid']);
+
+  const liveOuts = wr1Memo(() => (data.invoices || []).flatMap(iv => {
+    const rawStatus = (iv.status || '').toString().trim();
+    const aliased   = WR_ALIAS[rawStatus] != null ? WR_ALIAS[rawStatus] : rawStatus;
+    const status    = WR_VALID.has(aliased) ? aliased : 'pending_inspection';
+    if (status === 'paid') return [];
+    const s  = (iv.jobNo || '').trim();
+    const mx = s.match(/^(.+)-([A-Z]{2,6})$/);
+    const cj = mx ? mx[1] : s;
+    const f        = financeByCode[cj] || financeByCode[iv.contractRef] || {};
+    const debt     = Number(f.debt ?? f['ภาระหนี้'] ?? 0);
+    const balance  = Number(iv.balance) || 0;              // ← Number() ป้องกัน string concat
+    const assignee = f.assignee || f['ผู้รับโอนสิทธิ์'] || '';
+    return [{ ...iv, jobNo: cj, status, debt, balance, netExpected: balance - debt, assignee }];
+  }), [data.invoices, financeByCode]);
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // SECTION 02 — คาดการณ์รับเดือนปัจจุบัน (expectedReceive เดือนนี้)
+  // ════════════════════════════════════════════════════════════════════════════
+  const thisMthIvs = wr1Memo(() =>
+    liveOuts.filter(iv => iv.expectedReceive && iv.expectedReceive.startsWith(liveThisMonth)),
+    [liveOuts, liveThisMonth]
+  );
+
+  // จัดกลุ่มตามสัปดาห์ภายในเดือน: สัปดาห์ 1=วันที่ 1-7, 2=8-14, 3=15-21, 4=22-28, 5=29+
+  const thisMthByWeek = wr1Memo(() => {
+    const weeks = [1,2,3,4,5].map(w => ({ week: w, count: 0, gross: 0, debt: 0, net: 0 }));
+    thisMthIvs.forEach(iv => {
+      const day  = parseInt((iv.expectedReceive || '').slice(8, 10), 10) || 1;
+      const wIdx = Math.min(Math.ceil(day / 7), 5) - 1;
+      weeks[wIdx].count++;
+      weeks[wIdx].gross += iv.balance;
+      weeks[wIdx].debt  += iv.debt;
+      weeks[wIdx].net   += iv.netExpected;
     });
-  }, [liveRows]);
+    return weeks;
+  }, [thisMthIvs]);
 
-  const liveTotal = wr1Memo(() => ({
-    count: liveRows.length,
-    gross: liveRows.reduce((s, iv) => s + (iv.balance || 0), 0),
-    debt:  liveRows.reduce((s, iv) => s + (iv.debt || 0), 0),
-    net:   liveRows.reduce((s, iv) => s + (iv.netExpected || 0), 0),
-  }), [liveRows]);
+  const thisMthTotal = wr1Memo(() => thisMthByWeek.reduce((acc, w) => ({
+    count: acc.count + w.count,
+    gross: acc.gross + w.gross,
+    debt:  acc.debt  + w.debt,
+    net:   acc.net   + w.net,
+  }), { count: 0, gross: 0, debt: 0, net: 0 }), [thisMthByWeek]);
 
-  const totalYtd = wr1Memo(() => {
-    return ytdRevenue.reduce((acc, m) => {
-      acc.count += m.count;
-      acc.gross += m.gross;
-      acc.debt += m.debt;
-      acc.net += m.net;
-      return acc;
-    }, { count: 0, gross: 0, debt: 0, net: 0 });
-  }, [ytdRevenue]);
+  // ════════════════════════════════════════════════════════════════════════════
+  // SECTION 03 — ใบแจ้งหนี้คงค้างนอกเดือนปัจจุบัน (คาดรับเดือนถัดไป)
+  // ════════════════════════════════════════════════════════════════════════════
+  const nextMthIvs = wr1Memo(() =>
+    liveOuts.filter(iv => !iv.expectedReceive || !iv.expectedReceive.startsWith(liveThisMonth)),
+    [liveOuts, liveThisMonth]
+  );
 
-  const totalWeek = weeklyExpectedReceipt.reduce((acc, w) => ({
-    count: acc.count + w.count, gross: acc.gross + w.gross, debt: acc.debt + w.debt, net: acc.net + w.net
-  }), { count: 0, gross: 0, debt: 0, net: 0 });
+  // แยกตามโอนสิทธิ์ (infer จาก assignee)
+  const nextMthByTransfer = wr1Memo(() => {
+    const m = {
+      'ไม่โอนสิทธิรับเงิน': { count: 0, gross: 0, debt: 0, net: 0 },
+      'โอนสิทธิรับเงิน':    { count: 0, gross: 0, debt: 0, net: 0 },
+    };
+    nextMthIvs.forEach(iv => {
+      const k = (iv.assignee && iv.assignee !== '—') ? 'โอนสิทธิรับเงิน' : 'ไม่โอนสิทธิรับเงิน';
+      m[k].count++;
+      m[k].gross += iv.balance;
+      m[k].debt  += iv.debt;
+      m[k].net   += iv.netExpected;
+    });
+    return Object.entries(m).map(([type, v]) => ({ type, ...v }));
+  }, [nextMthIvs]);
+
+  const outstandingAll = wr1Memo(() => ({
+    count: liveOuts.length,
+    gross: liveOuts.reduce((s, iv) => s + iv.balance, 0),
+    debt:  liveOuts.reduce((s, iv) => s + iv.debt,    0),
+    net:   liveOuts.reduce((s, iv) => s + iv.netExpected, 0),
+  }), [liveOuts]);
+
+  const nextMthTotal = wr1Memo(() => ({
+    count: nextMthIvs.length,
+    gross: nextMthIvs.reduce((s, iv) => s + iv.balance, 0),
+    debt:  nextMthIvs.reduce((s, iv) => s + iv.debt,    0),
+    net:   nextMthIvs.reduce((s, iv) => s + iv.netExpected, 0),
+  }), [nextMthIvs]);
 
   return (
     <div className="page bg-pattern">
       <div className="page-head anim-in">
         <div>
           <h1 className="page-title">Revenue Collection & Receivables Overview</h1>
-          <div className="page-sub">การเงินด้านรับ · {meta.companyName} · ข้อมูล ณ {fmtDate(meta.asOf)}</div>
+          <div className="page-sub">การเงินด้านรับ · {meta.companyName} · ข้อมูล ณ {fmtDate(liveToday)}</div>
         </div>
         <div className="page-head-r">
           <a className="btn btn-ghost" href="#warroom2"><Icon name="arrow" size={14} /> หน้าถัดไป · ประมาณการรายปี</a>
-          <PrintButton label="พิมพ์ / PDF" />
+          <button className="btn btn-ghost"><Icon name="download" size={14} /> ส่งออก PDF</button>
         </div>
       </div>
 
-      {/* (top 4 KPI strip removed per user request — values are shown inside section headers) */}
-
-      {/* SECTION 01 — Annual YTD */}
-      <SectionCard num="01" title="รายรับสะสมประจำปี" subtitle="Annual YTD · เงินรับสะสมตั้งแต่เดือนมกราคม" totalLabel="Total YTD" total={totalYtd.net}>
+      {/* SECTION 01 — Annual YTD (from data.receipts) */}
+      <SectionCard num="01" title="รายรับสะสมประจำปี" subtitle={`Annual YTD · เงินรับสะสมจากชีทประวัติรับเงิน · ปี ${liveYear}`} totalLabel="Total YTD" total={liveYtdTotal.net}>
         <table className="tbl">
           <thead>
             <tr>
               <th>เดือน (Month)</th>
               <th style={{ width: 90, textAlign: 'center' }}>จำนวน</th>
               <th style={{ textAlign: 'right' }}>รายรับรวม (GROSS)</th>
-              <th style={{ textAlign: 'right' }}>หักภาระหนี้ (Debt)</th>
-              <th style={{ textAlign: 'right' }}>คงเหลือสุทธิ (NET)</th>
+              <th style={{ textAlign: 'right' }}>หักโอนสิทธิ์ (Deduct)</th>
+              <th style={{ textAlign: 'right' }}>เงินเข้าจริง (NET)</th>
             </tr>
           </thead>
           <tbody>
-            {ytdRevenue.map((m, i) => (
+            {liveYtd.length === 0 && (
+              <tr><td colSpan={5} style={{ padding: '24px 14px', textAlign: 'center', color: 'var(--ink-400)' }}>ไม่มีข้อมูลใบรับเงินในปีนี้</td></tr>
+            )}
+            {liveYtd.map((m, i) => (
               <tr key={i}>
                 <td>
                   <span style={{ fontWeight: 600 }}>{m.month}</span>
@@ -109,7 +177,9 @@ function WarRoomPage1({ data, setData, toast }) {
                 </td>
                 <td style={{ textAlign: 'center' }}>{m.count}</td>
                 <td className="num">{fmtNum(m.gross, 2)}</td>
-                <td className="num" style={{ color: m.debt ? 'var(--bad)' : 'var(--ink-400)' }}>{m.debt ? '(' + fmtNum(Math.abs(m.debt), 2) + ')' : '-'}</td>
+                <td className="num" style={{ color: m.debt ? 'var(--bad)' : 'var(--ink-400)' }}>
+                  {m.debt ? '(' + fmtNum(m.debt, 2) + ')' : '-'}
+                </td>
                 <td className="num strong">{fmtNum(m.net, 2)}</td>
               </tr>
             ))}
@@ -117,17 +187,17 @@ function WarRoomPage1({ data, setData, toast }) {
           <tfoot>
             <tr>
               <td>Total YTD</td>
-              <td style={{ textAlign: 'center' }}>{totalYtd.count}</td>
-              <td className="num">{fmtNum(totalYtd.gross, 2)}</td>
-              <td className="num" style={{ color: 'var(--bad)' }}>({fmtNum(Math.abs(totalYtd.debt), 2)})</td>
-              <td className="num">{fmtNum(totalYtd.net, 2)}</td>
+              <td style={{ textAlign: 'center' }}>{liveYtdTotal.count}</td>
+              <td className="num">{fmtNum(liveYtdTotal.gross, 2)}</td>
+              <td className="num" style={{ color: 'var(--bad)' }}>({fmtNum(liveYtdTotal.debt, 2)})</td>
+              <td className="num">{fmtNum(liveYtdTotal.net, 2)}</td>
             </tr>
           </tfoot>
         </table>
       </SectionCard>
 
-      {/* SECTION 02 — Weekly current-month forecast */}
-      <SectionCard num="02" title="คาดการณ์ได้รับเพิ่มในเดือนปัจจุบัน" subtitle="รายสัปดาห์ · พฤษภาคม 2026" totalLabel="คาดการณ์ยอดรับสุทธิในเดือนนี้" total={warroomP1.thisMonthNetProjection}>
+      {/* SECTION 02 — This-month forecast (from data.invoices, expectedReceive = this month) */}
+      <SectionCard num="02" title="คาดการณ์ได้รับเพิ่มในเดือนปัจจุบัน" subtitle={`รายสัปดาห์ · ${liveMonthName} · จากการติดตาม IV ที่ระบุวันคาดรับไว้ในเดือนนี้`} totalLabel="คาดการณ์ยอดรับสุทธิในเดือนนี้" total={thisMthTotal.net}>
         <table className="tbl">
           <thead>
             <tr>
@@ -139,12 +209,17 @@ function WarRoomPage1({ data, setData, toast }) {
             </tr>
           </thead>
           <tbody>
-            {weeklyExpectedReceipt.map((w, i) => (
+            {thisMthTotal.count === 0 && (
+              <tr><td colSpan={5} style={{ padding: '24px 14px', textAlign: 'center', color: 'var(--ink-400)' }}>ไม่มีใบแจ้งหนี้ที่ระบุวันคาดรับในเดือนนี้</td></tr>
+            )}
+            {thisMthTotal.count > 0 && thisMthByWeek.map((w, i) => (
               <tr key={i}>
-                <td>สัปดาห์ที่ {w.week}</td>
+                <td>สัปดาห์ที่ {w.week} <span className="muted" style={{ fontSize: 11 }}>({['1–7','8–14','15–21','22–28','29+'][i]})</span></td>
                 <td style={{ textAlign: 'center' }}>{w.count}</td>
                 <td className="num">{w.gross ? fmtNum(w.gross, 2) : <span className="muted">-</span>}</td>
-                <td className="num" style={{ color: w.debt ? 'var(--bad)' : 'var(--ink-400)' }}>{w.debt ? '(' + fmtNum(Math.abs(w.debt), 2) + ')' : '-'}</td>
+                <td className="num" style={{ color: w.debt ? 'var(--bad)' : 'var(--ink-400)' }}>
+                  {w.debt ? '(' + fmtNum(w.debt, 2) + ')' : '-'}
+                </td>
                 <td className="num strong">{w.net ? fmtNum(w.net, 2) : <span className="muted">-</span>}</td>
               </tr>
             ))}
@@ -152,31 +227,31 @@ function WarRoomPage1({ data, setData, toast }) {
           <tfoot>
             <tr>
               <td>Total</td>
-              <td style={{ textAlign: 'center' }}>{totalWeek.count}</td>
-              <td className="num">{fmtNum(totalWeek.gross, 2)}</td>
-              <td className="num" style={{ color: 'var(--bad)' }}>({fmtNum(Math.abs(totalWeek.debt), 2)})</td>
-              <td className="num">{fmtNum(totalWeek.net, 2)}</td>
+              <td style={{ textAlign: 'center' }}>{thisMthTotal.count}</td>
+              <td className="num">{fmtNum(thisMthTotal.gross, 2)}</td>
+              <td className="num" style={{ color: 'var(--bad)' }}>({fmtNum(thisMthTotal.debt, 2)})</td>
+              <td className="num">{fmtNum(thisMthTotal.net, 2)}</td>
             </tr>
           </tfoot>
         </table>
       </SectionCard>
 
-      {/* SECTION 03 — Outstanding invoices that cannot be tracked this month → rollover next month */}
-      <SectionCard num="03" title="ประมาณการรับเงินจากใบแจ้งหนี้คงค้าง" subtitle="ที่ไม่สามารถติดตามได้ในเดือนนี้ · โครงการที่ออก IV แล้ว แต่ยังไม่ได้รับเงิน → คาดรับเดือนถัดไป" totalLabel="คาดการณ์รับในเดือนถัดไป" total={warroomP1.outstandingTotal.net}>
-        {/* Summary breakdown — total + next month rollover */}
+      {/* SECTION 03 — Outstanding (NOT this month → roll to next month) */}
+      <SectionCard num="03" title="ประมาณการรับเงินจากใบแจ้งหนี้คงค้าง" subtitle="IV ที่ยังไม่ได้รับเงิน และวันคาดรับอยู่นอกเดือนปัจจุบัน → คาดรับเดือนถัดไปขึ้นไป" totalLabel="คาดการณ์รับในเดือนถัดไป" total={nextMthTotal.net}>
+        {/* Summary breakdown */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 0, padding: '12px 18px', borderBottom: '1px dashed var(--line)', background: 'linear-gradient(180deg, var(--ink-50), white)' }}>
           <OutstandingMiniStat
-            label="ใบแจ้งหนี้ในระบบทั้งหมด"
-            count={warroomP1.outstandingSummary.systemTotal.count}
-            net={warroomP1.outstandingSummary.systemTotal.net}
+            label="ใบแจ้งหนี้คงค้างทั้งหมด"
+            count={outstandingAll.count}
+            net={outstandingAll.net}
             accent="var(--ink-700)"
             anchor="left"
             hint="รวมทุกใบที่ยังไม่ได้รับเงิน"
           />
           <OutstandingMiniStat
             label="คาดรับเดือนถัดไป"
-            count={warroomP1.outstandingSummary.nextMonthRollover.count}
-            net={warroomP1.outstandingSummary.nextMonthRollover.net}
+            count={nextMthTotal.count}
+            net={nextMthTotal.net}
             accent="oklch(60% 0.16 75)"
             anchor="right"
             hint="ตารางด้านล่าง · แยกตามโอนสิทธิ์"
@@ -184,7 +259,7 @@ function WarRoomPage1({ data, setData, toast }) {
           />
         </div>
 
-        {/* Rollover next-month table */}
+        {/* By transfer type */}
         <table className="tbl">
           <thead>
             <tr>
@@ -196,12 +271,14 @@ function WarRoomPage1({ data, setData, toast }) {
             </tr>
           </thead>
           <tbody>
-            {warroomP1.outstandingByTransfer.map((t, i) => (
+            {nextMthByTransfer.map((t, i) => (
               <tr key={i}>
                 <td><Badge kind={t.type.startsWith('โอน') ? 'b-amber' : 'b-blue'} dot={false}>{t.type}</Badge></td>
                 <td style={{ textAlign: 'center' }}>{t.count}</td>
-                <td className="num">{fmtNum(t.gross, 2)}</td>
-                <td className="num" style={{ color: t.debt ? 'var(--bad)' : 'var(--ink-400)' }}>{t.debt ? '(' + fmtNum(Math.abs(t.debt), 2) + ')' : '-'}</td>
+                <td className="num">{t.gross ? fmtNum(t.gross, 2) : <span className="muted">-</span>}</td>
+                <td className="num" style={{ color: t.debt ? 'var(--bad)' : 'var(--ink-400)' }}>
+                  {t.debt ? '(' + fmtNum(t.debt, 2) + ')' : '-'}
+                </td>
                 <td className="num strong">{fmtNum(t.net, 2)}</td>
               </tr>
             ))}
@@ -209,16 +286,16 @@ function WarRoomPage1({ data, setData, toast }) {
           <tfoot>
             <tr>
               <td>Total · คาดรับเดือนถัดไป</td>
-              <td style={{ textAlign: 'center' }}>{warroomP1.outstandingTotal.count}</td>
-              <td className="num">{fmtNum(warroomP1.outstandingTotal.gross, 2)}</td>
-              <td className="num" style={{ color: 'var(--bad)' }}>({fmtNum(Math.abs(warroomP1.outstandingTotal.debt), 2)})</td>
-              <td className="num">{fmtNum(warroomP1.outstandingTotal.net, 2)}</td>
+              <td style={{ textAlign: 'center' }}>{nextMthTotal.count}</td>
+              <td className="num">{fmtNum(nextMthTotal.gross, 2)}</td>
+              <td className="num" style={{ color: 'var(--bad)' }}>({fmtNum(nextMthTotal.debt, 2)})</td>
+              <td className="num">{fmtNum(nextMthTotal.net, 2)}</td>
             </tr>
           </tfoot>
         </table>
       </SectionCard>
 
-      {/* SECTION 04 — WIP construction */}
+      {/* SECTION 04 — WIP construction (pre-computed from sheet — ยังไม่ส่งมอบ ไม่มีใน data.invoices) */}
       <SectionCard num="04" title="งานที่อยู่ระหว่างดำเนินการก่อสร้าง" subtitle="ยังไม่ส่งมอบงาน และยังไม่เปิดใบแจ้งหนี้" totalLabel="คาดการณ์รับสุทธิงานก่อสร้างทั้งหมด" total={warroomP1.wipTotal.net}>
         <table className="tbl">
           <thead>
@@ -250,99 +327,6 @@ function WarRoomPage1({ data, setData, toast }) {
               <td className="num">{fmtNum(warroomP1.wipTotal.gross, 2)}</td>
               <td className="num" style={{ color: 'var(--bad)' }}>({fmtNum(Math.abs(warroomP1.wipTotal.debt), 2)})</td>
               <td className="num">{fmtNum(warroomP1.wipTotal.net, 2)}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </SectionCard>
-
-      {/* (bottom callouts removed per user request — info already shown in section headers above) */}
-
-      {/* SECTION 05 — Live Outstanding from data.invoices */}
-      <SectionCard num="05" title="ประมาณการจากใบแจ้งหนี้คงค้าง (Live)" subtitle="คำนวณตรงจากระบบใบแจ้งหนี้ · ข้อมูลล่าสุด ณ ขณะนี้" totalLabel="ยอดคาดรับสุทธิรวม" total={liveTotal.net}>
-
-        {/* Status breakdown strip */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 0, padding: '12px 18px', borderBottom: '1px dashed var(--line)', background: 'linear-gradient(180deg, var(--ink-50), white)' }}>
-          <OutstandingMiniStat
-            label="รอใบตรวจรับ"
-            count={liveByStatus.pending_inspection.length}
-            net={liveByStatus.pending_inspection.reduce((s, iv) => s + (iv.netExpected || 0), 0)}
-            accent="var(--ink-700)"
-            anchor="left"
-            hint="ยังไม่เริ่มติดตาม"
-          />
-          <OutstandingMiniStat
-            label="กำลังติดตาม"
-            count={liveByStatus.tracking.length}
-            net={liveByStatus.tracking.reduce((s, iv) => s + (iv.netExpected || 0), 0)}
-            accent="var(--brand-700)"
-            anchor="center"
-            hint="มีวันคาดรับ / อยู่ระหว่างติดตาม"
-          />
-          <OutstandingMiniStat
-            label="ติดปัญหา"
-            count={liveByStatus.issue.length}
-            net={liveByStatus.issue.reduce((s, iv) => s + (iv.netExpected || 0), 0)}
-            accent="var(--bad)"
-            anchor="right"
-            hint="ต้องจัดการด่วน"
-            highlight={liveByStatus.issue.length > 0}
-          />
-        </div>
-
-        {/* By expected-receipt month */}
-        <table className="tbl">
-          <thead>
-            <tr>
-              <th>เดือนที่คาดรับ</th>
-              <th style={{ width: 90, textAlign: 'center' }}>จำนวน</th>
-              <th style={{ textAlign: 'right' }}>Balance (GROSS)</th>
-              <th style={{ textAlign: 'right' }}>หักภาระหนี้ (Debt)</th>
-              <th style={{ textAlign: 'right' }}>คาดรับสุทธิ (NET)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {liveByMonth.length === 0 && (
-              <tr><td colSpan={5} style={{ padding: '24px 14px', textAlign: 'center', color: 'var(--ink-400)' }}>ไม่มีข้อมูลใบแจ้งหนี้คงค้าง</td></tr>
-            )}
-            {liveByMonth.map(([month, ivs], i) => {
-              const gross = ivs.reduce((s, iv) => s + (iv.balance || 0), 0);
-              const debt  = ivs.reduce((s, iv) => s + (iv.debt  || 0), 0);
-              const net   = ivs.reduce((s, iv) => s + (iv.netExpected || 0), 0);
-              const isThis = month === liveThisMonth;
-              let monthLabel;
-              if (month === 'ไม่ระบุ') {
-                monthLabel = <span className="muted">ยังไม่ระบุวันคาดรับ</span>;
-              } else {
-                const d = new Date(month + '-01T12:00:00');
-                const thai = d.toLocaleDateString('th-TH-u-ca-gregory', { month: 'long', year: 'numeric' });
-                monthLabel = (
-                  <>
-                    <span style={{ fontWeight: isThis ? 700 : 600 }}>{thai}</span>
-                    <span className="muted" style={{ fontSize: 11.5, marginLeft: 6, fontWeight: 400 }}>({month})</span>
-                    {isThis && <Badge kind="b-blue" dot={false} style={{ marginLeft: 8, fontSize: 10 }}>เดือนนี้</Badge>}
-                  </>
-                );
-              }
-              return (
-                <tr key={i} style={{ background: isThis ? 'color-mix(in oklch,var(--brand-500) 5%,transparent)' : '' }}>
-                  <td>{monthLabel}</td>
-                  <td style={{ textAlign: 'center' }}>{ivs.length}</td>
-                  <td className="num">{fmtNum(gross, 2)}</td>
-                  <td className="num" style={{ color: debt ? 'var(--bad)' : 'var(--ink-400)' }}>
-                    {debt ? '(' + fmtNum(Math.abs(debt), 2) + ')' : '-'}
-                  </td>
-                  <td className="num strong">{fmtNum(net, 2)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-          <tfoot>
-            <tr>
-              <td>Total · คงค้างทั้งหมด</td>
-              <td style={{ textAlign: 'center' }}>{liveTotal.count}</td>
-              <td className="num">{fmtNum(liveTotal.gross, 2)}</td>
-              <td className="num" style={{ color: 'var(--bad)' }}>({fmtNum(Math.abs(liveTotal.debt), 2)})</td>
-              <td className="num">{fmtNum(liveTotal.net, 2)}</td>
             </tr>
           </tfoot>
         </table>
@@ -413,8 +397,8 @@ function BigCallout({ tone, label, value, hint }) {
 }
 
 function OutstandingMiniStat({ label, count, net, accent, anchor, hint, dimmed, highlight }) {
-  const align = anchor === 'right' ? 'flex-end' : anchor === 'left' ? 'flex-start' : 'center';
-  const textAlign = anchor === 'right' ? 'right' : anchor === 'left' ? 'left' : 'center';
+  const align     = anchor === 'right' ? 'flex-end' : anchor === 'left' ? 'flex-start' : 'center';
+  const textAlign = anchor === 'right' ? 'right'    : anchor === 'left' ? 'left'       : 'center';
   return (
     <div style={{
       padding: '8px 14px', display: 'flex', flexDirection: 'column', alignItems: align, gap: 3,
@@ -423,9 +407,7 @@ function OutstandingMiniStat({ label, count, net, accent, anchor, hint, dimmed, 
       background: highlight ? 'linear-gradient(135deg, var(--warn-bg), transparent)' : 'transparent',
       borderRadius: highlight ? 8 : 0,
     }}>
-      <div style={{ fontSize: 11.5, color: 'var(--ink-500)', fontWeight: 500, textAlign }}>
-        {label}
-      </div>
+      <div style={{ fontSize: 11.5, color: 'var(--ink-500)', fontWeight: 500, textAlign }}>{label}</div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
         <span style={{ fontSize: 24, fontWeight: 700, color: accent, fontVariantNumeric: 'tabular-nums', letterSpacing: '-.01em' }}>
           <AnimatedNumber value={count} digits={0} />
