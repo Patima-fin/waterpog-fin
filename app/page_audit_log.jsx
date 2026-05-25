@@ -13,6 +13,29 @@ const AL_ACTION_META = {
   replaceAll: { label: 'อัพเดททั้งหมด', color: 'b-blue' },
 };
 
+// Normalise a raw row from the auditLog Sheet — Google Sheets may store
+// header names with different casing/spelling depending on who created the
+// tab. Map common variants to our canonical keys so the UI works either way.
+function _norm(r) {
+  const get = (...keys) => {
+    for (const k of keys) {
+      if (r[k] != null && r[k] !== '') return r[k];
+    }
+    return '';
+  };
+  return {
+    timestamp:    get('timestamp', 'Timestamp', 'TIMESTAMP', 'time', 'When', 'datetime', 'Date'),
+    user:         get('user', 'User', 'USER', 'username', 'Username'),
+    displayName:  get('displayName', 'displayname', 'DisplayName', 'name', 'Name'),
+    role:         get('role', 'Role', 'ROLE'),
+    entity:       get('entity', 'Entity', 'ENTITY', 'table', 'Table', 'sheet', 'Sheet'),
+    action:       get('action', 'Action', 'ACTION', 'op', 'Op'),
+    rowsAffected: get('rowsAffected', 'rows', 'Rows', 'count', 'Count', 'RowsAffected'),
+    summary:      get('summary', 'Summary', 'SUMMARY', 'description', 'Description', 'note', 'Note'),
+    _raw:         r,
+  };
+}
+
 function AuditLogPage({ data, toast }) {
   // Fetch directly from sheet (gviz CSV) on mount + manual refresh
   const [rows, setRows] = alState(null);
@@ -31,8 +54,14 @@ function AuditLogPage({ data, toast }) {
     setRows(null);
     window.WTPData.fetchSheetRows('auditLog')
       .then(rs => {
-        // Sort newest first
-        const sorted = (rs || []).slice().sort((a, b) => {
+        // Debug: log raw + normalized first row to help diagnose header mismatches
+        if (rs && rs.length) {
+          console.log('[AuditLog] sheet headers (raw keys of row 0):', Object.keys(rs[0]));
+          console.log('[AuditLog] first raw row:', rs[0]);
+        }
+        // Normalise all rows then sort newest first
+        const normed = (rs || []).map(_norm);
+        const sorted = normed.slice().sort((a, b) => {
           const ta = new Date(a.timestamp || 0).getTime();
           const tb = new Date(b.timestamp || 0).getTime();
           return tb - ta;
