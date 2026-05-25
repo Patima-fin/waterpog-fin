@@ -586,7 +586,7 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
     onSave(draft);
   };
 
-  const s = WTPData.IV_STATUS_META[draft.status];
+  const s = WTPData.IV_STATUS_META[draft.status] || { label: draft.status || '—', badge: 'b-gray', short: draft.status || '—' };
 
   // ── Sub-components ──────────────────────────────────────────────────────────
   const ROField = ({ fkey, label, mono, style: fieldStyle }) => {
