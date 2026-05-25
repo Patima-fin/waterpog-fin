@@ -68,6 +68,20 @@ function App() {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
+  // Mobile sidebar drawer state — true = open
+  const [sbOpen, setSbOpen] = aState(false);
+  const closeSb = () => setSbOpen(false);
+  const openSb  = () => setSbOpen(true);
+
+  // Auto-close drawer when route changes (after tapping a nav item)
+  aEffect(() => { setSbOpen(false); }, [route]);
+
+  // Lock body scroll while drawer is open on mobile
+  aEffect(() => {
+    document.body.style.overflow = sbOpen ? 'hidden' : '';
+    return () => { document.body.style.overflow = ''; };
+  }, [sbOpen]);
+
   const go = (r) => { window.location.hash = '#' + r; setRoute(r); };
 
   // Apply tweaks to CSS vars
@@ -154,9 +168,10 @@ function App() {
 
   return (
     <div className="app">
-      <Sidebar route={route} go={go} routes={routes} data={data} sidebarStyle={tweaks.sidebarStyle} syncInfo={syncInfo} currentUser={currentUser} onLogout={handleLogout} />
+      <Sidebar route={route} go={go} routes={routes} data={data} sidebarStyle={tweaks.sidebarStyle} syncInfo={syncInfo} currentUser={currentUser} onLogout={handleLogout} isOpen={sbOpen} onClose={closeSb} />
+      <div className={`sb-scrim ${sbOpen ? 'is-open' : ''}`} onClick={closeSb} aria-hidden="true" />
       <div className="main">
-        <Topbar route={route} routes={routes} data={data} onReset={resetDemo} />
+        <Topbar route={route} routes={routes} data={data} onReset={resetDemo} onMenuClick={openSb} />
         <div data-screen-label={route}>
           {page}
         </div>
@@ -196,7 +211,7 @@ function App() {
   );
 }
 
-function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, currentUser, onLogout }) {
+function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, currentUser, onLogout, isOpen, onClose }) {
   const [sec, setSec] = aState({ dash: true, reports: true, manage: true });
   const tog = k => setSec(p => ({ ...p, [k]: !p[k] }));
 
@@ -251,10 +266,28 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
   ));
 
   return (
-    <aside className="sb">
-      <div className="sb-brand">
+    <aside className={`sb ${isOpen ? 'is-open' : ''}`}>
+      <div className="sb-brand" style={{ position: 'relative' }}>
         <img src="waterpog_Logo-02.png" alt="Water POG" className="sb-logo-img" />
         <div className="sb-brand-sub" style={{ marginTop: 2 }}>Financial Console</div>
+        {/* Close button — only visible on mobile drawer */}
+        {onClose && (
+          <button
+            onClick={onClose}
+            aria-label="ปิดเมนู"
+            className="sb-close-btn"
+            style={{
+              position: 'absolute', top: -4, right: -4,
+              width: 32, height: 32, borderRadius: 8,
+              border: 0, background: 'transparent',
+              color: 'var(--ink-500)', cursor: 'pointer',
+              display: 'none', alignItems: 'center', justifyContent: 'center',
+            }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        )}
       </div>
 
       {/* ── Scrollable nav area ── */}
@@ -327,17 +360,27 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
   );
 }
 
-function Topbar({ route, routes, data, onReset }) {
+function Topbar({ route, routes, data, onReset, onMenuClick }) {
   const r = routes[route] || routes.daily;
   const today = new Date().toLocaleDateString('th-TH-u-ca-gregory', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
   const isPresentation = ['daily', 'warroom1', 'warroom2', 'cashflow'].includes(route);
   return (
     <div className="topbar">
-      <div className="crumbs">
-        <span>Water POG</span><span className="sep">/</span>
-        <span>{isPresentation ? 'นำเสนอ' : 'จัดการข้อมูล'}</span>
-        <span className="sep">/</span>
-        <span className="now">{r.label}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
+        {/* Hamburger — only visible on tablet/phone via CSS */}
+        <button className="menu-btn" onClick={onMenuClick} aria-label="เปิดเมนู">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+            <line x1="3" y1="6" x2="21" y2="6"/>
+            <line x1="3" y1="12" x2="21" y2="12"/>
+            <line x1="3" y1="18" x2="21" y2="18"/>
+          </svg>
+        </button>
+        <div className="crumbs">
+          <span>Water POG</span><span className="sep">/</span>
+          <span>{isPresentation ? 'นำเสนอ' : 'จัดการข้อมูล'}</span>
+          <span className="sep">/</span>
+          <span className="now">{r.label}</span>
+        </div>
       </div>
       <div className="tb-actions">
         <div className="tb-search">
