@@ -7,6 +7,21 @@
 
 const { useState: ivState, useMemo: ivMemo, useRef: ivRef, useEffect: ivEffect } = React;
 
+// ── normalizeJobNo: ตัด productType suffix ออกจาก jobNo ──────────────────────
+// INS049-PL  → { jobNo: 'INS049',  productType: 'PL'    }
+// SV-878-PL  → { jobNo: 'SV-878',  productType: 'PL'    }
+// TWC007-PDH → { jobNo: 'TWC007',  productType: 'PDH'   }
+// AW097-STIIS→ { jobNo: 'AW097',   productType: 'STIIS' }
+// PP064      → { jobNo: 'PP064',   productType: ''      }  (ไม่มี suffix → ไม่แตะ)
+function normalizeJobNo(raw) {
+  if (!raw) return { jobNo: '', productType: '' };
+  const s = raw.trim();
+  // match: <anything>-<2-6 uppercase letters> at end
+  const m = s.match(/^(.+)-([A-Z]{2,6})$/);
+  if (m) return { jobNo: m[1], productType: m[2] };
+  return { jobNo: s, productType: '' };
+}
+
 // ── helper: ค่าที่ใช้แสดงใน filter dropdown สำหรับแต่ละ column ──────────────
 function ivColDisplayVal(colKey, iv) {
   switch (colKey) {
@@ -239,10 +254,16 @@ function InvoicesPage({ data, setData, toast }) {
   // map รหัสสถานะแบบเก่า/ทางเลือก → สถานะ canonical 4 ตัว
   const STATUS_ALIAS = { pending: 'tracking', '': 'pending_inspection' };
   const rows = ivMemo(() => data.invoices.map(iv => {
-    // lookup ด้วย jobNo (Project No. เช่น PP064) → fallback ด้วย contractRef (Ref.code เช่น 6901-01)
-    const p = projectByCode[iv.jobNo] || projectByCode[iv.contractRef] || {};
-    const f = financeByCode[iv.jobNo] || financeByCode[iv.contractRef] || {};
-    // Support both old schema (f.debt, f.assignee) and new RAW schema (p['ภาระหนี้'], p['ผู้รับโอนสิทธิ์'])
+    // ── normalize jobNo: ตัด productType suffix ออก ───────────────────────────
+    // INS049-PL → jobNo='INS049', productType='PL'  |  SV-878-PL → 'SV-878'
+    const norm = normalizeJobNo(iv.jobNo);
+    const cleanJobNo    = norm.jobNo;
+    const inferredPType = norm.productType;
+
+    // lookup ด้วย cleanJobNo → fallback ด้วย contractRef (Ref.code เช่น 6901-01)
+    const p = projectByCode[cleanJobNo] || projectByCode[iv.contractRef] || {};
+    const f = financeByCode[cleanJobNo] || financeByCode[iv.contractRef] || {};
+    // Support both old schema (f.debt, f.assignee) and new RAW schema
     const debt     = Number(f.debt ?? f['ภาระหนี้'] ?? 0);
     const assignee = f.assignee || f['ผู้รับโอนสิทธิ์'] || '—';
     // normalize: trim + alias map + fallback → 4 canonical statuses
@@ -251,6 +272,8 @@ function InvoicesPage({ data, setData, toast }) {
     const status    = VALID_STATUS.has(aliased) ? aliased : 'pending_inspection';
     return {
       ...iv,
+      jobNo:       cleanJobNo,                              // แสดง INS049 แทน INS049-PL
+      productType: iv.productType || inferredPType || '',   // ใช้ที่มีอยู่ หรือ infer จาก suffix
       status,
       // fallback ลำดับ: project lookup (พื้นที่) → iv.projectName (parse จาก proj_dpt ตอน import) → '—'
       projectName: p['พื้นที่'] || p.name || iv.projectName || '—',
@@ -528,7 +551,7 @@ function InvoicesPage({ data, setData, toast }) {
 
       <div className="card anim-in" style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'min(480px, calc(100vh - 400px))' }}>
-        <table className="tbl">
+        <table className="tbl" style={{ tableLayout: 'fixed', width: '100%', minWidth: 1080 }}>
           <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--surface)' }}>
             <tr>
               <IvColHeader label="Job No."          sortKey="jobNo"           colKey="jobNo"           sort={sort} sortToggle={toggle} align="center" width={90}  colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={rows} />
@@ -547,31 +570,40 @@ function InvoicesPage({ data, setData, toast }) {
             {sorted.length === 0 && <tr><td colSpan={11} className="muted" style={{ padding: 36, textAlign: 'center' }}>ไม่พบใบแจ้งหนี้</td></tr>}
             {sorted.map(iv => (
               <tr key={iv.id} style={{ cursor: 'pointer' }} onClick={() => setDetail(iv)}>
-                <td><span style={{ fontFamily: 'ui-monospace', fontWeight: 700, color: 'var(--brand-700)', fontSize: 12.5 }}>{iv.jobNo}</span></td>
-                <td><span style={{ fontFamily: 'ui-monospace', fontWeight: 600, fontSize: 12.5 }}>{iv.ivNo}</span></td>
-                <td>{fmtDate(iv.invoiceDate)}</td>
-                <td>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
+                <td style={{ whiteSpace: 'nowrap' }}>
+                  <span style={{ fontFamily: 'ui-monospace', fontWeight: 700, color: 'var(--brand-700)', fontSize: 12.5 }}>{iv.jobNo}</span>
+                </td>
+                <td style={{ whiteSpace: 'nowrap' }}>
+                  <span style={{ fontFamily: 'ui-monospace', fontWeight: 600, fontSize: 12.5 }}>{iv.ivNo}</span>
+                </td>
+                <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(iv.invoiceDate)}</td>
+                <td style={{ overflow: 'hidden', maxWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, overflow: 'hidden' }}>
                     {iv.productType && (
                       <span style={{ fontSize: 10, fontWeight: 700, background: 'var(--brand-100,#e0f0ff)', color: 'var(--brand-700)', borderRadius: 4, padding: '1px 5px', letterSpacing: '0.03em', flexShrink: 0 }}>
                         {iv.productType}
                       </span>
                     )}
-                    <span style={{ fontSize: 12.5, lineHeight: 1.35 }}>{iv.projectName}</span>
+                    <span style={{ fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }} title={iv.projectName}>
+                      {iv.projectName}
+                    </span>
+                    {iv.followUps && iv.followUps.length > 0 && (
+                      <span title={`📞 ติดตาม ${iv.followUps.length} ครั้ง · ล่าสุด ${fmtDate(iv.followUps[iv.followUps.length - 1].date)}`}
+                        style={{ flexShrink: 0, fontSize: 10, color: 'var(--ink-400)', background: 'var(--ink-100)', borderRadius: 10, padding: '1px 5px', cursor: 'help' }}>
+                        📞{iv.followUps.length}
+                      </span>
+                    )}
                   </div>
-                  {iv.followUps && iv.followUps.length > 0 && (
-                    <div className="muted" style={{ fontSize: 10.5, marginTop: 2 }}>📞 ติดตาม {iv.followUps.length} ครั้ง · ล่าสุด {fmtDate(iv.followUps[iv.followUps.length - 1].date)}</div>
-                  )}
                 </td>
-                <td className="num strong">{fmtNum(iv.balance, 0)}</td>
-                <td>
+                <td className="num strong" style={{ whiteSpace: 'nowrap' }}>{fmtNum(iv.balance, 0)}</td>
+                <td style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>
                   {iv.assignee && iv.assignee !== '—' ? (
                     <Badge kind="b-violet" dot={false}>{iv.assignee}</Badge>
                   ) : <span className="muted">ไม่โอน</span>}
                 </td>
-                <td className="num" style={{ color: iv.debt ? 'var(--bad)' : 'inherit' }}>{iv.debt ? '-' + fmtNum(iv.debt, 0) : <span className="muted">—</span>}</td>
-                <td className="num" style={{ color: 'var(--good)', fontWeight: 700 }}>{fmtNum(iv.netExpected, 0)}</td>
-                <td>{fmtDate(iv.expectedReceive)}</td>
+                <td className="num" style={{ whiteSpace: 'nowrap', color: iv.debt ? 'var(--bad)' : 'inherit' }}>{iv.debt ? '-' + fmtNum(iv.debt, 0) : <span className="muted">—</span>}</td>
+                <td className="num" style={{ whiteSpace: 'nowrap', color: 'var(--good)', fontWeight: 700 }}>{fmtNum(iv.netExpected, 0)}</td>
+                <td style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{fmtDate(iv.expectedReceive)}</td>
                 <td onClick={(e) => e.stopPropagation()}>
                   <StatusPill
                     value={iv.status}
