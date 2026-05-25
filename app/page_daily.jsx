@@ -40,14 +40,70 @@ function DailyRevenueDashboard({ data, setData, toast }) {
 
   const { projectByCode, financeByCode } = dRMemo(() => WTPData.buildLookups(data), [data.projects]);
 
-  // ── PAID invoices (apply invType filter) ─────────────────────────────────────
-  const paidInvoices = dRMemo(() =>
-    invoices.filter(iv => iv.status === 'paid' && iv.actualReceive?.date && matchType(iv)),
-    [invoices, ivTypeFilter]
-  );
-  const todayList = dRMemo(() => paidInvoices.filter(iv => iv.actualReceive.date === todayStr),              [paidInvoices, todayStr]);
-  const monthList = dRMemo(() => paidInvoices.filter(iv => iv.actualReceive.date.startsWith(thisMonth)),    [paidInvoices, thisMonth]);
-  const ytdList   = dRMemo(() => paidInvoices.filter(iv => iv.actualReceive.date.startsWith(thisYear)),     [paidInvoices, thisYear]);
+  // ── PAID items: รวม data.receipts (ประวัติรับเงินจริง) + invoices.status=paid ──
+  // Map invoiceNo → invType (for filtering receipts by invType lookup)
+  const ivTypeByInvNo = dRMemo(() => {
+    const m = {};
+    (invoices || []).forEach(iv => { if (iv.ivNo) m[iv.ivNo] = drInvType(iv); });
+    return m;
+  }, [invoices]);
+
+  // unified shape: { id, receiveDate, jobNo, ivNo, projectName, period, balance, invType }
+  const paidInvoices = dRMemo(() => {
+    const out = [];
+    const seenIvNo = new Set();
+
+    // 1) data.receipts — primary source (ประวัติรับเงิน 684 ใบ)
+    (data.receipts || []).forEach(r => {
+      if (!r.receiptDate) return;
+      const ownIvType = (r.invType || '').toString().trim().toUpperCase();
+      const ivType    = (ownIvType === 'O' || ownIvType === 'P') ? ownIvType : (ivTypeByInvNo[r.invoiceNo] || 'P');
+      if (ivTypeFilter !== 'all' && ivType !== ivTypeFilter) return;
+      // resolve project name (receipts already have projectName, but fallback to lookup)
+      const cj = drNormJobNo(r.projectCode || '');
+      const p  = projectByCode[cj] || {};
+      out.push({
+        id:          r.id || r.receiptNo || `rc-${r.invoiceNo}`,
+        receiveDate: r.receiptDate,
+        jobNo:       cj || r.projectCode || '—',
+        ivNo:        r.invoiceNo || r.receiptNo,
+        projectName: r.projectName || p['พื้นที่'] || p.name || '—',
+        period:      r.period || 1,
+        balance:     Number(r.grossAmount) || 0,
+        netReceived: Number(r.netReceived) || Number(r.grossAmount) || 0,
+        invType:     ivType,
+        source:      'receipt',
+      });
+      if (r.invoiceNo) seenIvNo.add(r.invoiceNo);
+    });
+
+    // 2) data.invoices status=paid — secondary (เฉพาะใบที่ยังไม่ปรากฏใน receipts)
+    (invoices || []).forEach(iv => {
+      if (iv.status !== 'paid' || !iv.actualReceive?.date) return;
+      if (seenIvNo.has(iv.ivNo)) return;
+      if (!matchType(iv)) return;
+      const cj = drNormJobNo(iv.jobNo);
+      const p  = projectByCode[cj] || {};
+      out.push({
+        id:          iv.id || iv.ivNo,
+        receiveDate: iv.actualReceive.date,
+        jobNo:       cj,
+        ivNo:        iv.ivNo,
+        projectName: p['พื้นที่'] || p.name || iv.projectName || '—',
+        period:      iv.period || 1,
+        balance:     Number(iv.balance) || 0,
+        netReceived: Number(iv.actualReceive.amount) || Number(iv.balance) || 0,
+        invType:     drInvType(iv),
+        source:      'invoice',
+      });
+    });
+
+    return out;
+  }, [data.receipts, invoices, ivTypeFilter, ivTypeByInvNo, projectByCode]);
+
+  const todayList = dRMemo(() => paidInvoices.filter(iv => iv.receiveDate === todayStr),              [paidInvoices, todayStr]);
+  const monthList = dRMemo(() => paidInvoices.filter(iv => iv.receiveDate.startsWith(thisMonth)),    [paidInvoices, thisMonth]);
+  const ytdList   = dRMemo(() => paidInvoices.filter(iv => iv.receiveDate.startsWith(thisYear)),     [paidInvoices, thisYear]);
 
   // ── OUTSTANDING rows: non-paid + finance/project enrichment ─────────────────
   const IV_ALIAS  = { pending: 'tracking', '': 'pending_inspection' };
@@ -358,7 +414,7 @@ function DailyIvTable({ list, projectByCode, showDate, empty }) {
               <td>{p.name || p['พื้นที่'] || '—'}</td>
               <td style={{ textAlign: 'center' }}>{iv.period}</td>
               <td className="num strong">{fmtNum(iv.balance || 0)}</td>
-              {showDate && <td style={{ color: 'var(--ink-600)' }}>{fmtDate(iv.actualReceive?.date)}</td>}
+              {showDate && <td style={{ color: 'var(--ink-600)' }}>{fmtDate(iv.receiveDate || iv.actualReceive?.date)}</td>}
             </tr>
           );
         })}
