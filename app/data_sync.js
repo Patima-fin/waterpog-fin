@@ -410,8 +410,13 @@
       if (!lr) return sr;
       var merged = Object.assign({}, sr);
       Object.keys(lr).forEach(function (key) {
-        // Copy local field only when sheet doesn't have it at all (column missing)
-        if (!(key in sr)) merged[key] = lr[key];
+        var srVal = sr[key];
+        var srHasVal = srVal != null && srVal !== '';
+        var lrVal   = lr[key];
+        var lrHasVal = lrVal != null && lrVal !== '';
+        // Use local value when sheet has nothing meaningful in that cell —
+        // covers both "column missing entirely" and "column exists but empty"
+        if (!srHasVal && lrHasVal) merged[key] = lrVal;
       });
       return merged;
     });

@@ -465,6 +465,7 @@ function WarRoomPage1({ data, setData, toast }) {
           drill={drillModal}
           data={data}
           setData={setData}
+          toast={toast}
           thisMthByWeek={thisMthByWeek}
           liveMonthName={liveMonthName}
           ivTypeFilter={ivTypeFilter}
@@ -478,9 +479,10 @@ function WarRoomPage1({ data, setData, toast }) {
 }
 
 /* ── Warroom drill-down modal — month receipts (editable) OR week forecast ── */
-function WarroomDrillModal({ drill, data, setData, thisMthByWeek, liveMonthName, ivTypeFilter, receiptInvType, onClose }) {
+function WarroomDrillModal({ drill, data, setData, toast, thisMthByWeek, liveMonthName, ivTypeFilter, receiptInvType, onClose }) {
   const { kind, title, monthKey, weekIdx } = drill;
   const isMonth = kind === 'month';
+  const [savedFlash, setSavedFlash] = React.useState(null); // receiptKey ที่เพิ่งบันทึก
 
   // ── derive live items based on drill kind ──
   const items = wr1Memo(() => {
@@ -528,6 +530,13 @@ function WarroomDrillModal({ drill, data, setData, thisMthByWeek, liveMonthName,
         return merged;
       }),
     }));
+    // visual feedback: flash row with green check for 1.4s
+    setSavedFlash(key);
+    setTimeout(() => setSavedFlash(curr => curr === key ? null : curr), 1400);
+    if (toast) {
+      const what = patch.invType != null ? `ประเภท IV → ${patch.invType}` : 'หักโอนสิทธิ์';
+      toast('✓ บันทึก ' + what);
+    }
   };
 
   return (
@@ -579,10 +588,15 @@ function WarroomDrillModal({ drill, data, setData, thisMthByWeek, liveMonthName,
                 <tr><td colSpan={isMonth ? 10 : 9} style={{ padding: 36, textAlign: 'center', color: 'var(--ink-400)' }}>ไม่มีข้อมูล</td></tr>
               )}
               {isMonth && items.map((r, i) => {
-                const t = receiptInvType(r);
+                const t       = receiptInvType(r);
+                const justSaved = savedFlash === rcKey(r);
                 return (
-                  <tr key={r.id || i}>
-                    <td>{i + 1}</td>
+                  <tr key={rcKey(r) || i}
+                    style={justSaved ? { background: 'color-mix(in oklch, var(--good) 14%, transparent)', transition: 'background .3s' } : { transition: 'background .3s' }}>
+                    <td>
+                      {i + 1}
+                      {justSaved && <span style={{ marginLeft: 4, color: 'var(--good)', fontWeight: 800, fontSize: 13 }}>✓</span>}
+                    </td>
                     <td>{fmtDate(r.receiptDate)}</td>
                     <td><span style={{ fontFamily: 'ui-monospace', fontWeight: 600, fontSize: 11.5 }}>{r.receiptNo}</span></td>
                     <td><span style={{ fontFamily: 'ui-monospace', color: 'var(--ink-500)', fontSize: 11.5 }}>{r.invoiceNo}</span></td>
