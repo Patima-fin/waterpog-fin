@@ -12,23 +12,43 @@ function WarRoomPage2({ data, setData, toast }) {
   // sync กับหน้า "โครงการทั้งหมด" — เพิ่ม/แก้/ลบ project แล้วยอดอัปเดตทันที
   // มูลค่า: ใช้ งบประมาณ (ใบจัดสรร) ก่อน, fall back ไป มูลค่าสัญญาที่เซ็น
   // (กรณี user ยังไม่ได้กรอก งบประมาณ แต่มีค่ามูลค่าสัญญา)
+  // Helper: ดึงค่าจาก project — รองรับชื่อ field หลายแบบ
+  const getStart = (p) => p['Start'] || p['start'] || p['วันที่เริ่ม'] || p['startDate'] || p['_start'] || '';
+  const getBudget = (p) => Number(p['งบประมาณ']) || Number(p['budget']) || Number(p['allocBudget']) || 0;
+  const getSigned = (p) => Number(p['มูลค่าสัญญาที่เซ็น']) || Number(p['signedValue']) || Number(p['มูลค่าสัญญา']) || Number(p['signed']) || 0;
+  const isEmpty   = (v) => {
+    if (v == null) return true;
+    const s = String(v).trim();
+    return s === '' || s === '—' || s === '-' || s === '0' || s.toLowerCase() === 'null';
+  };
+
   const liveUnsigned = wr2Memo(() => {
-    const isEmpty = v => v == null || String(v).trim() === '' || String(v).trim() === '—' || String(v).trim() === '-';
-    const unsigned = (data.projects || []).filter(p => isEmpty(p['Start'] || p.Start || p.startDate || p.start));
+    const projects = data.projects || [];
+    const unsigned = projects.filter(p => isEmpty(getStart(p)));
     const value = unsigned.reduce((sum, p) => {
-      // priority: งบประมาณ → มูลค่าสัญญาที่เซ็น → 0
-      const budget = Number(p['งบประมาณ']) || Number(p.allocBudget) || 0;
-      const signed = Number(p['มูลค่าสัญญาที่เซ็น']) || Number(p.signedValue) || 0;
+      const budget = getBudget(p);
+      const signed = getSigned(p);
       return sum + (budget > 0 ? budget : signed);
     }, 0);
+    // diagnostic — ดูใน Console (F12)
+    if (typeof window !== 'undefined') {
+      window.__wtpDebug_unsigned = {
+        totalProjects: projects.length,
+        unsignedCount: unsigned.length,
+        unsignedValue: value,
+        sampleProject: projects[0] && Object.keys(projects[0]).slice(0, 12),
+        sampleStart: projects[0] && getStart(projects[0]),
+        sampleSigned: projects[0] && getSigned(projects[0]),
+      };
+    }
     return { count: unsigned.length, value };
   }, [data.projects]);
 
   // มูลค่าโครงการทั้งหมด (ใช้คำนวณ %) — sum ของ มูลค่าสัญญา + งบประมาณ ทุกโครงการ
   const liveTotalProjectValue = wr2Memo(() => {
     return (data.projects || []).reduce((sum, p) => {
-      const budget = Number(p['งบประมาณ']) || Number(p.allocBudget) || 0;
-      const signed = Number(p['มูลค่าสัญญาที่เซ็น']) || Number(p.signedValue) || 0;
+      const budget = getBudget(p);
+      const signed = getSigned(p);
       return sum + Math.max(budget, signed);
     }, 0);
   }, [data.projects]);
