@@ -880,13 +880,53 @@ button { font: inherit; color: inherit; }
     border-radius: 8px !important;
   }
 
-  /* Page break before Tracking section so 5-week grid + Grand Total = page 2 */
+  /* Let content flow naturally — DO NOT force page breaks.
+     Empty white space on page 1 was caused by Plan table card not fitting
+     and being pushed entirely to page 2. Now we allow soft breaks. */
   body.cf-print-mode .cf-page [data-print-page] {
-    page-break-before: always;
+    /* no page-break-before — flow naturally */
   }
 
-  /* Cards shouldn't split across pages */
-  body.cf-print-mode .cf-page .card { break-inside: avoid; page-break-inside: avoid; }
+  /* 5-week tracking grid stays together (don't split mid-grid) */
+  body.cf-print-mode .cf-page [data-print-page] .grid {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  /* Individual week cards within the grid also stay whole */
+  body.cf-print-mode .cf-page [data-print-page] .grid > .card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  /* Hero + KPI cards stay whole — short cards */
+  body.cf-print-mode .cf-page .grid-2 > .card,
+  body.cf-print-mode .cf-page .grid-3 > .card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  /* Grand Total card stays whole */
+  body.cf-print-mode .cf-page > .card[style*="linear-gradient(135deg, var(--brand-50)"] {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  /* Plan table card — allow internal break if necessary (it's the only long one) */
+  body.cf-print-mode .cf-page > .card:not([style*="linear-gradient"]) {
+    break-inside: auto;
+    page-break-inside: auto;
+  }
+  /* Repeat thead on table page break */
+  body.cf-print-mode .cf-page .tbl thead { display: table-header-group !important; }
+  body.cf-print-mode .cf-page .tbl tbody tr { break-inside: avoid; page-break-inside: avoid; }
+
+  /* Section 01 title + Plan table — keep together if possible.
+     If they don't fit on current page, both move to next (avoiding orphan title). */
+  body.cf-print-mode .cf-page .cf-section-01 {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* Compact margins between sections */
+  body.cf-print-mode .cf-page .cf-section-01 > .card { margin-bottom: 0 !important; }
+  body.cf-print-mode .cf-page [data-print-page] { margin-top: 4mm !important; }
 
   /* Hide cursors / hover affordances */
   body.cf-print-mode * { cursor: default !important; }

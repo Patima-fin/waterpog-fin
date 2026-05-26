@@ -770,6 +770,7 @@ function CashFlowDashboard({ data, setData, toast }) {
       </div>
 
       {/* ═════ SECTION B — Plan: current week vs rest of month ═════════ */}
+      <div className="cf-section-01">
       <SectionTitle num="01"
         title="ประมาณการรายสัปดาห์"
         subtitle={`เน้นสัปดาห์ปัจจุบัน (${weeks[nowWeek]?.label || 'W?'} · ${weeks[nowWeek]?.from || '-'}-${weeks[nowWeek]?.to || '-'} ${monthNames[month - 1]}) · ที่เหลือยุบรวม`}
@@ -897,6 +898,8 @@ function CashFlowDashboard({ data, setData, toast }) {
           </tbody>
         </table>
       </div>
+
+      </div>{/* end .cf-section-01 wrapper */}
 
       {/* ═════ SECTION C — Weekly Actual Tracking (5 weeks side-by-side) */}
       <div data-print-page>
