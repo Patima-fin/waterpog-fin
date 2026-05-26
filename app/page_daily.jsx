@@ -625,12 +625,15 @@ function DailyIvTable({ list, projectByCode, showDate, empty }) {
       {list.length > 0 && (
         <tfoot>
           <tr style={{ background: 'var(--brand-50, #eef4ff)', borderTop: '2px solid var(--brand-200, #bfd4ff)' }}>
-            <td colSpan={showDate ? 5 : 4} style={{ textAlign: 'right', fontWeight: 700, color: 'var(--brand-700, #1a4490)', letterSpacing: '.02em' }}>
+            {/* cols 1-5: ที่ / Job No / เลข IV / ชื่อโครงการ / งวด — รวมเป็นช่อง label */}
+            <td colSpan={5} style={{ textAlign: 'right', fontWeight: 700, color: 'var(--brand-700, #1a4490)', letterSpacing: '.02em' }}>
               รวมทั้งสิ้น ({list.length} ใบ)
             </td>
+            {/* col 6: BALANCE — ตัวเลขรวม (ตรงกับแถวข้อมูลข้างบน) */}
             <td className="num strong" style={{ fontWeight: 800, color: 'var(--brand-700, #1a4490)', fontSize: 14, whiteSpace: 'nowrap' }}>
               {fmtNum(total)}
             </td>
+            {/* col 7: วันที่รับเงิน (มีเฉพาะ showDate) */}
             {showDate && <td></td>}
           </tr>
         </tfoot>
