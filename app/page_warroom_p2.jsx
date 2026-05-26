@@ -10,14 +10,27 @@ function WarRoomPage2({ data, setData, toast }) {
   // ── Live: โครงการรอลงนาม (Start ว่าง = ยังไม่ลงนาม) ─────────────────────
   // คำนวณตรงจาก data.projects แทน warroomP2.unsignedTotal (pre-computed) เพื่อให้
   // sync กับหน้า "โครงการทั้งหมด" — เพิ่ม/แก้/ลบ project แล้วยอดอัปเดตทันที
+  // มูลค่า: ใช้ งบประมาณ (ใบจัดสรร) ก่อน, fall back ไป มูลค่าสัญญาที่เซ็น
+  // (กรณี user ยังไม่ได้กรอก งบประมาณ แต่มีค่ามูลค่าสัญญา)
   const liveUnsigned = wr2Memo(() => {
     const isEmpty = v => v == null || String(v).trim() === '' || String(v).trim() === '—' || String(v).trim() === '-';
-    const unsigned = (data.projects || []).filter(p => isEmpty(p.Start || p.start));
+    const unsigned = (data.projects || []).filter(p => isEmpty(p['Start'] || p.Start || p.startDate || p.start));
     const value = unsigned.reduce((sum, p) => {
-      const v = Number(p['งบประมาณ']) || Number(p.allocBudget) || 0;
-      return sum + v;
+      // priority: งบประมาณ → มูลค่าสัญญาที่เซ็น → 0
+      const budget = Number(p['งบประมาณ']) || Number(p.allocBudget) || 0;
+      const signed = Number(p['มูลค่าสัญญาที่เซ็น']) || Number(p.signedValue) || 0;
+      return sum + (budget > 0 ? budget : signed);
     }, 0);
     return { count: unsigned.length, value };
+  }, [data.projects]);
+
+  // มูลค่าโครงการทั้งหมด (ใช้คำนวณ %) — sum ของ มูลค่าสัญญา + งบประมาณ ทุกโครงการ
+  const liveTotalProjectValue = wr2Memo(() => {
+    return (data.projects || []).reduce((sum, p) => {
+      const budget = Number(p['งบประมาณ']) || Number(p.allocBudget) || 0;
+      const signed = Number(p['มูลค่าสัญญาที่เซ็น']) || Number(p.signedValue) || 0;
+      return sum + Math.max(budget, signed);
+    }, 0);
   }, [data.projects]);
 
   // Compute monthly totals
@@ -93,9 +106,9 @@ function WarRoomPage2({ data, setData, toast }) {
             </div>
             <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <Badge kind="b-amber" dot>{liveUnsigned.count} โครงการ</Badge>
-              {warroomP2.totalProjectValue > 0 && (
+              {liveTotalProjectValue > 0 && (
                 <span style={{ fontSize: 11.5, color: 'var(--ink-500)' }}>
-                  {((liveUnsigned.value / warroomP2.totalProjectValue) * 100).toFixed(1)}% ของมูลค่าทั้งหมด
+                  {((liveUnsigned.value / liveTotalProjectValue) * 100).toFixed(1)}% ของมูลค่าทั้งหมด
                 </span>
               )}
               <span style={{ fontSize: 10.5, color: 'var(--brand-600)', fontStyle: 'italic' }}>
