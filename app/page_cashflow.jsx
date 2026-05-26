@@ -668,20 +668,17 @@ function CashFlowDashboard({ data, setData, toast }) {
           <button className="btn btn-ghost" onClick={goNextMonth} title="เดือนถัดไป">›</button>
           <EditModeToggle value={editMode} onChange={setEditMode} />
           <button className="btn btn-ghost" onClick={() => {
-            // A4 portrait print — inject @page rule LAST so it overrides any
-            // landscape @page from the default print stylesheet (last-wins).
-            const styleId = 'cf-print-portrait-style';
+            // A4 landscape print — 5-week tracking fits beautifully across the wider page
+            const styleId = 'cf-print-landscape-style';
             let style = document.getElementById(styleId);
             if (!style) {
               style = document.createElement('style');
               style.id = styleId;
-              // Append to end of <head> AFTER all stylesheets so it cascades last
               document.head.appendChild(style);
             }
             style.textContent = `
               @media print {
-                @page { size: A4 portrait; margin: 8mm 7mm; }
-                @page :first { size: A4 portrait; }
+                @page { size: A4 landscape; margin: 8mm 10mm; }
                 html, body { background: #f4f7fb !important; }
               }
             `;
@@ -693,9 +690,8 @@ function CashFlowDashboard({ data, setData, toast }) {
             };
             window.addEventListener('afterprint', cleanup);
             setTimeout(cleanup, 60000);
-            // Small delay to ensure style is applied before print
             setTimeout(() => window.print(), 50);
-          }} title="พิมพ์ A4 แนวตั้ง (เฉพาะส่วน Present)">
+          }} title="พิมพ์ A4 แนวนอน (เฉพาะส่วน Present)">
             <Icon name="print" size={14} /> พิมพ์ / PDF
           </button>
         </div>

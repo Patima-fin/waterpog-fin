@@ -728,10 +728,11 @@ button { font: inherit; color: inherit; }
 .print-only { display: none; }     /* hidden on screen, shown in print */
 
 /* ============================================================================
-   PRINT — Cashflow page (A4 portrait, present-only, keep visual style)
+   PRINT — Cashflow page (A4 landscape, present-only, keep visual style)
    Triggered when body.cf-print-mode is added before window.print()
    Strategy: minimal overrides — preserve gradients, colors, card shadows
    so the PDF looks like the on-screen presentation.
+   Landscape A4: 297 × 210 mm usable ~ 277 × 194mm with 8/10mm margins
    ============================================================================ */
 @media print {
   /* ── Force backgrounds + colors to print (Chrome/Edge/Safari) ───────────── */
@@ -782,25 +783,43 @@ button { font: inherit; color: inherit; }
   body.cf-print-mode .cf-page .page-title { font-size: 15pt !important; color: var(--brand-700) !important; margin: 0 !important; }
   body.cf-print-mode .cf-page .page-sub   { font-size: 9pt !important; color: var(--ink-500) !important; }
 
-  /* Hero cards (B/F + Strategic) — keep gradients */
+  /* Hero cards (B/F + Strategic) + 3 KPIs side-by-side in landscape
+     → fits 5 cards in one row (2+3) for compact landscape layout */
   body.cf-print-mode .cf-page .grid-2 {
     display: grid !important;
     grid-template-columns: repeat(2, 1fr) !important;
-    gap: 8px !important;
-    margin-bottom: 8px !important;
+    gap: 6px !important;
+    margin-bottom: 6px !important;
   }
   /* Hero card text — keep white over gradient */
   body.cf-print-mode .cf-page .grid-2 > .card > div[style*="linear-gradient"] *,
   body.cf-print-mode .cf-page [style*="linear-gradient(135deg"] {
     color: inherit !important;
   }
+  /* Hero cards — slim height + smaller big number in print */
+  body.cf-print-mode .cf-page .grid-2 .card {
+    padding: 10px 14px !important;
+    min-height: auto !important;
+  }
+  /* Catch the big "fontSize: 36" inline value on the hero number */
+  body.cf-print-mode .cf-page .grid-2 .card > div > div:nth-child(2) {
+    font-size: 22pt !important;
+    margin-top: 2px !important;
+  }
+  /* Decorative circle background — hide in print to save space */
+  body.cf-print-mode .cf-page .grid-2 .card > div[style*="border-radius: 50%"] {
+    display: none !important;
+  }
 
   /* 3 PlanVsActual KPI cards — keep colored progress + numbers */
   body.cf-print-mode .cf-page .grid-3 {
     display: grid !important;
     grid-template-columns: repeat(3, 1fr) !important;
-    gap: 8px !important;
-    margin-bottom: 8px !important;
+    gap: 6px !important;
+    margin-bottom: 6px !important;
+  }
+  body.cf-print-mode .cf-page .grid-3 .card {
+    padding: 6px 10px !important;
   }
 
   /* Section title — keep gradient badge */
@@ -839,24 +858,26 @@ button { font: inherit; color: inherit; }
     font-weight: 700 !important;
   }
 
-  /* ── 5-week tracking grid — fit portrait, keep colored headers ────────── */
+  /* ── 5-week tracking grid — landscape has plenty of width (~277mm) ─────
+     5 cards × ~50mm = 250mm + gaps → fits comfortably */
   body.cf-print-mode .cf-page [data-print-page] .grid {
     grid-template-columns: repeat(5, 1fr) !important;
-    gap: 4px !important;
+    gap: 6px !important;
     overflow: visible !important;
     margin-bottom: 8px !important;
   }
   body.cf-print-mode .cf-page [data-print-page] .grid .tbl {
-    font-size: 7pt !important;
+    font-size: 8pt !important;
   }
   body.cf-print-mode .cf-page [data-print-page] .grid .tbl th,
   body.cf-print-mode .cf-page [data-print-page] .grid .tbl td {
-    padding: 2pt 3pt !important;
+    padding: 3pt 5pt !important;
   }
-  /* Compact week cards — slim padding */
+  /* Week cards — keep header gradient + compact body */
   body.cf-print-mode .cf-page [data-print-page] .grid .card {
     padding: 0 !important;
     overflow: hidden !important;
+    border-radius: 8px !important;
   }
 
   /* Page break before Tracking section so 5-week grid + Grand Total = page 2 */
