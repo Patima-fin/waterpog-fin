@@ -255,14 +255,17 @@ function WarRoomPage1({ data, setData, toast }) {
         </table>
       </SectionCard>
 
-      {/* ── Combined this-month callout: รับแล้วในเดือนนี้ + คาดรับเพิ่ม = รวมเดือนนี้ ── */}
+      {/* ── Combined this-month callout: รับแล้ว + คาดรับเพิ่ม = รวมเดือนนี้ (GROSS ใหญ่ + NET เล็กข้างล่าง) ── */}
       {(() => {
         const paidThisMonth = liveYtd.find(m => m.monthKey === liveThisMonth);
-        const paidNet  = paidThisMonth ? paidThisMonth.net   : 0;
-        const paidCnt  = paidThisMonth ? paidThisMonth.count : 0;
-        const fcNet    = thisMthTotal.net;
-        const fcCnt    = thisMthTotal.count;
-        const sumNet   = paidNet + fcNet;
+        const paidGross = paidThisMonth ? paidThisMonth.gross : 0;
+        const paidNet   = paidThisMonth ? paidThisMonth.net   : 0;
+        const paidCnt   = paidThisMonth ? paidThisMonth.count : 0;
+        const fcGross   = thisMthTotal.gross;
+        const fcNet     = thisMthTotal.net;
+        const fcCnt     = thisMthTotal.count;
+        const sumGross  = paidGross + fcGross;
+        const sumNet    = paidNet   + fcNet;
         return (
           <div className="card anim-in" style={{
             marginBottom: 18, padding: 0, overflow: 'hidden',
@@ -275,10 +278,13 @@ function WarRoomPage1({ data, setData, toast }) {
                 <div style={{ fontSize: 11, color: 'var(--ink-500)', fontWeight: 600, marginBottom: 4 }}>
                   ✓ รับแล้ว · {liveMonthName}
                 </div>
-                <div style={{ fontSize: 22, fontWeight: 700, color: '#276749', fontVariantNumeric: 'tabular-nums' }}>
-                  <AnimatedNumber value={paidNet} digits={2} /> <span style={{ fontSize: 12, color: 'var(--ink-500)', fontWeight: 500 }}>บาท</span>
+                <div style={{ fontSize: 22, fontWeight: 700, color: '#276749', fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>
+                  <AnimatedNumber value={paidGross} digits={2} /> <span style={{ fontSize: 12, color: 'var(--ink-500)', fontWeight: 500 }}>บาท</span>
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--ink-400)' }}>{paidCnt} ใบ · จากชีทประวัติรับเงิน</div>
+                <div style={{ fontSize: 11.5, color: 'var(--ink-500)', marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
+                  สุทธิ <strong style={{ color: '#276749' }}>{fmtNum(paidNet, 2)}</strong>
+                  <span style={{ marginLeft: 6, color: 'var(--ink-400)' }}>· {paidCnt} ใบ</span>
+                </div>
               </div>
               <div style={{ textAlign: 'center', fontSize: 22, color: 'var(--ink-400)', fontWeight: 300 }}>+</div>
               {/* คาดรับเพิ่ม */}
@@ -286,10 +292,13 @@ function WarRoomPage1({ data, setData, toast }) {
                 <div style={{ fontSize: 11, color: 'var(--ink-500)', fontWeight: 600, marginBottom: 4 }}>
                   ⏳ คาดรับเพิ่ม · ที่เหลือในเดือนนี้
                 </div>
-                <div style={{ fontSize: 22, fontWeight: 700, color: 'oklch(60% 0.16 75)', fontVariantNumeric: 'tabular-nums' }}>
-                  <AnimatedNumber value={fcNet} digits={2} /> <span style={{ fontSize: 12, color: 'var(--ink-500)', fontWeight: 500 }}>บาท</span>
+                <div style={{ fontSize: 22, fontWeight: 700, color: 'oklch(60% 0.16 75)', fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>
+                  <AnimatedNumber value={fcGross} digits={2} /> <span style={{ fontSize: 12, color: 'var(--ink-500)', fontWeight: 500 }}>บาท</span>
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--ink-400)' }}>{fcCnt} ใบ · จากการติดตาม IV</div>
+                <div style={{ fontSize: 11.5, color: 'var(--ink-500)', marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
+                  สุทธิ <strong style={{ color: 'oklch(55% 0.16 75)' }}>{fmtNum(fcNet, 2)}</strong>
+                  <span style={{ marginLeft: 6, color: 'var(--ink-400)' }}>· {fcCnt} ใบ</span>
+                </div>
               </div>
               <div style={{ textAlign: 'center', fontSize: 22, color: 'var(--ink-400)', fontWeight: 300 }}>=</div>
               {/* รวมเดือนนี้ */}
@@ -300,10 +309,13 @@ function WarRoomPage1({ data, setData, toast }) {
                 <div style={{ fontSize: 11, opacity: 0.9, fontWeight: 600, marginBottom: 4 }}>
                   💰 ประมาณการรับรวม · {liveMonthName}
                 </div>
-                <div style={{ fontSize: 26, fontWeight: 800, fontVariantNumeric: 'tabular-nums', letterSpacing: '-.01em' }}>
-                  <AnimatedNumber value={sumNet} digits={2} /> <span style={{ fontSize: 13, opacity: 0.85, fontWeight: 500 }}>บาท</span>
+                <div style={{ fontSize: 26, fontWeight: 800, fontVariantNumeric: 'tabular-nums', letterSpacing: '-.01em', lineHeight: 1.1 }}>
+                  <AnimatedNumber value={sumGross} digits={2} /> <span style={{ fontSize: 13, opacity: 0.85, fontWeight: 500 }}>บาท</span>
                 </div>
-                <div style={{ fontSize: 11, opacity: 0.85 }}>{paidCnt + fcCnt} ใบรวม (รับแล้ว + คาดรับ)</div>
+                <div style={{ fontSize: 11.5, opacity: 0.92, marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>
+                  สุทธิ <strong>{fmtNum(sumNet, 2)}</strong>
+                  <span style={{ marginLeft: 6, opacity: 0.8 }}>· {paidCnt + fcCnt} ใบรวม</span>
+                </div>
               </div>
             </div>
           </div>
