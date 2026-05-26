@@ -259,11 +259,13 @@ function CashFlowDashboard({ data, setData, toast }) {
   const paidVchnoSet = cfMemo(() => buildPaidVchnoSet(pvVouchers), [pvVouchers]);
 
   // ── Bucket AP forecast outflow by week × category ─────────────────────
+  //   Plan baseline — รวม AP ทุกใบ (จ่ายแล้ว/ยังไม่จ่าย) ที่ due ในเดือนนี้
+  //   เพราะ AP ที่จ่ายแล้วก็เคยเป็นส่วนหนึ่งของแผน — ต้องนับเพื่อให้ Plan vs Actual = 100%
+  //   ตอนจ่ายครบ (ไม่ใช่ 0 ทั้งที่จ่ายไปแล้ว)
   // [week][category] = sum
   const apForecastByWeekCat = cfMemo(() => {
     const grid = weeks.map(() => ({ 1: 0, 2: 0, 3: 0, 4: 0 }));
     payables.forEach(ap => {
-      if (paidVchnoSet.has(ap.vchno)) return;   // already paid → exclude
       const due = ap.due2 || ap.due || ap.vchdate;
       if (!inMonth(due, year, month)) return;
       const wIdx = findWeekIdx(due, weeks);
@@ -331,14 +333,14 @@ function CashFlowDashboard({ data, setData, toast }) {
     const actual   = weeks.map(() => 0);
     invoices.forEach(iv => {
       const net = ivNetExpected(iv, financeByCode);
-      // Forecast: ลูกหนี้คงค้างทุกใบที่ยังไม่ได้รับเงิน (status ≠ paid)
-      //   ใช้ expectedReceive เป็นวันที่คาดว่าจะได้รับ
-      //   ใช้ net = คาดรับสุทธิ (จากหน้า IV) — ยอดเดียวที่เห็น ไม่หักอะไรเพิ่ม
-      if (!ivIsPaid(iv) && iv.expectedReceive && inMonth(iv.expectedReceive, year, month)) {
+      // Plan bucket — IV ทุกใบที่มี expectedReceive ตกในเดือนนี้
+      //   รวมถึง IV ที่จ่ายแล้ว เพราะตอนที่วางแผนมันก็เป็นส่วนหนึ่งของ "plan"
+      //   (จะได้เห็น Plan vs Actual = 100% ตอนรับเงินครบ)
+      if (iv.expectedReceive && inMonth(iv.expectedReceive, year, month)) {
         const w = findWeekIdx(iv.expectedReceive, weeks);
         if (w >= 0) forecast[w] += net;
       }
-      // Actual: actualReceive.date in current month
+      // Actual bucket — เฉพาะ IV ที่มี actualReceive.date ตกในเดือนนี้
       const ad = ivActualReceiveDate(iv);
       if (ad && inMonth(ad, year, month)) {
         const w = findWeekIdx(ad, weeks);
@@ -349,6 +351,10 @@ function CashFlowDashboard({ data, setData, toast }) {
   }, [invoices, weeks, year, month]);
 
   // ── Loan inflow (forecast + actual) — from forecastEntries CATEGORY=LOAN
+  //   Plan   = baseline ที่คาดไว้ — นับทุกแถวที่ไม่ใช่ CANCELED (รวม ACTUAL/BOOKED ด้วย)
+  //            ใช้ AMOUNT (ยอดเดิมที่วางแผน) ที่ PAYMENT_DATE
+  //   Actual = ที่เกิดจริงแล้ว — เฉพาะ ACTUAL/BOOKED
+  //            ใช้ ACTUAL_AMOUNT ที่ ACTUAL_DATE (fallback PAYMENT_DATE)
   const loanByWeek = cfMemo(() => {
     const forecast = weeks.map(() => 0);
     const actual   = weeks.map(() => 0);
@@ -357,16 +363,23 @@ function CashFlowDashboard({ data, setData, toast }) {
       if (!isLoan) return;
       const amt = Number(fe.AMOUNT || fe.amount || 0);
       if (amt <= 0) return;
-      const date = fe.PAYMENT_DATE || fe.DATE;
-      if (!inMonth(date, year, month)) return;
-      const w = findWeekIdx(date, weeks);
-      if (w < 0) return;
       const status = String(fe.STATUS || '').toUpperCase();
       if (status === 'CANCELED') return;
+
+      // Plan bucket — ใส่ baseline ทุกแถวที่ไม่ถูกยกเลิก
+      const planDate = fe.PAYMENT_DATE || fe.DATE;
+      if (planDate && inMonth(planDate, year, month)) {
+        const wF = findWeekIdx(planDate, weeks);
+        if (wF >= 0) forecast[wF] += amt;
+      }
+
+      // Actual bucket — เฉพาะ ACTUAL/BOOKED ใช้ ACTUAL_DATE + ACTUAL_AMOUNT
       if (status === 'ACTUAL' || status === 'BOOKED') {
-        actual[w] += Number(fe.ACTUAL_AMOUNT || fe.AMOUNT || 0);
-      } else {
-        forecast[w] += amt;
+        const actualDate = fe.ACTUAL_DATE || fe.PAYMENT_DATE || fe.DATE;
+        if (actualDate && inMonth(actualDate, year, month)) {
+          const wA = findWeekIdx(actualDate, weeks);
+          if (wA >= 0) actual[wA] += Number(fe.ACTUAL_AMOUNT || amt);
+        }
       }
     });
     return { forecast, actual };
@@ -439,9 +452,12 @@ function CashFlowDashboard({ data, setData, toast }) {
     return { iv, loan, out };
   }, [isLastWeekOfMonth, invoices, payables, forecastEntries, paidVchnoSet, year, month]);
 
-  // Combine forecast (PLANNED) + actual (ACTUAL+BOOKED) for "what's happening this period"
-  const ivCombinedByWeek  = weeks.map((_, i) => (ivInflowByWeek.forecast[i] || 0) + (ivInflowByWeek.actual[i] || 0));
-  const loanCombinedByWeek= weeks.map((_, i) => (loanByWeek.forecast[i] || 0) + (loanByWeek.actual[i] || 0));
+  // Plan table — use forecast bucket only (it already includes all entries,
+  //   ACTUAL items at their planned date). Drill-down popup shows breakdown.
+  //   Note: an entry that landed on a different week than planned will only
+  //   appear at its planned week in the Plan table — that's intentional.
+  const ivCombinedByWeek   = ivInflowByWeek.forecast;
+  const loanCombinedByWeek = loanByWeek.forecast;
 
   const planIv   = currentRestSplit(ivCombinedByWeek,   nextMonthInflow.iv);
   const planLoan = currentRestSplit(loanCombinedByWeek, nextMonthInflow.loan);
@@ -556,18 +572,23 @@ function CashFlowDashboard({ data, setData, toast }) {
     if (row && row.startsWith('out')) {
       const targetCat = Number(row.slice(3));
       payables.forEach(ap => {
-        if (paidVchnoSet.has(ap.vchno)) return;
+        // Plan baseline includes paid AP — show all (mark paid ones in note)
         const d = ap.due2 || ap.due || ap.vchdate;
         if (!d || !inPeriod(d)) return;
         const cat = categorizePayable(ap);
         if (cat !== targetCat) return;
+        const isPaid = paidVchnoSet.has(ap.vchno);
+        const noteParts = [];
+        if (isPaid) noteParts.push('✅ จ่ายแล้ว');
+        if (ap.jobcode) noteParts.push(`Job: ${ap.jobcode}`);
+        if (ap.dpt_code) noteParts.push(ap.dpt_code);
         items.push({
           source: 'AP',
           date: d,
           name: ap.cust_name || ap.vendor || '—',
           ref: ap.vchno || ap.docno || '',
           amount: -Number(ap.netpayment || ap.Amount || 0),  // negative = outflow
-          note: ap.jobcode ? `Job: ${ap.jobcode}${ap.dpt_code ? ' · '+ap.dpt_code : ''}` : (ap.dpt_code || ''),
+          note: noteParts.join(' · ') || '—',
         });
       });
       forecastEntries.forEach(fe => {
