@@ -651,7 +651,7 @@ function CashFlowDashboard({ data, setData, toast }) {
   };
 
   return (
-    <div className="page bg-pattern">
+    <div className="page bg-pattern cf-page">
       {/* Header */}
       <div className="page-head anim-in">
         <div>
@@ -667,12 +667,34 @@ function CashFlowDashboard({ data, setData, toast }) {
           </div>
           <button className="btn btn-ghost" onClick={goNextMonth} title="เดือนถัดไป">›</button>
           <EditModeToggle value={editMode} onChange={setEditMode} />
-          <PrintButton label="พิมพ์ / PDF" />
+          <button className="btn btn-ghost" onClick={() => {
+            // A4 portrait print — inject @page + body class, restore after print
+            const styleId = 'cf-print-portrait-style';
+            let style = document.getElementById(styleId);
+            if (!style) {
+              style = document.createElement('style');
+              style.id = styleId;
+              document.head.appendChild(style);
+            }
+            style.textContent = '@media print { @page { size: A4 portrait; margin: 10mm 9mm; } }';
+            document.body.classList.add('cf-print-mode');
+            const cleanup = () => {
+              document.body.classList.remove('cf-print-mode');
+              style.remove();
+              window.removeEventListener('afterprint', cleanup);
+            };
+            window.addEventListener('afterprint', cleanup);
+            // Fallback timeout in case afterprint doesn't fire
+            setTimeout(cleanup, 60000);
+            window.print();
+          }} title="พิมพ์ A4 แนวตั้ง (เฉพาะส่วน Present)">
+            <Icon name="print" size={14} /> พิมพ์ / PDF
+          </button>
         </div>
       </div>
 
       {editMode && (
-        <div style={{ marginBottom: 12, padding: '8px 14px', borderRadius: 10, background: 'color-mix(in oklch, var(--brand-500) 8%, transparent)', border: '1.5px solid color-mix(in oklch, var(--brand-500) 30%, transparent)', fontSize: 12, color: 'var(--brand-700)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <div className="no-print" style={{ marginBottom: 12, padding: '8px 14px', borderRadius: 10, background: 'color-mix(in oklch, var(--brand-500) 8%, transparent)', border: '1.5px solid color-mix(in oklch, var(--brand-500) 30%, transparent)', fontSize: 12, color: 'var(--brand-700)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <span style={{ fontWeight: 700 }}>📝 โหมดแก้ไข — คลิกในช่องตัวเลขเพื่อกรอกค่า (Tab/Enter บันทึก · ✕ ล้าง)</span>
           <span style={{ fontSize: 11, color: 'var(--ink-500)' }}>ค่าที่กรอกแยกตามเดือน — เปลี่ยนเดือนแล้วเริ่มใหม่</span>
           <button type="button" onClick={() => { if (confirm('ล้างค่าที่กรอกมือทั้งหมดใน app (ทุกหน้า)?')) WTPOverride.clearAll(); }}
@@ -873,6 +895,7 @@ function CashFlowDashboard({ data, setData, toast }) {
       </div>
 
       {/* ═════ SECTION C — Weekly Actual Tracking (5 weeks side-by-side) */}
+      <div data-print-page>
       <SectionTitle num="02"
         title="ติดตามจ่ายจริงรายสัปดาห์"
         subtitle="Weekly Actual Tracking · เปรียบเทียบ Plan vs Actual ทั้ง 5 สัปดาห์ของเดือน"
@@ -1056,9 +1079,10 @@ function CashFlowDashboard({ data, setData, toast }) {
         </div>
         );
       })()}
+      </div>{/* end data-print-page wrapper for Section 02 */}
 
       {/* Footer hints */}
-      <div className="card" style={{ marginTop: 12, padding: 14, background: '#fffbeb', borderLeft: '4px solid #f6ad55', fontSize: 12, color: 'var(--ink-700)' }}>
+      <div className="card no-print" style={{ marginTop: 12, padding: 14, background: '#fffbeb', borderLeft: '4px solid #f6ad55', fontSize: 12, color: 'var(--ink-700)' }}>
         <div style={{ fontWeight: 700, marginBottom: 6 }}>💡 หมายเหตุ</div>
         <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.7 }}>
           <li>ยอดยกมา (B/F) — ดึงจาก <a href="#daily_balance" style={{ color: 'var(--brand-600)' }}>บันทึกยอดธนาคารรายวัน</a> วันสุดท้ายของเดือนที่แล้ว</li>

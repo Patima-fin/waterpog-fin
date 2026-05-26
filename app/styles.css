@@ -726,3 +726,77 @@ button { font: inherit; color: inherit; }
   .print-only { display: block !important; }
 }
 .print-only { display: none; }     /* hidden on screen, shown in print */
+
+/* ============================================================================
+   PRINT — Cashflow page (A4 portrait, present-only)
+   Triggered when body.cf-print-mode is added before window.print()
+   ============================================================================ */
+@media print {
+  body.cf-print-mode { font-size: 9pt; }
+
+  /* Hide non-present elements on cashflow page */
+  body.cf-print-mode .cf-page .page-head-r,
+  body.cf-print-mode .cf-page .no-print {
+    display: none !important;
+  }
+
+  /* Compact page header — title + subtitle only */
+  body.cf-print-mode .cf-page .page-head {
+    margin-bottom: 4mm !important;
+    padding-bottom: 3mm !important;
+    border-bottom: 2px solid #1a4490 !important;
+  }
+  body.cf-print-mode .cf-page .page-title { font-size: 14pt !important; color: #1a4490 !important; margin: 0 !important; }
+  body.cf-print-mode .cf-page .page-sub { font-size: 8pt !important; }
+
+  /* Hero cards (B/F + Strategic) — keep gradient backgrounds for visual */
+  body.cf-print-mode .cf-page .grid-2 {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 6px !important;
+    margin-bottom: 6px !important;
+  }
+
+  /* 3 PlanVsActual cards — tighter */
+  body.cf-print-mode .cf-page .grid-3 {
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 6px !important;
+    margin-bottom: 6px !important;
+  }
+
+  /* Compact card padding */
+  body.cf-print-mode .cf-page .card { padding: 6px 8px !important; border: 1px solid #ccc !important; }
+
+  /* Section titles — smaller */
+  body.cf-print-mode .cf-page h2 { font-size: 11pt !important; }
+
+  /* Plan section table */
+  body.cf-print-mode .cf-page .tbl { font-size: 8pt !important; }
+  body.cf-print-mode .cf-page .tbl th,
+  body.cf-print-mode .cf-page .tbl td { padding: 3pt 4pt !important; }
+
+  /* Force 5-week tracking grid to fit portrait — auto wrap if too narrow */
+  body.cf-print-mode .cf-page [style*="repeat("][style*="minmax"] {
+    grid-template-columns: repeat(5, 1fr) !important;
+    gap: 4px !important;
+    overflow: visible !important;
+  }
+  /* Inner tables in 5-week cards */
+  body.cf-print-mode .cf-page [style*="repeat("][style*="minmax"] .tbl {
+    font-size: 6.5pt !important;
+  }
+  body.cf-print-mode .cf-page [style*="repeat("][style*="minmax"] .tbl th,
+  body.cf-print-mode .cf-page [style*="repeat("][style*="minmax"] .tbl td {
+    padding: 1.5pt 2pt !important;
+  }
+
+  /* Page break before Tracking section to keep things tidy */
+  body.cf-print-mode .cf-page [data-print-page] { page-break-before: always; }
+
+  /* Hide drill-down hovers, hints, mouse cursors */
+  body.cf-print-mode .cf-page * { cursor: default !important; }
+
+  /* Avoid breaking inside cards */
+  body.cf-print-mode .cf-page .card { break-inside: avoid; page-break-inside: avoid; }
+}
