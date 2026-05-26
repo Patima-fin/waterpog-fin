@@ -212,8 +212,15 @@ function CashFlowDashboard({ data, setData, toast }) {
     return getBalanceAtDate(snapshots, cutoff);
   }, [snapshots, year, month]);
 
-  // ── Live balance (sum of main bank accounts now) ──────────────────────
-  const liveBalance = mainAccounts.reduce((s, a) => s + (Number(a.BALANCE) || 0), 0);
+  // ── Live balance + HOLD (sum across main bank accounts) ──────────────
+  //   liveBalance     = ยอดรวมที่อยู่ในบัญชี (gross)
+  //   liveHold        = ยอดที่กันไว้ HOLD (เช่น ค้ำประกัน LG, เช็คออกแล้วยังไม่ขึ้น)
+  //   liveAvailable   = ใช้ได้จริง = balance - HOLD
+  const liveBalance   = mainAccounts.reduce((s, a) => s + (Number(a.BALANCE) || 0), 0);
+  const liveHold      = mainAccounts.reduce((s, a) => s + (Number(a.HOLD_AMOUNT) || 0), 0);
+  const liveAvailable = liveBalance - liveHold;
+  // B/F แสดงเป็น Available (ยอดหลังหัก HOLD) — เพื่อสะท้อนเงินที่ใช้วางแผนจริงได้
+  const monthBFAvailable = Math.max(0, monthBF - liveHold);
 
   // ── AP-PV match: exclude AP that has a matching PV ────────────────────
   const paidVchnoSet = cfMemo(() => buildPaidVchnoSet(pvVouchers), [pvVouchers]);
@@ -345,7 +352,8 @@ function CashFlowDashboard({ data, setData, toast }) {
   const outflowActual   = [1,2,3,4].reduce((s, c) => s + sumCatArr(pvActualByWeekCat, c), 0);
 
   // Strategic Management = end-of-month projected net
-  const strategicNet = monthBF + loanForecast + ivForecast - outflowForecast;
+  //   ใช้ Available (B/F หลังหัก HOLD) เพื่อสะท้อนเงินที่ "วางแผนใช้ได้จริง"
+  const strategicNet = monthBFAvailable + loanForecast + ivForecast - outflowForecast;
 
   // ── Plan section: current week vs rest-of-month ───────────────────────
   // Rule from M_Forecast Excel:
@@ -411,16 +419,21 @@ function CashFlowDashboard({ data, setData, toast }) {
   const totalOutRest    = planOut[1].rest    + planOut[2].rest    + planOut[3].rest    + planOut[4].rest;
   const totalOutAll     = planOut[1].total   + planOut[2].total   + planOut[3].total   + planOut[4].total;
 
-  // ── Week-start balance: snapshot at start of current week ─────────────
+  // ── Week-start balance (net of HOLD): snapshot at start of current week
+  //   ใช้ในตาราง Plan แถว "เงินสดคงเหลือยกมา" ของ current-week column
   const weekBF = cfMemo(() => {
-    if (nowWeek == null || !weeks[nowWeek]) return monthBF;
-    const wStart = weeks[nowWeek].fromISO;
-    // Day before week start
-    const d = new Date(wStart);
-    d.setDate(d.getDate() - 1);
-    const prevISO = d.toISOString().slice(0, 10);
-    return getBalanceAtDate(snapshots, prevISO) || liveBalance;
-  }, [snapshots, weeks, nowWeek, monthBF, liveBalance]);
+    let raw;
+    if (nowWeek == null || !weeks[nowWeek]) {
+      raw = monthBF;
+    } else {
+      const wStart = weeks[nowWeek].fromISO;
+      const d = new Date(wStart);
+      d.setDate(d.getDate() - 1);
+      const prevISO = d.toISOString().slice(0, 10);
+      raw = getBalanceAtDate(snapshots, prevISO) || liveBalance;
+    }
+    return Math.max(0, raw - liveHold);
+  }, [snapshots, weeks, nowWeek, monthBF, liveBalance, liveHold]);
 
   // Net at end of current week + end of month — used in PlanRow + Net row
   const inflowCurrent      = planIv.current + planLoan.current;
@@ -464,13 +477,17 @@ function CashFlowDashboard({ data, setData, toast }) {
       </div>
 
       {/* ═════ SECTION A — Hero balance cards + PlanVsActual KPIs ═════════ */}
-      {/* Hero strip — 2 big gradient cards (B/F + Strategic Management) */}
-      <div className="grid grid-2 anim-in" style={{ marginBottom: 14 }}>
+      {/* Hero strip — 2 big gradient cards (B/F net-of-HOLD + Strategic Management) */}
+      <div className="grid grid-2 anim-in" style={{ marginBottom: 18 }}>
         <BalanceCard
           tone="bf"
           label="เงินสดคงเหลือยกมา (B/F)"
-          value={monthBF}
-          hint={`ต้นเดือน · ${monthNames[month - 1]} ${year + 543}`}
+          value={monthBFAvailable}
+          hint={
+            liveHold > 0
+              ? `ต้นเดือน · ${monthNames[month - 1]} ${year + 543} · หัก HOLD ${fmtNum(liveHold, 0)} แล้ว`
+              : `ต้นเดือน · ${monthNames[month - 1]} ${year + 543}`
+          }
           icon="coin"
         />
         <BalanceCard
@@ -479,48 +496,12 @@ function CashFlowDashboard({ data, setData, toast }) {
           value={strategicNet}
           hint={
             strategicNet < 0
-              ? `⚠️ ติดลบ — ต้องการเงินกู้/รายรับเพิ่ม · คงเหลือปัจจุบัน ${fmtNum(liveBalance, 0)} ฿`
-              : `อยู่ในเกณฑ์ปลอดภัย · คงเหลือปัจจุบัน ${fmtNum(liveBalance, 0)} ฿`
+              ? `⚠️ ติดลบ — ต้องการเงินกู้/รายรับเพิ่ม · ใช้ได้ปัจจุบัน ${fmtNum(liveAvailable, 0)} ฿`
+              : `อยู่ในเกณฑ์ปลอดภัย · ใช้ได้ปัจจุบัน ${fmtNum(liveAvailable, 0)} ฿`
           }
           icon={strategicNet < 0 ? 'arrow_down' : 'arrow_up'}
         />
       </div>
-
-      {/* Live balance strip — sum of main bank accounts */}
-      {mainAccounts.length > 0 && (
-        <div className="card anim-in" style={{
-          marginBottom: 14, padding: '12px 18px',
-          display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
-          background: 'linear-gradient(90deg, color-mix(in oklch, var(--brand-500) 8%, transparent), transparent)',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '0 0 auto' }}>
-            <div style={{ width: 36, height: 36, borderRadius: 9, background: 'var(--brand-100)', color: 'var(--brand-700)', display: 'grid', placeItems: 'center' }}>
-              <Icon name="bank" size={18} />
-            </div>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--ink-500)' }}>
-                ยอดเงินในธนาคารจริง ({mainAccounts.length} บัญชีหลัก)
-              </div>
-              <div style={{ fontSize: 20, fontWeight: 700, color: liveBalance < 0 ? 'var(--bad)' : 'var(--good)' }}>
-                {fmtNum(liveBalance, 2)} <span style={{ fontSize: 12, color: 'var(--ink-500)' }}>฿</span>
-              </div>
-            </div>
-          </div>
-          <div style={{ flex: 1, display: 'flex', gap: 18, flexWrap: 'wrap' }}>
-            {mainAccounts.map((b, i) => (
-              <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>{b.BANK_NAME || b.bankName}</div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: Number(b.BALANCE ?? b.balance ?? 0) < 0 ? 'var(--bad)' : 'var(--ink-900)', fontVariantNumeric: 'tabular-nums' }}>
-                  {fmtNum(Number(b.BALANCE ?? b.balance ?? 0), 0)}
-                </div>
-              </div>
-            ))}
-          </div>
-          <a href="#daily_balance" className="btn btn-ghost btn-sm" style={{ flex: '0 0 auto' }}>
-            <Icon name="edit" size={12} /> บันทึกยอดวันนี้
-          </a>
-        </div>
-      )}
 
       {/* 3 PlanVsActual cards — รับโครงการ / เงินกู้ / ค่าใช้จ่ายรวม */}
       <div className="grid grid-3 anim-stagger" style={{ marginBottom: 22 }}>
