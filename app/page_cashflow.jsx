@@ -183,6 +183,9 @@ function CashFlowDashboard({ data, setData, toast }) {
   const [year, setYear]   = cfState(today.getFullYear());
   const [month, setMonth] = cfState(today.getMonth() + 1);
 
+  // Drill-down popup: { title, rows, kind } where kind ∈ {iv, loan, ap, fe, mixed}
+  const [drillDown, setDrillDown] = cfState(null);
+
   // ── Month weeks (Monday-based) ────────────────────────────────────────
   const weeks = cfMemo(() => getMonthWeeksMonday(year, month), [year, month]);
 
@@ -444,6 +447,119 @@ function CashFlowDashboard({ data, setData, toast }) {
   const netEndOfMonth      = netEndOfCurrentWeek + inflowRest - totalOutRest;
 
   // ── Week selector ─────────────────────────────────────────────────────
+  // ─── Drill-down builder ──────────────────────────────────────────────────
+  // For a given row+period, collect the underlying source rows so user can verify.
+  // row    : 'iv' | 'loan' | 'out1' | 'out2' | 'out3' | 'out4'
+  // period : 'current' | 'rest' | 'total'
+  const openDrillDown = (row, period, label) => {
+    const isLastWeek = nowWeek === weeks.length - 1;
+    const inCurrent  = (date) => {
+      if (!inMonth(date, year, month)) return false;
+      const w = findWeekIdx(date, weeks);
+      return w === nowWeek;
+    };
+    const inRest = (date) => {
+      if (isLastWeek) {
+        const nyY = month === 12 ? year + 1 : year;
+        const nyM = month === 12 ? 1 : month + 1;
+        return inMonth(date, nyY, nyM);
+      }
+      if (!inMonth(date, year, month)) return false;
+      const w = findWeekIdx(date, weeks);
+      return w > nowWeek;
+    };
+    const inPeriod = (date) => {
+      if (period === 'current') return inCurrent(date);
+      if (period === 'rest')    return inRest(date);
+      return inCurrent(date) || inRest(date);
+    };
+
+    const items = [];
+
+    if (row === 'iv') {
+      invoices.forEach(iv => {
+        if (ivIsPaid(iv)) return;
+        const d = iv.expectedReceive;
+        if (!d || !inPeriod(d)) return;
+        items.push({
+          source: 'IV',
+          date: d,
+          name: iv.projectName || iv.PROJECT_NAME || iv.customer || '—',
+          ref: iv.ivNo || iv.IV_NO || iv.invoiceNo || '',
+          amount: ivNetExpected(iv),
+          note: iv.note || '',
+        });
+      });
+      forecastEntries.forEach(fe => {
+        // Non-LOAN inflow (rare but possible)
+      });
+    }
+
+    if (row === 'loan') {
+      forecastEntries.forEach(fe => {
+        const isLoan = String(fe.EXPENSE_TYPE || fe.CATEGORY || '').toUpperCase() === 'LOAN';
+        if (!isLoan) return;
+        const amt = Number(fe.AMOUNT || fe.amount || 0);
+        if (amt <= 0) return;
+        const status = String(fe.STATUS || '').toUpperCase();
+        if (status === 'CANCELED') return;
+        const d = fe.PAYMENT_DATE || fe.DATE;
+        if (!d || !inPeriod(d)) return;
+        items.push({
+          source: 'Forecast',
+          date: d,
+          name: fe.DESCRIPTION || '—',
+          ref: fe.JOB_NO || '',
+          amount: (status === 'ACTUAL' || status === 'BOOKED') ? Number(fe.ACTUAL_AMOUNT || amt) : amt,
+          note: `STATUS=${status || 'PLANNED'}${fe.NOTE ? ' · ' + fe.NOTE : ''}`,
+        });
+      });
+    }
+
+    if (row && row.startsWith('out')) {
+      const targetCat = Number(row.slice(3));
+      payables.forEach(ap => {
+        if (paidVchnoSet.has(ap.vchno)) return;
+        const d = ap.due2 || ap.due || ap.vchdate;
+        if (!d || !inPeriod(d)) return;
+        const cat = categorizePayable(ap);
+        if (cat !== targetCat) return;
+        items.push({
+          source: 'AP',
+          date: d,
+          name: ap.cust_name || ap.vendor || '—',
+          ref: ap.vchno || ap.docno || '',
+          amount: -Number(ap.netpayment || ap.Amount || 0),  // negative = outflow
+          note: ap.jobcode ? `Job: ${ap.jobcode}${ap.dpt_code ? ' · '+ap.dpt_code : ''}` : (ap.dpt_code || ''),
+        });
+      });
+      forecastEntries.forEach(fe => {
+        const status = String(fe.STATUS || fe.status || '').toUpperCase();
+        if (status === 'CANCELED') return;
+        const isLoan = String(fe.EXPENSE_TYPE || fe.CATEGORY || '').toUpperCase() === 'LOAN';
+        if (isLoan) return;
+        const amt = Number(fe.AMOUNT || fe.amount || 0);
+        if (amt >= 0) return;
+        const d = fe.PAYMENT_DATE || fe.DATE;
+        if (!d || !inPeriod(d)) return;
+        const cat = categorizeForecastEntry(fe);
+        if (cat !== targetCat) return;
+        items.push({
+          source: 'Forecast',
+          date: d,
+          name: fe.DESCRIPTION || '—',
+          ref: fe.JOB_NO || '',
+          amount: (status === 'ACTUAL' || status === 'BOOKED') ? -Math.abs(Number(fe.ACTUAL_AMOUNT || amt)) : amt,
+          note: `STATUS=${status || 'PLANNED'}${fe.NOTE ? ' · ' + fe.NOTE : ''}`,
+        });
+      });
+    }
+
+    // Sort by date ascending
+    items.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    setDrillDown({ title: label, period, row, items });
+  };
+
   const monthNames = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
   const goPrevMonth = () => {
     if (month === 1) { setYear(y => y - 1); setMonth(12); }
@@ -575,8 +691,10 @@ function CashFlowDashboard({ data, setData, toast }) {
               subtle
               carrySigned                    /* allow negative in rest column without parentheses */
             />
-            <PlanRow label="รับเงินโครงการ"            current={planIv.current}   rest={planIv.rest}   total={planIv.current + planIv.rest} />
-            <PlanRow label="เงินกู้/สินเชื่อหมุนเวียน"  current={planLoan.current} rest={planLoan.rest} total={planLoan.current + planLoan.rest} />
+            <PlanRow label="รับเงินโครงการ"            current={planIv.current}   rest={planIv.rest}   total={planIv.current + planIv.rest}
+              onCellClick={(p) => openDrillDown('iv', p, `รับเงินโครงการ · ${p === 'current' ? weeks[nowWeek]?.label : p === 'rest' ? 'สัปดาห์ที่เหลือ' : 'TOTAL'}`)} />
+            <PlanRow label="เงินกู้/สินเชื่อหมุนเวียน"  current={planLoan.current} rest={planLoan.rest} total={planLoan.current + planLoan.rest}
+              onCellClick={(p) => openDrillDown('loan', p, `เงินกู้/สินเชื่อ · ${p === 'current' ? weeks[nowWeek]?.label : p === 'rest' ? 'สัปดาห์ที่เหลือ' : 'TOTAL'}`)} />
 
             {/* ── OUTFLOW section ─────────────────────────────────────── */}
             <tr style={{ background: 'color-mix(in oklch, var(--bad) 8%, transparent)' }}>
@@ -591,6 +709,7 @@ function CashFlowDashboard({ data, setData, toast }) {
                 rest={planOut[cat].rest}
                 total={planOut[cat].total}
                 negative
+                onCellClick={(p) => openDrillDown(`out${cat}`, p, `${CATEGORY_LABELS[cat]} · ${p === 'current' ? weeks[nowWeek]?.label : p === 'rest' ? 'สัปดาห์ที่เหลือ' : 'TOTAL'}`)}
               />
             ))}
             <tr style={{ background: 'var(--bad-bg)', fontWeight: 700 }}>
@@ -758,6 +877,86 @@ function CashFlowDashboard({ data, setData, toast }) {
           <li>AP ที่จ่ายแล้วจะถูกตัดออก (vchno ที่ตรงกับ PV.AP_No) — กัน double count</li>
         </ul>
       </div>
+
+      {/* ═════ Drill-down modal — verify which rows make up each cell ═══════ */}
+      {drillDown && (
+        <Modal open={!!drillDown} title={'รายละเอียด · ' + drillDown.title} maxWidth={920}
+          onClose={() => setDrillDown(null)}
+          footer={<button className="btn btn-primary" onClick={() => setDrillDown(null)}>ปิด</button>}>
+          {drillDown.items.length === 0 ? (
+            <div style={{ padding: 30, textAlign: 'center', color: 'var(--ink-500)' }}>
+              ไม่มีรายการในช่วงนี้
+            </div>
+          ) : (
+            <>
+              <div style={{
+                display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12,
+                padding: 12, background: 'var(--brand-50)', borderRadius: 8,
+              }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 11.5, color: 'var(--ink-500)' }}>จำนวนรายการ</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--brand-700)' }}>{drillDown.items.length}</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 11.5, color: 'var(--ink-500)' }}>ยอดรวม</div>
+                  <div style={{ fontSize: 18, fontWeight: 700,
+                    color: drillDown.items.reduce((s, x) => s + x.amount, 0) < 0 ? 'var(--bad)' : 'var(--good)' }}>
+                    {fmtNum(drillDown.items.reduce((s, x) => s + x.amount, 0), 0)} ฿
+                  </div>
+                </div>
+              </div>
+              <div style={{ maxHeight: '60vh', overflow: 'auto' }}>
+                <table className="tbl" style={{ width: '100%', fontSize: 12.5 }}>
+                  <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
+                    <tr>
+                      <th style={{ width: 70, textAlign: 'left' }}>ที่มา</th>
+                      <th style={{ width: 100 }}>วันที่</th>
+                      <th style={{ width: 130 }}>เลขที่</th>
+                      <th>ชื่อ/รายการ</th>
+                      <th style={{ width: 140, textAlign: 'right' }}>จำนวน (฿)</th>
+                      <th style={{ width: 220 }}>หมายเหตุ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {drillDown.items.map((it, i) => (
+                      <tr key={i}>
+                        <td>
+                          <span style={{
+                            display: 'inline-block',
+                            padding: '2px 8px', borderRadius: 4,
+                            background: it.source === 'AP' ? 'color-mix(in oklch, var(--bad) 14%, transparent)' :
+                                        it.source === 'IV' ? 'color-mix(in oklch, var(--good) 14%, transparent)' :
+                                        'color-mix(in oklch, var(--brand-500) 14%, transparent)',
+                            color: it.source === 'AP' ? 'var(--bad)' :
+                                   it.source === 'IV' ? 'var(--good)' : 'var(--brand-700)',
+                            fontSize: 11, fontWeight: 600,
+                          }}>{it.source}</span>
+                        </td>
+                        <td style={{ whiteSpace: 'nowrap', color: 'var(--ink-600)' }}>{fmtDate(it.date) || it.date}</td>
+                        <td style={{ fontFamily: 'ui-monospace', fontSize: 11.5, color: 'var(--brand-700)' }}>{it.ref || '—'}</td>
+                        <td>{it.name}</td>
+                        <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+                            color: it.amount < 0 ? 'var(--bad)' : 'var(--good)', fontWeight: 600 }}>
+                          {fmtNum(it.amount, 0)}
+                        </td>
+                        <td style={{ fontSize: 11.5, color: 'var(--ink-500)' }}>{it.note || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ marginTop: 10, fontSize: 11, color: 'var(--ink-500)', lineHeight: 1.6 }}>
+                💡 <strong>AP</strong> = เจ้าหนี้คงค้างจากระบบ ·
+                <strong> IV</strong> = ใบแจ้งหนี้รับเงิน ·
+                <strong> Forecast</strong> = ประมาณการบันทึกเอง<br />
+                ✏️ ต้องการแก้ไข? ไปที่หน้า <a href="#data_payables" style={{ color: 'var(--brand-600)' }}>AP Outstanding</a>,
+                <a href="#data_invoices" style={{ color: 'var(--brand-600)' }}> รายงานติดตามรับเงิน</a> หรือ
+                <a href="#data_forecast" style={{ color: 'var(--brand-600)' }}> ประมาณการรายจ่าย</a>
+              </div>
+            </>
+          )}
+        </Modal>
+      )}
     </div>
   );
 }
@@ -879,9 +1078,10 @@ function KpiCompare({ label, forecast, actual, accent, icon }) {
   );
 }
 
-function PlanRow({ label, current, rest, total, subtle, negative, carrySigned }) {
+function PlanRow({ label, current, rest, total, subtle, negative, carrySigned, onCellClick }) {
   // negative   → outflow (always positive number wrapped in parens)
   // carrySigned→ row may show negative carry-forward without parens (e.g. -2,612,841)
+  // onCellClick: (period) => void  — if provided, makes cells clickable for drill-down
   const fmtVal = v => {
     if (v == null || v === 0) return '—';
     if (carrySigned) return fmtNum(v, 0);                  // show signed
@@ -894,16 +1094,47 @@ function PlanRow({ label, current, rest, total, subtle, negative, carrySigned })
     if (negative) return 'var(--bad)';
     return subtle ? 'var(--ink-500)' : 'inherit';
   };
+  const clickable = !!onCellClick;
+  const cellStyle = (val, extra) => ({
+    textAlign: 'right',
+    fontVariantNumeric: 'tabular-nums',
+    color: colorFor(val),
+    cursor: clickable && val ? 'pointer' : 'default',
+    textDecoration: clickable && val ? 'underline dotted' : 'none',
+    textDecorationColor: 'var(--ink-300)',
+    textUnderlineOffset: 3,
+    transition: 'background 120ms',
+    ...extra,
+  });
+  const hover = (e, on) => {
+    if (!clickable) return;
+    e.currentTarget.style.background = on ? 'color-mix(in oklch, var(--brand-500) 12%, transparent)' : '';
+  };
   return (
     <tr>
       <td style={{ paddingLeft: 24, fontSize: 12.5, color: subtle ? 'var(--ink-500)' : 'inherit' }}>{label}</td>
-      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: colorFor(current), background: 'color-mix(in oklch, var(--brand-50) 50%, transparent)' }}>
+      <td
+        onClick={() => clickable && current && onCellClick('current')}
+        onMouseEnter={e => hover(e, true)}
+        onMouseLeave={e => hover(e, false)}
+        title={clickable && current ? 'คลิกเพื่อดูรายการรายตัว' : ''}
+        style={cellStyle(current, { background: 'color-mix(in oklch, var(--brand-50) 50%, transparent)' })}>
         {fmtVal(current)}
       </td>
-      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: colorFor(rest) }}>
+      <td
+        onClick={() => clickable && rest && onCellClick('rest')}
+        onMouseEnter={e => hover(e, true)}
+        onMouseLeave={e => hover(e, false)}
+        title={clickable && rest ? 'คลิกเพื่อดูรายการรายตัว' : ''}
+        style={cellStyle(rest)}>
         {fmtVal(rest)}
       </td>
-      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: colorFor(total), fontWeight: 600, background: 'var(--ink-50)' }}>
+      <td
+        onClick={() => clickable && total && onCellClick('total')}
+        onMouseEnter={e => hover(e, true)}
+        onMouseLeave={e => hover(e, false)}
+        title={clickable && total ? 'คลิกเพื่อดูรายการรายตัว' : ''}
+        style={cellStyle(total, { fontWeight: 600, background: 'var(--ink-50)' })}>
         {fmtVal(total)}
       </td>
     </tr>
