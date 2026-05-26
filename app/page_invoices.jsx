@@ -280,6 +280,29 @@ function InvoicesPage({ data, setData, toast }) {
 
   const { projectByCode, financeByCode } = ivMemo(() => WTPData.buildLookups(data), [data.projects, data.debtLedger]);
 
+  // ── Auto-rebuild followUpsLog when invoices change ─────────────────────
+  // กรณี user เพิ่ม follow-up ก่อน feature นี้จะถูก deploy → log ว่าง.
+  // ทุกครั้งที่ data.invoices เปลี่ยน เช็คว่า log ยัง sync กับ followUps ไหม
+  // ถ้าไม่ → regenerate + push (forceSyncNow) เพื่อ persist เข้า sheet
+  ivEffect(() => {
+    if (!data.invoices || !data.invoices.length) return;
+    if (!WTPData.rebuildFollowUpsLog) return;
+    const expected = WTPData.rebuildFollowUpsLog(data.invoices);
+    const current  = data.followUpsLog || [];
+    // shallow id-check: ถ้าจำนวนและ id ตรงทุกแถว = sync แล้ว
+    const inSync = expected.length === current.length &&
+                   expected.every((e, i) => current[i] && current[i].id === e.id);
+    if (inSync) return;
+    let updatedData;
+    setData(d => {
+      updatedData = { ...d, followUpsLog: expected };
+      return updatedData;
+    });
+    if (updatedData && WTPData.forceSyncNow) {
+      setTimeout(() => WTPData.forceSyncNow(updatedData), 0);
+    }
+  }, [data.invoices]);
+
   // Joined rows: invoice + project name + finance (assignee, debt)
   const VALID_STATUS = new Set(['pending_inspection', 'tracking', 'issue', 'paid']);
   // map รหัสสถานะแบบเก่า/ทางเลือก → สถานะ canonical 4 ตัว
