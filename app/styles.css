@@ -1047,3 +1047,175 @@ button { font: inherit; color: inherit; }
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   DAILY REVENUE REPORT — A4 print mode (สวยเหมือนหน้าเว็บ)
+   Trigger: body.dr-print-mode (+ .dr-print-portrait optional)
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media print {
+  /* Force gradients/backgrounds (Chrome/Edge/Safari) */
+  body.dr-print-mode,
+  body.dr-print-mode * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  body.dr-print-mode { background: #fff !important; color: #1a202c !important; font-size: 9pt; }
+
+  /* Hide chrome — sidebar, topbar, toolbars, no-print regions */
+  body.dr-print-mode .sb,
+  body.dr-print-mode .topbar,
+  body.dr-print-mode .sb-scrim,
+  body.dr-print-mode .tabnav,
+  body.dr-print-mode .modal-back,
+  body.dr-print-mode .toast-stack,
+  body.dr-print-mode .no-print,
+  body.dr-print-mode .row-act,
+  body.dr-print-mode .menu-btn,
+  body.dr-print-mode .dr-page .page-head,
+  body.dr-print-mode .dr-page .btn {
+    display: none !important;
+  }
+
+  /* Full-width single column */
+  body.dr-print-mode .app,
+  body.dr-print-mode .main { display: block !important; }
+  body.dr-print-mode .page.dr-page { padding: 0 !important; max-width: 100% !important; }
+
+  /* Capture area — landscape ใช้เต็มหน้า, portrait จำกัด max-width */
+  body.dr-print-mode .dr-page .report-capture-area {
+    max-width: 100% !important;
+    margin: 0 !important;
+  }
+  body.dr-print-mode.dr-print-portrait .dr-page .report-capture-area {
+    max-width: 100% !important;
+  }
+
+  /* Hero — keep brand-blue gradient + slim down for paper */
+  body.dr-print-mode .dr-page .report-capture-area > div:first-of-type {
+    padding: 10pt 14pt !important;
+    border-radius: 10pt !important;
+    margin-bottom: 8pt !important;
+    box-shadow: 0 4pt 12pt rgba(26,68,144,.22) !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+  /* Hero logo + title block — compact */
+  body.dr-print-mode .dr-page .report-capture-area > div:first-of-type img {
+    width: 44pt !important; height: 44pt !important;
+  }
+  body.dr-print-mode .dr-page .report-capture-area > div:first-of-type div[style*="border-radius: 14"] {
+    width: 52pt !important; height: 52pt !important; padding: 4pt !important;
+  }
+
+  /* Summary pills (YTD / MTD / Today) — keep gradient pills, slim down */
+  body.dr-print-mode .dr-page .daily-pill-grid {
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 6pt !important;
+    margin-bottom: 8pt !important;
+  }
+  body.dr-print-mode .dr-page .daily-pill-grid > div {
+    padding: 9pt 12pt !important;
+    border-radius: 10pt !important;
+    break-inside: avoid !important;
+    box-shadow: 0 2pt 5pt rgba(0,0,0,.08) !important;
+  }
+
+  /* Today's received card + Outstanding card — keep with light card style */
+  body.dr-print-mode .dr-page .card {
+    box-shadow: 0 1pt 3pt rgba(0,0,0,.05) !important;
+    border: 1px solid var(--ink-100, #e2e8f0) !important;
+    border-radius: 8pt !important;
+    margin-bottom: 6pt !important;
+    background: #fff !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* Forecast section heading */
+  body.dr-print-mode .dr-page h2 {
+    font-size: 12pt !important;
+    margin: 6pt 0 4pt !important;
+    color: var(--ink-800, #2d3748) !important;
+  }
+
+  /* Forecast KPI tiles (4 cards: overdue / today / week / month) */
+  body.dr-print-mode .dr-page .anim-stagger[style*="grid-template-columns"] {
+    grid-template-columns: repeat(4, 1fr) !important;
+    gap: 6pt !important;
+    margin-bottom: 7pt !important;
+  }
+  body.dr-print-mode .dr-page .anim-stagger > div > div {
+    padding: 8pt 10pt !important;
+    border-radius: 9pt !important;
+    break-inside: avoid !important;
+  }
+
+  /* Portrait: forecast tiles 2x2 (4 col ไม่พอใน A4 portrait แคบ) */
+  body.dr-print-mode.dr-print-portrait .dr-page .anim-stagger[style*="grid-template-columns"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+  /* Portrait: pill grid 1 col (ตามที่หน้าเว็บใช้) */
+  body.dr-print-mode.dr-print-portrait .dr-page .daily-pill-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Tables — modern look (ไม่ใช่ gray-bordered แบบ default print) */
+  body.dr-print-mode .dr-page .tbl {
+    width: 100% !important;
+    font-size: 8.5pt !important;
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+  }
+  body.dr-print-mode .dr-page .tbl thead {
+    display: table-header-group !important;
+  }
+  body.dr-print-mode .dr-page .tbl thead th {
+    background: linear-gradient(180deg, #f8fafc, #f1f5f9) !important;
+    color: var(--ink-700, #4a5568) !important;
+    border: none !important;
+    border-bottom: 1.5px solid var(--ink-200, #cbd5e0) !important;
+    padding: 5pt 7pt !important;
+    font-weight: 700 !important;
+  }
+  body.dr-print-mode .dr-page .tbl tbody td {
+    border: none !important;
+    border-bottom: 1px solid var(--ink-50, #edf2f7) !important;
+    padding: 4pt 7pt !important;
+  }
+  body.dr-print-mode .dr-page .tbl tbody tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  body.dr-print-mode .dr-page .tbl tfoot tr {
+    background: var(--ink-50, #f7fafc) !important;
+  }
+  body.dr-print-mode .dr-page .tbl tfoot td {
+    border: none !important;
+    border-top: 1.5px solid var(--ink-200, #cbd5e0) !important;
+    padding: 5pt 7pt !important;
+    font-weight: 700 !important;
+  }
+
+  /* Card headers (title rows above tables) */
+  body.dr-print-mode .dr-page .card-title {
+    font-size: 11pt !important;
+    font-weight: 700 !important;
+  }
+  body.dr-print-mode .dr-page .card-sub {
+    font-size: 9pt !important;
+    color: var(--ink-500, #718096) !important;
+  }
+
+  /* Brand footer — keep visible */
+  body.dr-print-mode .dr-page .report-capture-area > div:last-child {
+    margin-top: 8pt !important;
+    padding: 8pt 12pt !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* Hide cursors / hover affordances */
+  body.dr-print-mode * { cursor: default !important; }
+  body.dr-print-mode * { animation: none !important; transition: none !important; }
+}
+

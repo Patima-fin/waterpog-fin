@@ -168,15 +168,45 @@ function DailyRevenueDashboard({ data, setData, toast }) {
   const sumBal = list => list.reduce((s, iv) => s + (iv.balance || 0), 0);
   const sumNet = list => list.reduce((s, iv) => s + (iv.netExpected || 0), 0);
 
+  // ── A4 print handler — สวยเหมือนหน้าเว็บ (กระดาษเลือกตาม captureMode) ──
+  const handleDailyPrint = () => {
+    const styleId = 'dr-print-orientation-style';
+    let style = document.getElementById(styleId);
+    if (!style) {
+      style = document.createElement('style');
+      style.id = styleId;
+      document.head.appendChild(style);
+    }
+    style.textContent = `
+      @media print {
+        @page { size: A4 ${isPortrait ? 'portrait' : 'landscape'}; margin: 8mm 9mm; }
+        html, body { background: #fff !important; }
+      }
+    `;
+    document.body.classList.add('dr-print-mode');
+    if (isPortrait) document.body.classList.add('dr-print-portrait');
+    const cleanup = () => {
+      document.body.classList.remove('dr-print-mode');
+      document.body.classList.remove('dr-print-portrait');
+      if (style.parentNode) style.parentNode.removeChild(style);
+      window.removeEventListener('afterprint', cleanup);
+    };
+    window.addEventListener('afterprint', cleanup);
+    setTimeout(cleanup, 60000);
+    setTimeout(() => window.print(), 50);
+  };
+
   return (
-    <div className="page bg-pattern">
+    <div className="page bg-pattern dr-page">
       <div className="page-head anim-in">
         <div>
           <h1 className="page-title">สรุปรายงานรับเงินประจำวัน</h1>
           <div className="page-sub">Daily Revenue Report · ข้อมูล ณ {todayLabel}</div>
         </div>
         <div className="page-head-r">
-          <PrintButton label="พิมพ์ / PDF" />
+          <button className="btn btn-ghost" onClick={handleDailyPrint} title={`พิมพ์ A4 ${isPortrait ? 'แนวตั้ง' : 'แนวนอน'} (Ctrl+P)`}>
+            <Icon name="print" size={14} /> พิมพ์ / PDF
+          </button>
         </div>
       </div>
 
