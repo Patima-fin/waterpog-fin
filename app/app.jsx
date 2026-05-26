@@ -118,37 +118,49 @@ function App() {
   }, []);
 
   // ── Global auto-backfill: paid IV ที่ยังไม่มี receipt → สร้างให้ ─────────
-  // ย้ายมาจาก InvoicesPage เพื่อให้ทำงาน regardless ของหน้าที่ user เปิดอยู่
-  // (Warroom/Daily ก็จะเห็น receipt ที่ backfill ทันที)
-  // Run on every data.invoices change (idempotent — ถ้าไม่มี missing → return wn)
+  // CRITICAL: ต้องอ่าน d.receipts ใน updater (ไม่ใช่ closure) — closure อาจ
+  // stale ถ้า server data update มาระหว่าง effect run กับ setData fire →
+  // ทำให้ updatedData มี receipts snapshot เก่าทับ server data ใหม่ → ชีตหาย
   aEffect(() => {
     if (!data || !data.invoices || !data.invoices.length) return;
     if (!WTPData.ensureReceiptForPaidInvoice) return;
-    let receipts = [...(data.receipts || [])];
-    const existingIvNos = new Set(receipts.map(r => r.invoiceNo).filter(Boolean));
-    let added = 0;
-    data.invoices.forEach(iv => {
-      if (iv.status !== 'paid') return;
-      if (!iv.actualReceive || !iv.actualReceive.date) return;
-      if (!iv.ivNo) return;
-      if (existingIvNos.has(iv.ivNo)) return;
-      const before = receipts.length;
-      receipts = WTPData.ensureReceiptForPaidInvoice(receipts, iv);
-      if (receipts.length > before) {
-        added++;
-        existingIvNos.add(iv.ivNo);
+    // Quick check: any paid IV without a matching receipt? — ใช้ closure ได้
+    // เพราะแค่เช็ค "ต้อง backfill ไหม" ไม่ใช่ใช้ค่าจริง
+    const closureReceipts = data.receipts || [];
+    const closureIvNos = new Set(closureReceipts.map(r => r.invoiceNo).filter(Boolean));
+    const paidNeedingBackfill = data.invoices.filter(iv =>
+      iv.status === 'paid' && iv.actualReceive && iv.actualReceive.date &&
+      iv.ivNo && !closureIvNos.has(iv.ivNo));
+    if (paidNeedingBackfill.length === 0) return;
+    // Real work: setData with updater so we use the LATEST d.receipts
+    let updatedData;
+    setData(d => {
+      // SAFETY: if d.receipts is empty/undefined AND we know server has data,
+      // skip backfill this round to avoid wiping the sheet. The next data
+      // update will retrigger this effect with the real receipts loaded.
+      if (!d.receipts || d.receipts.length === 0) {
+        console.warn('[WTP] skip backfill — d.receipts empty (server may not have loaded yet)');
+        return d;
       }
-    });
-    if (added > 0) {
-      let updatedData;
-      setData(d => {
-        updatedData = { ...d, receipts };
-        return updatedData;
+      let receipts = [...d.receipts];
+      const existingIvNos = new Set(receipts.map(r => r.invoiceNo).filter(Boolean));
+      let added = 0;
+      paidNeedingBackfill.forEach(iv => {
+        if (existingIvNos.has(iv.ivNo)) return;
+        const before = receipts.length;
+        receipts = WTPData.ensureReceiptForPaidInvoice(receipts, iv);
+        if (receipts.length > before) {
+          added++;
+          existingIvNos.add(iv.ivNo);
+        }
       });
-      if (updatedData && WTPData.forceSyncNow) {
-        setTimeout(() => WTPData.forceSyncNow(updatedData), 0);
-      }
+      if (added === 0) return d;
       console.info('[WTP] auto-created ' + added + ' receipt(s) for paid IVs missing receipts');
+      updatedData = { ...d, receipts };
+      return updatedData;
+    });
+    if (updatedData && WTPData.forceSyncNow) {
+      setTimeout(() => WTPData.forceSyncNow(updatedData), 0);
     }
   }, [data.invoices]);
 

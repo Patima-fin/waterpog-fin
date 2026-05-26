@@ -285,20 +285,26 @@ function InvoicesPage({ data, setData, toast }) {
   const { projectByCode, financeByCode } = ivMemo(() => WTPData.buildLookups(data), [data.projects, data.debtLedger]);
 
   // ── Auto-rebuild followUpsLog when invoices change ─────────────────────
-  // กรณี user เพิ่ม follow-up ก่อน feature นี้จะถูก deploy → log ว่าง.
-  // ทุกครั้งที่ data.invoices เปลี่ยน เช็คว่า log ยัง sync กับ followUps ไหม
-  // ถ้าไม่ → regenerate + push (forceSyncNow) เพื่อ persist เข้า sheet
+  // CRITICAL: คำนวณ expected ใน setData updater (ไม่ใช่ closure) เพื่อใช้
+  // d.invoices ปัจจุบัน — กันบั๊ก race condition ทำให้ followUpsLog ถูก override
+  // ด้วย snapshot เก่าตอน server data update มาระหว่าง effect run กับ setData fire
   ivEffect(() => {
     if (!data.invoices || !data.invoices.length) return;
     if (!WTPData.rebuildFollowUpsLog) return;
-    const expected = WTPData.rebuildFollowUpsLog(data.invoices);
-    const current  = data.followUpsLog || [];
-    // shallow id-check: ถ้าจำนวนและ id ตรงทุกแถว = sync แล้ว
-    const inSync = expected.length === current.length &&
-                   expected.every((e, i) => current[i] && current[i].id === e.id);
+    // Quick check: ใช้ closure ดูว่าต้อง rebuild ไหม (เร็วๆ ก่อน enter setData)
+    const closureExpected = WTPData.rebuildFollowUpsLog(data.invoices);
+    const closureCurrent  = data.followUpsLog || [];
+    const inSync = closureExpected.length === closureCurrent.length &&
+                   closureExpected.every((e, i) => closureCurrent[i] && closureCurrent[i].id === e.id);
     if (inSync) return;
     let updatedData;
     setData(d => {
+      // คำนวณใหม่จาก d (latest state) ไม่ใช่ closure
+      const expected = WTPData.rebuildFollowUpsLog(d.invoices);
+      const current  = d.followUpsLog || [];
+      const stillInSync = expected.length === current.length &&
+                          expected.every((e, i) => current[i] && current[i].id === e.id);
+      if (stillInSync) return d;
       updatedData = { ...d, followUpsLog: expected };
       return updatedData;
     });

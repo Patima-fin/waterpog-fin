@@ -445,6 +445,32 @@
     });
     if (!changes.length) return;
 
+    // ── SAFETY GUARD: ห้าม push ถ้า rows น้อยกว่า snapshot เกินครึ่ง ──
+    // ป้องกัน race condition ที่ทำให้ app push state เก่า → ชีตหายเป็นจำนวนมาก
+    // ถ้าจะลบจริงๆ user ต้องลบทีละน้อยให้ delta ค่อยๆ ลดลง
+    var blocked = [];
+    var allowed = [];
+    changes.forEach(function (c) {
+      var prevRows = [];
+      try { prevRows = JSON.parse(lastSnapshot[c.entity] || '[]'); } catch (_) {}
+      var prevCount = prevRows.length;
+      var newCount  = c.currentRows.length;
+      // ถ้า snapshot เคยมี ≥10 rows AND ใหม่น้อยกว่าครึ่ง → block
+      if (prevCount >= 10 && newCount < prevCount * 0.5) {
+        blocked.push({ entity: c.entity, prev: prevCount, now: newCount });
+      } else {
+        allowed.push(c);
+      }
+    });
+    if (blocked.length) {
+      console.error('[WTP Sync] 🛑 ห้าม push: ตรวจพบจะลด rows มากผิดปกติ — น่าจะเป็น race condition',
+        blocked.map(function(b){ return b.entity + ': ' + b.prev + ' → ' + b.now; }).join(' · '));
+      setSyncStatus('error');
+      if (!allowed.length) return;
+    }
+    changes = allowed;
+    if (!changes.length) return;
+
     inSyncDiff = true;
     setSyncStatus('syncing');
 
