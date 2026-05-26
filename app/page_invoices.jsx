@@ -957,18 +957,19 @@ function IvReportView({ rows, onOpen }) {
   const daysDiff = (d) => d ? Math.round((new Date(d) - new Date(today)) / 86400000) : null;
 
   // ── Section definitions ──────────────────────────────────────────────────
-  // ── สี family เดิม (เขียว/น้ำเงิน/ม่วง/อำพัน/แดง) — เข้มขึ้น + gradient header ──
+  // ── Pastel palette แบบ Pantone (mint / turquoise / lavender / yellow / coral) ──
+  // header = พื้นพาสเทล + ตัวอักษรเข้ม + ขอบสีกลาง ดูสดใสทันสมัย
   const sections = [
     {
       key: 'today',
       icon: '✓', label: 'รับเงินแล้ววันนี้',
-      grad: 'linear-gradient(135deg, #15803d 0%, #14532d 100%)', border: '#166534', // green
+      grad: 'linear-gradient(135deg, #EAFFD0 0%, #BFEFAA 100%)', text: '#15803d', border: '#86d171', // mint
       rows: rows.filter(iv => iv.status === 'paid' && iv.actualReceive?.date === today),
     },
     {
       key: 'this_week',
       icon: '📅', label: 'คาดรับสัปดาห์นี้',
-      grad: 'linear-gradient(135deg, #1d4ed8 0%, #1e3a8a 100%)', border: '#1e40af', // blue
+      grad: 'linear-gradient(135deg, #C2EFE8 0%, #95E1D3 100%)', text: '#0e7490', border: '#5fc9b8', // turquoise
       rows: rows.filter(iv =>
         iv.status === 'tracking' &&
         iv.expectedReceive >= today && iv.expectedReceive <= weekEnd
@@ -977,7 +978,7 @@ function IvReportView({ rows, onOpen }) {
     {
       key: 'next_week',
       icon: '🗓', label: 'คาดรับสัปดาห์หน้า',
-      grad: 'linear-gradient(135deg, #6d28d9 0%, #4c1d95 100%)', border: '#5b21b6', // purple
+      grad: 'linear-gradient(135deg, #E1D4F7 0%, #C4A9F0 100%)', text: '#6b21a8', border: '#a78bfa', // lavender
       rows: rows.filter(iv =>
         iv.status === 'tracking' &&
         iv.expectedReceive >= nextWeekStart && iv.expectedReceive <= nextWeekEnd
@@ -986,7 +987,7 @@ function IvReportView({ rows, onOpen }) {
     {
       key: 'tracking',
       icon: '🔍', label: 'กำลังติดตาม (ยังไม่ชัดเจน)',
-      grad: 'linear-gradient(135deg, #b45309 0%, #78350f 100%)', border: '#92400e', // amber
+      grad: 'linear-gradient(135deg, #FCE38A 0%, #F5C842 100%)', text: '#92400e', border: '#eab308', // pastel yellow
       rows: rows.filter(iv =>
         iv.status === 'tracking' &&
         !(iv.expectedReceive && iv.expectedReceive >= today && iv.expectedReceive <= nextWeekEnd) &&
@@ -996,20 +997,20 @@ function IvReportView({ rows, onOpen }) {
     {
       key: 'pending',
       icon: '📋', label: 'รอใบตรวจรับ',
-      grad: 'linear-gradient(135deg, #334155 0%, #0f172a 100%)', border: '#1e293b', // slate
+      grad: 'linear-gradient(135deg, #E2E8F0 0%, #CBD5E1 100%)', text: '#334155', border: '#94a3b8', // soft slate
       rows: rows.filter(iv => iv.status === 'pending_inspection'),
     },
     // ── 2 รายการล่างสุด: ติดปัญหา → เกินกำหนด ────────────────────
     {
       key: 'issue',
       icon: '⚠', label: 'ติดปัญหา',
-      grad: 'linear-gradient(135deg, #9f1239 0%, #581c14 100%)', border: '#7f1d1d', // burgundy
+      grad: 'linear-gradient(135deg, #FBC4C4 0%, #F38181 100%)', text: '#991b1b', border: '#ef5a5a', // pastel coral
       rows: rows.filter(iv => iv.status === 'issue'),
     },
     {
       key: 'overdue',
       icon: '🚨', label: 'เกินกำหนดชำระ',
-      grad: 'linear-gradient(135deg, #b91c1c 0%, #7f1d1d 100%)', border: '#991b1b', // red
+      grad: 'linear-gradient(135deg, #F38181 0%, #E55353 100%)', text: '#7f1d1d', border: '#dc2626', // deeper coral
       rows: rows.filter(iv =>
         iv.status === 'tracking' && iv.expectedReceive && iv.expectedReceive < today
       ),
@@ -1135,40 +1136,40 @@ function IvReportView({ rows, onOpen }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
 
-      {/* ── Summary strip — gradient cards แบบ Daily Revenue Report ──────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
+      {/* ── Summary strip — pastel cards (Pantone vibe) ──────────────────── */}
+      <div className="iv-summary-strip" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
         {[
-          { label: 'รับแล้ววันนี้',     en: "TODAY'S RECEIPTS",  icon: '✓', count: todayRows.length,  amt: sumActual(todayRows), grad: 'linear-gradient(135deg, #15803d 0%, #14532d 100%)', glow: 'rgba(34,197,94,.18)' },
-          { label: 'คาดรับสัปดาห์นี้',  en: 'EXPECTED THIS WEEK', icon: '📅', count: thisWkRows.length, amt: sumBal(thisWkRows),   grad: 'linear-gradient(135deg, #1d4ed8 0%, #1e3a8a 100%)', glow: 'rgba(59,130,246,.18)' },
-          { label: 'คาดรับสัปดาห์หน้า', en: 'EXPECTED NEXT WEEK', icon: '🗓', count: nextWkRows.length, amt: sumBal(nextWkRows),   grad: 'linear-gradient(135deg, #6d28d9 0%, #4c1d95 100%)', glow: 'rgba(139,92,246,.18)' },
+          { label: 'รับแล้ววันนี้',     en: "TODAY'S RECEIPTS",  icon: '✓',  count: todayRows.length,  amt: sumActual(todayRows), grad: 'linear-gradient(135deg, #EAFFD0 0%, #BFEFAA 100%)', text: '#14532d', border: '#86d171', glow: 'rgba(134,209,113,.25)' },
+          { label: 'คาดรับสัปดาห์นี้',  en: 'EXPECTED THIS WEEK', icon: '📅', count: thisWkRows.length, amt: sumBal(thisWkRows),   grad: 'linear-gradient(135deg, #C2EFE8 0%, #95E1D3 100%)', text: '#0e7490', border: '#5fc9b8', glow: 'rgba(95,201,184,.25)' },
+          { label: 'คาดรับสัปดาห์หน้า', en: 'EXPECTED NEXT WEEK', icon: '🗓', count: nextWkRows.length, amt: sumBal(nextWkRows),   grad: 'linear-gradient(135deg, #FCE38A 0%, #F5C842 100%)', text: '#92400e', border: '#eab308', glow: 'rgba(234,179,8,.22)' },
         ].map((k, i) => (
-          <div key={i} style={{
-            background: k.grad, borderRadius: 12, padding: '14px 18px', color: 'white',
-            position: 'relative', overflow: 'hidden',
-            boxShadow: `0 6px 18px ${k.glow}, 0 1px 3px rgba(0,0,0,.08)`,
+          <div key={i} className="iv-summary-card" style={{
+            background: k.grad, borderRadius: 14, padding: '14px 18px', color: k.text,
+            position: 'relative', overflow: 'hidden', border: `1.5px solid ${k.border}`,
+            boxShadow: `0 6px 18px ${k.glow}, 0 1px 2px rgba(0,0,0,.04)`,
           }}>
-            {/* subtle radial highlight (top-right) */}
+            {/* subtle highlight */}
             <div style={{
-              position: 'absolute', top: -30, right: -30, width: 140, height: 140,
-              background: 'radial-gradient(circle, rgba(255,255,255,.15) 0%, transparent 70%)',
+              position: 'absolute', top: -40, right: -40, width: 160, height: 160,
+              background: 'radial-gradient(circle, rgba(255,255,255,.55) 0%, transparent 65%)',
               pointerEvents: 'none',
             }} />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, position: 'relative' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, position: 'relative' }}>
               <div style={{
-                width: 28, height: 28, borderRadius: 7,
-                background: 'rgba(255,255,255,.18)', display: 'grid', placeItems: 'center',
-                fontSize: 14, backdropFilter: 'blur(4px)',
+                width: 30, height: 30, borderRadius: 8,
+                background: 'rgba(255,255,255,.7)', display: 'grid', placeItems: 'center',
+                fontSize: 15, boxShadow: '0 2px 4px rgba(0,0,0,.06)',
               }}>{k.icon}</div>
               <div style={{ lineHeight: 1.15 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 700 }}>{k.label}</div>
-                <div style={{ fontSize: 9, opacity: .75, letterSpacing: '.06em', fontWeight: 500 }}>{k.en}</div>
+                <div style={{ fontSize: 13, fontWeight: 800 }}>{k.label}</div>
+                <div style={{ fontSize: 9.5, opacity: .65, letterSpacing: '.06em', fontWeight: 600 }}>{k.en}</div>
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, position: 'relative' }}>
-              <div style={{ fontWeight: 800, fontSize: 22, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
-                {fmtNum(k.amt, 0)} <span style={{ fontSize: 12, fontWeight: 600, opacity: .82 }}>฿</span>
+              <div style={{ fontWeight: 800, fontSize: 23, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+                {fmtNum(k.amt, 0)} <span style={{ fontSize: 12, fontWeight: 700, opacity: .7 }}>฿</span>
               </div>
-              <div style={{ fontSize: 11.5, opacity: .92, fontWeight: 600, background: 'rgba(255,255,255,.15)', padding: '2px 8px', borderRadius: 10 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, background: 'rgba(255,255,255,.65)', padding: '3px 10px', borderRadius: 10, boxShadow: '0 1px 2px rgba(0,0,0,.05)' }}>
                 {k.count} ใบ
               </div>
             </div>
@@ -1182,24 +1183,24 @@ function IvReportView({ rows, onOpen }) {
         const secTotal = sec.rows.reduce((s, r) => s + (Number(r.balance) || 0), 0);
         const secNet   = sec.rows.reduce((s, r) => s + (Number(r.netExpected) || 0), 0);
         return (
-          <div key={sec.key} className="card" style={{ padding: 0, overflow: 'hidden', border: `1px solid ${sec.border}` }}>
-            {/* Section header — gradient เข้ม ตัวอักษรขาว (มืออาชีพ + ชัดเจน) */}
-            <div style={{
-              background: sec.grad, padding: '7px 13px',
+          <div key={sec.key} className="card iv-section" style={{ padding: 0, overflow: 'hidden', border: `1.5px solid ${sec.border}` }}>
+            {/* Section header — พาสเทล bg + ตัวอักษรเข้ม (สดใส อ่านง่าย) */}
+            <div className="iv-section-head" style={{
+              background: sec.grad, padding: '8px 14px',
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              color: 'white',
+              color: sec.text, borderBottom: `1px solid ${sec.border}`,
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                <span style={{ fontSize: 13 }}>{sec.icon}</span>
-                <span style={{ fontWeight: 700, fontSize: 12.5, letterSpacing: '.01em' }}>{sec.label}</span>
-                <span style={{ background: 'rgba(255,255,255,.25)', color: '#fff', borderRadius: 11, padding: '0 8px', fontSize: 10.5, fontWeight: 700 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 14 }}>{sec.icon}</span>
+                <span style={{ fontWeight: 800, fontSize: 13, letterSpacing: '.01em' }}>{sec.label}</span>
+                <span style={{ background: 'rgba(255,255,255,.7)', color: sec.text, borderRadius: 11, padding: '1px 9px', fontSize: 11, fontWeight: 800, boxShadow: '0 1px 2px rgba(0,0,0,.06)' }}>
                   {sec.rows.length}
                 </span>
               </div>
-              <div style={{ textAlign: 'right', fontSize: 11.5, fontVariantNumeric: 'tabular-nums' }}>
-                <span style={{ fontWeight: 700 }}>{fmtNum(secTotal, 0)} ฿</span>
+              <div style={{ textAlign: 'right', fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
+                <span style={{ fontWeight: 800 }}>{fmtNum(secTotal, 0)} ฿</span>
                 {secNet !== secTotal && (
-                  <span style={{ opacity: .85, marginLeft: 6 }}>· สุทธิ {fmtNum(secNet, 0)}</span>
+                  <span style={{ opacity: .8, marginLeft: 6, fontWeight: 600 }}>· สุทธิ {fmtNum(secNet, 0)}</span>
                 )}
               </div>
             </div>
@@ -2350,8 +2351,34 @@ function IvReportStandalonePage({ data, setData, toast }) {
     }
   };
 
+  // ── A4 portrait print handler — ทำให้พิมพ์ออกมาเหมือนหน้าเว็บ + scale พอดี ──
+  const handlePrint = () => {
+    const styleId = 'iv-print-portrait-style';
+    let style = document.getElementById(styleId);
+    if (!style) {
+      style = document.createElement('style');
+      style.id = styleId;
+      document.head.appendChild(style);
+    }
+    style.textContent = `
+      @media print {
+        @page { size: A4 portrait; margin: 8mm 9mm; }
+        html, body { background: #fff !important; }
+      }
+    `;
+    document.body.classList.add('iv-print-mode');
+    const cleanup = () => {
+      document.body.classList.remove('iv-print-mode');
+      if (style.parentNode) style.parentNode.removeChild(style);
+      window.removeEventListener('afterprint', cleanup);
+    };
+    window.addEventListener('afterprint', cleanup);
+    setTimeout(cleanup, 60000);
+    setTimeout(() => window.print(), 50);
+  };
+
   return (
-    <div className="page">
+    <div className="page iv-report-page">
       <div className="page-head anim-in">
         <div>
           <h1 className="page-title">รายงานติดตามใบแจ้งหนี้คงค้าง</h1>
@@ -2378,7 +2405,28 @@ function IvReportStandalonePage({ data, setData, toast }) {
             sheetName="ติดตาม IV"
             title="รายงานติดตามใบแจ้งหนี้คงค้าง"
           />
-          <PrintButton />
+          <button className="btn btn-ghost" onClick={handlePrint} title="พิมพ์ A4 แนวตั้ง (Ctrl+P)">
+            <Icon name="print" size={14} /> พิมพ์ / PDF
+          </button>
+        </div>
+      </div>
+
+      {/* Print-only header — แสดงเฉพาะตอนพิมพ์ */}
+      <div className="iv-print-header" style={{ display: 'none' }}>
+        <div className="iv-print-brand">
+          <div className="iv-print-logo">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+              <path d="M3 5 L6 19 L9 9 L12 16 L15 9 L18 19 L21 5" stroke="white" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </div>
+          <div>
+            <div className="iv-print-title">รายงานติดตามใบแจ้งหนี้คงค้าง</div>
+            <div className="iv-print-sub">IV Tracking Report · Water POG</div>
+          </div>
+        </div>
+        <div className="iv-print-date">
+          <div className="iv-print-date-big">{fmtDate(today)}</div>
+          <div className="iv-print-date-sub">ค้างชำระ {pending.length} ใบ · รวม {rows.length} ใบ</div>
         </div>
       </div>
 

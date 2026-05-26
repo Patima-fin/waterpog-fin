@@ -940,3 +940,110 @@ button { font: inherit; color: inherit; }
   /* Animations off */
   body.cf-print-mode * { animation: none !important; transition: none !important; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   IV REPORT — A4 portrait print mode (modern & beautiful, like the web)
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media print {
+  /* Force backgrounds + gradients to print correctly (Chrome/Edge/Safari) */
+  body.iv-print-mode,
+  body.iv-print-mode * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  body.iv-print-mode { background: #fff !important; color: #1a202c !important; font-size: 9pt; }
+
+  /* Hide all chrome */
+  body.iv-print-mode .sb,
+  body.iv-print-mode .topbar,
+  body.iv-print-mode .sb-scrim,
+  body.iv-print-mode .tabnav,
+  body.iv-print-mode .modal-back,
+  body.iv-print-mode .toast-stack,
+  body.iv-print-mode .no-print,
+  body.iv-print-mode .row-act,
+  body.iv-print-mode .menu-btn,
+  body.iv-print-mode .iv-report-page .page-head-r,
+  body.iv-print-mode .iv-report-page .page-head > div:first-child,
+  body.iv-print-mode .iv-report-page .btn {
+    display: none !important;
+  }
+
+  /* Full-width single column */
+  body.iv-print-mode .app,
+  body.iv-print-mode .main { display: block !important; }
+  body.iv-print-mode .page.iv-report-page { padding: 0 !important; max-width: 100% !important; }
+
+  /* Page head — hide the regular one, show the print-only header */
+  body.iv-print-mode .iv-report-page .page-head { margin-bottom: 0 !important; padding: 0 !important; border: none !important; background: none !important; }
+  body.iv-print-mode .iv-print-header {
+    display: flex !important;
+    justify-content: space-between;
+    align-items: center;
+    background: linear-gradient(135deg, #2a6fdb 0%, #1a4490 100%) !important;
+    color: white !important;
+    padding: 10pt 14pt !important;
+    border-radius: 10pt !important;
+    margin-bottom: 8pt !important;
+    box-shadow: 0 4px 12px rgba(26,68,144,.25) !important;
+  }
+  body.iv-print-mode .iv-print-brand { display: flex; align-items: center; gap: 10pt; }
+  body.iv-print-mode .iv-print-logo {
+    width: 36pt; height: 36pt; border-radius: 9pt;
+    background: rgba(255,255,255,.15) !important;
+    display: grid; place-items: center;
+    border: 1.5pt solid rgba(255,255,255,.3) !important;
+  }
+  body.iv-print-mode .iv-print-title { font-size: 15pt; font-weight: 800; line-height: 1.1; color: white !important; }
+  body.iv-print-mode .iv-print-sub { font-size: 8.5pt; opacity: .85; letter-spacing: .05em; font-weight: 500; }
+  body.iv-print-mode .iv-print-date { text-align: right; }
+  body.iv-print-mode .iv-print-date-big { font-size: 13pt; font-weight: 800; line-height: 1; color: white !important; }
+  body.iv-print-mode .iv-print-date-sub { font-size: 9pt; opacity: .9; margin-top: 3pt; font-weight: 500; }
+
+  /* Summary strip — pastel cards preserved */
+  body.iv-print-mode .iv-summary-strip {
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 6pt !important;
+    margin-bottom: 7pt !important;
+  }
+  body.iv-print-mode .iv-summary-card {
+    padding: 8pt 11pt !important;
+    border-radius: 8pt !important;
+    break-inside: avoid !important;
+    box-shadow: 0 2pt 4pt rgba(0,0,0,.05) !important;
+  }
+  body.iv-print-mode .iv-summary-card > div:first-of-type + div { gap: 6pt !important; }
+
+  /* Sections (cards) — pastel headers + tight rows for A4 portrait */
+  body.iv-print-mode .iv-section {
+    box-shadow: 0 2pt 4pt rgba(0,0,0,.04) !important;
+    border-radius: 8pt !important;
+    margin-bottom: 5pt !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+  body.iv-print-mode .iv-section-head {
+    padding: 5pt 10pt !important;
+    font-size: 10pt !important;
+  }
+  body.iv-print-mode .iv-section-head > div:first-child > span:nth-child(2) { font-size: 10.5pt !important; }
+  body.iv-print-mode .iv-section-head > div:last-child { font-size: 10pt !important; }
+
+  /* IV rows — compact for A4 portrait */
+  body.iv-print-mode .iv-section > div:not(.iv-section-head) {
+    padding: 3pt 10pt !important;
+    font-size: 8.5pt !important;
+  }
+
+  /* Hide cursors / hover */
+  body.iv-print-mode * { cursor: default !important; }
+  body.iv-print-mode * { animation: none !important; transition: none !important; }
+
+  /* Cards inside iv-report-page — restore web look */
+  body.iv-print-mode .iv-report-page .card {
+    background: var(--surface, #fff) !important;
+  }
+}
+
