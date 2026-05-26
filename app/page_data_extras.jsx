@@ -424,7 +424,7 @@ function DataCrudPage({ data, setData, toast, config }) {
                     getValue={colDisplay}
                   />
                 ))}
-                {(!effectiveReadOnly || effectiveAllowDelete) && <th style={{ width: 80 }}></th>}
+                {(!effectiveReadOnly || effectiveAllowDelete) && <th style={{ width: 110 }}></th>}
               </tr>
             </thead>
             <tbody>
@@ -461,6 +461,15 @@ function DataCrudPage({ data, setData, toast, config }) {
                       <div className="row-act">
                         {!effectiveReadOnly && (
                           <button className="btn-icon" onClick={() => setEdit(row)} title="แก้ไข"><Icon name="edit" size={14} /></button>
+                        )}
+                        {!effectiveReadOnly && (
+                          <button className="btn-icon" onClick={() => {
+                            // Clone row: strip id (so save() creates new), refresh DATE to today
+                            const { id, ...rest } = row;
+                            const clone = { ...rest, id: null };
+                            if ('DATE' in clone) clone.DATE = data.meta?.asOf || new Date().toISOString().slice(0, 10);
+                            setEdit(clone);
+                          }} title="คัดลอกรายการ"><Icon name="copy" size={14} /></button>
                         )}
                         {effectiveAllowDelete && (
                           <button className="btn-icon danger" onClick={() => remove(row.id)} title="ลบ"><Icon name="trash" size={14} /></button>
@@ -640,6 +649,12 @@ function DataCrudPage({ data, setData, toast, config }) {
         fields={config.modalFields}
         title={`ข้อมูล ${config.singular || 'รายการ'}`}
         onEdit={effectiveReadOnly ? undefined : (row) => setEdit(row)}
+        onCopy={effectiveReadOnly ? undefined : (row) => {
+          const { id, ...rest } = row;
+          const clone = { ...rest, id: null };
+          if ('DATE' in clone) clone.DATE = data.meta?.asOf || new Date().toISOString().slice(0, 10);
+          setEdit(clone);
+        }}
         onDelete={effectiveAllowDelete ? remove : undefined}
       />
 
@@ -742,7 +757,7 @@ function GenericEditModal({ row, onClose, onSave, fields, title, header }) {
 }
 
 // ─── Read-only view modal ─────────────────────────────────────────────────────
-function GenericViewModal({ row, onClose, fields, title, onDelete, onEdit }) {
+function GenericViewModal({ row, onClose, fields, title, onDelete, onEdit, onCopy }) {
   if (!row) return null;
   const roStyle = { minHeight: 34, borderRadius: 7, border: '1px solid var(--ink-100)', background: 'var(--ink-25, #f9fafb)', padding: '6px 10px', fontSize: 13, color: 'var(--ink-700)', cursor: 'default', userSelect: 'text', lineHeight: 1.5, wordBreak: 'break-word' };
   const roHighlight = { ...roStyle, background: 'color-mix(in oklch, var(--bad) 9%, transparent)', border: '1px solid color-mix(in oklch, var(--bad) 26%, transparent)', color: 'var(--bad)', fontWeight: 700, fontFamily: 'ui-monospace', fontSize: 14, textAlign: 'right', padding: '6px 14px' };
@@ -769,8 +784,13 @@ function GenericViewModal({ row, onClose, fields, title, onDelete, onEdit }) {
               </button>
             )}
           </div>
-          {/* Right: edit + close */}
+          {/* Right: copy + edit + close */}
           <div style={{ display: 'flex', gap: 8 }}>
+            {onCopy && (
+              <button className="btn btn-ghost" onClick={() => { onCopy(row); onClose(); }}>
+                <Icon name="copy" size={14} /> คัดลอก
+              </button>
+            )}
             {onEdit && (
               <button className="btn btn-ghost" onClick={handleEdit}>
                 <Icon name="edit" size={14} /> แก้ไข
