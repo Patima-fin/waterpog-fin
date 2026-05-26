@@ -169,32 +169,41 @@ function DailyRevenueDashboard({ data, setData, toast }) {
   const sumNet = list => list.reduce((s, iv) => s + (iv.netExpected || 0), 0);
 
   // ── A4 portrait print handler — เฉพาะ Hero + 3 pills + ตารางรับวันนี้ ──
-  //  (Forecast + Outstanding ตัดทิ้งด้วย .dr-print-hide, layout เรียงแนวตั้ง)
+  //  (Forecast + Outstanding ตัดทิ้งด้วย .dr-print-hide, layout horizontal stacked)
+  //  Force captureMode='portrait' ก่อนพิมพ์ → pills render horizontal layout เสมอ
+  //  (ไม่ขึ้นกับว่า user กำลังเปิดในโหมด landscape หรือ portrait)
   const handleDailyPrint = () => {
-    const styleId = 'dr-print-orientation-style';
-    let style = document.getElementById(styleId);
-    if (!style) {
-      style = document.createElement('style');
-      style.id = styleId;
-      document.head.appendChild(style);
-    }
-    style.textContent = `
-      @media print {
-        @page { size: A4 portrait; margin: 8mm 10mm; }
-        html, body { background: #fff !important; }
+    const wasLandscape = !isPortrait;
+    if (wasLandscape) setCaptureMode('portrait'); // trigger re-render → pills เป็น horizontal
+
+    // Wait for React to commit the state change ก่อนค่อย print
+    setTimeout(() => {
+      const styleId = 'dr-print-orientation-style';
+      let style = document.getElementById(styleId);
+      if (!style) {
+        style = document.createElement('style');
+        style.id = styleId;
+        document.head.appendChild(style);
       }
-    `;
-    document.body.classList.add('dr-print-mode');
-    document.body.classList.add('dr-print-portrait'); // เรียงแนวตั้ง stacked เสมอ
-    const cleanup = () => {
-      document.body.classList.remove('dr-print-mode');
-      document.body.classList.remove('dr-print-portrait');
-      if (style.parentNode) style.parentNode.removeChild(style);
-      window.removeEventListener('afterprint', cleanup);
-    };
-    window.addEventListener('afterprint', cleanup);
-    setTimeout(cleanup, 60000);
-    setTimeout(() => window.print(), 50);
+      style.textContent = `
+        @media print {
+          @page { size: A4 portrait; margin: 8mm 10mm; }
+          html, body { background: #fff !important; }
+        }
+      `;
+      document.body.classList.add('dr-print-mode');
+      document.body.classList.add('dr-print-portrait');
+      const cleanup = () => {
+        document.body.classList.remove('dr-print-mode');
+        document.body.classList.remove('dr-print-portrait');
+        if (style.parentNode) style.parentNode.removeChild(style);
+        window.removeEventListener('afterprint', cleanup);
+        if (wasLandscape) setCaptureMode('landscape'); // restore เดิม
+      };
+      window.addEventListener('afterprint', cleanup);
+      setTimeout(cleanup, 60000);
+      setTimeout(() => window.print(), 80);
+    }, wasLandscape ? 220 : 0);
   };
 
   return (
@@ -355,6 +364,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
       <div style={{ display: 'grid', gridTemplateColumns: isPortrait ? '1fr' : 'repeat(3, 1fr)', gap: isPortrait ? 10 : 14, marginBottom: isPortrait ? 16 : 24 }} className="anim-stagger daily-pill-grid">
         {/* YTD — brand blue (lighter than hero) */}
         <DailyPillCard
+          horizontal={isPortrait}
           title={`มูลค่ารับสะสมในปี ${thisYear}`}
           subtitle="Year-to-date"
           icon="📈"
@@ -366,6 +376,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
         />
         {/* MTD — fresh emerald */}
         <DailyPillCard
+          horizontal={isPortrait}
           title="มูลค่ารับสะสมในเดือนนี้"
           subtitle="Month-to-date"
           icon="🏦"
@@ -377,6 +388,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
         />
         {/* Today — warm sunshine amber (highlighted) */}
         <DailyPillCard
+          horizontal={isPortrait}
           title="โครงการที่รับเงินวันนี้"
           subtitle="Today's receipts"
           icon="💰"
@@ -555,9 +567,84 @@ function DailyRevenueDashboard({ data, setData, toast }) {
   );
 }
 
-/* ── Daily KPI card — compact, branded, screenshot-friendly ────────────── */
-function DailyPillCard({ title, subtitle, icon, count, value, gradient, accent, isHero, onClick }) {
+/* ── Daily KPI card — compact, branded, screenshot-friendly ──────────────
+   horizontal=true → layout แนวนอน 1 แถว [icon][title][VALUE][count][>]
+                     สำหรับ portrait preview + print
+   horizontal=false → layout 2 แถว (header + value/count) — landscape compact view
+*/
+function DailyPillCard({ title, subtitle, icon, count, value, gradient, accent, isHero, onClick, horizontal }) {
   const clickable = !!onClick;
+
+  // ── Horizontal single-row layout ──────────────────────────────────────────
+  if (horizontal) {
+    return (
+      <div onClick={onClick} className="dpc-pill dpc-horizontal"
+        style={{
+          position: 'relative', overflow: 'hidden',
+          borderRadius: 14, padding: '14px 22px',
+          background: gradient,
+          color: 'white',
+          boxShadow: isHero
+            ? '0 8px 20px rgba(232, 127, 21, .28), 0 0 0 2px rgba(255, 194, 102, .22)'
+            : '0 4px 14px rgba(42, 111, 219, .18)',
+          cursor: clickable ? 'pointer' : 'default',
+          transition: 'transform .15s, box-shadow .15s',
+          display: 'flex', alignItems: 'center', gap: 16,
+        }}
+        onMouseEnter={clickable ? (e) => { e.currentTarget.style.transform = 'translateY(-2px)'; } : undefined}
+        onMouseLeave={clickable ? (e) => { e.currentTarget.style.transform = ''; } : undefined}
+        title={clickable ? 'คลิกเพื่อดูรายละเอียด' : ''}>
+
+        {/* Decorative glows */}
+        <div className="dpc-glow" style={{ position: 'absolute', right: -50, top: -50, width: 140, height: 140, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', pointerEvents: 'none' }} />
+        <div className="dpc-glow" style={{ position: 'absolute', right: -10, bottom: -40, width: 80, height: 80, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', pointerEvents: 'none' }} />
+
+        {/* Icon */}
+        <div className="dpc-icon" style={{
+          width: 42, height: 42, borderRadius: 10,
+          background: 'rgba(255,255,255,0.18)',
+          display: 'grid', placeItems: 'center', fontSize: 19,
+          flexShrink: 0, position: 'relative', zIndex: 1,
+        }}>{icon}</div>
+
+        {/* Title + subtitle (fixed-width) */}
+        <div className="dpc-text" style={{ flexShrink: 0, position: 'relative', zIndex: 1, minWidth: 180, lineHeight: 1.2 }}>
+          <div className="dpc-title" style={{ fontSize: 14, fontWeight: 700, letterSpacing: '.01em' }}>{title}</div>
+          <div className="dpc-sub" style={{ fontSize: 10, opacity: 0.78, marginTop: 2, letterSpacing: '.08em', textTransform: 'uppercase' }}>{subtitle}</div>
+        </div>
+
+        {/* Big VALUE — grows to fill */}
+        <div className="dpc-value" style={{
+          flex: 1, fontSize: 30, fontWeight: 800,
+          fontVariantNumeric: 'tabular-nums', letterSpacing: '-.02em', lineHeight: 1,
+          position: 'relative', zIndex: 1, textAlign: 'left',
+        }}>
+          <AnimatedNumber value={value} digits={2} />
+          <span className="dpc-unit" style={{ fontSize: 15, opacity: 0.82, fontWeight: 500, marginLeft: 4 }}>฿</span>
+        </div>
+
+        {/* Count */}
+        <div className="dpc-count" style={{
+          display: 'flex', alignItems: 'baseline', gap: 4, opacity: 0.92,
+          flexShrink: 0, position: 'relative', zIndex: 1,
+        }}>
+          <span style={{ fontSize: 18, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+            <AnimatedNumber value={count} digits={0} />
+          </span>
+          <span style={{ fontSize: 12, opacity: 0.85 }}>ใบ</span>
+        </div>
+
+        {/* Chevron — far right */}
+        {clickable && (
+          <svg className="dpc-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: .6, flexShrink: 0, position: 'relative', zIndex: 1 }}>
+            <polyline points="9 6 15 12 9 18"/>
+          </svg>
+        )}
+      </div>
+    );
+  }
+
+  // ── Default: 2-row stacked layout (landscape compact view) ────────────────
   return (
     <div onClick={onClick} className="dpc-pill"
       style={{

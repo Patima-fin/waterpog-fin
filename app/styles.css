@@ -1175,46 +1175,54 @@ button { font: inherit; color: inherit; }
   body.dr-print-mode .dr-page .daily-pill-grid > .dpc-pill:last-child {
     margin-bottom: 0 !important;
   }
-  /* ── Pill title (กรอบชมพู) — ขยายขนาดให้อ่านง่าย ── */
+  /* ── Pill horizontal layout — pill เป็น 1 แถวอยู่แล้ว (JSX), CSS แค่จัดขนาดให้พอดี A4 ── */
+  body.dr-print-mode .dr-page .dpc-horizontal {
+    padding: 12pt 18pt !important;
+    gap: 14pt !important;
+  }
+  /* ── Pill icon ── */
+  body.dr-print-mode .dr-page .dpc-icon {
+    width: 36pt !important;
+    height: 36pt !important;
+    border-radius: 9pt !important;
+    font-size: 17pt !important;
+  }
+  /* ── Title block (กรอบชมพู) ── */
+  body.dr-print-mode .dr-page .dpc-text {
+    min-width: 130pt !important;
+  }
   body.dr-print-mode .dr-page .dpc-title {
-    font-size: 15pt !important;
-    font-weight: 800 !important;
-    line-height: 1.2 !important;
+    font-size: 12pt !important;
+    font-weight: 700 !important;
+    line-height: 1.15 !important;
   }
   body.dr-print-mode .dr-page .dpc-sub {
-    font-size: 9.5pt !important;
+    font-size: 8.5pt !important;
     opacity: 0.85 !important;
-    margin-top: 2pt !important;
+    margin-top: 1pt !important;
     letter-spacing: .08em !important;
   }
-  /* ── Pill icon — ขยายเล็กน้อยให้สมส่วน ── */
-  body.dr-print-mode .dr-page .dpc-icon {
-    width: 38pt !important;
-    height: 38pt !important;
-    border-radius: 9pt !important;
-    font-size: 18pt !important;
-  }
-  /* ── Big value (ตัวเลข) — ใหญ่ขึ้น + push เข้าด้านในนิดนึง ── */
+  /* ── Big value (ตัวเลข) ── */
   body.dr-print-mode .dr-page .dpc-value {
-    font-size: 28pt !important;
+    font-size: 24pt !important;
     font-weight: 800 !important;
-    line-height: 1.1 !important;
-    padding-left: 2pt !important;
+    line-height: 1 !important;
   }
   body.dr-print-mode .dr-page .dpc-value .dpc-unit {
-    font-size: 14pt !important;
+    font-size: 12pt !important;
   }
   /* ── Count "1 ใบ" ── */
   body.dr-print-mode .dr-page .dpc-count > span:first-child {
-    font-size: 14pt !important;
+    font-size: 15pt !important;
     font-weight: 800 !important;
   }
   body.dr-print-mode .dr-page .dpc-count > span:last-child {
-    font-size: 11pt !important;
+    font-size: 10.5pt !important;
   }
-  /* Chevron arrow → ไม่ต้องโชว์ตอน print (ไม่ใช่ลิงก์) */
+  /* Chevron arrow — โชว์ใน print ด้วย (เป็นส่วนของ design horizontal) */
   body.dr-print-mode .dr-page .dpc-chevron {
-    display: none !important;
+    display: inline-block !important;
+    opacity: 0.55 !important;
   }
 
   /* Today's received card + Outstanding card — keep with light card style */
