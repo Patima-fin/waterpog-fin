@@ -1092,21 +1092,63 @@ button { font: inherit; color: inherit; }
     max-width: 100% !important;
   }
 
-  /* Hero — keep brand-blue gradient + slim down for paper */
-  body.dr-print-mode .dr-page .report-capture-area > div:first-of-type {
-    padding: 10pt 14pt !important;
+  /* Hero — keep brand-blue gradient + บังคับเป็นแถวเดียว (logo+title ซ้าย, date ขวา)
+     ไม่ยอมให้ flex-direction: column ที่ React ใส่มาตอน captureMode=portrait
+     ทำให้ hero สูงเกิน */
+  body.dr-print-mode .dr-page .dr-hero {
+    padding: 11pt 16pt !important;
     border-radius: 10pt !important;
     margin-bottom: 8pt !important;
     box-shadow: 0 4pt 12pt rgba(26,68,144,.22) !important;
     break-inside: avoid !important;
     page-break-inside: avoid !important;
   }
-  /* Hero logo + title block — compact */
-  body.dr-print-mode .dr-page .report-capture-area > div:first-of-type img {
-    width: 44pt !important; height: 44pt !important;
+  body.dr-print-mode .dr-page .dr-hero-row {
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 12pt !important;
   }
-  body.dr-print-mode .dr-page .report-capture-area > div:first-of-type div[style*="border-radius: 14"] {
-    width: 52pt !important; height: 52pt !important; padding: 4pt !important;
+  body.dr-print-mode .dr-page .dr-hero-left {
+    gap: 11pt !important;
+  }
+  body.dr-print-mode .dr-page .dr-hero-logo {
+    width: 50pt !important;
+    height: 50pt !important;
+    padding: 4pt !important;
+    border-radius: 10pt !important;
+  }
+  body.dr-print-mode .dr-page .dr-hero-co {
+    font-size: 8pt !important;
+  }
+  body.dr-print-mode .dr-page .dr-hero-title {
+    font-size: 18pt !important;
+    line-height: 1.1 !important;
+    margin-top: 3pt !important;
+  }
+  body.dr-print-mode .dr-page .dr-hero-en {
+    font-size: 9pt !important;
+    margin-top: 2pt !important;
+  }
+  /* Date block — บังคับขวา ไม่มี border แนวนอนคั่น (เดิม portrait ใส่ borderTop) */
+  body.dr-print-mode .dr-page .dr-hero-date {
+    text-align: right !important;
+    width: auto !important;
+    border-top: none !important;
+    padding-top: 0 !important;
+    flex-shrink: 0 !important;
+  }
+  body.dr-print-mode .dr-page .dr-hero-date-label {
+    font-size: 8pt !important;
+  }
+  body.dr-print-mode .dr-page .dr-hero-date-big {
+    font-size: 22pt !important;
+    line-height: 1 !important;
+    margin-top: 2pt !important;
+  }
+  body.dr-print-mode .dr-page .dr-hero-date-sub {
+    font-size: 9pt !important;
+    margin-top: 2pt !important;
   }
 
   /* Summary pills (YTD / MTD / Today) — เรียงแนวตั้ง stacked เสมอตอนพิมพ์

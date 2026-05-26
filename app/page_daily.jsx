@@ -283,7 +283,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
       }}>
 
       {/* ── Hero — brand-aligned gradient (matches sidebar/cards) ────────── */}
-      <div className="anim-in" style={{
+      <div className="anim-in dr-hero" style={{
         marginBottom: isPortrait ? 14 : 20, padding: isPortrait ? '18px 22px' : '22px 28px',
         borderRadius: 18, position: 'relative', overflow: 'hidden',
         background: 'linear-gradient(135deg, #1a4490 0%, #1f56b8 50%, #2a6fdb 100%)',
@@ -300,7 +300,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
         <div style={{ position: 'absolute', right: -90, top: -90, width: 240, height: 240, borderRadius: '50%', background: 'rgba(255,255,255,0.06)', pointerEvents: 'none' }} />
         <div style={{ position: 'absolute', left: -50, top: -50, width: 140, height: 140, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', pointerEvents: 'none' }} />
 
-        <div style={{
+        <div className="dr-hero-row" style={{
           display: 'flex',
           flexDirection: isPortrait ? 'column' : 'row',
           justifyContent: 'space-between',
@@ -308,8 +308,8 @@ function DailyRevenueDashboard({ data, setData, toast }) {
           position: 'relative', zIndex: 1, gap: isPortrait ? 14 : 24,
         }}>
           {/* Left — Logo + Title */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <div style={{
+          <div className="dr-hero-left" style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <div className="dr-hero-logo" style={{
               background: 'white', borderRadius: 14, padding: 7,
               boxShadow: '0 6px 18px rgba(0,0,0,0.18)',
               width: isPortrait ? 68 : 76, height: isPortrait ? 68 : 76, display: 'grid', placeItems: 'center', flexShrink: 0,
@@ -318,33 +318,33 @@ function DailyRevenueDashboard({ data, setData, toast }) {
                 style={{ width: '100%', height: 'auto', display: 'block', objectFit: 'contain' }} />
             </div>
             <div>
-              <div style={{ fontSize: isPortrait ? 12 : 11, opacity: 0.88, letterSpacing: '.18em', textTransform: 'uppercase', fontWeight: 600 }}>
+              <div className="dr-hero-co" style={{ fontSize: isPortrait ? 12 : 11, opacity: 0.88, letterSpacing: '.18em', textTransform: 'uppercase', fontWeight: 600 }}>
                 {meta.companyName}
               </div>
-              <div style={{ fontSize: isPortrait ? 30 : 32, fontWeight: 800, letterSpacing: '-.01em', lineHeight: 1.12, marginTop: 5 }}>
+              <div className="dr-hero-title" style={{ fontSize: isPortrait ? 30 : 32, fontWeight: 800, letterSpacing: '-.01em', lineHeight: 1.12, marginTop: 5 }}>
                 สรุปรายงานรับเงินประจำวัน
               </div>
-              <div style={{ fontSize: isPortrait ? 13.5 : 13, opacity: 0.78, marginTop: 4, letterSpacing: '.05em' }}>
+              <div className="dr-hero-en" style={{ fontSize: isPortrait ? 13.5 : 13, opacity: 0.78, marginTop: 4, letterSpacing: '.05em' }}>
                 Daily Revenue Report
               </div>
             </div>
           </div>
 
           {/* Right — Date */}
-          <div style={{
+          <div className="dr-hero-date" style={{
             textAlign: isPortrait ? 'left' : 'right',
             flexShrink: 0,
             width: isPortrait ? '100%' : 'auto',
             borderTop: isPortrait ? '1px solid rgba(255,255,255,0.18)' : 'none',
             paddingTop: isPortrait ? 14 : 0,
           }}>
-            <div style={{ fontSize: 10.5, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '.18em', fontWeight: 600 }}>
+            <div className="dr-hero-date-label" style={{ fontSize: 10.5, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '.18em', fontWeight: 600 }}>
               วันที่ของรายงาน
             </div>
-            <div style={{ fontSize: isPortrait ? 32 : 36, fontWeight: 800, marginTop: 4, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
+            <div className="dr-hero-date-big" style={{ fontSize: isPortrait ? 32 : 36, fontWeight: 800, marginTop: 4, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
               {fmtDate(todayStr)}
             </div>
-            <div style={{ fontSize: 12, opacity: 0.85, marginTop: 4 }}>
+            <div className="dr-hero-date-sub" style={{ fontSize: 12, opacity: 0.85, marginTop: 4 }}>
               {todayLabel}
             </div>
           </div>
