@@ -34,9 +34,9 @@ const ROLE_PERMS = {
     pages: '*',
     canEdit: true, canDelete: true, canApprove: true, canManageUsers: true,
   },
-  // เจ้าของ — ดูได้ทุกหน้า แต่แก้/ลบไม่ได้ + ไม่เห็น audit + users
+  // เจ้าของ — ดูได้ทุกหน้า แต่แก้/ลบไม่ได้ + ไม่เห็น audit + users + บันทึก/บัญชีธนาคาร
   owner: {
-    pages: '*', excludePages: new Set(['users', 'audit_log']),
+    pages: '*', excludePages: new Set(['users', 'audit_log', 'daily_balance', 'data_bank', 'bank_diary']),
     canEdit: false, canDelete: false, canApprove: false, canManageUsers: false,
   },
 };
@@ -115,6 +115,14 @@ function App() {
   aEffect(() => {
     window.dispatchEvent(new CustomEvent('wtp-override-change', { detail: { key: '*' } }));
   }, [data.manualOverrides]);
+
+  // ── ติด class role-<role> ที่ <body> เพื่อให้ CSS ซ่อน ✏️ ของ owner ได้ทุกตำแหน่ง
+  aEffect(() => {
+    const role = (currentUser && currentUser.role) || 'viewer';
+    // ลบ class เก่าก่อน
+    document.body.className = document.body.className.replace(/\brole-[a-z]+\b/g, '').trim();
+    document.body.classList.add(`role-${role}`);
+  }, [currentUser]);
 
   // ── One-time migration: ดัน localStorage overrides ขึ้น cloud (รอบเดียวต่อ user)
   // ทุก user ที่เคยกรอกค่ามือไว้ใน localStorage จะถูก push ขึ้น Sheet อัตโนมัติ

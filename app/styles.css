@@ -1341,3 +1341,35 @@ button { font: inherit; color: inherit; }
   body.dr-print-mode * { animation: none !important; transition: none !important; }
 }
 
+/* ──────────────────────────────────────────────────────────────────────────
+   role=owner — read-only safety net
+   ผู้บริหาร (owner) ดูอย่างเดียว ไม่ให้แก้ไขผ่าน UI
+   ครอบทั้งหน้าด้วย body.role-owner (set จาก app.jsx เมื่อ login)
+   ─────────────────────────────────────────────────────────────────────────── */
+/* Disable all editable form controls inside main content
+   - ยกเว้น input[type=search] / .tb-search (ใช้ค้นหา/กรอง) ที่ owner ยังต้องใช้
+   - ยกเว้น input ที่ readOnly อยู่แล้ว (เพราะไม่ใช่ตัวเขียน) */
+body.role-owner .page input:not([type="search"]):not([type="hidden"]):not([readonly]),
+body.role-owner .page select:not([data-owner-allow]),
+body.role-owner .page textarea:not([readonly]) {
+  pointer-events: none !important;
+  background: #f3f4f6 !important;
+  color: var(--ink-500) !important;
+  cursor: not-allowed !important;
+  opacity: 0.7;
+}
+/* คงสิทธิ์ใช้ search box ของหน้า list/table */
+body.role-owner .page .tb-search input,
+body.role-owner .page input[type="search"],
+body.role-owner .modal input[type="search"],
+body.role-owner .modal .tb-search input {
+  pointer-events: auto !important;
+  background: #fff !important;
+  color: var(--ink-700) !important;
+  cursor: text !important;
+  opacity: 1 !important;
+}
+/* Inline-edit wrappers (click div → enter edit) — ปิด click action */
+body.role-owner [data-owner-readonly] { pointer-events: none !important; cursor: not-allowed !important; }
+
+

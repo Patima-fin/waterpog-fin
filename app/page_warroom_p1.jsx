@@ -710,11 +710,34 @@ function RcDeductInput({ value, max, onSave }) {
   const [draft, setDraft]     = React.useState(String(value || ''));
   React.useEffect(() => { setDraft(String(value || '')); }, [value]);
 
+  // ★ role guard — owner/viewer ดูอย่างเดียว ไม่ให้เปิดโหมดแก้ไข
+  const readOnly = (() => {
+    try {
+      const s = JSON.parse(localStorage.getItem('wtp-session') || 'null');
+      const role = (s && s.role) || 'viewer';
+      return role === 'owner' || role === 'viewer';
+    } catch (_) { return false; }
+  })();
+
   const commit = () => {
+    if (readOnly) { setEditing(false); return; }
     const n = Math.max(0, parseFloat(String(draft).replace(/,/g, '')) || 0);
     if (n !== value) onSave(n);
     setEditing(false);
   };
+
+  if (readOnly) {
+    return (
+      <div data-owner-readonly
+        style={{
+          padding: '4px 6px', textAlign: 'right',
+          fontFamily: 'ui-monospace', fontWeight: 600, fontSize: 11.5,
+          color: value > 0 ? 'var(--bad)' : 'var(--ink-300)',
+        }}>
+        {value > 0 ? '(' + fmtNum(value, 2) + ')' : <span className="muted">—</span>}
+      </div>
+    );
+  }
 
   if (editing) {
     return (

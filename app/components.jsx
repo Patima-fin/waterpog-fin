@@ -591,6 +591,16 @@ function StatusPill({ value, options, onChange, size = 'md' }) {
 // localStorage = cache เร็ว สำหรับ cold-start ก่อน sync เสร็จ + offline fallback
 // ใช้ใน Warroom รายปี + Cashflow รายสัปดาห์ + Daily Bank Balance
 const OVERRIDE_LS_KEY = 'wtp-manual-overrides';
+// ── Role guard — owner = ดูอย่างเดียว, ห้ามเขียน override ที่ data layer
+// ป้องกันได้แม้ user จะ bypass UI (เช่น force editMode=true ใน DevTools, หรือเรียก
+// WTPOverride.set() ตรงๆ จาก console)
+function _wtpRoleIsReadOnly() {
+  try {
+    const s = JSON.parse(localStorage.getItem('wtp-session') || 'null');
+    const role = (s && s.role) || 'viewer';
+    return role === 'owner' || role === 'viewer';
+  } catch (_) { return false; }
+}
 const WTPOverride = {
   // ── Local cache (instant read, offline support) ─────────────────────
   _loadLocal() { try { return JSON.parse(localStorage.getItem(OVERRIDE_LS_KEY) || '{}'); } catch (_) { return {}; } },
@@ -619,6 +629,11 @@ const WTPOverride = {
   },
 
   set(key, value) {
+    // ★ Role guard — owner/viewer ห้ามเขียน override (ป้องกัน bypass UI)
+    if (_wtpRoleIsReadOnly()) {
+      console.warn('WTPOverride.set blocked — role is read-only');
+      return;
+    }
     // 1) Update local cache เพื่อตอบสนองทันที (ไม่รอ sync)
     const local = this._loadLocal();
     const clearing = value === null || value === '' || value === undefined;
@@ -652,6 +667,10 @@ const WTPOverride = {
   clear(key) { this.set(key, null); },
 
   clearAll() {
+    if (_wtpRoleIsReadOnly()) {
+      console.warn('WTPOverride.clearAll blocked — role is read-only');
+      return;
+    }
     this._saveLocal({});
     if (typeof window.__wtpSetData === 'function') {
       window.__wtpSetData(d => ({ ...d, manualOverrides: [] }));
@@ -696,6 +715,10 @@ const WTPOverride = {
 
   // ── Force resync — ดัน local overrides ทั้งหมดขึ้น cloud (manual rescue)
   forceSync() {
+    if (_wtpRoleIsReadOnly()) {
+      console.warn('WTPOverride.forceSync blocked — role is read-only');
+      return 0;
+    }
     const local = this._loadLocal();
     const keys = Object.keys(local);
     if (keys.length === 0) { console.log('ไม่มี override ใน localStorage'); return 0; }
@@ -761,7 +784,10 @@ function EditableNumber({ ovKey, computed, editMode, format, digits = 2, style, 
   const value      = WTPOverride.resolve(ovKey, computed);
   const fmt = format || ((n) => fmtNum(n, digits));
 
-  if (editMode) {
+  // ★ owner/viewer = ดูอย่างเดียว — ไม่ให้เปิด input ได้ แม้จะถูกบังคับ editMode=true
+  const effectiveEditMode = editMode && !_wtpRoleIsReadOnly();
+
+  if (effectiveEditMode) {
     return (
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
         <input
@@ -803,10 +829,13 @@ function EditableNumber({ ovKey, computed, editMode, format, digits = 2, style, 
     );
   }
 
+  // ★ ซ่อน badge ดินสอสำหรับ owner — ดูอย่างเดียว ไม่ต้องเห็นว่าค่าไหนถูกแก้มือ
+  const showPencil = showBadge && overridden && !_isOwnerOnly();
+
   return (
     <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 4, ...style }}>
       <span>{fmt(value)}{suffix}</span>
-      {showBadge && overridden && (
+      {showPencil && (
         <span
           title="ค่าที่กรอกมือ (override)"
           style={{
