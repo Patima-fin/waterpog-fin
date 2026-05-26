@@ -1061,7 +1061,8 @@ button { font: inherit; color: inherit; }
 
   body.dr-print-mode { background: #fff !important; color: #1a202c !important; font-size: 9pt; }
 
-  /* Hide chrome — sidebar, topbar, toolbars, no-print regions */
+  /* Hide chrome — sidebar, topbar, toolbars, no-print regions
+     + .dr-print-hide marker (Forecast + Outstanding sections ที่ไม่ต้องการตอนพิมพ์) */
   body.dr-print-mode .sb,
   body.dr-print-mode .topbar,
   body.dr-print-mode .sb-scrim,
@@ -1072,7 +1073,8 @@ button { font: inherit; color: inherit; }
   body.dr-print-mode .row-act,
   body.dr-print-mode .menu-btn,
   body.dr-print-mode .dr-page .page-head,
-  body.dr-print-mode .dr-page .btn {
+  body.dr-print-mode .dr-page .btn,
+  body.dr-print-mode .dr-print-hide {
     display: none !important;
   }
 
@@ -1107,14 +1109,15 @@ button { font: inherit; color: inherit; }
     width: 52pt !important; height: 52pt !important; padding: 4pt !important;
   }
 
-  /* Summary pills (YTD / MTD / Today) — keep gradient pills, slim down */
+  /* Summary pills (YTD / MTD / Today) — เรียงแนวตั้ง stacked เสมอตอนพิมพ์
+     (ตรงตามตัวอย่าง portrait preview ที่ user ต้องการ) */
   body.dr-print-mode .dr-page .daily-pill-grid {
-    grid-template-columns: repeat(3, 1fr) !important;
-    gap: 6pt !important;
+    grid-template-columns: 1fr !important;
+    gap: 7pt !important;
     margin-bottom: 8pt !important;
   }
   body.dr-print-mode .dr-page .daily-pill-grid > div {
-    padding: 9pt 12pt !important;
+    padding: 11pt 14pt !important;
     border-radius: 10pt !important;
     break-inside: avoid !important;
     box-shadow: 0 2pt 5pt rgba(0,0,0,.08) !important;

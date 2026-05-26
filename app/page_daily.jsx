@@ -168,7 +168,8 @@ function DailyRevenueDashboard({ data, setData, toast }) {
   const sumBal = list => list.reduce((s, iv) => s + (iv.balance || 0), 0);
   const sumNet = list => list.reduce((s, iv) => s + (iv.netExpected || 0), 0);
 
-  // ── A4 print handler — สวยเหมือนหน้าเว็บ (กระดาษเลือกตาม captureMode) ──
+  // ── A4 portrait print handler — เฉพาะ Hero + 3 pills + ตารางรับวันนี้ ──
+  //  (Forecast + Outstanding ตัดทิ้งด้วย .dr-print-hide, layout เรียงแนวตั้ง)
   const handleDailyPrint = () => {
     const styleId = 'dr-print-orientation-style';
     let style = document.getElementById(styleId);
@@ -179,12 +180,12 @@ function DailyRevenueDashboard({ data, setData, toast }) {
     }
     style.textContent = `
       @media print {
-        @page { size: A4 ${isPortrait ? 'portrait' : 'landscape'}; margin: 8mm 9mm; }
+        @page { size: A4 portrait; margin: 8mm 10mm; }
         html, body { background: #fff !important; }
       }
     `;
     document.body.classList.add('dr-print-mode');
-    if (isPortrait) document.body.classList.add('dr-print-portrait');
+    document.body.classList.add('dr-print-portrait'); // เรียงแนวตั้ง stacked เสมอ
     const cleanup = () => {
       document.body.classList.remove('dr-print-mode');
       document.body.classList.remove('dr-print-portrait');
@@ -204,7 +205,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
           <div className="page-sub">Daily Revenue Report · ข้อมูล ณ {todayLabel}</div>
         </div>
         <div className="page-head-r">
-          <button className="btn btn-ghost" onClick={handleDailyPrint} title={`พิมพ์ A4 ${isPortrait ? 'แนวตั้ง' : 'แนวนอน'} (Ctrl+P)`}>
+          <button className="btn btn-ghost" onClick={handleDailyPrint} title="พิมพ์ A4 แนวตั้ง (เฉพาะ Hero + Pills + ตารางวันนี้) (Ctrl+P)">
             <Icon name="print" size={14} /> พิมพ์ / PDF
           </button>
         </div>
@@ -400,7 +401,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
       {/* ═══════════════════════════════════════════════════════════════════════
           FORECAST SECTION — คาดการณ์จากใบแจ้งหนี้คงค้าง
           ═══════════════════════════════════════════════════════════════════ */}
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 14 }} className="anim-in">
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 14 }} className="anim-in dr-print-hide">
         <h2 style={{ fontSize: 17, fontWeight: 700, color: 'var(--ink-800)', margin: 0 }}>
           ประมาณการรับเงิน (Forecast)
         </h2>
@@ -410,7 +411,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
       </div>
 
       {/* Forecast KPI tiles ─────────────────────────────────────────────────── */}
-      <div className="anim-stagger" style={{ marginBottom: 18, display: 'grid', gridTemplateColumns: isPortrait ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 12 }}>
+      <div className="anim-stagger dr-print-hide" style={{ marginBottom: 18, display: 'grid', gridTemplateColumns: isPortrait ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 12 }}>
 
         {/* เกินกำหนด */}
         <div onClick={() => overdueForecast.length > 0 && setFcModal({ title: '🚨 เกินกำหนดชำระ', list: overdueForecast })}
@@ -503,7 +504,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
       </div>
 
       {/* Outstanding summary table ───────────────────────────────────────────── */}
-      <div className="card anim-in" style={{ padding: 0, overflow: 'hidden' }}>
+      <div className="card anim-in dr-print-hide" style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(180deg,var(--brand-50),white)' }}>
           <div>
             <div className="card-title">ใบแจ้งหนี้คงค้างทั้งหมด</div>
