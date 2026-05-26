@@ -1119,18 +1119,60 @@ button { font: inherit; color: inherit; }
     gap: 0 !important;
     margin-bottom: 8pt !important;
   }
-  body.dr-print-mode .dr-page .daily-pill-grid > div {
+  body.dr-print-mode .dr-page .daily-pill-grid > .dpc-pill {
     display: flex !important;
     width: 100% !important;
     box-sizing: border-box !important;
-    padding: 11pt 14pt !important;
+    padding: 13pt 22pt !important;  /* เพิ่ม horizontal padding → ตัวเลขห่างจากขอบ */
     margin-bottom: 7pt !important;
+    gap: 9pt !important;
     border-radius: 10pt !important;
     break-inside: avoid !important;
     box-shadow: 0 2pt 5pt rgba(0,0,0,.08) !important;
   }
-  body.dr-print-mode .dr-page .daily-pill-grid > div:last-child {
+  body.dr-print-mode .dr-page .daily-pill-grid > .dpc-pill:last-child {
     margin-bottom: 0 !important;
+  }
+  /* ── Pill title (กรอบชมพู) — ขยายขนาดให้อ่านง่าย ── */
+  body.dr-print-mode .dr-page .dpc-title {
+    font-size: 15pt !important;
+    font-weight: 800 !important;
+    line-height: 1.2 !important;
+  }
+  body.dr-print-mode .dr-page .dpc-sub {
+    font-size: 9.5pt !important;
+    opacity: 0.85 !important;
+    margin-top: 2pt !important;
+    letter-spacing: .08em !important;
+  }
+  /* ── Pill icon — ขยายเล็กน้อยให้สมส่วน ── */
+  body.dr-print-mode .dr-page .dpc-icon {
+    width: 38pt !important;
+    height: 38pt !important;
+    border-radius: 9pt !important;
+    font-size: 18pt !important;
+  }
+  /* ── Big value (ตัวเลข) — ใหญ่ขึ้น + push เข้าด้านในนิดนึง ── */
+  body.dr-print-mode .dr-page .dpc-value {
+    font-size: 28pt !important;
+    font-weight: 800 !important;
+    line-height: 1.1 !important;
+    padding-left: 2pt !important;
+  }
+  body.dr-print-mode .dr-page .dpc-value .dpc-unit {
+    font-size: 14pt !important;
+  }
+  /* ── Count "1 ใบ" ── */
+  body.dr-print-mode .dr-page .dpc-count > span:first-child {
+    font-size: 14pt !important;
+    font-weight: 800 !important;
+  }
+  body.dr-print-mode .dr-page .dpc-count > span:last-child {
+    font-size: 11pt !important;
+  }
+  /* Chevron arrow → ไม่ต้องโชว์ตอน print (ไม่ใช่ลิงก์) */
+  body.dr-print-mode .dr-page .dpc-chevron {
+    display: none !important;
   }
 
   /* Today's received card + Outstanding card — keep with light card style */

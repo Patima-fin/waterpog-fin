@@ -559,7 +559,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
 function DailyPillCard({ title, subtitle, icon, count, value, gradient, accent, isHero, onClick }) {
   const clickable = !!onClick;
   return (
-    <div onClick={onClick}
+    <div onClick={onClick} className="dpc-pill"
       style={{
         position: 'relative', overflow: 'hidden',
         borderRadius: 14, padding: '13px 18px',
@@ -577,35 +577,35 @@ function DailyPillCard({ title, subtitle, icon, count, value, gradient, accent, 
       title={clickable ? 'คลิกเพื่อดูรายละเอียด' : ''}>
 
       {/* Decorative glow — subtle */}
-      <div style={{ position: 'absolute', right: -50, top: -50, width: 130, height: 130, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', pointerEvents: 'none' }} />
-      <div style={{ position: 'absolute', right: -10, bottom: -40, width: 80, height: 80, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', pointerEvents: 'none' }} />
+      <div className="dpc-glow" style={{ position: 'absolute', right: -50, top: -50, width: 130, height: 130, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', pointerEvents: 'none' }} />
+      <div className="dpc-glow" style={{ position: 'absolute', right: -10, bottom: -40, width: 80, height: 80, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', pointerEvents: 'none' }} />
 
       {/* Header: icon + title */}
-      <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', gap: 10 }}>
-        <div style={{
+      <div className="dpc-header" style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div className="dpc-icon" style={{
           width: 32, height: 32, borderRadius: 8,
           background: 'rgba(255,255,255,0.16)',
           display: 'grid', placeItems: 'center', fontSize: 16,
           flexShrink: 0,
         }}>{icon}</div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '.01em', lineHeight: 1.2 }}>{title}</div>
-          <div style={{ fontSize: 10, opacity: 0.72, marginTop: 2, letterSpacing: '.08em', textTransform: 'uppercase' }}>{subtitle}</div>
+        <div className="dpc-text" style={{ flex: 1, minWidth: 0 }}>
+          <div className="dpc-title" style={{ fontSize: 13, fontWeight: 700, letterSpacing: '.01em', lineHeight: 1.2 }}>{title}</div>
+          <div className="dpc-sub" style={{ fontSize: 10, opacity: 0.72, marginTop: 2, letterSpacing: '.08em', textTransform: 'uppercase' }}>{subtitle}</div>
         </div>
         {clickable && (
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: .5, flexShrink: 0 }}>
+          <svg className="dpc-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: .5, flexShrink: 0 }}>
             <polyline points="9 6 15 12 9 18"/>
           </svg>
         )}
       </div>
 
       {/* Big value + count in one row for compactness */}
-      <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-        <div style={{ fontSize: 24, fontWeight: 800, fontVariantNumeric: 'tabular-nums', letterSpacing: '-.02em', lineHeight: 1.1 }}>
+      <div className="dpc-body" style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+        <div className="dpc-value" style={{ fontSize: 24, fontWeight: 800, fontVariantNumeric: 'tabular-nums', letterSpacing: '-.02em', lineHeight: 1.1 }}>
           <AnimatedNumber value={value} digits={2} />
-          <span style={{ fontSize: 12, opacity: 0.82, fontWeight: 500, marginLeft: 3 }}>฿</span>
+          <span className="dpc-unit" style={{ fontSize: 12, opacity: 0.82, fontWeight: 500, marginLeft: 3 }}>฿</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, opacity: 0.88 }}>
+        <div className="dpc-count" style={{ display: 'flex', alignItems: 'baseline', gap: 4, opacity: 0.88 }}>
           <span style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
             <AnimatedNumber value={count} digits={0} />
           </span>
