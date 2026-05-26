@@ -21,6 +21,50 @@ function fmtDateInput(iso) {
   return iso.length >= 10 ? iso.slice(0, 10) : iso;
 }
 
+// Number input that displays with thousand-separator commas like an
+// accounting system, but stores the raw number string. Allows typing
+// digits + at most one decimal point; commas are inserted live.
+function MoneyInput({ value, onChange, placeholder, disabled, autoFocus, style }) {
+  // value = raw string ("3175489.10" or "")
+  // display = formatted ("3,175,489.10")
+  const format = (raw) => {
+    if (raw === '' || raw == null) return '';
+    const s = String(raw).replace(/,/g, '');
+    if (s === '' || s === '-' || s === '.') return s;
+    const negative = s.startsWith('-');
+    const body = negative ? s.slice(1) : s;
+    const [intPart, decPart] = body.split('.');
+    const withCommas = (intPart || '0').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return (negative ? '-' : '') + (decPart != null ? `${withCommas}.${decPart}` : withCommas);
+  };
+  const unformat = (display) => {
+    // Keep only digits, single dot, optional leading minus
+    let s = String(display).replace(/[^\d.-]/g, '');
+    // Allow only one minus at start
+    const negative = s.startsWith('-');
+    s = s.replace(/-/g, '');
+    // Allow only one dot
+    const firstDot = s.indexOf('.');
+    if (firstDot >= 0) {
+      s = s.slice(0, firstDot + 1) + s.slice(firstDot + 1).replace(/\./g, '');
+    }
+    return (negative ? '-' : '') + s;
+  };
+  return (
+    <input
+      className="input"
+      type="text"
+      inputMode="decimal"
+      value={format(value)}
+      onChange={(e) => onChange(unformat(e.target.value))}
+      placeholder={placeholder}
+      disabled={disabled}
+      autoFocus={autoFocus}
+      style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', width: '100%', ...style }}
+    />
+  );
+}
+
 // Diff badge
 function DiffBadge({ delta }) {
   if (delta == null || isNaN(delta)) return null;
@@ -102,13 +146,29 @@ function DailyBalancePage({ data, setData, toast }) {
     setDraft(next);
   };
 
+  // ── HOLD draft state — separate from balance draft ─────────────────
+  const [holdDraft, setHoldDraft] = dbState({});
+  dbEffect(() => {
+    // Initialise from bankAccounts.HOLD_AMOUNT
+    const init = {};
+    accounts.forEach(a => {
+      if (a.HOLD_AMOUNT != null && a.HOLD_AMOUNT !== '' && a.HOLD_AMOUNT !== 0) {
+        init[a.Bank_AC] = String(a.HOLD_AMOUNT);
+      }
+    });
+    setHoldDraft(init);
+  }, [accounts.length]);
+  const setHoldVal = (ac, v) => setHoldDraft(d => ({ ...d, [ac]: v }));
+
   // ── Compute totals + diff per row ─────────────────────────────────
   const rowsWithDiff = (list) => list.map(a => {
     const ac = a.Bank_AC;
     const yestBal = yesterdayByAc[ac] ? Number(yesterdayByAc[ac].balance) : null;
     const newBal  = draft[ac] !== undefined && draft[ac] !== '' ? Number(draft[ac]) : null;
     const delta   = (yestBal != null && newBal != null) ? (newBal - yestBal) : null;
-    return { a, ac, yestBal, newBal, delta, saved: !!todayByAc[ac] };
+    const hold    = holdDraft[ac] !== undefined && holdDraft[ac] !== '' ? Number(holdDraft[ac]) : (Number(a.HOLD_AMOUNT) || 0);
+    const available = (newBal != null ? newBal : (yestBal || 0)) - (hold || 0);
+    return { a, ac, yestBal, newBal, delta, hold, available, saved: !!todayByAc[ac] };
   });
 
   const mainRows    = rowsWithDiff(accountsByType.main);
@@ -119,6 +179,8 @@ function DailyBalancePage({ data, setData, toast }) {
   const todayTotal     = mainRows.reduce((s, r) => s + (r.newBal != null ? r.newBal : 0), 0);
   const yestTotal      = mainRows.reduce((s, r) => s + (r.yestBal != null ? r.yestBal : 0), 0);
   const todayDelta     = todayTotal - yestTotal;
+  const totalHold      = mainRows.reduce((s, r) => s + (r.hold || 0), 0);
+  const totalAvailable = todayTotal - totalHold;
 
   // Mini history — last 7 days total balance
   const sevenDayTotal = dbMemo(() => {
@@ -147,6 +209,7 @@ function DailyBalancePage({ data, setData, toast }) {
     const a = accounts.find(x => x.Bank_AC === ac);
     const existing = todayByAc[ac];
     const session = JSON.parse(localStorage.getItem('wtp-session') || 'null');
+    const holdVal = holdDraft[ac] !== undefined && holdDraft[ac] !== '' ? Number(holdDraft[ac]) : 0;
     const row = {
       id: existing ? existing.id : WTPData.newId(),
       date: entryDate,
@@ -160,9 +223,9 @@ function DailyBalancePage({ data, setData, toast }) {
     };
     setData(d => {
       const others = (d.cashflowSnapshots || []).filter(s => !(s.date === entryDate && s.bankAc === ac));
-      // Also update bankAccounts.BALANCE so live balance stays in sync
+      // Also update bankAccounts.BALANCE + HOLD_AMOUNT so live balance stays in sync
       const updatedAccounts = (d.bankAccounts || []).map(acc =>
-        acc.Bank_AC === ac ? { ...acc, BALANCE: balance, DATE: entryDate } : acc
+        acc.Bank_AC === ac ? { ...acc, BALANCE: balance, HOLD_AMOUNT: holdVal, DATE: entryDate } : acc
       );
       return { ...d, cashflowSnapshots: [...others, row], bankAccounts: updatedAccounts };
     });
@@ -192,7 +255,9 @@ function DailyBalancePage({ data, setData, toast }) {
       const updatedAccounts = (d.bankAccounts || []).map(acc => {
         const newRow = newRows.find(r => r.bankAc === acc.Bank_AC);
         if (!newRow) return acc;
-        return { ...acc, BALANCE: newRow.balance, DATE: entryDate };
+        // Save HOLD_AMOUNT too if user changed it
+        const holdVal = holdDraft[acc.Bank_AC] !== undefined && holdDraft[acc.Bank_AC] !== '' ? Number(holdDraft[acc.Bank_AC]) : (Number(acc.HOLD_AMOUNT) || 0);
+        return { ...acc, BALANCE: newRow.balance, HOLD_AMOUNT: holdVal, DATE: entryDate };
       });
       return { ...d, cashflowSnapshots: [...others, ...newRows], bankAccounts: updatedAccounts };
     });
@@ -235,11 +300,11 @@ function DailyBalancePage({ data, setData, toast }) {
 
       {/* KPI */}
       <div className="grid grid-4 anim-stagger" style={{ marginBottom: 16 }}>
-        <KpiTile animate={false} label="บัญชีที่บันทึก" value={mainSavedCount} unit={` / ${mainTotalCount}`} digits={0}
+        <KpiTile animate={false} label="รวมยอดวันนี้"      value={todayTotal}     accent="var(--brand-500)" icon="bank" />
+        <KpiTile animate={false} label="ยอด HOLD รวม"      value={totalHold}      accent="oklch(60% 0.18 55)" icon="arrow_up" />
+        <KpiTile animate={false} label="ยอดใช้ได้จริง"     value={totalAvailable} accent="var(--good)" icon="coin" />
+        <KpiTile animate={false} label="บัญชีที่บันทึก"   value={mainSavedCount} unit={` / ${mainTotalCount}`} digits={0}
           accent={mainSavedCount === mainTotalCount ? 'var(--good)' : 'var(--bad)'} icon="check" />
-        <KpiTile animate={false} label="รวมยอดวันนี้"   value={todayTotal}  accent="var(--brand-500)" icon="bank" />
-        <KpiTile animate={false} label="รวมยอดเมื่อวาน" value={yestTotal}   accent="oklch(52% 0.16 220)" icon="bank" />
-        <KpiTile animate={false} label="เปลี่ยนแปลง"     value={todayDelta}  accent={todayDelta >= 0 ? 'var(--good)' : 'var(--bad)'} icon={todayDelta >= 0 ? 'arrow_up' : 'arrow_down'} />
       </div>
 
       {/* 7-day mini-trend */}
@@ -281,19 +346,25 @@ function DailyBalancePage({ data, setData, toast }) {
         <table className="tbl" style={{ width: '100%' }}>
           <thead>
             <tr>
-              <th style={{ width: 40, textAlign: 'center' }}>#</th>
-              <th style={{ width: 110 }}>ธนาคาร</th>
-              <th style={{ width: 160 }}>เลขที่บัญชี</th>
-              <th style={{ width: 140, textAlign: 'right' }}>ยอดเมื่อวาน</th>
-              <th style={{ width: 180, textAlign: 'right' }}>ยอดวันนี้</th>
-              <th style={{ width: 110, textAlign: 'right' }}>Δ</th>
-              <th style={{ width: 60 }}></th>
-              <th style={{ width: 100, textAlign: 'center' }}>สถานะ</th>
+              <th style={{ width: 32, textAlign: 'center' }}>#</th>
+              <th style={{ width: 90 }}>ธนาคาร</th>
+              <th style={{ width: 130 }}>เลขที่บัญชี</th>
+              <th style={{ width: 130, textAlign: 'right' }}>ยอดเมื่อวาน</th>
+              <th style={{ width: 160, textAlign: 'right' }}>ยอดวันนี้</th>
+              <th style={{ width: 100, textAlign: 'right' }}>Δ</th>
+              <th style={{ width: 140, textAlign: 'right', background: 'oklch(95% 0.04 55)' }}>
+                ยอด HOLD<br/><span style={{ fontSize: 9, fontWeight: 400, color: 'var(--ink-500)' }}>กันไว้สำหรับ commit</span>
+              </th>
+              <th style={{ width: 130, textAlign: 'right', background: 'var(--good-bg)' }}>
+                ใช้ได้จริง<br/><span style={{ fontSize: 9, fontWeight: 400, color: 'var(--ink-500)' }}>ยอด−HOLD</span>
+              </th>
+              <th style={{ width: 50 }}></th>
+              <th style={{ width: 95, textAlign: 'center' }}>สถานะ</th>
             </tr>
           </thead>
           <tbody>
             {mainRows.length === 0 && (
-              <tr><td colSpan={8} style={{ padding: 24, textAlign: 'center' }} className="muted">ยังไม่มีบัญชีหลัก — เพิ่มได้ที่หน้า DATA BANK</td></tr>
+              <tr><td colSpan={10} style={{ padding: 24, textAlign: 'center' }} className="muted">ยังไม่มีบัญชีหลัก — เพิ่มได้ที่หน้า DATA BANK</td></tr>
             )}
             {mainRows.map((r, i) => {
               const big = r.delta != null && Math.abs(r.delta) >= 100000;
@@ -308,21 +379,30 @@ function DailyBalancePage({ data, setData, toast }) {
                       <div style={{ fontSize: 10, color: 'var(--ink-400)' }}>{fmtDate(yesterdayByAc[r.ac].date)}</div>
                     )}
                   </td>
-                  <td style={{ textAlign: 'right' }}>
-                    <input
-                      className="input"
-                      type="number"
-                      step="0.01"
-                      placeholder={r.yestBal != null ? String(r.yestBal) : '0.00'}
+                  <td>
+                    <MoneyInput
                       value={draft[r.ac] !== undefined ? draft[r.ac] : ''}
-                      onChange={e => setDraftVal(r.ac, e.target.value)}
+                      onChange={v => setDraftVal(r.ac, v)}
+                      placeholder={r.yestBal != null ? fmtNum(r.yestBal, 2) : '0.00'}
                       disabled={!canEdit}
-                      style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', width: '100%' }}
                     />
                   </td>
                   <td style={{ textAlign: 'right' }}>
                     {big && <span title="เปลี่ยนแปลงเกิน 100,000 — ตรวจสอบอีกครั้ง" style={{ marginRight: 4 }}>⚠️</span>}
                     <DiffBadge delta={r.delta} />
+                  </td>
+                  <td style={{ background: 'color-mix(in oklch, oklch(70% 0.16 55) 6%, transparent)' }}>
+                    <MoneyInput
+                      value={holdDraft[r.ac] !== undefined ? holdDraft[r.ac] : ''}
+                      onChange={v => setHoldVal(r.ac, v)}
+                      placeholder="0.00"
+                      disabled={!canEdit}
+                    />
+                  </td>
+                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700,
+                    color: r.available < 0 ? 'var(--bad)' : 'var(--good)',
+                    background: 'color-mix(in oklch, var(--good) 5%, transparent)' }}>
+                    {r.newBal != null || r.hold > 0 ? fmtNum(r.available, 2) : <span className="muted">—</span>}
                   </td>
                   <td>
                     {canEdit && r.yestBal != null && (
@@ -351,6 +431,8 @@ function DailyBalancePage({ data, setData, toast }) {
                 <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(yestTotal, 2)}</td>
                 <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(todayTotal, 2)}</td>
                 <td style={{ textAlign: 'right' }}><DiffBadge delta={todayDelta} /></td>
+                <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'oklch(60% 0.16 55)' }}>{fmtNum(totalHold, 2)}</td>
+                <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: totalAvailable < 0 ? 'var(--bad)' : 'var(--good)' }}>{fmtNum(totalAvailable, 2)}</td>
                 <td colSpan={2}></td>
               </tr>
             </tfoot>
@@ -386,14 +468,12 @@ function DailyBalancePage({ data, setData, toast }) {
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--ink-600)' }}>
                     {r.yestBal != null ? fmtNum(r.yestBal, 2) : <span className="muted">—</span>}
                   </td>
-                  <td style={{ textAlign: 'right' }}>
-                    <input
-                      className="input" type="number" step="0.01"
-                      placeholder="ปล่อยว่างถ้าไม่เปลี่ยน"
+                  <td>
+                    <MoneyInput
                       value={draft[r.ac] !== undefined ? draft[r.ac] : ''}
-                      onChange={e => setDraftVal(r.ac, e.target.value)}
+                      onChange={v => setDraftVal(r.ac, v)}
+                      placeholder="ปล่อยว่างถ้าไม่เปลี่ยน"
                       disabled={!canEdit}
-                      style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', width: '100%' }}
                     />
                   </td>
                   <td style={{ textAlign: 'right' }}><DiffBadge delta={r.delta} /></td>
