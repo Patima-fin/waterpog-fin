@@ -426,7 +426,13 @@ var ENTITY_HEADERS = {
   invoices: [
     'id','ivNo','jobNo','period','invoiceDate','balance',
     'status','expectedReceive','contactName','contactPhone',
-    'followUps','actualReceive'
+    'followUps','actualReceive',
+    // v2 fields parsed from "Olddata IV" (added 2026-05-23)
+    'projectCode','projectName','customerCode','customerName',
+    'dueDate','assignee','contractor','category',
+    'actualReceiveDate','currentStatus','arNo','docType','refCode',
+    // v3 fields (added 2026-05-26) — admin override + invType + remark
+    'invType','debtOverride','assigneeOverride','remark','productType','contractRef'
   ],
 
   // ── forecastEntries: ตรงกับ RAW_MANUAL_EXPENSE ────────────────────────
@@ -467,7 +473,9 @@ var ENTITY_HEADERS = {
   // ── receipts: ประวัติรับเงิน ────────────────────────────────────────
   receipts: [
     'id','receiptNo','receiptDate','invoiceNo','projectCode','projectName','period',
-    'grossAmount','transferDeduction','netReceived','bankAccount','note'
+    'grossAmount','transferDeduction','netReceived','bankAccount','note',
+    // v3 field (added 2026-05-26) — override invoice's invType per receipt
+    'invType'
   ],
 
   // ── bankEntries: รายการเคลื่อนไหวบัญชีธนาคาร (แผน/ข้อเท็จจริง) ─────
