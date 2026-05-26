@@ -7,6 +7,19 @@ const { useMemo: wr2Memo } = React;
 function WarRoomPage2({ data, setData, toast }) {
   const { monthlyForecast, warroomP2, meta } = data;
 
+  // ── Live: โครงการรอลงนาม (Start ว่าง = ยังไม่ลงนาม) ─────────────────────
+  // คำนวณตรงจาก data.projects แทน warroomP2.unsignedTotal (pre-computed) เพื่อให้
+  // sync กับหน้า "โครงการทั้งหมด" — เพิ่ม/แก้/ลบ project แล้วยอดอัปเดตทันที
+  const liveUnsigned = wr2Memo(() => {
+    const isEmpty = v => v == null || String(v).trim() === '' || String(v).trim() === '—' || String(v).trim() === '-';
+    const unsigned = (data.projects || []).filter(p => isEmpty(p.Start || p.start));
+    const value = unsigned.reduce((sum, p) => {
+      const v = Number(p['งบประมาณ']) || Number(p.allocBudget) || 0;
+      return sum + v;
+    }, 0);
+    return { count: unsigned.length, value };
+  }, [data.projects]);
+
   // Compute monthly totals
   const monthTotals = wr2Memo(() => monthlyForecast.reduce((acc, m) => ({
     invIssued: acc.invIssued + (m.invIssued || 0),
@@ -53,7 +66,7 @@ function WarRoomPage2({ data, setData, toast }) {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, auto)', gap: 24, fontSize: 12 }}>
             <HeroStat label="ใบแจ้งหนี้คงค้าง" value={warroomP2.invoiceForwardTotal} />
             <HeroStat label="งานระหว่างก่อสร้าง" value={warroomP2.wipValue} />
-            <HeroStat label="ใบจัดสรร" value={warroomP2.unsignedTotal.value} count={warroomP2.unsignedTotal.count} />
+            <HeroStat label="ใบจัดสรร · รอลงนาม" value={liveUnsigned.value} count={liveUnsigned.count} />
           </div>
         </div>
       </div>
@@ -71,16 +84,23 @@ function WarRoomPage2({ data, setData, toast }) {
           <div style={{ position: 'relative' }}>
             <Badge kind="b-gray" dot={false}>1.1</Badge>
             <div style={{ marginTop: 10, fontSize: 14, color: 'var(--ink-600)', fontWeight: 500 }}>โครงการที่รอลงนามสัญญา</div>
-            <div style={{ fontSize: 12, color: 'var(--ink-500)', marginTop: 2 }}>ได้รับใบจัดสรรแล้ว · ยังไม่ลงนาม</div>
+            <div style={{ fontSize: 12, color: 'var(--ink-500)', marginTop: 2 }}>ได้รับใบจัดสรรแล้ว · ยังไม่ลงนาม (Start ว่าง)</div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginTop: 14 }}>
               <div style={{ fontSize: 32, fontWeight: 800, color: 'var(--ink-900)', fontVariantNumeric: 'tabular-nums', letterSpacing: '-.01em' }}>
-                <AnimatedNumber value={warroomP2.unsignedTotal.value} digits={2} />
+                <AnimatedNumber value={liveUnsigned.value} digits={2} />
               </div>
               <div style={{ fontSize: 14, color: 'var(--ink-500)' }}>บาท</div>
             </div>
-            <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Badge kind="b-amber" dot>{warroomP2.unsignedTotal.count} โครงการ</Badge>
-              <span style={{ fontSize: 11.5, color: 'var(--ink-500)' }}>{((warroomP2.unsignedTotal.value / warroomP2.totalProjectValue) * 100).toFixed(0)}% ของมูลค่าทั้งหมด</span>
+            <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <Badge kind="b-amber" dot>{liveUnsigned.count} โครงการ</Badge>
+              {warroomP2.totalProjectValue > 0 && (
+                <span style={{ fontSize: 11.5, color: 'var(--ink-500)' }}>
+                  {((liveUnsigned.value / warroomP2.totalProjectValue) * 100).toFixed(1)}% ของมูลค่าทั้งหมด
+                </span>
+              )}
+              <span style={{ fontSize: 10.5, color: 'var(--brand-600)', fontStyle: 'italic' }}>
+                คำนวณตรงจากหน้า โครงการทั้งหมด
+              </span>
             </div>
           </div>
         </div>
