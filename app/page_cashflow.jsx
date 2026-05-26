@@ -139,20 +139,24 @@ const CATEGORY_LABELS_SHORT = {
 // ─── Inflow helpers ────────────────────────────────────────────────────────
 // "คาดรับสุทธิ" = ยอดที่คาดว่าจะรับเข้ามาจริง หลังหัก WHT และภาระหนี้
 //
-// แหล่งข้อมูล (เรียงตามความน่าเชื่อถือ):
-//   1) iv.netExpected — pre-computed ที่หน้าใบแจ้งหนี้ (single source of truth)
-//   2) balance × 0.99 (หัก WHT 1%) - debt — fallback ถ้าไม่มี netExpected
+// สูตรเดียวกับหน้าใบแจ้งหนี้ (page_invoices.jsx):
+//   netExpected = balance × 106/107 (หัก WHT 1% จากยอดก่อน VAT) − debt
+//   debt = resolveDebt(iv, financeByCode[jobNo])   ← ภาระหนี้จาก projectFinance
 //
-// Note: ไม่ใส่ Math.max(0, ...) แล้ว เพราะถ้า debt > balance (ภาระหนี้สูงกว่ายอดค้าง)
-//   ควรเห็นยอดติดลบเพื่อรู้ว่าใบนี้รับไม่คุ้ม
-function ivNetExpected(iv) {
-  if (iv.netExpected != null && iv.netExpected !== '') {
-    return Number(iv.netExpected) || 0;
-  }
-  // Fallback: คำนวณเอง
+// Note: ต้องส่ง financeByCode เข้ามาเพื่อให้ debt ตรงกับที่ IV report ใช้
+//   (resolveDebt() exposed globally จาก page_invoices.jsx)
+function ivNetExpected(iv, financeByCode) {
   const bal = Number(iv.balance) || 0;
-  const debt = Number(iv.debt) || 0;
-  return bal * 0.99 - debt;
+  // ถ้ามี financeByCode ให้ lookup debt แบบเดียวกับ IV report
+  let debt;
+  if (financeByCode && typeof window.resolveDebt === 'function') {
+    const jobNo = String(iv.jobNo || '').replace(/-(?:GW|TC|HH|PG|GP|GG)$/i, '');
+    const f = financeByCode[jobNo] || financeByCode[iv.contractRef] || {};
+    debt = window.resolveDebt(iv, f);
+  } else {
+    debt = Number(iv.debt) || 0;
+  }
+  return bal * 106 / 107 - debt;
 }
 function ivIsPaid(iv) {
   const s = String(iv.status || '').toLowerCase();
@@ -215,6 +219,15 @@ function CashFlowDashboard({ data, setData, toast }) {
   const forecastEntries= data.forecastEntries || [];
   const snapshots      = data.cashflowSnapshots || [];
   const bankAccounts   = data.bankAccounts || [];
+
+  // ── financeByCode lookup (เหมือนหน้า IV) — ใช้คำนวณ debt + netExpected ──
+  const financeByCode = cfMemo(() => {
+    if (window.WTPData && typeof window.WTPData.buildLookups === 'function') {
+      try { return window.WTPData.buildLookups(data).financeByCode || {}; }
+      catch (_) { return {}; }
+    }
+    return {};
+  }, [data.projects, data.debtLedger]);
   const mainAccounts   = bankAccounts.filter(a => (a.accountType || 'main').toLowerCase() !== 'closed' && (a.accountType || 'main').toLowerCase() !== 'dormant');
 
   // ── B/F: balance at last day of previous month (auto from snapshots) ──
@@ -311,7 +324,7 @@ function CashFlowDashboard({ data, setData, toast }) {
     const forecast = weeks.map(() => 0);
     const actual   = weeks.map(() => 0);
     invoices.forEach(iv => {
-      const net = ivNetExpected(iv);
+      const net = ivNetExpected(iv, financeByCode);
       // Forecast: expectedReceive in current month, not yet paid
       if (!ivIsPaid(iv) && iv.expectedReceive && inMonth(iv.expectedReceive, year, month)) {
         const w = findWeekIdx(iv.expectedReceive, weeks);
@@ -395,7 +408,7 @@ function CashFlowDashboard({ data, setData, toast }) {
     invoices.forEach(ivRow => {
       if (ivIsPaid(ivRow)) return;
       if (ivRow.expectedReceive && inMonth(ivRow.expectedReceive, nextYear, nextMonth)) {
-        iv += ivNetExpected(ivRow);
+        iv += ivNetExpected(ivRow, financeByCode);
       }
     });
     forecastEntries.forEach(fe => {
@@ -497,7 +510,7 @@ function CashFlowDashboard({ data, setData, toast }) {
           date: d,
           name: iv.projectName || iv.PROJECT_NAME || iv.customer || '—',
           ref: iv.ivNo || iv.IV_NO || iv.invoiceNo || '',
-          amount: ivNetExpected(iv),
+          amount: ivNetExpected(iv, financeByCode),
           note: iv.note || '',
         });
       });
