@@ -22,6 +22,10 @@ function DataCrudPage({ data, setData, toast, config }) {
   // multi-select for delete/export. Hides checkbox column otherwise.
   const [bulkMode, setBulkMode] = dxState(false);
   const [selected, setSelected] = dxState(() => new Set());
+  // Import modal state (generic paste/upload for any DataCrudPage)
+  const [showImport, setShowImport]   = dxState(false);
+  const [importText, setImportText]   = dxState('');
+  const [importStats, setImportStats] = dxState(null);   // {added, skipped, errors}
   // Clear selection whenever the filter/search/mode changes
   dxEffect(() => { setSelected(new Set()); }, [filter, query, bulkMode]);
   // Excel-like per-column filters — { [colKey]: Set<displayValue> }
@@ -115,6 +119,189 @@ function DataCrudPage({ data, setData, toast, config }) {
     });
   };
 
+  // ─── Import (Template + Paste/Upload) ─────────────────────────────────────
+  // Get importable fields (skip section markers; expose key + label + type)
+  const importFields = dxMemo(
+    () => (config.modalFields || [])
+      .filter(f => f.type !== 'section' && f.key)
+      .map(f => ({ key: f.key, label: f.label, type: f.type, options: f.options })),
+    [config.modalFields]
+  );
+
+  // Build a "label → key" lookup (also matches plain key)
+  const buildHeaderMap = (headers) => {
+    const map = {};
+    headers.forEach((h, idx) => {
+      const norm = String(h || '').trim();
+      if (!norm) return;
+      // 1) exact key match
+      let f = importFields.find(x => x.key === norm);
+      // 2) exact label match
+      if (!f) f = importFields.find(x => x.label === norm);
+      // 3) label contains norm (e.g. "DATE — วันที่บันทึก" vs "DATE")
+      if (!f) f = importFields.find(x => String(x.label || '').split(/[—\-—:·\(]/)[0].trim() === norm);
+      // 4) startsWith case-insensitive
+      if (!f) {
+        const lc = norm.toLowerCase();
+        f = importFields.find(x => x.key.toLowerCase() === lc
+                                 || String(x.label||'').toLowerCase().startsWith(lc));
+      }
+      if (f) map[idx] = f.key;
+    });
+    return map;
+  };
+
+  const coerceVal = (raw, type) => {
+    if (raw == null) return '';
+    const s = String(raw).trim();
+    if (s === '') return '';
+    if (type === 'number') {
+      // accept "1,234.56" or "-1234" or "(1234)" accounting style
+      let v = s.replace(/,/g, '').replace(/[฿$\s]/g, '');
+      if (/^\(.*\)$/.test(v)) v = '-' + v.slice(1, -1);
+      const n = Number(v);
+      return isNaN(n) ? 0 : n;
+    }
+    if (type === 'date') {
+      // accept "2026-05-26" / "26/05/2026" / "26/5/26" / Excel serial
+      if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+      const m1 = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+      if (m1) {
+        let [, dd, mm, yy] = m1;
+        if (yy.length === 2) yy = (Number(yy) > 50 ? '19' : '20') + yy;
+        // Thai Buddhist year support (e.g., 2569 → 2026)
+        if (Number(yy) > 2400) yy = String(Number(yy) - 543);
+        return `${yy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}`;
+      }
+      // Excel serial number
+      const sn = Number(s);
+      if (!isNaN(sn) && sn > 20000 && sn < 80000) {
+        const epoch = new Date(Date.UTC(1899, 11, 30));
+        const d = new Date(epoch.getTime() + sn * 86400000);
+        return d.toISOString().slice(0, 10);
+      }
+      return s;
+    }
+    return s;
+  };
+
+  // Parse TSV (Excel paste) or CSV
+  const parseDelimited = (text) => {
+    const lines = text.replace(/\r\n?/g, '\n').split('\n').filter(l => l.trim());
+    if (lines.length === 0) return { headers: [], rows: [] };
+    // Detect delimiter: tab if any line contains tab, else comma
+    const delim = lines[0].includes('\t') ? '\t' : ',';
+    const split = (line) => {
+      if (delim === '\t') return line.split('\t');
+      // simple CSV split with quoted fields
+      const out = []; let cur = ''; let inQ = false;
+      for (let i = 0; i < line.length; i++) {
+        const c = line[i];
+        if (c === '"' && line[i+1] === '"') { cur += '"'; i++; }
+        else if (c === '"') inQ = !inQ;
+        else if (c === ',' && !inQ) { out.push(cur); cur = ''; }
+        else cur += c;
+      }
+      out.push(cur);
+      return out;
+    };
+    const headers = split(lines[0]).map(h => h.trim());
+    const rows = lines.slice(1).map(split);
+    return { headers, rows };
+  };
+
+  const handleImport = () => {
+    if (!importText.trim()) { toast('ไม่มีข้อมูล — กรุณาวางข้อมูลจาก Excel ก่อน'); return; }
+    const { headers, rows } = parseDelimited(importText);
+    if (rows.length === 0) {
+      toast('ไม่พบแถวข้อมูล — ต้องมีหัวตาราง + ข้อมูลอย่างน้อย 1 แถว');
+      return;
+    }
+    const headerMap = buildHeaderMap(headers);
+    const mappedCount = Object.keys(headerMap).length;
+    if (mappedCount === 0) {
+      toast('ไม่พบคอลัมน์ที่ตรงกับฟอร์ม — กรุณาดาวน์โหลด Template ก่อน');
+      setImportStats({ added: 0, skipped: rows.length, errors: ['header ไม่ตรง — ใช้ Template'] });
+      return;
+    }
+    const fieldByKey = Object.fromEntries(importFields.map(f => [f.key, f]));
+    const newRows = [];
+    let skipped = 0;
+    const errors = [];
+    rows.forEach((cols, i) => {
+      if (cols.every(c => !String(c || '').trim())) { skipped++; return; }
+      const obj = { id: WTPData.newId() };
+      Object.entries(headerMap).forEach(([colIdx, key]) => {
+        const f = fieldByKey[key];
+        obj[key] = coerceVal(cols[colIdx], f?.type);
+      });
+      // Fill empty defaults from emptyRow
+      if (config.emptyRow) {
+        Object.entries(config.emptyRow).forEach(([k, v]) => {
+          if (obj[k] === undefined || obj[k] === '' || obj[k] === null) obj[k] = v;
+        });
+      }
+      newRows.push(obj);
+    });
+    if (newRows.length > 0) {
+      setData(d => ({ ...d, [config.dataKey]: [...newRows, ...(d[config.dataKey] || [])] }));
+    }
+    setImportStats({ added: newRows.length, skipped, errors });
+    toast(`นำเข้าแล้ว ${newRows.length} รายการ${skipped ? ` · ข้าม ${skipped}` : ''}`);
+  };
+
+  // Download xlsx template using SheetJS (window.XLSX loaded in index.html)
+  const handleDownloadTemplate = (fmt = 'xlsx') => {
+    if (importFields.length === 0) { toast('ไม่มีคอลัมน์สำหรับ Template'); return; }
+    const headers = importFields.map(f => f.label);
+    const exampleRow = importFields.map(f => {
+      if (f.type === 'date') return new Date().toISOString().slice(0, 10);
+      if (f.type === 'number') return 0;
+      if (f.type === 'select' && f.options?.length) return f.options.find(o => o.value)?.value || '';
+      return '';
+    });
+    const aoa = [headers, exampleRow];
+    const filename = `template_${config.dataKey || 'data'}`;
+    if (fmt === 'csv' || !window.XLSX) {
+      const csv = aoa.map(row => row.map(c => {
+        const s = String(c ?? '');
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      }).join(',')).join('\n');
+      const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = Object.assign(document.createElement('a'), { href: url, download: `${filename}.csv` });
+      a.click(); URL.revokeObjectURL(url);
+    } else {
+      const ws = window.XLSX.utils.aoa_to_sheet(aoa);
+      // Set column widths
+      ws['!cols'] = headers.map(h => ({ wch: Math.max(14, String(h).length + 2) }));
+      const wb = window.XLSX.utils.book_new();
+      window.XLSX.utils.book_append_sheet(wb, ws, 'Template');
+      window.XLSX.writeFile(wb, `${filename}.xlsx`);
+    }
+    toast(`ดาวน์โหลด Template (${fmt.toUpperCase()}) แล้ว`);
+  };
+
+  // Upload an .xlsx file directly (no need to copy-paste)
+  const handleFileUpload = (file) => {
+    if (!file) return;
+    if (!window.XLSX) { toast('ไม่พบไลบรารี SheetJS — กรุณาใช้วิธี Copy-Paste แทน'); return; }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const wb = window.XLSX.read(e.target.result, { type: 'array', cellDates: false });
+        const sheetName = wb.SheetNames[0];
+        const ws = wb.Sheets[sheetName];
+        const tsv = window.XLSX.utils.sheet_to_csv(ws, { FS: '\t' });
+        setImportText(tsv);
+        toast(`อ่านไฟล์ ${file.name} แล้ว — กรุณาตรวจสอบและกด "นำเข้า"`);
+      } catch (err) {
+        toast('อ่านไฟล์ไม่สำเร็จ: ' + err.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
   const stats = config.summary ? config.summary(rows) : [];
 
   return (
@@ -142,7 +329,13 @@ function DataCrudPage({ data, setData, toast, config }) {
             </button>
           )}
           {userCanEdit && (
-            <button className="btn btn-ghost"><Icon name="upload" size={14} /> นำเข้า Excel</button>
+            <button className="btn btn-ghost" onClick={() => {
+              console.log('[Import] click — opening modal for', config.dataKey);
+              setShowImport(true);
+              setImportStats(null);
+            }}>
+              <Icon name="upload" size={14} /> นำเข้า Excel
+            </button>
           )}
           {!effectiveReadOnly && (
             <button className="btn btn-primary" onClick={() => setEdit({ ...config.emptyRow, id: null })}>
@@ -329,6 +522,115 @@ function DataCrudPage({ data, setData, toast, config }) {
           </button>
         </div>
       )}
+
+      {/* Import modal — generic for any DataCrudPage */}
+      {showImport && (() => {
+        const previewRows = importText ? parseDelimited(importText).rows.length : 0;
+        const placeholderText = 'ตัวอย่าง (วางจาก Excel ได้เลย):\n' +
+          importFields.slice(0, 4).map(f => f.label).join('\t') +
+          (importFields.length > 4 ? '\t...' : '') + '\n...';
+        return (
+        <Modal open={showImport} title={'นำเข้า · ' + config.title} maxWidth={760}
+          onClose={() => { setShowImport(false); setImportText(''); setImportStats(null); }}
+          footer={<>
+            <button className="btn btn-ghost" onClick={() => { setShowImport(false); setImportText(''); setImportStats(null); }}>ปิด</button>
+            <button className="btn btn-primary" onClick={handleImport} disabled={!importText.trim()}>
+              <Icon name="upload" size={13} /> นำเข้า ({previewRows} แถว)
+            </button>
+          </>}>
+
+          {/* Step 1 — Download template */}
+          <div style={{
+            background: 'color-mix(in oklch, var(--brand-500) 6%, transparent)',
+            border: '1px solid color-mix(in oklch, var(--brand-500) 22%, transparent)',
+            borderRadius: 10, padding: '12px 14px', marginBottom: 14,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+              <div style={{
+                width: 24, height: 24, borderRadius: '50%', background: 'var(--brand-500)',
+                color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 12,
+              }}>1</div>
+              <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--brand-700)' }}>
+                ดาวน์โหลด Template ก่อน
+              </div>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--ink-600)', marginBottom: 10, lineHeight: 1.55 }}>
+              เปิดไฟล์ใน Excel/Google Sheet → กรอกข้อมูลตามคอลัมน์ → คัดลอกทั้งหมด (Ctrl+A → Ctrl+C) มาวางในกล่องด้านล่าง
+              หรืออัปโหลดไฟล์โดยตรง
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button className="btn btn-primary" onClick={() => handleDownloadTemplate('xlsx')}>
+                <Icon name="download" size={13} /> Template .xlsx
+              </button>
+              <button className="btn btn-ghost" onClick={() => handleDownloadTemplate('csv')}>
+                <Icon name="download" size={13} /> Template .csv
+              </button>
+              <label className="btn btn-ghost" style={{ cursor: 'pointer', marginLeft: 'auto' }}>
+                <Icon name="upload" size={13} /> เลือกไฟล์ .xlsx
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  style={{ display: 'none' }}
+                  onChange={(e) => handleFileUpload(e.target.files?.[0])}
+                />
+              </label>
+            </div>
+          </div>
+
+          {/* Step 2 — Paste data */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+            <div style={{
+              width: 24, height: 24, borderRadius: '50%', background: 'var(--brand-500)',
+              color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 12,
+            }}>2</div>
+            <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--brand-700)' }}>
+              วางข้อมูลจาก Excel (แถวแรก = หัวตาราง)
+            </div>
+          </div>
+          <textarea
+            className="input"
+            rows={10}
+            value={importText}
+            onChange={e => setImportText(e.target.value)}
+            placeholder={placeholderText}
+            style={{ fontFamily: 'ui-monospace', fontSize: 11.5, width: '100%', resize: 'vertical', marginBottom: 10 }}
+          />
+
+          {/* Expected columns hint */}
+          <details style={{ marginBottom: 10 }}>
+            <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--brand-700)', fontWeight: 600 }}>
+              📋 คอลัมน์ที่ระบบรองรับ ({importFields.length} คอลัมน์)
+            </summary>
+            <div style={{ marginTop: 8, padding: 10, background: 'var(--ink-25, #f9fafb)', borderRadius: 8, fontSize: 11.5, lineHeight: 1.7 }}>
+              {importFields.map((f, i) => (
+                <div key={i} style={{ display: 'flex', gap: 8 }}>
+                  <span style={{ fontFamily: 'ui-monospace', fontWeight: 600, color: 'var(--brand-700)', minWidth: 130 }}>{f.label}</span>
+                  <span className="muted">— {f.type || 'text'}</span>
+                </div>
+              ))}
+            </div>
+          </details>
+
+          {/* Stats after import */}
+          {importStats && (
+            <div style={{
+              padding: 10, borderRadius: 8,
+              background: importStats.added > 0 ? 'color-mix(in oklch, var(--good) 12%, transparent)' : 'color-mix(in oklch, var(--bad) 12%, transparent)',
+              border: `1px solid ${importStats.added > 0 ? 'var(--good)' : 'var(--bad)'}`,
+              fontSize: 12.5,
+            }}>
+              ✅ เพิ่มแล้ว <strong>{importStats.added}</strong> รายการ
+              {importStats.skipped > 0 && <> · ⏭️ ข้าม <strong>{importStats.skipped}</strong></>}
+              {importStats.errors?.length > 0 && (
+                <div style={{ marginTop: 6, color: 'var(--bad)' }}>
+                  ⚠️ {importStats.errors.join('; ')}
+                </div>
+              )}
+            </div>
+          )}
+        </Modal>
+        );
+      })()}
 
       {/* View popup — opens on row click (read-only).
           Footer buttons (แก้ไข / ลบ) gated by user role */}
