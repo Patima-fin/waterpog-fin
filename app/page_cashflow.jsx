@@ -472,9 +472,16 @@ function CashFlowDashboard({ data, setData, toast }) {
     3: currentRestSplit(apForecastByWeekCat.map(g => g[3]), nextMonthInflow.out[3]),
     4: currentRestSplit(apForecastByWeekCat.map(g => g[4]), nextMonthInflow.out[4]),
   };
-  const totalOutCurrent = planOut[1].current + planOut[2].current + planOut[3].current + planOut[4].current;
-  const totalOutRest    = planOut[1].rest    + planOut[2].rest    + planOut[3].rest    + planOut[4].rest;
-  const totalOutAll     = planOut[1].total   + planOut[2].total   + planOut[3].total   + planOut[4].total;
+  // ใช้ค่าที่ resolve override แล้ว เพื่อให้ "รวมรายจ่าย" สะท้อนยอดที่ user คีย์มือ
+  // และ net end-of-week/month ก็ใช้ยอดนี้คำนวณต่อด้วย
+  const _resolvedOut = (cat) => ({
+    current: WTPOverride.resolve(`${ovPrefix}.s01.out${cat}.current`, planOut[cat].current),
+    rest:    WTPOverride.resolve(`${ovPrefix}.s01.out${cat}.rest`,    planOut[cat].rest),
+    total:   WTPOverride.resolve(`${ovPrefix}.s01.out${cat}.total`,   planOut[cat].total),
+  });
+  const totalOutCurrent = [1,2,3,4].reduce((s, c) => s + _resolvedOut(c).current, 0);
+  const totalOutRest    = [1,2,3,4].reduce((s, c) => s + _resolvedOut(c).rest,    0);
+  const totalOutAll     = [1,2,3,4].reduce((s, c) => s + _resolvedOut(c).total,   0);
 
   // ── Week-start balance (net of HOLD): snapshot at start of current week
   //   ใช้ในตาราง Plan แถว "เงินสดคงเหลือยกมา" ของ current-week column
@@ -493,8 +500,13 @@ function CashFlowDashboard({ data, setData, toast }) {
   }, [snapshots, weeks, nowWeek, monthBF, liveBalance, liveHold]);
 
   // Net at end of current week + end of month — used in PlanRow + Net row
-  const inflowCurrent      = planIv.current + planLoan.current;
-  const inflowRest         = planIv.rest    + planLoan.rest;
+  // ใช้ค่าหลัง override สำหรับ inflow ด้วย เพื่อให้ คงเหลือ/Final Net Position ตามที่ user คีย์
+  const _ivCur   = WTPOverride.resolve(`${ovPrefix}.s01.iv.current`,   planIv.current);
+  const _ivRest  = WTPOverride.resolve(`${ovPrefix}.s01.iv.rest`,      planIv.rest);
+  const _loanCur = WTPOverride.resolve(`${ovPrefix}.s01.loan.current`, planLoan.current);
+  const _loanRest= WTPOverride.resolve(`${ovPrefix}.s01.loan.rest`,    planLoan.rest);
+  const inflowCurrent      = _ivCur  + _loanCur;
+  const inflowRest         = _ivRest + _loanRest;
   const netEndOfCurrentWeek= weekBF + inflowCurrent - totalOutCurrent;
   // For "rest" column, the "carry-forward" balance IS the closing of current week
   // (so the user can see how rest period plays out starting from that base)
