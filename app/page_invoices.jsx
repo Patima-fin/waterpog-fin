@@ -1141,7 +1141,7 @@ function IvReportView({ rows, onOpen }) {
         {[
           { label: 'รับแล้ววันนี้',     en: "TODAY'S RECEIPTS",  icon: '✓',  count: todayRows.length,  amt: sumActual(todayRows), grad: 'linear-gradient(135deg, #20c997 0%, #16906b 100%)', glow: 'rgba(32,201,151,.28)' },
           { label: 'คาดรับสัปดาห์นี้',  en: 'EXPECTED THIS WEEK', icon: '📅', count: thisWkRows.length, amt: sumBal(thisWkRows),   grad: 'linear-gradient(135deg, #5b9eef 0%, #2a6fdb 100%)', glow: 'rgba(42,111,219,.28)' },
-          { label: 'คาดรับสัปดาห์หน้า', en: 'EXPECTED NEXT WEEK', icon: '🗓', count: nextWkRows.length, amt: sumBal(nextWkRows),   grad: 'linear-gradient(135deg, #ffa726 0%, #e87f15 100%)', glow: 'rgba(232,127,21,.28)' },
+          { label: 'คาดรับสัปดาห์หน้า', en: 'EXPECTED NEXT WEEK', icon: '🗓', count: nextWkRows.length, amt: sumBal(nextWkRows),   grad: 'linear-gradient(135deg, #a78bfa 0%, #7c3aed 100%)', glow: 'rgba(124,58,237,.28)' },
         ].map((k, i) => (
           <div key={i} className="iv-summary-card" style={{
             background: k.grad, borderRadius: 14, padding: '14px 18px', color: 'white',
