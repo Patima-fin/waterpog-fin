@@ -45,20 +45,61 @@
   /* ── state ──────────────────────────────────────────────────────── */
   var subscribers      = [];
   var syncStatus       = 'syncing';
-  var lastSyncTime     = null;
+  var lastSyncTime     = null;          // last successful sync timestamp
+  var lastSyncError    = null;          // last error message (for tooltip/debug)
+  var failedSheets     = [];            // list of sheet names that failed last round
+  var consecutiveFails = 0;             // count consecutive fail rounds (adaptive backoff)
   var cachedServerData = null;
   var lastSnapshot     = {};            // last known server state per entity (JSON)
   var serverDataLoaded = false;         // gate auto-push until first server read
   var syncTimer        = null;          // debounce timer for syncDiff
   var inSyncDiff       = false;         // re-entry guard for syncDiff
   var AUTO_MS          = cfg.AUTO_REFRESH_MS || 0;
+  var currentInterval  = AUTO_MS;       // may grow via backoff
+  var autoTimer        = null;          // setInterval handle (so we can restart)
 
-  function setSyncStatus(s) {
+  function setSyncStatus(s, ctx) {
     syncStatus = s;
-    lastSyncTime = (s === 'ok') ? new Date() : lastSyncTime;
+    if (s === 'ok') {
+      lastSyncTime     = new Date();
+      lastSyncError    = null;
+      failedSheets     = [];
+      consecutiveFails = 0;
+      // คืน interval กลับเป็นค่าปกติถ้าเคยขยายไว้
+      if (currentInterval !== AUTO_MS && AUTO_MS > 0) {
+        currentInterval = AUTO_MS;
+        restartAutoTimer();
+        console.info('[WTP Sync] ✓ sync ok — คืน interval เป็น', AUTO_MS / 1000, 'วินาที');
+      }
+    } else if (s === 'error') {
+      lastSyncError = (ctx && ctx.error) || null;
+      failedSheets  = (ctx && ctx.sheets) || [];
+      consecutiveFails++;
+      // Adaptive backoff — fail ติด 2+ รอบ → ขยาย interval x2 (max 4 เท่าของ base)
+      if (consecutiveFails >= 2 && AUTO_MS > 0 && currentInterval < AUTO_MS * 4) {
+        currentInterval = Math.min(currentInterval * 2, AUTO_MS * 4);
+        restartAutoTimer();
+        console.warn('[WTP Sync] ขยาย interval เป็น', currentInterval / 1000,
+          'วินาที (consecutive fails:', consecutiveFails + ')');
+      }
+    }
     window.dispatchEvent(new CustomEvent('wtpSyncStatus', {
-      detail: { status: s, time: lastSyncTime }
+      detail: {
+        status: s, time: lastSyncTime,
+        lastError: lastSyncError, failedSheets: failedSheets.slice(),
+        consecutiveFails: consecutiveFails, currentInterval: currentInterval,
+      }
     }));
+  }
+
+  function restartAutoTimer() {
+    if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+    if (currentInterval > 0) {
+      autoTimer = setInterval(function () {
+        // Page Visibility guard — tab idle ก็ไม่ต้องดึง
+        if (!document.hidden) loadFromServer();
+      }, currentInterval);
+    }
   }
 
   /* ── CSV parser (handles quoted fields, commas inside quotes, "") ── */
@@ -200,7 +241,10 @@
         });
         console.warn('[WTP Sync] ⚠ ' + failed.length + '/' + sheetOrder.length +
           ' ชีตโหลดไม่สำเร็จ — รักษาข้อมูลเดิมไว้ (ไม่ทับ localStorage) จะ retry รอบหน้า');
-        setSyncStatus('error');
+        setSyncStatus('error', {
+          error: (failed[0] && failed[0].err) || 'fetch failed',
+          sheets: failed.map(function (f) { return f.name; }),
+        });
         return;  // ★ early return — ไม่ overwrite cachedServerData + ไม่เรียก origSave
       }
       var results = settled.map(function (s) { return s.value; });
@@ -583,7 +627,14 @@
   };
 
   WTPData.getSyncStatus = function () {
-    return { status: syncStatus, time: lastSyncTime };
+    return {
+      status: syncStatus,
+      time: lastSyncTime,
+      lastError: lastSyncError,
+      failedSheets: failedSheets.slice(),
+      consecutiveFails: consecutiveFails,
+      currentInterval: currentInterval,
+    };
   };
 
   // forceSyncNow: bypass debounce — push pending changes immediately.
@@ -609,10 +660,22 @@
   // First load
   loadFromServer();
 
-  // Auto-refresh
+  // Auto-refresh (ใช้ restartAutoTimer เพื่อให้ adaptive backoff ทำงานได้)
   if (AUTO_MS > 0) {
-    setInterval(loadFromServer, AUTO_MS);
+    currentInterval = AUTO_MS;
+    restartAutoTimer();
   }
+
+  // ── Page Visibility — กลับมาที่ tab → sync ทันทีถ้าค้างเกิน 10 วินาที
+  // (กัน user เปิด tab ค้างไว้ครึ่งวันแล้วเปิดมาเห็นข้อมูลเก่า)
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) return;
+    var sinceLastOk = lastSyncTime ? (Date.now() - lastSyncTime.getTime()) : Infinity;
+    if (sinceLastOk > 10000) {
+      console.info('[WTP Sync] กลับมาที่ tab — refresh ทันที (last ok:', Math.round(sinceLastOk / 1000), 'วินาทีก่อน)');
+      loadFromServer();
+    }
+  });
 
   // Expose manual refresh
   WTPData.refreshFromServer = loadFromServer;

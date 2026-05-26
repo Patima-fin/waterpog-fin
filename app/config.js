@@ -18,7 +18,10 @@ window.WTP_CONFIG = {
   APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbwhTJTHy0jywsICM4W5BFpMkyV26Ha0_mm520W09FwtAybPgzZZd51NVkE14bfg7BH2pQ/exec',
 
   // ตั้งเวลา auto-refresh จากเซิร์ฟเวอร์ (มิลลิวินาที, 0 = ปิด)
-  AUTO_REFRESH_MS: 300000,  // 5 นาที
+  // 45 วินาที — เน้น near-real-time สำหรับ ~3 active writer พร้อมกัน
+  // ถ้าเจอ 429 ติดกัน 2 รอบ data_sync จะ adaptive backoff x2-x4 อัตโนมัติ
+  // และ tab idle (ไม่ได้มอง) จะหยุด sync ผ่าน Page Visibility API
+  AUTO_REFRESH_MS: 45000,  // 45 วินาที
 
   // ผู้ใช้ระบบ — แก้ไข username/password/role ได้ตามต้องการ
   //

@@ -400,17 +400,64 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
   const [sec, setSec] = aState({ dash: true, reports: true, manage: true, system: true });
   const tog = k => setSec(p => ({ ...p, [k]: !p[k] }));
 
+  // Helper — format "X วินาที/นาทีที่แล้ว"
+  const fmtAgo = (ts) => {
+    if (!ts) return '';
+    const sec = Math.round((Date.now() - ts) / 1000);
+    if (sec < 10) return 'เมื่อกี้';
+    if (sec < 60) return sec + ' วิ ก่อน';
+    const min = Math.round(sec / 60);
+    if (min < 60) return min + ' นาทีก่อน';
+    const hr = Math.round(min / 60);
+    return hr + ' ชม. ก่อน';
+  };
+
   const syncLabel = (() => {
     if (!syncInfo || syncInfo.status === 'offline') return 'Offline — ใช้ข้อมูล Local';
     if (syncInfo.status === 'syncing') return 'กำลัง sync…';
-    if (syncInfo.status === 'error')   return 'เชื่อมต่อไม่ได้ ⚠';
-    if (syncInfo.time) {
-      const diff = Math.round((Date.now() - syncInfo.time) / 60000);
-      return diff < 1 ? 'Sync เมื่อกี้' : `Sync ${diff} นาทีที่แล้ว`;
+    // ★ error + เคย sync สำเร็จมาก่อน → บอกว่าใช้ข้อมูลเดิมต่อ (ปลอดภัย)
+    if (syncInfo.status === 'error' && syncInfo.time) {
+      return `ใช้ข้อมูล ${fmtAgo(syncInfo.time)} · จะลองใหม่`;
     }
+    // error + ไม่เคยสำเร็จเลย → connection มีปัญหาจริง
+    if (syncInfo.status === 'error') return 'เชื่อมต่อไม่ได้ ⚠';
+    if (syncInfo.time) return 'Sync ' + fmtAgo(syncInfo.time);
     return 'เชื่อมต่อ Google Sheets';
   })();
-  const syncDot = { offline:'#94a3b8', syncing:'#f59e0b', error:'#ef4444', ok:'#22c55e' }[syncInfo.status || 'offline'];
+  // สี: error+มี cache → amber (เตือนเบาๆ), error+ไม่มี cache → red, ok → green
+  const dotStatus = (syncInfo.status === 'error' && syncInfo.time) ? 'stale' : (syncInfo.status || 'offline');
+  const syncDot = { offline:'#94a3b8', syncing:'#f59e0b', error:'#ef4444', stale:'#f59e0b', ok:'#22c55e' }[dotStatus];
+
+  // Tooltip — รายละเอียดสำหรับ debug (รายชื่อชีตที่ fail)
+  const syncTooltip = (() => {
+    const parts = [];
+    if (syncInfo.time) parts.push('Sync ล่าสุด: ' + new Date(syncInfo.time).toLocaleTimeString('th-TH'));
+    if (syncInfo.lastError) parts.push('Error ล่าสุด: ' + syncInfo.lastError);
+    if (syncInfo.failedSheets && syncInfo.failedSheets.length > 0) {
+      parts.push('ชีตที่ fail: ' + syncInfo.failedSheets.slice(0, 3).join(', ')
+        + (syncInfo.failedSheets.length > 3 ? ` (+${syncInfo.failedSheets.length - 3})` : ''));
+    }
+    if (syncInfo.currentInterval) parts.push('Refresh ทุก: ' + (syncInfo.currentInterval / 1000) + ' วิ');
+    parts.push('คลิก ↻ เพื่อโหลดข้อมูลใหม่ทันที');
+    return parts.join('\n');
+  })();
+
+  // Manual refresh — เรียก WTPData.refreshFromServer ทันที (ไม่ต้องรอ interval)
+  const [refreshing, setRefreshing] = aState(false);
+  const handleManualRefresh = () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      if (window.WTPData && WTPData.refreshFromServer) {
+        const p = WTPData.refreshFromServer();
+        // unblock UI หลัง ~1.5 วินาที (ไม่ว่า sync จะเสร็จหรือไม่)
+        setTimeout(() => setRefreshing(false), 1500);
+        if (p && typeof p.then === 'function') p.finally(() => setRefreshing(false));
+      } else {
+        setRefreshing(false);
+      }
+    } catch (_) { setRefreshing(false); }
+  };
   /* eslint-disable no-unused-vars */
   const counts = {
     daily: data.invoices.filter(iv => iv.receivedAt === data.daily.asOfDate).length || null,
@@ -560,7 +607,29 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-800)' }}>{currentUser ? currentUser.displayName : 'ฝ่ายการเงิน'}</div>
           <div style={{ fontSize: 10.5, color: 'var(--ink-400)', display:'flex', alignItems:'center', gap:4 }}>
             <span style={{ width:5, height:5, borderRadius:'50%', background: syncDot, flexShrink:0 }} />
-            {syncLabel}
+            <span>{syncLabel}</span>
+            <button
+              type="button"
+              onClick={handleManualRefresh}
+              title={syncTooltip}
+              disabled={refreshing || syncInfo.status === 'syncing'}
+              style={{
+                marginLeft: 2, padding: '1px 4px', borderRadius: 4,
+                border: '1px solid var(--ink-100)', background: 'transparent',
+                color: 'var(--ink-500)', cursor: refreshing ? 'wait' : 'pointer',
+                fontSize: 10, lineHeight: 1, display: 'inline-flex', alignItems: 'center',
+                transition: 'all .15s', opacity: refreshing ? 0.5 : 1,
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--ink-50)'; e.currentTarget.style.color = 'var(--brand-600)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ink-500)'; }}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                   style={{ animation: (refreshing || syncInfo.status === 'syncing') ? 'spin 0.9s linear infinite' : 'none' }}>
+                <polyline points="23 4 23 10 17 10"/>
+                <polyline points="1 20 1 14 7 14"/>
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+              </svg>
+            </button>
           </div>
         </div>
         <button onClick={onLogout} title="ออกจากระบบ" style={{ background:'none', border:'none', cursor:'pointer', color:'var(--ink-300)', padding:4, borderRadius:5, display:'flex', alignItems:'center', transition:'color 160ms' }}

@@ -1372,4 +1372,7 @@ body.role-owner .modal .tb-search input {
 /* Inline-edit wrappers (click div → enter edit) — ปิด click action */
 body.role-owner [data-owner-readonly] { pointer-events: none !important; cursor: not-allowed !important; }
 
+/* Spinner animation — ใช้กับปุ่ม manual refresh ใน Sidebar (และที่อื่นที่ต้องการ) */
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
 
