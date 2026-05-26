@@ -37,7 +37,8 @@ function resolveAssignee(iv, f) {
 }
 function resolveDebt(iv, f) {
   const ov = iv && iv.debtOverride;
-  if (ov != null && String(ov).trim() !== '') return Number(ov) || 0;
+  // ถือว่า override ใช้ได้เฉพาะค่ามากกว่า 0 (0 = ไม่มี override → fall back ใช้ค่าโครงการ)
+  if (ov != null && String(ov).trim() !== '' && Number(ov) > 0) return Number(ov);
   return Number((f && (f.debt ?? f['ภาระหนี้'])) || 0);
 }
 function ivHasAssigneeOverride(iv) {
@@ -46,7 +47,10 @@ function ivHasAssigneeOverride(iv) {
 }
 function ivHasDebtOverride(iv) {
   const ov = iv && iv.debtOverride;
-  return ov != null && String(ov).trim() !== '';
+  // ถือว่า 0 = "ไม่มี override" (ไม่ใช่ override เป็นศูนย์)
+  // user ที่กรอก 0 = "ไม่ต้องการ override" → fall back ไปใช้ค่าจากโครงการ
+  if (ov == null || String(ov).trim() === '') return false;
+  return Number(ov) > 0;
 }
 // expose globally so page_daily/page_warroom_p1 can reuse without duplication
 Object.assign(window, { resolveAssignee, resolveDebt, ivHasAssigneeOverride, ivHasDebtOverride });
@@ -1429,17 +1433,17 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
         /* ── EXISTING INVOICE: flex layout — each field sized to content ─────── */
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
-          {/* ── ข้อมูลจากระบบ — 2 แถว ──────────────────────────────────────── */}
+          {/* ── ข้อมูลจากระบบ — 2 แถว (จัด layout ใหม่ ป้องกัน label wrap) ──── */}
           <div>
             <SectionHdr label={canEdit ? "ข้อมูลจากระบบ — admin override ภาระหนี้ได้" : "ข้อมูลจากระบบ — แก้ไขไม่ได้"} icon="lock" muted />
-            {/* แถว 1: วันที่ IV | เลขที่ IV | Balance | หัก ณ ที่จ่าย | คงเหลือหลังหัก */}
-            <div style={{ display: 'grid', gridTemplateColumns: '108px 140px 1fr 130px 152px', gap: '0 12px', marginBottom: 10 }}>
+            {/* แถว 1: วันที่ IV | เลขที่ IV | Balance | WHT | หลังหัก */}
+            <div style={{ display: 'grid', gridTemplateColumns: '100px 130px 1fr 140px 168px', gap: '0 10px', marginBottom: 12 }}>
               <ROField fkey="invoiceDate" label="วันที่ IV" />
               <ROField fkey="ivNo"        label="เลขที่ IV"  mono />
               <RONum   value={balance}    label="Balance (รวม VAT)" />
               <div className="field">
-                <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'flex', alignItems: 'center', gap: 3 }}>
-                  <span style={{ fontSize: 10, opacity: 0.5 }}>🔒</span>หัก ณ ที่จ่าย 1% <span style={{ fontSize: 10, opacity: 0.6, marginLeft: 3 }}>(คำนวณ)</span>
+                <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                  <span style={{ fontSize: 10, opacity: 0.5 }}>🔒</span>หัก ณ ที่จ่าย 1%
                 </label>
                 <div style={{ height: 32, borderRadius: 7, padding: '0 22px 0 9px', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', background: 'color-mix(in oklch, var(--bad) 7%, transparent)', border: '1px solid color-mix(in oklch, var(--bad) 22%, transparent)', fontFamily: 'ui-monospace', fontSize: 12.5, fontWeight: 600, color: 'var(--bad)' }}
                   title="WHT 1% บน Balance ก่อน VAT — สูตร: balance ÷ 107">
@@ -1448,8 +1452,8 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
                 </div>
               </div>
               <div className="field">
-                <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'flex', alignItems: 'center', gap: 3 }}>
-                  <span style={{ fontSize: 10, opacity: 0.5 }}>🔒</span>คงเหลือหลังหัก WHT <span style={{ fontSize: 10, opacity: 0.6, marginLeft: 3 }}>(คำนวณ)</span>
+                <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'flex', alignItems: 'center', gap: 3, whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                  <span style={{ fontSize: 10, opacity: 0.5 }}>🔒</span>คงเหลือหลังหัก WHT
                 </label>
                 <div style={{ height: 32, borderRadius: 7, padding: '0 22px 0 9px', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', background: 'color-mix(in oklch, var(--brand-500) 7%, transparent)', border: '1px solid color-mix(in oklch, var(--brand-500) 25%, transparent)', fontFamily: 'ui-monospace', fontSize: 13, fontWeight: 700, color: 'var(--brand-700)' }}
                   title="สูตร: balance × 106 ÷ 107">
@@ -1460,7 +1464,7 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
             </div>
 
             {/* แถว 2: ผู้รับโอนสิทธิ | ภาระหนี้ | คาดรับสุทธิ */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 160px 200px', gap: '0 12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 170px 210px', gap: '0 10px' }}>
               {/* ── ผู้รับโอนสิทธิ — Override-able by admin ── */}
               <div className="field">
                 <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'flex', alignItems: 'center', gap: 3 }}>
