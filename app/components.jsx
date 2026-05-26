@@ -590,6 +590,17 @@ function useOverrideSub(key) {
   }, [key]);
 }
 
+// useOverrideSubAny — re-render ทุกครั้งที่มี override เปลี่ยน (ใช้ที่ระดับ page)
+// เพื่อให้ค่า resolved ที่อยู่นอก <EditableNumber> (เช่น sum, total) อัปเดตด้วย
+function useOverrideSubAny() {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const h = () => force(x => x + 1);
+    window.addEventListener('wtp-override-change', h);
+    return () => window.removeEventListener('wtp-override-change', h);
+  }, []);
+}
+
 /**
  * EditableNumber — ตัวเลขที่เมื่อ editMode=true จะคลิกแก้ได้
  * - ovKey      : คีย์เฉพาะของ field (เช่น 'wr2.heroTotal')
@@ -706,5 +717,5 @@ Object.assign(window, {
   useSortable, SortHeader, StatusPill,
   exportRowsToExcel, ExportButton, PrintButton,
   ColFilterDropdown, FilterableColHeader,
-  WTPOverride, EditableNumber, EditModeToggle, useOverrideSub,
+  WTPOverride, EditableNumber, EditModeToggle, useOverrideSub, useOverrideSubAny,
 });

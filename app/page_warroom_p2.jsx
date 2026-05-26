@@ -7,6 +7,7 @@ const { useMemo: wr2Memo, useState: wr2State } = React;
 function WarRoomPage2({ data, setData, toast }) {
   const { monthlyForecast, warroomP2, meta } = data;
   const [editMode, setEditMode] = wr2State(false);  // โหมดคีย์เลขมือ
+  useOverrideSubAny();  // re-render เมื่อ override เปลี่ยน — sum/% ใช้ค่าใหม่
 
   // ── Live: โครงการรอลงนาม (Start ว่าง = ยังไม่ลงนาม) ─────────────────────
   // คำนวณตรงจาก data.projects แทน warroomP2.unsignedTotal (pre-computed) เพื่อให้

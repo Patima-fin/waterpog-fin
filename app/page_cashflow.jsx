@@ -204,6 +204,7 @@ function CashFlowDashboard({ data, setData, toast }) {
   const [year, setYear]   = cfState(today.getFullYear());
   const [month, setMonth] = cfState(today.getMonth() + 1);
   const [editMode, setEditMode] = cfState(false);  // Manual override mode
+  useOverrideSubAny();  // re-render หน้าทุกครั้งที่ override เปลี่ยน (sum/total/% ใช้ค่าใหม่)
 
   // Drill-down popup: { title, rows, kind } where kind ∈ {iv, loan, ap, fe, mixed}
   const [drillDown, setDrillDown] = cfState(null);
@@ -855,8 +856,13 @@ function CashFlowDashboard({ data, setData, toast }) {
         gap: 10, marginBottom: 18, overflowX: 'auto',
       }}>
         {weeks.map((w, i) => {
-          const planTotal = [1,2,3,4].reduce((s, c) => s + (apForecastByWeekCat[i][c] || 0), 0);
-          const actualTotal = [1,2,3,4].reduce((s, c) => s + (pvActualByWeekCat[i][c] || 0), 0);
+          // ดึงค่าหลัง override สำหรับ Plan/Actual ของแต่ละหมวดในสัปดาห์นี้
+          // เพื่อให้ทั้ง cell, total row, และ % bar reflect ค่าที่ user กรอกมือ
+          const cellOvWeek = `${ovPrefix}.s02.w${i + 1}`;
+          const planByCat   = [1, 2, 3, 4].map(c => WTPOverride.resolve(`${cellOvWeek}.cat${c}.plan`,   apForecastByWeekCat[i][c] || 0));
+          const actualByCat = [1, 2, 3, 4].map(c => WTPOverride.resolve(`${cellOvWeek}.cat${c}.actual`, pvActualByWeekCat[i][c]   || 0));
+          const planTotal   = planByCat.reduce((s, v) => s + v, 0);
+          const actualTotal = actualByCat.reduce((s, v) => s + v, 0);
           const pct = planTotal > 0 ? (actualTotal / planTotal) * 100 : 0;
           const status = i < nowWeek ? 'past' : i === nowWeek ? 'now' : 'future';
           return (
@@ -885,23 +891,34 @@ function CashFlowDashboard({ data, setData, toast }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {[1,2,3,4].map(cat => {
-                    const p = apForecastByWeekCat[i][cat] || 0;
-                    const a = pvActualByWeekCat[i][cat] || 0;
-                    const cellOv = `${ovPrefix}.s02.w${i + 1}.cat${cat}`;
+                  {[1,2,3,4].map((cat, idx) => {
+                    // ใช้ค่าหลัง resolve (override > computed) ทั้งใน edit + view mode
+                    const pRaw  = apForecastByWeekCat[i][cat] || 0;
+                    const aRaw  = pvActualByWeekCat[i][cat]   || 0;
+                    const p     = planByCat[idx];
+                    const a     = actualByCat[idx];
+                    const cellOv = `${cellOvWeek}.cat${cat}`;
+                    const pOver = WTPOverride.has(`${cellOv}.plan`);
+                    const aOver = WTPOverride.has(`${cellOv}.actual`);
                     return (
                       <tr key={cat} title={CATEGORY_LABELS[cat]}>
                         <td style={{ padding: '3px 6px', fontSize: 10, color: 'var(--ink-600)' }}>{cat}. {CATEGORY_LABELS_SHORT[cat]}</td>
                         <td style={{ padding: '3px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--ink-500)' }}>
                           {editMode
-                            ? <EditableNumber ovKey={`${cellOv}.plan`} computed={p} editMode={true} digits={0} />
-                            : (p > 0 ? fmtNum(p, 0) : '—')}
+                            ? <EditableNumber ovKey={`${cellOv}.plan`} computed={pRaw} editMode={true} digits={0} />
+                            : (<>
+                                {p > 0 ? fmtNum(p, 0) : '—'}
+                                {pOver && <span title="แก้มือ" style={{ fontSize: 8, marginLeft: 2, color: 'var(--brand-500)' }}>✏️</span>}
+                              </>)}
                         </td>
                         <td style={{ padding: '3px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums',
                           color: a > 0 ? 'var(--bad)' : 'var(--ink-300)', fontWeight: 600 }}>
                           {editMode
-                            ? <EditableNumber ovKey={`${cellOv}.actual`} computed={a} editMode={true} digits={0} />
-                            : (a > 0 ? fmtNum(a, 0) : '—')}
+                            ? <EditableNumber ovKey={`${cellOv}.actual`} computed={aRaw} editMode={true} digits={0} />
+                            : (<>
+                                {a > 0 ? fmtNum(a, 0) : '—'}
+                                {aOver && <span title="แก้มือ" style={{ fontSize: 8, marginLeft: 2, color: 'var(--brand-500)' }}>✏️</span>}
+                              </>)}
                         </td>
                       </tr>
                     );
@@ -1222,12 +1239,20 @@ function PlanRow({ label, current, rest, total, subtle, negative, carrySigned, o
     if (!clickable) return;
     e.currentTarget.style.background = on ? 'color-mix(in oklch, var(--brand-500) 12%, transparent)' : '';
   };
-  // helper เพื่อแสดงเลขใน cell — edit mode = EditableNumber, ปกติ = fmtVal
+  // helper เพื่อแสดงเลขใน cell — edit mode = EditableNumber, ปกติ = ค่าหลัง resolve override
   const renderCell = (val, subKey) => {
-    if (editMode && ovKey) {
-      return <EditableNumber ovKey={`${ovKey}.${subKey}`} computed={val} editMode={true} digits={0} />;
+    if (!ovKey) return fmtVal(val);
+    const key = `${ovKey}.${subKey}`;
+    if (editMode) {
+      return <EditableNumber ovKey={key} computed={val} editMode={true} digits={0} />;
     }
-    return fmtVal(val);
+    const resolved = WTPOverride.resolve(key, val);
+    return (
+      <>
+        {fmtVal(resolved)}
+        {WTPOverride.has(key) && <span title="แก้มือ" style={{ fontSize: 9, marginLeft: 3, color: 'var(--brand-500)' }}>✏️</span>}
+      </>
+    );
   };
   return (
     <tr>
