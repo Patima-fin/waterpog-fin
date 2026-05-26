@@ -50,6 +50,13 @@ function DailyRevenueDashboard({ data, setData, toast }) {
     return m;
   }, [invoices]);
 
+  // Map invoiceNo → invoice row (เพื่อ fallback jobNo + projectName ถ้า receipt ไม่มี)
+  const invByIvNo = dRMemo(() => {
+    const m = {};
+    (invoices || []).forEach(iv => { if (iv.ivNo) m[iv.ivNo] = iv; });
+    return m;
+  }, [invoices]);
+
   // unified shape: { id, receiveDate, jobNo, ivNo, projectName, period, balance, invType }
   const paidInvoices = dRMemo(() => {
     const out = [];
@@ -61,16 +68,17 @@ function DailyRevenueDashboard({ data, setData, toast }) {
       const ownIvType = (r.invType || '').toString().trim().toUpperCase();
       const ivType    = (ownIvType === 'O' || ownIvType === 'P') ? ownIvType : (ivTypeByInvNo[r.invoiceNo] || 'P');
       if (ivTypeFilter !== 'all' && ivType !== ivTypeFilter) return;
-      // resolve project name (receipts already have projectName, but fallback to lookup)
-      const cj = drNormJobNo(r.projectCode || '');
+      // resolve jobNo & project name: receipt fields first, fallback to invoice lookup by ivNo
+      const linkedIv = r.invoiceNo ? invByIvNo[r.invoiceNo] : null;
+      const cj = drNormJobNo(r.projectCode || '') || drNormJobNo(linkedIv?.jobNo || '');
       const p  = projectByCode[cj] || {};
       out.push({
         id:          r.id || r.receiptNo || `rc-${r.invoiceNo}`,
         receiveDate: r.receiptDate,
-        jobNo:       cj || r.projectCode || '—',
+        jobNo:       cj || r.projectCode || linkedIv?.jobNo || '—',
         ivNo:        r.invoiceNo || r.receiptNo,
-        projectName: r.projectName || p['พื้นที่'] || p.name || '—',
-        period:      r.period || 1,
+        projectName: r.projectName || p['พื้นที่'] || p.name || linkedIv?.projectName || '—',
+        period:      r.period || linkedIv?.period || 1,
         balance:     Number(r.grossAmount) || 0,
         netReceived: Number(r.netReceived) || Number(r.grossAmount) || 0,
         invType:     ivType,
@@ -616,10 +624,14 @@ function DailyIvTable({ list, projectByCode, showDate, empty }) {
       </tbody>
       {list.length > 0 && (
         <tfoot>
-          <tr>
-            <td colSpan={showDate ? 5 : 4}></td>
-            <td className="num" style={{ fontWeight: 700 }}>{fmtNum(total)}</td>
-            {showDate && <td></td>}
+          <tr style={{ background: 'var(--brand-50, #eef4ff)', borderTop: '2px solid var(--brand-200, #bfd4ff)' }}>
+            <td colSpan={showDate ? 5 : 4} style={{ textAlign: 'right', fontWeight: 700, color: 'var(--brand-700, #1a4490)', padding: '8px 12px', letterSpacing: '.02em' }}>
+              รวมทั้งสิ้น ({list.length} ใบ)
+            </td>
+            <td className="num" style={{ fontWeight: 800, color: 'var(--brand-700, #1a4490)', fontSize: 14, padding: '8px 12px' }}>
+              {fmtNum(total)} <span style={{ fontSize: 11, fontWeight: 600, opacity: .7 }}>฿</span>
+            </td>
+            {showDate && <td style={{ background: 'var(--brand-50, #eef4ff)' }}></td>}
           </tr>
         </tfoot>
       )}
