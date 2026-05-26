@@ -439,6 +439,11 @@ function InvoicesPage({ data, setData, toast }) {
       const newInvoices = iv.id
         ? d.invoices.map(x => x.id === iv.id ? iv : x)
         : [{ ...iv, id: WTPData.newId() }, ...d.invoices];
+      // If IV was marked paid → ensure a corresponding receipt row exists
+      // (otherwise Warroom Section 01 wouldn't count it since it reads from receipts)
+      const newReceipts = WTPData.ensureReceiptForPaidInvoice
+        ? WTPData.ensureReceiptForPaidInvoice(d.receipts || [], iv)
+        : (d.receipts || []);
       // Mirror the embedded followUps arrays into the flat followUpsLog sheet
       const user = (() => { try { return JSON.parse(localStorage.getItem('wtp-session') || 'null'); } catch(_) { return null; } })();
       const newLog = WTPData.rebuildFollowUpsLog
@@ -447,6 +452,7 @@ function InvoicesPage({ data, setData, toast }) {
       updatedData = {
         ...d,
         invoices:     newInvoices,
+        receipts:     newReceipts,
         followUpsLog: newLog,
       };
       return updatedData;
@@ -2228,6 +2234,9 @@ function IvReportStandalonePage({ data, setData, toast }) {
       const newInvoices = iv.id
         ? d.invoices.map(x => x.id === iv.id ? iv : x)
         : [{ ...iv, id: WTPData.newId() }, ...d.invoices];
+      const newReceipts = WTPData.ensureReceiptForPaidInvoice
+        ? WTPData.ensureReceiptForPaidInvoice(d.receipts || [], iv)
+        : (d.receipts || []);
       const user = (() => { try { return JSON.parse(localStorage.getItem('wtp-session') || 'null'); } catch(_) { return null; } })();
       const newLog = WTPData.rebuildFollowUpsLog
         ? WTPData.rebuildFollowUpsLog(newInvoices, user && user.username)
@@ -2235,6 +2244,7 @@ function IvReportStandalonePage({ data, setData, toast }) {
       updatedData = {
         ...d,
         invoices:     newInvoices,
+        receipts:     newReceipts,
         followUpsLog: newLog,
       };
       return updatedData;

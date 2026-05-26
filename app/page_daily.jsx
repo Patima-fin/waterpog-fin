@@ -237,7 +237,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
 
       {/* ═══ Report capture area ═══ (toggle landscape/portrait via captureMode) */}
       <div className="report-capture-area" style={{
-        maxWidth: isPortrait ? 720 : 'none',
+        maxWidth: isPortrait ? 920 : 'none',
         margin: isPortrait ? '0 auto' : '0',
         transition: 'max-width .25s',
       }}>
@@ -278,13 +278,13 @@ function DailyRevenueDashboard({ data, setData, toast }) {
                 style={{ width: '100%', height: 'auto', display: 'block', objectFit: 'contain' }} />
             </div>
             <div>
-              <div style={{ fontSize: 11, opacity: 0.88, letterSpacing: '.18em', textTransform: 'uppercase', fontWeight: 600 }}>
+              <div style={{ fontSize: isPortrait ? 12 : 11, opacity: 0.88, letterSpacing: '.18em', textTransform: 'uppercase', fontWeight: 600 }}>
                 {meta.companyName}
               </div>
-              <div style={{ fontSize: isPortrait ? 22 : 28, fontWeight: 800, letterSpacing: '-.01em', lineHeight: 1.15, marginTop: 4 }}>
+              <div style={{ fontSize: isPortrait ? 30 : 32, fontWeight: 800, letterSpacing: '-.01em', lineHeight: 1.12, marginTop: 5 }}>
                 สรุปรายงานรับเงินประจำวัน
               </div>
-              <div style={{ fontSize: 12.5, opacity: 0.78, marginTop: 3, letterSpacing: '.04em' }}>
+              <div style={{ fontSize: isPortrait ? 13.5 : 13, opacity: 0.78, marginTop: 4, letterSpacing: '.05em' }}>
                 Daily Revenue Report
               </div>
             </div>
@@ -581,16 +581,16 @@ function DailyIvTable({ list, projectByCode, showDate, empty }) {
   const total = list.reduce((s, iv) => s + (iv.balance || 0), 0);
   const cols = showDate ? 7 : 6;
   return (
-    <table className="tbl">
+    <table className="tbl" style={{ tableLayout: 'fixed', width: '100%' }}>
       <thead>
         <tr>
-          <th style={{ width: 44 }}>ที่</th>
-          <th style={{ width: 110 }}>Job No</th>
-          <th style={{ width: 130 }}>เลข IV</th>
+          <th style={{ width: 40 }}>ที่</th>
+          <th style={{ width: 90 }}>Job No</th>
+          <th style={{ width: 110 }}>เลข IV</th>
           <th>ชื่อโครงการ</th>
-          <th style={{ width: 70, textAlign: 'center' }}>งวด</th>
-          <th style={{ width: 170, textAlign: 'right' }}>Balance (บาท)</th>
-          {showDate && <th style={{ width: 120 }}>วันที่รับเงิน</th>}
+          <th style={{ width: 56, textAlign: 'center' }}>งวด</th>
+          <th style={{ width: 140, textAlign: 'right' }}>Balance (บาท)</th>
+          {showDate && <th style={{ width: 108 }}>วันที่รับเงิน</th>}
         </tr>
       </thead>
       <tbody>
@@ -598,16 +598,17 @@ function DailyIvTable({ list, projectByCode, showDate, empty }) {
           <tr><td colSpan={cols} style={{ padding: '36px 14px', textAlign: 'center', color: 'var(--ink-500)' }}>{empty}</td></tr>
         )}
         {list.map((iv, idx) => {
-          const p = projectByCode[iv.jobNo] || {};
+          const p    = projectByCode[iv.jobNo] || {};
+          const name = iv.projectName || p['พื้นที่'] || p.name || '—';
           return (
             <tr key={iv.id || idx}>
               <td>{idx + 1}</td>
-              <td><span style={{ fontWeight: 600, fontSize: 13 }}>{iv.jobNo}</span></td>
-              <td><span style={{ color: 'var(--ink-500)', fontSize: 12 }}>{iv.ivNo}</span></td>
-              <td>{p.name || p['พื้นที่'] || '—'}</td>
+              <td style={{ whiteSpace: 'nowrap' }}><span style={{ fontWeight: 600, fontSize: 13 }}>{iv.jobNo}</span></td>
+              <td style={{ whiteSpace: 'nowrap' }}><span style={{ color: 'var(--ink-500)', fontSize: 12 }}>{iv.ivNo}</span></td>
+              <td style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={name}>{name}</td>
               <td style={{ textAlign: 'center' }}>{iv.period}</td>
-              <td className="num strong">{fmtNum(iv.balance || 0)}</td>
-              {showDate && <td style={{ color: 'var(--ink-600)' }}>{fmtDate(iv.receiveDate || iv.actualReceive?.date)}</td>}
+              <td className="num strong" style={{ whiteSpace: 'nowrap' }}>{fmtNum(iv.balance || 0)}</td>
+              {showDate && <td style={{ color: 'var(--ink-600)', whiteSpace: 'nowrap' }}>{fmtDate(iv.receiveDate || iv.actualReceive?.date)}</td>}
             </tr>
           );
         })}

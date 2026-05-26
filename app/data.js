@@ -725,6 +725,55 @@
     return Math.round(bal * rate * (days / 365)); // per_annum (default)
   };
 
+  // ── ensureReceiptForPaidInvoice ──────────────────────────────────────
+  // เมื่อ IV เปลี่ยน status เป็น 'paid' พร้อม actualReceive → ต้องมี row ใน receipts
+  // มิฉะนั้น Warroom Section 01 (ที่อ่านจาก data.receipts) จะไม่นับใบนี้
+  // ถ้ามี receipt ของ ivNo นี้อยู่แล้ว → อัปเดต. ถ้ายังไม่มี → สร้างใหม่
+  const ensureReceiptForPaidInvoice = (receipts, iv) => {
+    if (!iv || iv.status !== 'paid' || !iv.actualReceive || !iv.actualReceive.date) {
+      return receipts;
+    }
+    const list   = receipts || [];
+    const ivNo   = iv.ivNo;
+    if (!ivNo) return list;
+    const gross  = Number(iv.balance) || 0;
+    const netRec = Number(iv.actualReceive.amount) || 0;
+    // ส่วนต่าง = หักโอนสิทธิ์ (debt) ถ้า net < gross
+    const deduct = gross > netRec ? (gross - netRec) : 0;
+    const existing = list.find(r => r.invoiceNo === ivNo);
+    if (existing) {
+      // อัปเดต field สำคัญ (กัน user แก้วันรับ/ยอดใน popup)
+      return list.map(r => r.invoiceNo === ivNo ? Object.assign({}, r, {
+        receiptDate:       iv.actualReceive.date,
+        grossAmount:       gross,
+        transferDeduction: deduct,
+        netReceived:       netRec,
+        bankAccount:       iv.actualReceive.bankAccount || r.bankAccount || '',
+      }) : r);
+    }
+    // ── สร้าง receipt ใหม่ ──
+    // gen receiptNo แบบ AR{yy}{mm}-{seq} ถ้าไม่มี — ป้องกัน duplicate ด้วย ivNo
+    const d = new Date(iv.actualReceive.date + 'T00:00:00');
+    const yy = String(d.getFullYear()).slice(2);
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const seq = String(list.length + 1).padStart(3, '0');
+    const newReceipt = {
+      id:                id(),
+      receiptNo:         `AR${yy}${mm}-${seq}`,
+      receiptDate:       iv.actualReceive.date,
+      invoiceNo:         ivNo,
+      projectCode:       iv.jobNo || iv.projectCode || '',
+      projectName:       iv.projectName || '',
+      period:            iv.period || 1,
+      grossAmount:       gross,
+      transferDeduction: deduct,
+      netReceived:       netRec,
+      bankAccount:       iv.actualReceive.bankAccount || '',
+      note:              'auto-generated เมื่อ mark IV เป็น paid',
+    };
+    return [newReceipt, ...list];
+  };
+
   // ── rebuildFollowUpsLog ───────────────────────────────────────────────
   // Derive flat log from invoices[].followUps so the followUpsLog sheet
   // mirrors the JSON-in-cell follow-ups in a human-readable table.
@@ -773,5 +822,6 @@
     calcInterest,
     debtSummary,
     rebuildFollowUpsLog,
+    ensureReceiptForPaidInvoice,
   };
 })();
