@@ -491,13 +491,16 @@ function InvoicesPage({ data, setData, toast }) {
   const updateStatus = (iv, newStatus) => {
     if (newStatus === 'paid') {
       // เปิด QuickPayModal แทนบันทึกทันที
+      // default amount = balance หลังหัก WHT 1% (งานราชการ)
+      // default debtDeduct = ภาระหนี้จาก iv (resolveDebt)
       setPayModal({
         iv,
         draft: {
           date: new Date().toISOString().slice(0, 10),
-          amount: iv.balance,
+          amount: (Number(iv.balance) || 0) * 106 / 107,
           bankAccount: '',
           bankFee: 0,
+          debtDeduct: Number(iv.debt) || 0,
           otherFee: 0,
         },
       });
@@ -1283,12 +1286,19 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
   const project  = projectByCode[draft.jobNo];
   const finance  = financeByCode[draft.jobNo];
   const debt     = resolveDebt(draft, finance);
-  const netExpected = (draft.balance || 0) - debt;
+  // ── ภาษีหัก ณ ที่จ่าย 1% (สำหรับงานราชการ) ──────────────────────────────
+  // Balance ในระบบรวม VAT 7% แล้ว → หัก WHT 1% ของยอดก่อน VAT
+  // สูตร: balance * 106/107 = ยอดหลังหัก WHT
+  //       wht = balance - (balance * 106/107) = balance / 107
+  const balance       = Number(draft.balance) || 0;
+  const wht           = balance / 107;
+  const balanceAfterWHT = balance - wht;
+  const netExpected   = balanceAfterWHT - debt;
   const canEdit  = window.WTPAuth ? window.WTPAuth.can('canEdit') : true;
 
-  // Computed: เงินเข้าบัญชีสุทธิ
+  // Computed: เงินเข้าบัญชีสุทธิ — หักทุกรายการ
   const ar       = draft.actualReceive;
-  const netCash  = ar ? (ar.amount || 0) - (ar.bankFee || 0) - (ar.otherFee || 0) : 0;
+  const netCash  = ar ? (ar.amount || 0) - (ar.bankFee || 0) - (ar.debtDeduct || 0) - (ar.otherFee || 0) : 0;
 
   const addLog = () => {
     if (!newLog.note.trim()) return;
@@ -1419,13 +1429,38 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
         /* ── EXISTING INVOICE: flex layout — each field sized to content ─────── */
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
-          {/* ── ข้อมูลจากระบบ ──────────────────────────────────────────────── */}
+          {/* ── ข้อมูลจากระบบ — 2 แถว ──────────────────────────────────────── */}
           <div>
             <SectionHdr label={canEdit ? "ข้อมูลจากระบบ — admin override ภาระหนี้ได้" : "ข้อมูลจากระบบ — แก้ไขไม่ได้"} icon="lock" muted />
-            <div style={{ display: 'grid', gridTemplateColumns: '108px 140px 130px 1fr 115px 152px', gap: '0 12px' }}>
+            {/* แถว 1: วันที่ IV | เลขที่ IV | Balance | หัก ณ ที่จ่าย | คงเหลือหลังหัก */}
+            <div style={{ display: 'grid', gridTemplateColumns: '108px 140px 1fr 130px 152px', gap: '0 12px', marginBottom: 10 }}>
               <ROField fkey="invoiceDate" label="วันที่ IV" />
               <ROField fkey="ivNo"        label="เลขที่ IV"  mono />
-              <RONum   value={draft.balance} label="Balance" />
+              <RONum   value={balance}    label="Balance (รวม VAT)" />
+              <div className="field">
+                <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'flex', alignItems: 'center', gap: 3 }}>
+                  <span style={{ fontSize: 10, opacity: 0.5 }}>🔒</span>หัก ณ ที่จ่าย 1% <span style={{ fontSize: 10, opacity: 0.6, marginLeft: 3 }}>(คำนวณ)</span>
+                </label>
+                <div style={{ height: 32, borderRadius: 7, padding: '0 22px 0 9px', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', background: 'color-mix(in oklch, var(--bad) 7%, transparent)', border: '1px solid color-mix(in oklch, var(--bad) 22%, transparent)', fontFamily: 'ui-monospace', fontSize: 12.5, fontWeight: 600, color: 'var(--bad)' }}
+                  title="WHT 1% บน Balance ก่อน VAT — สูตร: balance ÷ 107">
+                  {wht > 0 ? '(' + fmtNum(wht, 2) + ')' : '—'}
+                  <span style={{ position: 'absolute', right: 7, fontSize: 10, color: 'var(--ink-400)', fontWeight: 400 }}>฿</span>
+                </div>
+              </div>
+              <div className="field">
+                <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'flex', alignItems: 'center', gap: 3 }}>
+                  <span style={{ fontSize: 10, opacity: 0.5 }}>🔒</span>คงเหลือหลังหัก WHT <span style={{ fontSize: 10, opacity: 0.6, marginLeft: 3 }}>(คำนวณ)</span>
+                </label>
+                <div style={{ height: 32, borderRadius: 7, padding: '0 22px 0 9px', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', background: 'color-mix(in oklch, var(--brand-500) 7%, transparent)', border: '1px solid color-mix(in oklch, var(--brand-500) 25%, transparent)', fontFamily: 'ui-monospace', fontSize: 13, fontWeight: 700, color: 'var(--brand-700)' }}
+                  title="สูตร: balance × 106 ÷ 107">
+                  {fmtNum(balanceAfterWHT, 2)}
+                  <span style={{ position: 'absolute', right: 7, fontSize: 10, color: 'var(--ink-400)', fontWeight: 400 }}>฿</span>
+                </div>
+              </div>
+            </div>
+
+            {/* แถว 2: ผู้รับโอนสิทธิ | ภาระหนี้ | คาดรับสุทธิ */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 160px 200px', gap: '0 12px' }}>
               {/* ── ผู้รับโอนสิทธิ — Override-able by admin ── */}
               <div className="field">
                 <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'flex', alignItems: 'center', gap: 3 }}>
@@ -1478,10 +1513,10 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
               </div>
               <div className="field">
                 <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'flex', alignItems: 'center', gap: 3 }}>
-                  <span style={{ fontSize: 10, opacity: 0.5 }}>🔒</span>คาดรับสุทธิ <span style={{ fontSize: 10, opacity: 0.6, marginLeft: 3 }}>(คำนวณ)</span>
+                  <span style={{ fontSize: 10, opacity: 0.5 }}>🔒</span>คาดรับสุทธิ <span style={{ fontSize: 10, opacity: 0.6, marginLeft: 3 }}>(หลัง WHT − ภาระหนี้)</span>
                 </label>
                 <div style={{ height: 32, borderRadius: 7, padding: '0 22px 0 9px', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', background: 'color-mix(in oklch, var(--good) 10%, transparent)', border: '1px solid color-mix(in oklch, var(--good) 25%, transparent)', fontFamily: 'ui-monospace', fontSize: 13, fontWeight: 700, color: 'var(--good)' }}>
-                  {fmtNum((draft.balance || 0) - resolveDebt(draft, finance), 0)}
+                  {fmtNum(netExpected, 2)}
                   <span style={{ position: 'absolute', right: 7, fontSize: 10, color: 'var(--ink-400)', fontWeight: 400 }}>฿</span>
                 </div>
               </div>
@@ -1572,22 +1607,28 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
               <SectionHdr label={`การรับเงินจริง${isPaid ? ' *' : ''}`} icon="coin" />
               {!ar && <button className="btn btn-sm" style={{ fontSize: 11, padding: '2px 10px' }}
-                onClick={() => setReceive({ date: new Date().toISOString().slice(0, 10), amount: draft.balance, bankAccount: '', bankFee: 0, otherFee: 0 })}>
+                onClick={() => setReceive({ date: new Date().toISOString().slice(0, 10), amount: balanceAfterWHT, bankAccount: '', bankFee: 0, debtDeduct: debt, otherFee: 0 })}>
                 + บันทึก
               </button>}
             </div>
             {ar ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {/* แถว 1: วันที่ + 3 ช่องเงิน */}
-                <div style={{ display: 'grid', gridTemplateColumns: '128px 1fr 1fr 1fr', gap: '0 12px' }}>
+                {/* แถว 1: วันที่ + จำนวนที่ได้รับ + ค่าธรรมเนียม + ภาระหนี้ + ค่าอื่นๆ */}
+                <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 1fr 1fr 1fr', gap: '0 10px' }}>
                   <div className="field"><label style={{ fontSize: 12 }}>วันที่รับจริง</label>
                     <input className="input" type="date" value={ar.date || ''} onChange={(e) => setReceive({ date: e.target.value })} />
                   </div>
-                  <div className="field"><label style={{ fontSize: 12 }}>จำนวนที่ได้รับ{isPaid && <span style={{ color: 'var(--bad)', marginLeft: 3 }}>*</span>}</label>
+                  <div className="field"><label style={{ fontSize: 12 }}>
+                    จำนวนที่ได้รับ <span style={{ fontSize: 10, color: 'var(--ink-400)' }}>(หลัง WHT)</span>
+                    {isPaid && <span style={{ color: 'var(--bad)', marginLeft: 3 }}>*</span>}
+                  </label>
                     <IvAmountInput value={ar.amount} onChange={(n) => { setReceive({ amount: n }); setSaveError(''); }} />
                   </div>
                   <div className="field"><label style={{ fontSize: 12 }}>ค่าธรรมเนียมธนาคาร</label>
                     <IvAmountInput value={ar.bankFee} onChange={(n) => setReceive({ bankFee: n })} />
+                  </div>
+                  <div className="field"><label style={{ fontSize: 12 }}>ภาระหนี้ <span style={{ fontSize: 10, color: 'var(--ink-400)' }}>(โอนสิทธิ์)</span></label>
+                    <IvAmountInput value={ar.debtDeduct ?? 0} onChange={(n) => setReceive({ debtDeduct: n })} />
                   </div>
                   <div className="field"><label style={{ fontSize: 12 }}>ค่าอื่นๆ</label>
                     <IvAmountInput value={ar.otherFee} onChange={(n) => setReceive({ otherFee: n })} />
@@ -1654,16 +1695,23 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
 function QuickPayModal({ open, iv, draft, bankAccounts, onChangeDraft, onConfirm, onCancel }) {
   if (!open || !iv || !draft) return null;
 
-  const netCash = (draft.amount || 0) - (draft.bankFee || 0) - (draft.otherFee || 0);
+  // คำนวณ WHT 1% (งานราชการ): balance × 1/107 = WHT, balance × 106/107 = ยอดหลังหัก
+  const bal             = Number(iv.balance) || 0;
+  const wht             = bal / 107;
+  const balanceAfterWHT = bal - wht;
+  const netCash = (draft.amount || 0) - (draft.bankFee || 0) - (draft.debtDeduct || 0) - (draft.otherFee || 0);
 
   return (
     <div className="modal-back" onClick={onCancel}>
-      <div className="modal" style={{ maxWidth: 480, width: '95vw' }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal" style={{ maxWidth: 540, width: '95vw' }} onClick={(e) => e.stopPropagation()}>
         <div className="modal-hd">
           <div>
             <div className="modal-title" style={{ fontSize: 16 }}>บันทึกรับชำระเงิน</div>
             <div style={{ fontSize: 12, color: 'var(--ink-400)', marginTop: 2 }}>
-              {iv.ivNo} · {iv.projectName} · Balance {fmtNum(iv.balance, 0)} ฿
+              {iv.ivNo} · {iv.projectName}
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--ink-500)', marginTop: 4, fontFamily: 'ui-monospace' }}>
+              Balance <strong>{fmtNum(bal, 2)}</strong> − WHT 1% <span style={{ color: 'var(--bad)' }}>({fmtNum(wht, 2)})</span> = หลังหัก <strong style={{ color: 'var(--brand-700)' }}>{fmtNum(balanceAfterWHT, 2)}</strong> ฿
             </div>
           </div>
           <button className="btn btn-ghost btn-sm" onClick={onCancel}><Icon name="x" size={16} /></button>
@@ -1677,7 +1725,7 @@ function QuickPayModal({ open, iv, draft, bankAccounts, onChangeDraft, onConfirm
           </div>
 
           <div className="field" style={{ gridColumn: '1/-1' }}>
-            <label>จำนวนเงินที่ได้รับจริง (฿)</label>
+            <label>จำนวนเงินที่ได้รับจริง <span style={{ fontSize: 10, color: 'var(--ink-400)' }}>(หลัง WHT)</span> (฿)</label>
             <input className="input" type="number" value={draft.amount ?? ''} onChange={(e) => onChangeDraft({ amount: Number(e.target.value) })} style={{ fontFamily: 'ui-monospace', textAlign: 'right' }} />
           </div>
 
@@ -1687,6 +1735,11 @@ function QuickPayModal({ open, iv, draft, bankAccounts, onChangeDraft, onConfirm
           </div>
 
           <div className="field">
+            <label>ภาระหนี้ <span style={{ fontSize: 10, color: 'var(--ink-400)' }}>(โอนสิทธิ์)</span> (฿)</label>
+            <input className="input" type="number" value={draft.debtDeduct ?? 0} onChange={(e) => onChangeDraft({ debtDeduct: Number(e.target.value) })} style={{ fontFamily: 'ui-monospace', textAlign: 'right' }} />
+          </div>
+
+          <div className="field" style={{ gridColumn: '1/-1' }}>
             <label>ค่าใช้จ่ายอื่น ๆ (฿)</label>
             <input className="input" type="number" value={draft.otherFee ?? 0} onChange={(e) => onChangeDraft({ otherFee: Number(e.target.value) })} style={{ fontFamily: 'ui-monospace', textAlign: 'right' }} />
           </div>
