@@ -625,13 +625,13 @@ function DailyIvTable({ list, projectByCode, showDate, empty }) {
       {list.length > 0 && (
         <tfoot>
           <tr style={{ background: 'var(--brand-50, #eef4ff)', borderTop: '2px solid var(--brand-200, #bfd4ff)' }}>
-            <td colSpan={showDate ? 5 : 4} style={{ textAlign: 'right', fontWeight: 700, color: 'var(--brand-700, #1a4490)', padding: '8px 12px', letterSpacing: '.02em' }}>
+            <td colSpan={showDate ? 5 : 4} style={{ textAlign: 'right', fontWeight: 700, color: 'var(--brand-700, #1a4490)', letterSpacing: '.02em' }}>
               รวมทั้งสิ้น ({list.length} ใบ)
             </td>
-            <td className="num" style={{ fontWeight: 800, color: 'var(--brand-700, #1a4490)', fontSize: 14, padding: '8px 12px' }}>
-              {fmtNum(total)} <span style={{ fontSize: 11, fontWeight: 600, opacity: .7 }}>฿</span>
+            <td className="num strong" style={{ fontWeight: 800, color: 'var(--brand-700, #1a4490)', fontSize: 14, whiteSpace: 'nowrap' }}>
+              {fmtNum(total)}
             </td>
-            {showDate && <td style={{ background: 'var(--brand-50, #eef4ff)' }}></td>}
+            {showDate && <td></td>}
           </tr>
         </tfoot>
       )}
