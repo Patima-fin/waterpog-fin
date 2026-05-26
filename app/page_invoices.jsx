@@ -407,15 +407,26 @@ function InvoicesPage({ data, setData, toast }) {
   };
 
   const save = (iv) => {
-    setData(d => ({
-      ...d,
-      invoices: iv.id ? d.invoices.map(x => x.id === iv.id ? iv : x) : [{ ...iv, id: WTPData.newId() }, ...d.invoices],
-    }));
+    // Capture the freshly-updated data inside the setData updater so we can
+    // pass it directly to forceSyncNow without depending on localStorage
+    // being synced (race condition: localStorage save happens via useEffect
+    // which is async; relying on it caused followUps to vanish on refresh)
+    let updatedData;
+    setData(d => {
+      updatedData = {
+        ...d,
+        invoices: iv.id ? d.invoices.map(x => x.id === iv.id ? iv : x) : [{ ...iv, id: WTPData.newId() }, ...d.invoices],
+      };
+      return updatedData;
+    });
     setDetail(prev => prev && prev.id === iv.id ? iv : prev);
     toast('บันทึกใบแจ้งหนี้แล้ว');
-    // Push to sheet immediately (bypass 3s debounce) so refresh ไม่กลืนข้อมูล
-    if (WTPData.forceSyncNow) {
-      setTimeout(() => WTPData.forceSyncNow(), 50);
+    // Immediately persist + push with the captured fresh data
+    if (updatedData) {
+      try { WTPData.save(updatedData); } catch (_) {}
+      if (WTPData.forceSyncNow) {
+        setTimeout(() => WTPData.forceSyncNow(updatedData), 0);
+      }
     }
   };
   const remove = (id) => {
@@ -2180,17 +2191,23 @@ function IvReportStandalonePage({ data, setData, toast }) {
   const [payModal, setPayModal] = React.useState(null);
 
   const save = (iv) => {
-    setData(d => ({
-      ...d,
-      invoices: iv.id
-        ? d.invoices.map(x => x.id === iv.id ? iv : x)
-        : [{ ...iv, id: WTPData.newId() }, ...d.invoices],
-    }));
+    let updatedData;
+    setData(d => {
+      updatedData = {
+        ...d,
+        invoices: iv.id
+          ? d.invoices.map(x => x.id === iv.id ? iv : x)
+          : [{ ...iv, id: WTPData.newId() }, ...d.invoices],
+      };
+      return updatedData;
+    });
     setDetail(prev => prev && prev.id === iv.id ? iv : prev);
     toast && toast('บันทึกแล้ว');
-    // Immediate push — ไม่ให้ refresh กลืน
-    if (WTPData.forceSyncNow) {
-      setTimeout(() => WTPData.forceSyncNow(), 50);
+    if (updatedData) {
+      try { WTPData.save(updatedData); } catch (_) {}
+      if (WTPData.forceSyncNow) {
+        setTimeout(() => WTPData.forceSyncNow(updatedData), 0);
+      }
     }
   };
 

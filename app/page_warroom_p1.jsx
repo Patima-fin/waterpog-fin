@@ -532,17 +532,21 @@ function WarroomDrillModal({ drill, data, setData, toast, thisMthByWeek, liveMon
   // match by id ก่อน, fallback ด้วย receiptNo (กรณี id ว่าง — โหลดจากชีตที่ไม่มี id column)
   const rcKey = (r) => r.id || r.receiptNo;
   const updateReceipt = (key, patch) => {
-    setData(d => ({
-      ...d,
-      receipts: (d.receipts || []).map(r => {
-        if (rcKey(r) !== key) return r;
-        const merged = { ...r, ...patch };
-        if (patch.grossAmount != null || patch.transferDeduction != null) {
-          merged.netReceived = (Number(merged.grossAmount) || 0) - (Number(merged.transferDeduction) || 0);
-        }
-        return merged;
-      }),
-    }));
+    let updatedData;
+    setData(d => {
+      updatedData = {
+        ...d,
+        receipts: (d.receipts || []).map(r => {
+          if (rcKey(r) !== key) return r;
+          const merged = { ...r, ...patch };
+          if (patch.grossAmount != null || patch.transferDeduction != null) {
+            merged.netReceived = (Number(merged.grossAmount) || 0) - (Number(merged.transferDeduction) || 0);
+          }
+          return merged;
+        }),
+      };
+      return updatedData;
+    });
     // visual feedback: flash row with green check for 1.4s
     setSavedFlash(key);
     setTimeout(() => setSavedFlash(curr => curr === key ? null : curr), 1400);
@@ -550,9 +554,12 @@ function WarroomDrillModal({ drill, data, setData, toast, thisMthByWeek, liveMon
       const what = patch.invType != null ? `ประเภท IV → ${patch.invType}` : 'หักโอนสิทธิ์';
       toast('✓ บันทึก ' + what);
     }
-    // immediate push — กัน user refresh ก่อน sync timer ครบ
-    if (WTPData.forceSyncNow) {
-      setTimeout(() => WTPData.forceSyncNow(), 50);
+    // Persist + push immediately with the fresh data (don't trust localStorage race)
+    if (updatedData) {
+      try { WTPData.save(updatedData); } catch (_) {}
+      if (WTPData.forceSyncNow) {
+        setTimeout(() => WTPData.forceSyncNow(updatedData), 0);
+      }
     }
   };
 
