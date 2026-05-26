@@ -728,75 +728,154 @@ button { font: inherit; color: inherit; }
 .print-only { display: none; }     /* hidden on screen, shown in print */
 
 /* ============================================================================
-   PRINT — Cashflow page (A4 portrait, present-only)
+   PRINT — Cashflow page (A4 portrait, present-only, keep visual style)
    Triggered when body.cf-print-mode is added before window.print()
+   Strategy: minimal overrides — preserve gradients, colors, card shadows
+   so the PDF looks like the on-screen presentation.
    ============================================================================ */
 @media print {
-  body.cf-print-mode { font-size: 9pt; }
+  /* ── Force backgrounds + colors to print (Chrome/Edge/Safari) ───────────── */
+  body.cf-print-mode,
+  body.cf-print-mode * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
 
-  /* Hide non-present elements on cashflow page */
+  /* ── Override default landscape rules from earlier @media print block ──── */
+  body.cf-print-mode { background: #f4f7fb !important; color: var(--ink-900) !important; font-size: 9pt; }
+
+  /* Hide all chrome — sidebar, topbar, toolbar, etc. */
+  body.cf-print-mode .sb,
+  body.cf-print-mode .topbar,
+  body.cf-print-mode .sb-scrim,
+  body.cf-print-mode .tabnav,
+  body.cf-print-mode .modal-back,
+  body.cf-print-mode .toast-stack,
+  body.cf-print-mode .no-print,
+  body.cf-print-mode .row-act,
+  body.cf-print-mode .menu-btn,
   body.cf-print-mode .cf-page .page-head-r,
-  body.cf-print-mode .cf-page .no-print {
+  body.cf-print-mode .cf-page .btn {
     display: none !important;
   }
 
-  /* Compact page header — title + subtitle only */
+  /* Layout: full-width single column */
+  body.cf-print-mode .app,
+  body.cf-print-mode .main { display: block !important; }
+  body.cf-print-mode .page { padding: 0 !important; max-width: 100% !important; }
+
+  /* ── Restore presentation card style (override default print stripping) ── */
+  body.cf-print-mode .cf-page .card {
+    box-shadow: 0 2px 4px rgba(0,0,0,0.06) !important;
+    border: 1px solid var(--ink-100) !important;
+    border-radius: 12px !important;
+    padding: 10px 12px !important;
+    background: var(--surface) !important;
+  }
+
+  /* Page header — keep brand color */
   body.cf-print-mode .cf-page .page-head {
     margin-bottom: 4mm !important;
     padding-bottom: 3mm !important;
-    border-bottom: 2px solid #1a4490 !important;
+    border-bottom: 2px solid var(--brand-700) !important;
   }
-  body.cf-print-mode .cf-page .page-title { font-size: 14pt !important; color: #1a4490 !important; margin: 0 !important; }
-  body.cf-print-mode .cf-page .page-sub { font-size: 8pt !important; }
+  body.cf-print-mode .cf-page .page-title { font-size: 15pt !important; color: var(--brand-700) !important; margin: 0 !important; }
+  body.cf-print-mode .cf-page .page-sub   { font-size: 9pt !important; color: var(--ink-500) !important; }
 
-  /* Hero cards (B/F + Strategic) — keep gradient backgrounds for visual */
+  /* Hero cards (B/F + Strategic) — keep gradients */
   body.cf-print-mode .cf-page .grid-2 {
     display: grid !important;
     grid-template-columns: repeat(2, 1fr) !important;
-    gap: 6px !important;
-    margin-bottom: 6px !important;
+    gap: 8px !important;
+    margin-bottom: 8px !important;
+  }
+  /* Hero card text — keep white over gradient */
+  body.cf-print-mode .cf-page .grid-2 > .card > div[style*="linear-gradient"] *,
+  body.cf-print-mode .cf-page [style*="linear-gradient(135deg"] {
+    color: inherit !important;
   }
 
-  /* 3 PlanVsActual cards — tighter */
+  /* 3 PlanVsActual KPI cards — keep colored progress + numbers */
   body.cf-print-mode .cf-page .grid-3 {
     display: grid !important;
     grid-template-columns: repeat(3, 1fr) !important;
-    gap: 6px !important;
-    margin-bottom: 6px !important;
+    gap: 8px !important;
+    margin-bottom: 8px !important;
   }
 
-  /* Compact card padding */
-  body.cf-print-mode .cf-page .card { padding: 6px 8px !important; border: 1px solid #ccc !important; }
+  /* Section title — keep gradient badge */
+  body.cf-print-mode .cf-page h2 { font-size: 12pt !important; margin: 0 !important; color: var(--ink-900) !important; }
 
-  /* Section titles — smaller */
-  body.cf-print-mode .cf-page h2 { font-size: 11pt !important; }
+  /* ── Tables — modern look (not gray-borders) ──────────────────────────── */
+  body.cf-print-mode .cf-page .tbl {
+    width: 100% !important;
+    font-size: 9pt !important;
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+  }
+  body.cf-print-mode .cf-page .tbl thead th {
+    background: linear-gradient(180deg, #f8fafc, #f1f5f9) !important;
+    color: var(--ink-700) !important;
+    border: none !important;
+    border-bottom: 1.5px solid var(--ink-200) !important;
+    padding: 6pt 8pt !important;
+    font-weight: 700 !important;
+  }
+  body.cf-print-mode .cf-page .tbl tbody td {
+    border: none !important;
+    border-bottom: 1px solid var(--ink-50) !important;
+    padding: 5pt 8pt !important;
+  }
+  body.cf-print-mode .cf-page .tbl tbody tr:last-child td {
+    border-bottom: none !important;
+  }
+  body.cf-print-mode .cf-page .tbl tfoot tr {
+    background: var(--ink-50) !important;
+  }
+  body.cf-print-mode .cf-page .tbl tfoot td {
+    border: none !important;
+    border-top: 1.5px solid var(--ink-200) !important;
+    padding: 5pt 8pt !important;
+    font-weight: 700 !important;
+  }
 
-  /* Plan section table */
-  body.cf-print-mode .cf-page .tbl { font-size: 8pt !important; }
-  body.cf-print-mode .cf-page .tbl th,
-  body.cf-print-mode .cf-page .tbl td { padding: 3pt 4pt !important; }
-
-  /* Force 5-week tracking grid to fit portrait — auto wrap if too narrow */
-  body.cf-print-mode .cf-page [style*="repeat("][style*="minmax"] {
+  /* ── 5-week tracking grid — fit portrait, keep colored headers ────────── */
+  body.cf-print-mode .cf-page [data-print-page] .grid {
     grid-template-columns: repeat(5, 1fr) !important;
     gap: 4px !important;
     overflow: visible !important;
+    margin-bottom: 8px !important;
   }
-  /* Inner tables in 5-week cards */
-  body.cf-print-mode .cf-page [style*="repeat("][style*="minmax"] .tbl {
-    font-size: 6.5pt !important;
+  body.cf-print-mode .cf-page [data-print-page] .grid .tbl {
+    font-size: 7pt !important;
   }
-  body.cf-print-mode .cf-page [style*="repeat("][style*="minmax"] .tbl th,
-  body.cf-print-mode .cf-page [style*="repeat("][style*="minmax"] .tbl td {
-    padding: 1.5pt 2pt !important;
+  body.cf-print-mode .cf-page [data-print-page] .grid .tbl th,
+  body.cf-print-mode .cf-page [data-print-page] .grid .tbl td {
+    padding: 2pt 3pt !important;
+  }
+  /* Compact week cards — slim padding */
+  body.cf-print-mode .cf-page [data-print-page] .grid .card {
+    padding: 0 !important;
+    overflow: hidden !important;
   }
 
-  /* Page break before Tracking section to keep things tidy */
-  body.cf-print-mode .cf-page [data-print-page] { page-break-before: always; }
+  /* Page break before Tracking section so 5-week grid + Grand Total = page 2 */
+  body.cf-print-mode .cf-page [data-print-page] {
+    page-break-before: always;
+  }
 
-  /* Hide drill-down hovers, hints, mouse cursors */
-  body.cf-print-mode .cf-page * { cursor: default !important; }
-
-  /* Avoid breaking inside cards */
+  /* Cards shouldn't split across pages */
   body.cf-print-mode .cf-page .card { break-inside: avoid; page-break-inside: avoid; }
+
+  /* Hide cursors / hover affordances */
+  body.cf-print-mode * { cursor: default !important; }
+
+  /* Drill-down dotted underlines in cells — make them invisible in print */
+  body.cf-print-mode .cf-page td[style*="underline dotted"] { text-decoration: none !important; }
+
+  /* Edit pencils ✏️ — hide in print */
+  body.cf-print-mode .cf-page span[title="แก้มือ"] { display: none !important; }
+
+  /* Animations off */
+  body.cf-print-mode * { animation: none !important; transition: none !important; }
 }

@@ -668,25 +668,33 @@ function CashFlowDashboard({ data, setData, toast }) {
           <button className="btn btn-ghost" onClick={goNextMonth} title="เดือนถัดไป">›</button>
           <EditModeToggle value={editMode} onChange={setEditMode} />
           <button className="btn btn-ghost" onClick={() => {
-            // A4 portrait print — inject @page + body class, restore after print
+            // A4 portrait print — inject @page rule LAST so it overrides any
+            // landscape @page from the default print stylesheet (last-wins).
             const styleId = 'cf-print-portrait-style';
             let style = document.getElementById(styleId);
             if (!style) {
               style = document.createElement('style');
               style.id = styleId;
+              // Append to end of <head> AFTER all stylesheets so it cascades last
               document.head.appendChild(style);
             }
-            style.textContent = '@media print { @page { size: A4 portrait; margin: 10mm 9mm; } }';
+            style.textContent = `
+              @media print {
+                @page { size: A4 portrait; margin: 8mm 7mm; }
+                @page :first { size: A4 portrait; }
+                html, body { background: #f4f7fb !important; }
+              }
+            `;
             document.body.classList.add('cf-print-mode');
             const cleanup = () => {
               document.body.classList.remove('cf-print-mode');
-              style.remove();
+              if (style.parentNode) style.parentNode.removeChild(style);
               window.removeEventListener('afterprint', cleanup);
             };
             window.addEventListener('afterprint', cleanup);
-            // Fallback timeout in case afterprint doesn't fire
             setTimeout(cleanup, 60000);
-            window.print();
+            // Small delay to ensure style is applied before print
+            setTimeout(() => window.print(), 50);
           }} title="พิมพ์ A4 แนวตั้ง (เฉพาะส่วน Present)">
             <Icon name="print" size={14} /> พิมพ์ / PDF
           </button>
