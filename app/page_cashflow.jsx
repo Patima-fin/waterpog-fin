@@ -463,48 +463,91 @@ function CashFlowDashboard({ data, setData, toast }) {
         </div>
       </div>
 
-      {/* ═════ SECTION A — Strategic Management + 4 KPIs ═════════════════ */}
-      <div className="card anim-in" style={{
-        marginBottom: 16,
-        padding: '20px 24px',
-        background: strategicNet < 0
-          ? 'linear-gradient(135deg, var(--bad-bg), color-mix(in oklch, var(--bad) 4%, white))'
-          : 'linear-gradient(135deg, var(--good-bg), color-mix(in oklch, var(--good) 4%, white))',
-        border: `2px solid ${strategicNet < 0 ? 'var(--bad)' : 'var(--good)'}`,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--ink-500)' }}>
-              Strategic Management — คาดการณ์สิ้นเดือน
-            </div>
-            <div style={{ fontSize: 36, fontWeight: 800, letterSpacing: '-0.02em',
-              color: strategicNet < 0 ? 'var(--bad)' : 'var(--good)',
-              fontVariantNumeric: 'tabular-nums', marginTop: 4 }}>
-              {strategicNet < 0 ? '(' : ''}{fmtNum(Math.abs(strategicNet), 0)}{strategicNet < 0 ? ')' : ''}
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--ink-600)', marginTop: 4 }}>
-              = ยอดยกมา {fmtNum(monthBF, 0)} + เงินกู้ {fmtNum(loanForecast, 0)} + รายรับ {fmtNum(ivForecast, 0)} − ค่าใช้จ่าย {fmtNum(outflowForecast, 0)}
-            </div>
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>คงเหลือสุทธิ ณ ปัจจุบัน</div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: liveBalance < 0 ? 'var(--bad)' : 'var(--good)', fontVariantNumeric: 'tabular-nums' }}>
-              {fmtNum(liveBalance, 2)} ฿
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--ink-500)', marginTop: 2 }}>
-              จาก {mainAccounts.length} บัญชีหลัก ·
-              <a href="#daily_balance" style={{ marginLeft: 4, color: 'var(--brand-600)' }}>บันทึกยอด →</a>
-            </div>
-          </div>
-        </div>
+      {/* ═════ SECTION A — Hero balance cards + PlanVsActual KPIs ═════════ */}
+      {/* Hero strip — 2 big gradient cards (B/F + Strategic Management) */}
+      <div className="grid grid-2 anim-in" style={{ marginBottom: 14 }}>
+        <BalanceCard
+          tone="bf"
+          label="เงินสดคงเหลือยกมา (B/F)"
+          value={monthBF}
+          hint={`ต้นเดือน · ${monthNames[month - 1]} ${year + 543}`}
+          icon="coin"
+        />
+        <BalanceCard
+          tone={strategicNet < 0 ? 'bad' : 'good'}
+          label="Strategic Management — คาดการณ์สิ้นเดือน"
+          value={strategicNet}
+          hint={
+            strategicNet < 0
+              ? `⚠️ ติดลบ — ต้องการเงินกู้/รายรับเพิ่ม · คงเหลือปัจจุบัน ${fmtNum(liveBalance, 0)} ฿`
+              : `อยู่ในเกณฑ์ปลอดภัย · คงเหลือปัจจุบัน ${fmtNum(liveBalance, 0)} ฿`
+          }
+          icon={strategicNet < 0 ? 'arrow_down' : 'arrow_up'}
+        />
       </div>
 
-      {/* 4 KPI tiles with Forecast/Actual/% */}
-      <div className="grid grid-4 anim-stagger" style={{ marginBottom: 22 }}>
-        <KpiCompare label="ยอดยกมา (B/F)" forecast={monthBF} actual={monthBF} accent="var(--brand-500)" icon="coin" />
-        <KpiCompare label="เงินกู้ (LOAN)" forecast={loanForecast} actual={loanActual} accent="oklch(60% 0.18 295)" icon="money" />
-        <KpiCompare label="รายรับโครงการ (IV)" forecast={ivForecast} actual={ivActual} accent="var(--good)" icon="bank" />
-        <KpiCompare label="ค่าใช้จ่ายรวม" forecast={outflowForecast} actual={outflowActual} accent="var(--bad)" icon="arrow_up" />
+      {/* Live balance strip — sum of main bank accounts */}
+      {mainAccounts.length > 0 && (
+        <div className="card anim-in" style={{
+          marginBottom: 14, padding: '12px 18px',
+          display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
+          background: 'linear-gradient(90deg, color-mix(in oklch, var(--brand-500) 8%, transparent), transparent)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '0 0 auto' }}>
+            <div style={{ width: 36, height: 36, borderRadius: 9, background: 'var(--brand-100)', color: 'var(--brand-700)', display: 'grid', placeItems: 'center' }}>
+              <Icon name="bank" size={18} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--ink-500)' }}>
+                ยอดเงินในธนาคารจริง ({mainAccounts.length} บัญชีหลัก)
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: liveBalance < 0 ? 'var(--bad)' : 'var(--good)' }}>
+                {fmtNum(liveBalance, 2)} <span style={{ fontSize: 12, color: 'var(--ink-500)' }}>฿</span>
+              </div>
+            </div>
+          </div>
+          <div style={{ flex: 1, display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+            {mainAccounts.map((b, i) => (
+              <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>{b.BANK_NAME || b.bankName}</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: Number(b.BALANCE ?? b.balance ?? 0) < 0 ? 'var(--bad)' : 'var(--ink-900)', fontVariantNumeric: 'tabular-nums' }}>
+                  {fmtNum(Number(b.BALANCE ?? b.balance ?? 0), 0)}
+                </div>
+              </div>
+            ))}
+          </div>
+          <a href="#daily_balance" className="btn btn-ghost btn-sm" style={{ flex: '0 0 auto' }}>
+            <Icon name="edit" size={12} /> บันทึกยอดวันนี้
+          </a>
+        </div>
+      )}
+
+      {/* 3 PlanVsActual cards — รับโครงการ / เงินกู้ / ค่าใช้จ่ายรวม */}
+      <div className="grid grid-3 anim-stagger" style={{ marginBottom: 22 }}>
+        <PlanVsActualCard
+          tone="good"
+          icon="bank"
+          label="รับเงินโครงการ (IV)"
+          plan={ivForecast}
+          actual={ivActual}
+          hint={`คาดรับ ${fmtNum(ivForecast, 0)} · รับจริง ${fmtNum(ivActual, 0)}`}
+        />
+        <PlanVsActualCard
+          tone="info"
+          icon="money"
+          label="เงินกู้/สินเชื่อหมุนเวียน"
+          plan={loanForecast}
+          actual={loanActual}
+          hint={loanForecast === 0 ? 'ยังไม่มีประมาณการเงินกู้เดือนนี้' : `เบิกแล้ว ${loanForecast > 0 ? ((loanActual / loanForecast) * 100).toFixed(1) : 0}%`}
+        />
+        <PlanVsActualCard
+          tone="bad"
+          icon="arrow_up"
+          label="ค่าใช้จ่ายรวม (4 หมวด)"
+          plan={outflowForecast}
+          actual={outflowActual}
+          hint="รวม ดำเนินงาน / โครงการ / การเงิน / เบ็ดเตล็ด+เงินเดือน"
+        />
       </div>
 
       {/* ═════ SECTION B — Plan: current week vs rest of month ═════════ */}
@@ -746,6 +789,76 @@ function SectionTitle({ num, title, subtitle }) {
       <div>
         <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: 'var(--ink-900)' }}>{title}</h2>
         <div style={{ fontSize: 12, color: 'var(--ink-500)', marginTop: 2 }}>{subtitle}</div>
+      </div>
+    </div>
+  );
+}
+
+function BalanceCard({ tone, label, value, hint, icon }) {
+  const tones = {
+    bf:   { bg: 'linear-gradient(135deg, var(--brand-500), var(--brand-700))', text: 'white' },
+    good: { bg: 'linear-gradient(135deg, oklch(65% 0.16 152), oklch(50% 0.16 152))', text: 'white' },
+    bad:  { bg: 'linear-gradient(135deg, oklch(65% 0.18 22), oklch(50% 0.18 22))',   text: 'white' },
+  };
+  const t = tones[tone] || tones.bf;
+  return (
+    <div className="card" style={{ background: t.bg, color: t.text, borderColor: 'transparent', padding: 22, position: 'relative', overflow: 'hidden' }}>
+      <div style={{ position: 'absolute', right: -40, top: -40, width: 160, height: 160, borderRadius: '50%', background: 'rgba(255,255,255,0.1)' }} />
+      <div style={{ position: 'relative' }}>
+        <div style={{ fontSize: 13, opacity: 0.9, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
+          {icon && <Icon name={icon} size={14} />} {label}
+        </div>
+        <div style={{ fontSize: 36, fontWeight: 800, fontVariantNumeric: 'tabular-nums', marginTop: 6, letterSpacing: '-.02em' }}>
+          {value < 0 ? '(' : ''}{fmtNum(Math.abs(value), 0)}{value < 0 ? ')' : ''}
+        </div>
+        {hint && <div style={{ fontSize: 12, opacity: 0.85, marginTop: 4 }}>{hint}</div>}
+      </div>
+    </div>
+  );
+}
+
+function PlanVsActualCard({ tone, icon, label, plan, actual, hint }) {
+  const pct = plan > 0 ? Math.max(0, Math.min(150, (actual / plan) * 100)) : 0;
+  const gap = actual - plan;
+  const tones = {
+    good: { accent: 'var(--good)', bg: 'var(--good-bg)' },
+    bad:  { accent: 'var(--bad)',  bg: 'var(--bad-bg)' },
+    info: { accent: 'oklch(60% 0.18 295)', bg: 'var(--brand-50)' },
+  };
+  const t = tones[tone] || tones.info;
+  return (
+    <div className="card" style={{ padding: 18, position: 'relative' }}>
+      <div className="kpi-accent" style={{ background: t.accent }} />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--ink-700)', fontWeight: 600 }}>
+          {icon && <Icon name={icon} size={15} />}{label}
+        </div>
+        <Badge kind={pct >= 100 ? 'b-green' : pct >= 50 ? 'b-blue' : 'b-amber'} dot={false}>{pct.toFixed(1)}%</Badge>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 14 }}>
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--ink-500)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>Plan</div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--ink-700)', fontVariantNumeric: 'tabular-nums' }}>
+            {fmtNum(plan, 0)}
+          </div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontSize: 11, color: 'var(--ink-500)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>Actual</div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: t.accent, fontVariantNumeric: 'tabular-nums' }}>
+            {fmtNum(actual, 0)}
+          </div>
+        </div>
+      </div>
+      <div style={{ marginTop: 14 }}>
+        <div style={{ height: 8, background: 'var(--ink-100)', borderRadius: 6, overflow: 'hidden' }}>
+          <div style={{ width: `${Math.min(100, pct)}%`, height: '100%', background: t.accent, borderRadius: 6, transition: 'width 800ms cubic-bezier(.2,.7,.2,1)' }} />
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: 'var(--ink-500)', marginTop: 6, fontVariantNumeric: 'tabular-nums' }}>
+          <span>{hint}</span>
+          <span style={{ color: gap >= 0 ? (tone === 'bad' ? 'var(--bad)' : 'var(--good)') : (tone === 'bad' ? 'var(--good)' : 'var(--bad)'), fontWeight: 600 }}>
+            {gap >= 0 ? '+' : ''}{fmtNum(gap, 0)}
+          </span>
+        </div>
       </div>
     </div>
   );
