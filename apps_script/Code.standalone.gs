@@ -422,7 +422,12 @@ var ENTITY_HEADERS = {
     // v2 fields parsed from "Olddata IV" (added 2026-05-23)
     'projectCode','projectName','customerCode','customerName',
     'dueDate','assignee','contractor','category',
-    'actualReceiveDate','currentStatus','arNo','docType','refCode'
+    'actualReceiveDate','currentStatus','arNo','docType','refCode',
+    // v3 fields (added 2026-05-26)
+    // invType:           'P' = ลูกหนี้จากโครงการ (default), 'O' = ลูกหนี้อื่นๆ
+    // debtOverride:      admin override ภาระหนี้ราย IV (blank = use project default)
+    // assigneeOverride:  admin override ผู้รับโอนสิทธิ์ราย IV
+    'invType','debtOverride','assigneeOverride','remark','productType','contractRef'
   ],
   // forecastEntries — extended for full cashflow lifecycle.
   //   STATUS:        PLANNED → ACTUAL → BOOKED  (or CANCELED).
@@ -477,7 +482,11 @@ var ENTITY_HEADERS = {
   ],
   receipts: [
     'id','receiptNo','receiptDate','invoiceNo','projectCode','projectName','period',
-    'grossAmount','transferDeduction','netReceived','bankAccount','note'
+    'grossAmount','transferDeduction','netReceived','bankAccount','note',
+    // v3 field (added 2026-05-26)
+    // invType: 'P' = ลูกหนี้จากโครงการ (default), 'O' = ลูกหนี้อื่นๆ
+    // override invoice-level invType ถ้า admin แก้ใน Warroom drill modal
+    'invType'
   ],
   bankEntries: [
     'id','entryDate','bankName','accountNo','entryType','description',
