@@ -829,11 +829,24 @@ function EditableNumber({ ovKey, computed, editMode, format, digits = 2, style, 
  * EditModeToggle — ปุ่ม toggle ที่ใช้ใส่ในหัวหน้า
  *   <EditModeToggle value={editMode} onChange={setEditMode} />
  */
+// ─── Role helper — อ่าน role ของ current user จาก localStorage session
+// owner = สิทธิ์ดูอย่างเดียว (ผู้บริหาร) → ซ่อนปุ่มแก้ไขด้วยมือ
+function _getCurrentRole() {
+  try {
+    const s = JSON.parse(localStorage.getItem('wtp-session') || 'null');
+    return (s && s.role) || 'viewer';
+  } catch (_) { return 'viewer'; }
+}
+function _isOwnerOnly() { return _getCurrentRole() === 'owner'; }
+
 // ─── CloudSyncStatusButton — ปุ่มเช็คสถานะ cloud sync (เห็นค่าทุก user หรือไม่)
 // คลิกครั้งเดียว: เช็คสถานะ + auto force-sync ถ้ามีค่าค้าง + แสดงผลใน alert
+// ★ ซ่อนปุ่มนี้สำหรับ role=owner — เพราะ owner ดูอย่างเดียว ไม่ได้กรอกค่า
 function CloudSyncStatusButton() {
+  // Hooks ต้องเรียกก่อน early return (rules of hooks)
   useOverrideSubAny();
   const [busy, setBusy] = useState(false);
+  if (_isOwnerOnly()) return null;
   const local = WTPOverride._loadLocal();
   const cloud = WTPOverride._loadCloud();
   const localKeys = Object.keys(local);
@@ -912,6 +925,8 @@ function CloudSyncStatusButton() {
 }
 
 function EditModeToggle({ value, onChange, label = 'โหมดแก้ไข' }) {
+  // ★ ซ่อนปุ่มสำหรับ role=owner — owner ดูอย่างเดียว ไม่ได้แก้ไขค่า
+  if (_isOwnerOnly()) return null;
   return (
     <button
       type="button"
