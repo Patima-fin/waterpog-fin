@@ -457,11 +457,15 @@ var ENTITY_HEADERS = {
     'Bank_AC','Bank_Id','Remark','cc_remark','Amount','Down_payment','Deduct',
     'Vat','Ret','Before_WHT','WHT','Less_Other','Total','Minus_Other','Net_Amount'
   ],
+  // payables — added cf_category (manual override of cashflow category 1-4)
+  //   1 = ดำเนินงาน · 2 = โครงการ · 3 = การเงิน (ดอกเบี้ย/ค่าธรรมเนียม) · 4 = เบ็ดเตล็ด+เงินเดือน
+  //   If blank → use heuristic auto-classify in cashflow page.
   payables: [
     'id','docno','vchno','vchdate','refno','due','due2','remark',
     'Amount','VAT','net_new','WHT_EMP','Less_Other','Balance_Amount2',
     'Less_Ret','Balance_Amount1','netpayment','refcode','jobcode',
-    'jobname','dpt_code','dpt_name','acct_no','cust_name','vendor_group','vendor_group2'
+    'jobname','dpt_code','dpt_name','acct_no','cust_name','vendor_group','vendor_group2',
+    'cf_category'
   ],
   // debtLedger v2: ONE ROW PER MONTH PER CONTRACT (interest schedule rows)
   // Contract-level info now lives in debtMaster.

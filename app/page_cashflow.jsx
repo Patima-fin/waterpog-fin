@@ -80,26 +80,60 @@ function inMonth(dateISO, year, month) {
 }
 
 // ─── Category mapping for outflow (4 categories) ──────────────────────────
+// Labels match the M_Forecast Excel exactly:
+//   1 = ค่าใช้จ่ายดำเนินงานรายสัปดาห์    (everyday operations — default)
+//   2 = ค่าใช้จ่ายเกี่ยวกับโครงการและงานติดตั้ง  (project-tied costs)
+//   3 = ต้นทุนทางการเงินและดอกเบี้ย      (interest / bank fees / WHT)
+//   4 = ค่าใช้จ่ายเบ็ดเตล็ดและเงินเดือน    (misc + salary)
+//
+// Auto-classify logic (smart heuristic):
+//   1. Manual override wins — cf_category field
+//   2. Keyword match for finance cost (cat 3): ดอกเบี้ย, ค่าธรรมเนียม, interest, bank fee
+//   3. jobcode/jobname present → cat 2 (project)
+//   4. dpt_code = FIN by itself is NOT enough for cat 3 (FIN dept also has operating costs)
+//   5. Default → cat 1 (operating)
 function categorizePayable(ap) {
-  const dpt = String(ap.dpt_code || '').toUpperCase().trim();
-  if (dpt === 'FIN') return 3;
+  // Layer 1: manual override
+  const override = parseInt(ap.cf_category || '0', 10);
+  if (override >= 1 && override <= 4) return override;
+  // Layer 2: finance-cost keyword match (cat 3)
+  const text = (
+    String(ap.cust_name || '') + ' ' +
+    String(ap.remark || '') + ' ' +
+    String(ap.docno || '') + ' ' +
+    String(ap.refno || '') + ' ' +
+    String(ap.vendor_group || '')
+  ).toLowerCase();
+  if (/ดอกเบี้ย|interest|ค่าธรรมเนียม|bank fee|wht|withhold|หัก ?ณ ?ที่จ่าย|ค่าบริการ ?ธนาคาร/i.test(text)) {
+    return 3;
+  }
+  // Layer 3: project (cat 2)
   if (ap.jobcode || ap.jobname) return 2;
+  // Layer 4: default — operating
   return 1;
 }
 function categorizeForecastEntry(fe) {
   // Explicit CATEGORY field wins (1-4)
   const cat = parseInt(fe.CATEGORY || fe.category || '0', 10);
   if (cat >= 1 && cat <= 4) return cat;
-  // Fallback: detect salary by description
+  // Fallback heuristics on description
   const desc = String(fe.DESCRIPTION || fe.description || '').toLowerCase();
-  if (desc.includes('เงินเดือน') || desc.includes('salary')) return 4;
+  if (/เงินเดือน|salary|payroll|เบ็ดเตล็ด|misc|petty|รับรอง/i.test(desc)) return 4;
+  if (/ดอกเบี้ย|interest|ค่าธรรมเนียม|bank fee/i.test(desc))                return 3;
   return 1;
 }
 const CATEGORY_LABELS = {
-  1: 'ค่าใช้จ่ายดำเนินงาน',
-  2: 'ค่าใช้จ่ายโครงการ',
-  3: 'ค่าใช้จ่ายฝ่ายการเงิน',
-  4: 'เงินเดือน',
+  1: 'ค่าใช้จ่ายดำเนินงานรายสัปดาห์',
+  2: 'ค่าใช้จ่ายเกี่ยวกับโครงการและงานติดตั้ง',
+  3: 'ต้นทุนทางการเงินและดอกเบี้ย',
+  4: 'ค่าใช้จ่ายเบ็ดเตล็ดและเงินเดือน',
+};
+// Short labels for the weekly tracking section (compact tables)
+const CATEGORY_LABELS_SHORT = {
+  1: 'ดำเนินงาน',
+  2: 'โครงการ',
+  3: 'การเงิน',
+  4: 'เบ็ดเตล็ด',
 };
 
 // ─── Inflow helpers ────────────────────────────────────────────────────────
@@ -314,25 +348,64 @@ function CashFlowDashboard({ data, setData, toast }) {
   const strategicNet = monthBF + loanForecast + ivForecast - outflowForecast;
 
   // ── Plan section: current week vs rest-of-month ───────────────────────
-  const isCurrentWeek = i => i === nowWeek;
-  const isRestWeek    = i => i > nowWeek;
-  const currentRestSplit = (weekArr) => ({
+  // Rule from M_Forecast Excel:
+  //   "rest" column = sum of remaining weeks IN THIS MONTH
+  //   IF current week IS the LAST week of month → "rest" = forecast for next month
+  const isLastWeekOfMonth = nowWeek === weeks.length - 1;
+  const currentRestSplit = (weekArr, nextMonthFallback) => ({
     current: weekArr[nowWeek] || 0,
-    rest:    weekArr.reduce((s, v, i) => i > nowWeek ? s + (v || 0) : s, 0),
-    total:   weekArr.reduce((s, v, i) => i >= nowWeek ? s + (v || 0) : s, 0),
+    rest:    isLastWeekOfMonth
+      ? (nextMonthFallback || 0)
+      : weekArr.reduce((s, v, i) => i > nowWeek ? s + (v || 0) : s, 0),
+    total:   (weekArr[nowWeek] || 0) +
+             (isLastWeekOfMonth
+                ? (nextMonthFallback || 0)
+                : weekArr.reduce((s, v, i) => i > nowWeek ? s + (v || 0) : s, 0)),
   });
+
+  // ── Pull next-month forecast (used only when current = last week) ─────
+  const nextMonthInflow = cfMemo(() => {
+    if (!isLastWeekOfMonth) return { iv: 0, loan: 0, out: { 1: 0, 2: 0, 3: 0, 4: 0 } };
+    const nextYear  = month === 12 ? year + 1 : year;
+    const nextMonth = month === 12 ? 1 : month + 1;
+    let iv = 0, loan = 0;
+    const out = { 1: 0, 2: 0, 3: 0, 4: 0 };
+    invoices.forEach(ivRow => {
+      if (ivIsPaid(ivRow)) return;
+      if (ivRow.expectedReceive && inMonth(ivRow.expectedReceive, nextYear, nextMonth)) {
+        iv += ivNetExpected(ivRow);
+      }
+    });
+    forecastEntries.forEach(fe => {
+      const isLoan = String(fe.EXPENSE_TYPE || fe.CATEGORY || '').toUpperCase() === 'LOAN';
+      const status = String(fe.STATUS || '').toUpperCase();
+      if (status === 'CANCELED') return;
+      const amt  = Number(fe.AMOUNT || fe.amount || 0);
+      const date = fe.PAYMENT_DATE || fe.DATE;
+      if (!inMonth(date, nextYear, nextMonth)) return;
+      if (isLoan && amt > 0) loan += amt;
+      if (!isLoan && amt < 0) out[categorizeForecastEntry(fe)] += Math.abs(amt);
+    });
+    payables.forEach(ap => {
+      if (paidVchnoSet.has(ap.vchno)) return;
+      const due = ap.due2 || ap.due || ap.vchdate;
+      if (!inMonth(due, nextYear, nextMonth)) return;
+      out[categorizePayable(ap)] += Number(ap.netpayment || ap.Amount || 0);
+    });
+    return { iv, loan, out };
+  }, [isLastWeekOfMonth, invoices, payables, forecastEntries, paidVchnoSet, year, month]);
 
   // Combine forecast (PLANNED) + actual (ACTUAL+BOOKED) for "what's happening this period"
   const ivCombinedByWeek  = weeks.map((_, i) => (ivInflowByWeek.forecast[i] || 0) + (ivInflowByWeek.actual[i] || 0));
   const loanCombinedByWeek= weeks.map((_, i) => (loanByWeek.forecast[i] || 0) + (loanByWeek.actual[i] || 0));
 
-  const planIv   = currentRestSplit(ivCombinedByWeek);
-  const planLoan = currentRestSplit(loanCombinedByWeek);
+  const planIv   = currentRestSplit(ivCombinedByWeek,   nextMonthInflow.iv);
+  const planLoan = currentRestSplit(loanCombinedByWeek, nextMonthInflow.loan);
   const planOut  = {
-    1: currentRestSplit(apForecastByWeekCat.map(g => g[1])),
-    2: currentRestSplit(apForecastByWeekCat.map(g => g[2])),
-    3: currentRestSplit(apForecastByWeekCat.map(g => g[3])),
-    4: currentRestSplit(apForecastByWeekCat.map(g => g[4])),
+    1: currentRestSplit(apForecastByWeekCat.map(g => g[1]), nextMonthInflow.out[1]),
+    2: currentRestSplit(apForecastByWeekCat.map(g => g[2]), nextMonthInflow.out[2]),
+    3: currentRestSplit(apForecastByWeekCat.map(g => g[3]), nextMonthInflow.out[3]),
+    4: currentRestSplit(apForecastByWeekCat.map(g => g[4]), nextMonthInflow.out[4]),
   };
   const totalOutCurrent = planOut[1].current + planOut[2].current + planOut[3].current + planOut[4].current;
   const totalOutRest    = planOut[1].rest    + planOut[2].rest    + planOut[3].rest    + planOut[4].rest;
@@ -349,9 +422,13 @@ function CashFlowDashboard({ data, setData, toast }) {
     return getBalanceAtDate(snapshots, prevISO) || liveBalance;
   }, [snapshots, weeks, nowWeek, monthBF, liveBalance]);
 
-  // Net at end of current week + end of month
-  const netEndOfCurrentWeek = weekBF + (planIv.current + planLoan.current) - totalOutCurrent;
-  const netEndOfMonth       = netEndOfCurrentWeek + (planIv.rest + planLoan.rest) - totalOutRest;
+  // Net at end of current week + end of month — used in PlanRow + Net row
+  const inflowCurrent      = planIv.current + planLoan.current;
+  const inflowRest         = planIv.rest    + planLoan.rest;
+  const netEndOfCurrentWeek= weekBF + inflowCurrent - totalOutCurrent;
+  // For "rest" column, the "carry-forward" balance IS the closing of current week
+  // (so the user can see how rest period plays out starting from that base)
+  const netEndOfMonth      = netEndOfCurrentWeek + inflowRest - totalOutRest;
 
   // ── Week selector ─────────────────────────────────────────────────────
   const monthNames = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
@@ -462,17 +539,25 @@ function CashFlowDashboard({ data, setData, toast }) {
             {/* ── INFLOW section ───────────────────────────────────────── */}
             <tr style={{ background: 'color-mix(in oklch, var(--good) 8%, transparent)' }}>
               <td colSpan={4} style={{ fontWeight: 700, color: 'var(--good)', fontSize: 13, padding: '8px 14px' }}>
-                💰 กระแสเงินสดเข้า (Inflow)
+                1: กระแสเงินสดเข้า (Inflow Details)
               </td>
             </tr>
-            <PlanRow label="ยอดเงินยกมา (ต้นสัปดาห์)" current={nowWeek === 0 ? monthBF : weekBF} rest={0} total={nowWeek === 0 ? monthBF : weekBF} subtle />
-            <PlanRow label="รับจากโครงการ (IV)" current={planIv.current} rest={planIv.rest} total={planIv.total} />
-            <PlanRow label="เงินกู้ (ประมาณการ)" current={planLoan.current} rest={planLoan.rest} total={planLoan.total} />
+            {/* ยอดยกมา: rest = closing of current week (signed carry-forward, matches M_Forecast) */}
+            <PlanRow
+              label="เงินสดคงเหลือยกมา"
+              current={weekBF}
+              rest={netEndOfCurrentWeek}     /* carry forward — usually equals to closing of current week */
+              total={weekBF}                  /* total = month B/F (the starting point) */
+              subtle
+              carrySigned                    /* allow negative in rest column without parentheses */
+            />
+            <PlanRow label="รับเงินโครงการ"            current={planIv.current}   rest={planIv.rest}   total={planIv.current + planIv.rest} />
+            <PlanRow label="เงินกู้/สินเชื่อหมุนเวียน"  current={planLoan.current} rest={planLoan.rest} total={planLoan.current + planLoan.rest} />
 
             {/* ── OUTFLOW section ─────────────────────────────────────── */}
             <tr style={{ background: 'color-mix(in oklch, var(--bad) 8%, transparent)' }}>
               <td colSpan={4} style={{ fontWeight: 700, color: 'var(--bad)', fontSize: 13, padding: '8px 14px' }}>
-                💸 กระแสเงินสดออก (Outflow) · 4 หมวด
+                2: กระแสเงินสดออก (Outflow Details) · 4 หมวด
               </td>
             </tr>
             {[1, 2, 3, 4].map(cat => (
@@ -491,20 +576,34 @@ function CashFlowDashboard({ data, setData, toast }) {
               <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--bad)' }}>({fmtNum(totalOutAll, 0)})</td>
             </tr>
 
-            {/* ── Final Net Position ──────────────────────────────────── */}
-            <tr style={{ background: 'var(--brand-50)', fontWeight: 800 }}>
-              <td style={{ padding: '12px 14px', color: 'var(--brand-700)' }}>
-                💼 สุทธิ (Final Net Position)
+            {/* ── คงเหลือรายสัปดาห์ — closing per period (matches M_Forecast R30) */}
+            <tr style={{ background: 'var(--warn-bg)', fontWeight: 700 }}>
+              <td style={{ padding: '10px 14px', color: 'var(--warn)' }}>
+                💰 คงเหลือรายสัปดาห์ (สิ้นช่วง)
               </td>
               <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums',
                 color: netEndOfCurrentWeek < 0 ? 'var(--bad)' : 'var(--good)' }}>
                 {fmtNum(netEndOfCurrentWeek, 0)}
               </td>
+              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+                color: netEndOfMonth < 0 ? 'var(--bad)' : 'var(--good)' }}>
+                {fmtNum(netEndOfMonth, 0)}
+              </td>
               <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--ink-500)', fontSize: 11 }}>
-                สิ้น{weeks[nowWeek]?.label || 'W?'} → สิ้นเดือน
+                {isLastWeekOfMonth ? '(rest = เดือนถัดไป)' : ''}
+              </td>
+            </tr>
+
+            {/* ── Final Net Position — same as right column above */}
+            <tr style={{ background: 'var(--brand-50)', fontWeight: 800 }}>
+              <td style={{ padding: '12px 14px', color: 'var(--brand-700)' }}>
+                💼 ยอดคงเหลือสุทธิปลายงวด (Final Net Position)
+              </td>
+              <td colSpan={2} style={{ textAlign: 'center', fontSize: 11, color: 'var(--ink-500)' }}>
+                สิ้น{weeks[nowWeek]?.label || 'W?'} → {isLastWeekOfMonth ? 'สิ้นเดือนถัดไป' : 'สิ้นเดือน'}
               </td>
               <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums',
-                color: netEndOfMonth < 0 ? 'var(--bad)' : 'var(--good)', fontSize: 16 }}>
+                color: netEndOfMonth < 0 ? 'var(--bad)' : 'var(--good)', fontSize: 18 }}>
                 {fmtNum(netEndOfMonth, 0)}
               </td>
             </tr>
@@ -557,8 +656,8 @@ function CashFlowDashboard({ data, setData, toast }) {
                     const p = apForecastByWeekCat[i][cat] || 0;
                     const a = pvActualByWeekCat[i][cat] || 0;
                     return (
-                      <tr key={cat}>
-                        <td style={{ padding: '3px 6px', fontSize: 10, color: 'var(--ink-600)' }}>{cat}.</td>
+                      <tr key={cat} title={CATEGORY_LABELS[cat]}>
+                        <td style={{ padding: '3px 6px', fontSize: 10, color: 'var(--ink-600)' }}>{cat}. {CATEGORY_LABELS_SHORT[cat]}</td>
                         <td style={{ padding: '3px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--ink-500)' }}>
                           {p > 0 ? fmtNum(p, 0) : '—'}
                         </td>
@@ -686,20 +785,32 @@ function KpiCompare({ label, forecast, actual, accent, icon }) {
   );
 }
 
-function PlanRow({ label, current, rest, total, subtle, negative }) {
-  const fmtVal = v => negative && v > 0 ? `(${fmtNum(v, 0)})` : fmtNum(v, 0);
-  const color  = negative && (current || rest || total) ? 'var(--bad)' : (subtle ? 'var(--ink-500)' : 'inherit');
+function PlanRow({ label, current, rest, total, subtle, negative, carrySigned }) {
+  // negative   → outflow (always positive number wrapped in parens)
+  // carrySigned→ row may show negative carry-forward without parens (e.g. -2,612,841)
+  const fmtVal = v => {
+    if (v == null || v === 0) return '—';
+    if (carrySigned) return fmtNum(v, 0);                  // show signed
+    if (negative && v > 0) return `(${fmtNum(v, 0)})`;     // outflow → parens
+    return fmtNum(v, 0);
+  };
+  const colorFor = v => {
+    if (v == null || v === 0) return 'inherit';
+    if (carrySigned && v < 0) return 'var(--bad)';
+    if (negative) return 'var(--bad)';
+    return subtle ? 'var(--ink-500)' : 'inherit';
+  };
   return (
     <tr>
       <td style={{ paddingLeft: 24, fontSize: 12.5, color: subtle ? 'var(--ink-500)' : 'inherit' }}>{label}</td>
-      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color, background: 'color-mix(in oklch, var(--brand-50) 50%, transparent)' }}>
-        {current ? fmtVal(current) : '—'}
+      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: colorFor(current), background: 'color-mix(in oklch, var(--brand-50) 50%, transparent)' }}>
+        {fmtVal(current)}
       </td>
-      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color }}>
-        {rest ? fmtVal(rest) : '—'}
+      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: colorFor(rest) }}>
+        {fmtVal(rest)}
       </td>
-      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color, fontWeight: 600, background: 'var(--ink-50)' }}>
-        {total ? fmtVal(total) : '—'}
+      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: colorFor(total), fontWeight: 600, background: 'var(--ink-50)' }}>
+        {fmtVal(total)}
       </td>
     </tr>
   );

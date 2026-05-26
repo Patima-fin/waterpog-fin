@@ -1079,6 +1079,7 @@ function DataPayablePage({ data, setData, toast }) {
     { key: 'vchno',      label: 'เลขที่ใบสำคัญ',    w: 140                          },
     { key: 'cust_name',  label: 'เจ้าหนี้ / Vendor', w: 260                         },
     { key: 'dpt_code',   label: 'แผนก',              w: 76,  align: 'center'        },
+    { key: 'cf_category',label: 'หมวด CF',           w: 110, noSort: true, align: 'center' },
     { key: 'due2',       label: 'วันครบกำหนด',       w: 105                         },
     { key: '_overdue',   label: 'เกินกำหนด',         w: 88,  noSort: true, align: 'center' },
     { key: 'netpayment', label: 'Net Payment (฿)',   w: 148, align: 'right'         },
@@ -1203,6 +1204,31 @@ function DataPayablePage({ data, setData, toast }) {
                     <td style={vt}><span style={{ fontWeight: 600, color: 'var(--brand-700)', fontFamily: 'ui-monospace' }}>{row.vchno || '—'}</span></td>
                     <td style={vt}>{row.cust_name || <span className="muted">—</span>}</td>
                     <td style={vt}>{row.dpt_code ? <Badge kind="b-blue" dot={false}>{row.dpt_code}</Badge> : <span className="muted">—</span>}</td>
+                    <td style={{ ...vt, textAlign: 'center' }} onClick={e => e.stopPropagation()}>
+                      <select
+                        value={row.cf_category || ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setData(d => ({
+                            ...d,
+                            payables: (d.payables || []).map(p => p.id === row.id ? { ...p, cf_category: val } : p),
+                          }));
+                          toast && toast('อัปเดตหมวด CF แล้ว');
+                        }}
+                        title="เลือกหมวดสำหรับ Cashflow page (1=ดำเนินงาน 2=โครงการ 3=การเงิน 4=เบ็ดเตล็ด/เงินเดือน)"
+                        style={{
+                          fontSize: 11, padding: '2px 6px', borderRadius: 5,
+                          border: '1px solid var(--line)', background: 'var(--panel)',
+                          fontFamily: 'inherit', cursor: 'pointer',
+                          color: row.cf_category ? 'var(--ink-800)' : 'var(--ink-400)',
+                        }}>
+                        <option value="">Auto</option>
+                        <option value="1">1 · ดำเนินงาน</option>
+                        <option value="2">2 · โครงการ</option>
+                        <option value="3">3 · การเงิน</option>
+                        <option value="4">4 · เบ็ดเตล็ด+เงินเดือน</option>
+                      </select>
+                    </td>
                     <td style={{ ...vt, whiteSpace: 'nowrap', color: dueColor }}>
                       {due
                         ? `${String(due.getDate()).padStart(2,'0')}/${String(due.getMonth()+1).padStart(2,'0')}/${due.getFullYear()}`
