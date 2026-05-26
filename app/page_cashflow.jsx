@@ -688,11 +688,7 @@ function CashFlowDashboard({ data, setData, toast }) {
           value={monthBFAvailable}
           editMode={editMode}
           ovKey={`${ovPrefix}.bf`}
-          hint={
-            liveHold > 0
-              ? `ต้นเดือน · ${monthNames[month - 1]} ${year + 543} · หัก HOLD ${fmtNum(liveHold, 0)} แล้ว`
-              : `ต้นเดือน · ${monthNames[month - 1]} ${year + 543}`
-          }
+          hint={`ต้นเดือน · ${monthNames[month - 1]} ${year + 543}`}
           icon="coin"
         />
         <BalanceCard
