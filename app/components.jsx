@@ -545,6 +545,160 @@ function StatusPill({ value, options, onChange, size = 'md' }) {
   );
 }
 
+// ─── Manual Override System ──────────────────────────────────────────────────
+// คีย์เลขมือทับค่าที่ระบบคำนวณ — เก็บใน localStorage (ไม่ sync ไป Apps Script)
+// ใช้ใน Warroom รายปี + Cashflow รายสัปดาห์ ตอน present ก่อนผูกข้อมูลจริง
+const OVERRIDE_LS_KEY = 'wtp-manual-overrides';
+const WTPOverride = {
+  _load() { try { return JSON.parse(localStorage.getItem(OVERRIDE_LS_KEY) || '{}'); } catch (_) { return {}; } },
+  _save(all) { try { localStorage.setItem(OVERRIDE_LS_KEY, JSON.stringify(all)); } catch (_) {} },
+  get(key) { return this._load()[key]; },
+  has(key) {
+    const v = this._load()[key];
+    return v !== undefined && v !== null && v !== '';
+  },
+  set(key, value) {
+    const all = this._load();
+    if (value === null || value === '' || value === undefined) delete all[key];
+    else all[key] = value;
+    this._save(all);
+    window.dispatchEvent(new CustomEvent('wtp-override-change', { detail: { key } }));
+  },
+  clear(key) { this.set(key, null); },
+  clearAll() {
+    this._save({});
+    window.dispatchEvent(new CustomEvent('wtp-override-change', { detail: { key: '*' } }));
+  },
+  resolve(key, computed) {
+    const v = this._load()[key];
+    if (v === undefined || v === null || v === '') return computed;
+    const n = Number(v);
+    return isNaN(n) ? computed : n;
+  },
+};
+
+// Subscribe helper — เรียก setState เมื่อมี override เปลี่ยน (ของ key นี้ หรือ '*')
+function useOverrideSub(key) {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const h = (e) => {
+      const k = e.detail && e.detail.key;
+      if (k === '*' || k === key) force(x => x + 1);
+    };
+    window.addEventListener('wtp-override-change', h);
+    return () => window.removeEventListener('wtp-override-change', h);
+  }, [key]);
+}
+
+/**
+ * EditableNumber — ตัวเลขที่เมื่อ editMode=true จะคลิกแก้ได้
+ * - ovKey      : คีย์เฉพาะของ field (เช่น 'wr2.heroTotal')
+ * - computed   : ค่าที่ระบบคำนวณ (ใช้เป็น fallback ถ้ายังไม่มี override)
+ * - editMode   : true = แสดง <input>, false = แสดงข้อความ
+ * - format     : (n) => 'string'  ของแสดงตอน view mode (default fmtNum 2 ตำแหน่ง)
+ * - digits     : ทศนิยมตอน format (default 2)
+ * - style      : CSS ของกล่อง outer
+ * - showBadge  : แสดง ✏️ ตัวเล็กข้างเลขเมื่อมี override (default true)
+ */
+function EditableNumber({ ovKey, computed, editMode, format, digits = 2, style, showBadge = true, suffix = '' }) {
+  useOverrideSub(ovKey);
+  const overridden = WTPOverride.has(ovKey);
+  const value      = WTPOverride.resolve(ovKey, computed);
+  const fmt = format || ((n) => fmtNum(n, digits));
+
+  if (editMode) {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        <input
+          type="number"
+          step="0.01"
+          defaultValue={overridden ? value : ''}
+          placeholder={fmt(computed)}
+          onBlur={(e) => {
+            const raw = e.target.value;
+            if (raw === '') { WTPOverride.clear(ovKey); return; }
+            const n = parseFloat(raw);
+            if (!isNaN(n)) WTPOverride.set(ovKey, n);
+          }}
+          onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { e.target.value = overridden ? value : ''; e.target.blur(); } }}
+          style={{
+            ...style,
+            minWidth: 80,
+            padding: '4px 8px',
+            border: `1.5px solid ${overridden ? 'var(--brand-500)' : 'var(--ink-200)'}`,
+            borderRadius: 6,
+            background: overridden ? 'color-mix(in oklch, var(--brand-500) 6%, white)' : 'white',
+            textAlign: 'right',
+            fontFamily: 'ui-monospace',
+            fontVariantNumeric: 'tabular-nums',
+            fontWeight: 600,
+            fontSize: 'inherit',
+            color: 'inherit',
+          }}
+        />
+        {overridden && (
+          <button
+            type="button"
+            onClick={() => WTPOverride.clear(ovKey)}
+            title="ล้างค่าที่กรอกเอง — กลับไปใช้ค่าระบบคำนวณ"
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--bad)', fontSize: 14, padding: 0 }}
+          >✕</button>
+        )}
+      </span>
+    );
+  }
+
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 4, ...style }}>
+      <span>{fmt(value)}{suffix}</span>
+      {showBadge && overridden && (
+        <span
+          title="ค่าที่กรอกมือ (override)"
+          style={{
+            fontSize: 9,
+            background: 'var(--brand-500)',
+            color: 'white',
+            padding: '1px 4px',
+            borderRadius: 3,
+            fontWeight: 700,
+            letterSpacing: '.05em',
+            verticalAlign: 'baseline',
+          }}
+        >✏️</span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * EditModeToggle — ปุ่ม toggle ที่ใช้ใส่ในหัวหน้า
+ *   <EditModeToggle value={editMode} onChange={setEditMode} />
+ */
+function EditModeToggle({ value, onChange, label = 'โหมดแก้ไข' }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!value)}
+      title={value ? 'ปิดโหมดแก้ไข (กลับไปดูปกติ)' : 'เปิดโหมดแก้ไข (คีย์เลขเองทับค่าระบบ)'}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6,
+        padding: '6px 14px',
+        borderRadius: 18,
+        border: `1.5px solid ${value ? 'var(--brand-500)' : 'var(--ink-200)'}`,
+        background: value ? 'var(--brand-500)' : 'white',
+        color: value ? 'white' : 'var(--ink-700)',
+        cursor: 'pointer',
+        fontSize: 12.5,
+        fontWeight: 600,
+        transition: 'all .15s',
+      }}
+    >
+      <span style={{ fontSize: 13 }}>✏️</span>
+      {value ? `${label} ON` : label}
+    </button>
+  );
+}
+
 // ─── Export to globals ───────────────────────────────────────────────────────
 Object.assign(window, {
   fmtNum, fmtInt, fmtMoney, fmtDate, fmtDateLong,
@@ -552,4 +706,5 @@ Object.assign(window, {
   useSortable, SortHeader, StatusPill,
   exportRowsToExcel, ExportButton, PrintButton,
   ColFilterDropdown, FilterableColHeader,
+  WTPOverride, EditableNumber, EditModeToggle, useOverrideSub,
 });

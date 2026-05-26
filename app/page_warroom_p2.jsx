@@ -2,10 +2,11 @@
 // Matches "Present War room - 18052026 การเงินด้านรับ" PDF page 2.
 // Globals: React, KpiTile, AnimatedNumber, Badge, Icon, StackedBars, fmtNum, fmtMoney, fmtDate, KpiCallout, SectionCard, BigCallout
 
-const { useMemo: wr2Memo } = React;
+const { useMemo: wr2Memo, useState: wr2State } = React;
 
 function WarRoomPage2({ data, setData, toast }) {
   const { monthlyForecast, warroomP2, meta } = data;
+  const [editMode, setEditMode] = wr2State(false);  // โหมดคีย์เลขมือ
 
   // ── Live: โครงการรอลงนาม (Start ว่าง = ยังไม่ลงนาม) ─────────────────────
   // คำนวณตรงจาก data.projects แทน warroomP2.unsignedTotal (pre-computed) เพื่อให้
@@ -81,10 +82,21 @@ function WarRoomPage2({ data, setData, toast }) {
           <div className="page-sub">ประมาณการรับเงินจากโครงการทั้งหมด · ทั้งปี {meta.year} · ข้อมูล ณ {fmtDate(meta.asOf)}</div>
         </div>
         <div className="page-head-r">
+          <EditModeToggle value={editMode} onChange={setEditMode} />
           <a className="btn btn-ghost" href="#warroom1"><Icon name="arrow" size={14} style={{ transform: 'rotate(180deg)' }} /> ย้อนกลับ · หน้า 1</a>
           <PrintButton label="พิมพ์ / PDF" />
         </div>
       </div>
+
+      {editMode && (
+        <div style={{ marginBottom: 12, padding: '8px 14px', borderRadius: 10, background: 'color-mix(in oklch, var(--brand-500) 8%, transparent)', border: '1.5px solid color-mix(in oklch, var(--brand-500) 30%, transparent)', fontSize: 12, color: 'var(--brand-700)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontWeight: 700 }}>📝 โหมดแก้ไข — คลิกในช่องตัวเลขเพื่อกรอกค่า (Tab/Enter เพื่อบันทึก, ✕ เพื่อล้าง)</span>
+          <button type="button" onClick={() => { if (confirm('ล้างค่าที่กรอกมือทั้งหมดในหน้านี้?')) WTPOverride.clearAll(); }}
+            style={{ marginLeft: 'auto', padding: '3px 10px', fontSize: 11, borderRadius: 5, border: '1px solid var(--bad)', background: 'transparent', color: 'var(--bad)', cursor: 'pointer' }}>
+            ล้างทั้งหมด
+          </button>
+        </div>
+      )}
 
       {/* Headline KPI — มูลค่าโครงการที่คาดว่าจะได้รับทั้งหมด */}
       <div className="hero-pill anim-in" style={{ marginBottom: 18 }}>
@@ -92,14 +104,14 @@ function WarRoomPage2({ data, setData, toast }) {
           <div>
             <div style={{ fontSize: 13, opacity: 0.85, fontWeight: 500 }}>มูลค่าโครงการที่คาดว่าจะได้รับทั้งหมด</div>
             <div style={{ fontSize: 44, fontWeight: 800, marginTop: 4, letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
-              <AnimatedNumber value={warroomP2.totalProjectValue} digits={2} /> <span style={{ fontSize: 18, opacity: 0.8, fontWeight: 500 }}>บาท</span>
+              <EditableNumber ovKey="wr2.heroTotal" computed={warroomP2.totalProjectValue} editMode={editMode} digits={2} /> <span style={{ fontSize: 18, opacity: 0.8, fontWeight: 500 }}>บาท</span>
             </div>
             <div style={{ fontSize: 12, opacity: 0.85, marginTop: 6 }}>Total project value forecast · ปี {meta.year}</div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, auto)', gap: 24, fontSize: 12 }}>
-            <HeroStat label="ใบแจ้งหนี้คงค้าง" value={warroomP2.invoiceForwardTotal} />
-            <HeroStat label="งานระหว่างก่อสร้าง" value={warroomP2.wipValue} />
-            <HeroStat label="ใบจัดสรร · รอลงนาม" value={liveUnsigned.value} count={liveUnsigned.count} />
+            <HeroStatEditable ovKey="wr2.heroInvForward" label="ใบแจ้งหนี้คงค้าง" computed={warroomP2.invoiceForwardTotal} editMode={editMode} />
+            <HeroStatEditable ovKey="wr2.heroWip"        label="งานระหว่างก่อสร้าง" computed={warroomP2.wipValue}             editMode={editMode} />
+            <HeroStatEditable ovKey="wr2.heroUnsigned"   label="ใบจัดสรร · รอลงนาม"  computed={liveUnsigned.value} count={liveUnsigned.count} editMode={editMode} countKey="wr2.heroUnsignedCount" />
           </div>
         </div>
       </div>
@@ -120,20 +132,19 @@ function WarRoomPage2({ data, setData, toast }) {
             <div style={{ fontSize: 12, color: 'var(--ink-500)', marginTop: 2 }}>ได้รับใบจัดสรรแล้ว · ยังไม่ลงนาม (Start ว่าง)</div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginTop: 14 }}>
               <div style={{ fontSize: 32, fontWeight: 800, color: 'var(--ink-900)', fontVariantNumeric: 'tabular-nums', letterSpacing: '-.01em' }}>
-                <AnimatedNumber value={liveUnsigned.value} digits={2} />
+                <EditableNumber ovKey="wr2.s11Value" computed={liveUnsigned.value} editMode={editMode} digits={2} />
               </div>
               <div style={{ fontSize: 14, color: 'var(--ink-500)' }}>บาท</div>
             </div>
             <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <Badge kind="b-amber" dot>{liveUnsigned.count} โครงการ</Badge>
+              <Badge kind="b-amber" dot>
+                <EditableNumber ovKey="wr2.s11Count" computed={liveUnsigned.count} editMode={editMode} digits={0} /> โครงการ
+              </Badge>
               {liveTotalProjectValue > 0 && (
                 <span style={{ fontSize: 11.5, color: 'var(--ink-500)' }}>
-                  {((liveUnsigned.value / liveTotalProjectValue) * 100).toFixed(1)}% ของมูลค่าทั้งหมด
+                  {((WTPOverride.resolve('wr2.s11Value', liveUnsigned.value) / liveTotalProjectValue) * 100).toFixed(1)}% ของมูลค่าทั้งหมด
                 </span>
               )}
-              <span style={{ fontSize: 10.5, color: 'var(--brand-600)', fontStyle: 'italic' }}>
-                คำนวณตรงจากหน้า โครงการทั้งหมด
-              </span>
             </div>
           </div>
         </div>
@@ -147,7 +158,7 @@ function WarRoomPage2({ data, setData, toast }) {
             <div style={{ fontSize: 12, color: 'var(--ink-500)', marginTop: 2 }}>รวมใบแจ้งหนี้ยกมา + ลงนามแล้ว (รอส่งงาน)</div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginTop: 14 }}>
               <div style={{ fontSize: 32, fontWeight: 800, color: 'var(--brand-700)', fontVariantNumeric: 'tabular-nums', letterSpacing: '-.01em' }}>
-                <AnimatedNumber value={warroomP2.signedTotal.value} digits={2} />
+                <EditableNumber ovKey="wr2.s12Value" computed={warroomP2.signedTotal.value} editMode={editMode} digits={2} />
               </div>
               <div style={{ fontSize: 14, color: 'var(--ink-500)' }}>บาท</div>
             </div>
@@ -158,15 +169,19 @@ function WarRoomPage2({ data, setData, toast }) {
                 color="oklch(60% 0.13 245)"
                 label="มูลค่าใบแจ้งหนี้ยกมา"
                 sub="ออก IV แล้ว · รอติดตามรับเงิน"
-                value={warroomP2.invoiceForwardTotal}
-                total={warroomP2.signedTotal.value}
+                value={WTPOverride.resolve('wr2.s12Inv', warroomP2.invoiceForwardTotal)}
+                total={WTPOverride.resolve('wr2.s12Value', warroomP2.signedTotal.value)}
+                editMode={editMode}
+                ovKey="wr2.s12Inv"
               />
               <SignedBreakdownRow
                 color="oklch(55% 0.16 215)"
                 label="มูลค่างานระหว่างก่อสร้าง"
                 sub="ลงนามแล้ว · ยังไม่ส่งมอบ · ยังไม่ออก IV"
-                value={warroomP2.wipValue}
-                total={warroomP2.signedTotal.value}
+                value={WTPOverride.resolve('wr2.s12Wip', warroomP2.wipValue)}
+                total={WTPOverride.resolve('wr2.s12Value', warroomP2.signedTotal.value)}
+                editMode={editMode}
+                ovKey="wr2.s12Wip"
               />
             </div>
 
@@ -265,6 +280,38 @@ function HeroStat({ label, value, count }) {
   );
 }
 
+// Editable variant — รับ ovKey เพื่อให้แก้ค่าได้ด้วย EditableNumber
+function HeroStatEditable({ ovKey, label, computed, count, countKey, editMode }) {
+  // ตอน editMode = แสดง input ของยอด (เป็นบาทเต็ม) แทน ลบ.
+  // ตอน view = แสดง "X.XX ลบ." ตามเดิม + badge ✏️ ถ้า override
+  const overridden = WTPOverride.has(ovKey);
+  useOverrideSub(ovKey);
+  useOverrideSub(countKey || '_');
+  const value = WTPOverride.resolve(ovKey, computed);
+  return (
+    <div style={{ textAlign: 'right' }}>
+      <div style={{ fontSize: 11, opacity: 0.8, textTransform: 'uppercase', letterSpacing: '.06em' }}>{label}</div>
+      <div style={{ fontSize: 20, fontWeight: 700, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
+        {editMode ? (
+          <EditableNumber ovKey={ovKey} computed={computed} editMode={true} digits={0} />
+        ) : (
+          <>
+            {(value / 1_000_000).toFixed(2)} <span style={{ fontSize: 12, opacity: 0.85, fontWeight: 500 }}>ลบ.</span>
+            {overridden && <span title="แก้มือ" style={{ fontSize: 9, marginLeft: 4, opacity: 0.85 }}>✏️</span>}
+          </>
+        )}
+      </div>
+      {(count != null || countKey) && (
+        <div style={{ fontSize: 11, opacity: 0.85, marginTop: 2 }}>
+          {countKey ? (
+            <EditableNumber ovKey={countKey} computed={count || 0} editMode={editMode} digits={0} />
+          ) : count} โครงการ
+        </div>
+      )}
+    </div>
+  );
+}
+
 function LegendDot({ color, label }) {
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -286,8 +333,8 @@ function SmallStat({ label, value, accent }) {
   );
 }
 
-function SignedBreakdownRow({ color, label, sub, value, total }) {
-  const pct = (value / total) * 100;
+function SignedBreakdownRow({ color, label, sub, value, total, editMode, ovKey }) {
+  const pct = total > 0 ? (value / total) * 100 : 0;
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 5 }}>
@@ -299,7 +346,11 @@ function SignedBreakdownRow({ color, label, sub, value, total }) {
           </div>
         </div>
         <div style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink-900)' }}>{fmtNum(value, 2)}</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink-900)' }}>
+            {ovKey ? (
+              <EditableNumber ovKey={ovKey} computed={value} editMode={editMode} digits={2} />
+            ) : fmtNum(value, 2)}
+          </div>
           <div style={{ fontSize: 10.5, color: 'var(--ink-500)' }}>{pct.toFixed(1)}%</div>
         </div>
       </div>

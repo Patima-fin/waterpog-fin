@@ -203,9 +203,13 @@ function CashFlowDashboard({ data, setData, toast }) {
   const today = new Date();
   const [year, setYear]   = cfState(today.getFullYear());
   const [month, setMonth] = cfState(today.getMonth() + 1);
+  const [editMode, setEditMode] = cfState(false);  // Manual override mode
 
   // Drill-down popup: { title, rows, kind } where kind ∈ {iv, loan, ap, fe, mixed}
   const [drillDown, setDrillDown] = cfState(null);
+
+  // Override key prefix per month — ค่าที่กรอกจะแยกตามเดือนที่ดู
+  const ovPrefix = `cf.${year}.${String(month).padStart(2, '0')}`;
 
   // ── Month weeks (Monday-based) ────────────────────────────────────────
   const weeks = cfMemo(() => getMonthWeeksMonday(year, month), [year, month]);
@@ -646,9 +650,21 @@ function CashFlowDashboard({ data, setData, toast }) {
             {monthNames[month - 1]} {year + 543}
           </div>
           <button className="btn btn-ghost" onClick={goNextMonth} title="เดือนถัดไป">›</button>
+          <EditModeToggle value={editMode} onChange={setEditMode} />
           <PrintButton label="พิมพ์ / PDF" />
         </div>
       </div>
+
+      {editMode && (
+        <div style={{ marginBottom: 12, padding: '8px 14px', borderRadius: 10, background: 'color-mix(in oklch, var(--brand-500) 8%, transparent)', border: '1.5px solid color-mix(in oklch, var(--brand-500) 30%, transparent)', fontSize: 12, color: 'var(--brand-700)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontWeight: 700 }}>📝 โหมดแก้ไข — คลิกในช่องตัวเลขเพื่อกรอกค่า (Tab/Enter บันทึก · ✕ ล้าง)</span>
+          <span style={{ fontSize: 11, color: 'var(--ink-500)' }}>ค่าที่กรอกแยกตามเดือน — เปลี่ยนเดือนแล้วเริ่มใหม่</span>
+          <button type="button" onClick={() => { if (confirm('ล้างค่าที่กรอกมือทั้งหมดใน app (ทุกหน้า)?')) WTPOverride.clearAll(); }}
+            style={{ marginLeft: 'auto', padding: '3px 10px', fontSize: 11, borderRadius: 5, border: '1px solid var(--bad)', background: 'transparent', color: 'var(--bad)', cursor: 'pointer' }}>
+            ล้างทั้งหมด
+          </button>
+        </div>
+      )}
 
       {/* ═════ SECTION A — Hero balance cards + PlanVsActual KPIs ═════════ */}
       {/* Hero strip — 2 big gradient cards (B/F net-of-HOLD + Strategic Management) */}
@@ -657,6 +673,8 @@ function CashFlowDashboard({ data, setData, toast }) {
           tone="bf"
           label="เงินสดคงเหลือยกมา (B/F)"
           value={monthBFAvailable}
+          editMode={editMode}
+          ovKey={`${ovPrefix}.bf`}
           hint={
             liveHold > 0
               ? `ต้นเดือน · ${monthNames[month - 1]} ${year + 543} · หัก HOLD ${fmtNum(liveHold, 0)} แล้ว`
@@ -668,6 +686,8 @@ function CashFlowDashboard({ data, setData, toast }) {
           tone={strategicNet < 0 ? 'bad' : 'good'}
           label="Strategic Management — คาดการณ์สิ้นเดือน"
           value={strategicNet}
+          editMode={editMode}
+          ovKey={`${ovPrefix}.strategic`}
           hint={
             strategicNet < 0
               ? `⚠️ ติดลบ — ต้องการเงินกู้/รายรับเพิ่ม · ใช้ได้ปัจจุบัน ${fmtNum(liveAvailable, 0)} ฿`
@@ -685,6 +705,8 @@ function CashFlowDashboard({ data, setData, toast }) {
           label="รับเงินโครงการ (IV)"
           plan={ivForecast}
           actual={ivActual}
+          editMode={editMode}
+          ovKey={`${ovPrefix}.iv`}
           hint={`คาดรับ ${fmtNum(ivForecast, 0)} · รับจริง ${fmtNum(ivActual, 0)}`}
         />
         <PlanVsActualCard
@@ -693,6 +715,8 @@ function CashFlowDashboard({ data, setData, toast }) {
           label="เงินกู้/สินเชื่อหมุนเวียน"
           plan={loanForecast}
           actual={loanActual}
+          editMode={editMode}
+          ovKey={`${ovPrefix}.loan`}
           hint={loanForecast === 0 ? 'ยังไม่มีประมาณการเงินกู้เดือนนี้' : `เบิกแล้ว ${loanForecast > 0 ? ((loanActual / loanForecast) * 100).toFixed(1) : 0}%`}
         />
         <PlanVsActualCard
@@ -701,6 +725,8 @@ function CashFlowDashboard({ data, setData, toast }) {
           label="ค่าใช้จ่ายรวม (4 หมวด)"
           plan={outflowForecast}
           actual={outflowActual}
+          editMode={editMode}
+          ovKey={`${ovPrefix}.outflow`}
           hint="รวม ดำเนินงาน / โครงการ / การเงิน / เบ็ดเตล็ด+เงินเดือน"
         />
       </div>
@@ -1033,13 +1059,15 @@ function SectionTitle({ num, title, subtitle }) {
   );
 }
 
-function BalanceCard({ tone, label, value, hint, icon }) {
+function BalanceCard({ tone, label, value, hint, icon, editMode, ovKey }) {
   const tones = {
     bf:   { bg: 'linear-gradient(135deg, var(--brand-500), var(--brand-700))', text: 'white' },
     good: { bg: 'linear-gradient(135deg, oklch(65% 0.16 152), oklch(50% 0.16 152))', text: 'white' },
     bad:  { bg: 'linear-gradient(135deg, oklch(65% 0.18 22), oklch(50% 0.18 22))',   text: 'white' },
   };
   const t = tones[tone] || tones.bf;
+  const displayValue = ovKey ? WTPOverride.resolve(ovKey, value) : value;
+  useOverrideSub(ovKey || '_');
   return (
     <div className="card" style={{ background: t.bg, color: t.text, borderColor: 'transparent', padding: 22, position: 'relative', overflow: 'hidden' }}>
       <div style={{ position: 'absolute', right: -40, top: -40, width: 160, height: 160, borderRadius: '50%', background: 'rgba(255,255,255,0.1)' }} />
@@ -1048,7 +1076,14 @@ function BalanceCard({ tone, label, value, hint, icon }) {
           {icon && <Icon name={icon} size={14} />} {label}
         </div>
         <div style={{ fontSize: 36, fontWeight: 800, fontVariantNumeric: 'tabular-nums', marginTop: 6, letterSpacing: '-.02em' }}>
-          {value < 0 ? '(' : ''}{fmtNum(Math.abs(value), 0)}{value < 0 ? ')' : ''}
+          {editMode && ovKey ? (
+            <EditableNumber ovKey={ovKey} computed={value} editMode={true} digits={0} />
+          ) : (
+            <>
+              {displayValue < 0 ? '(' : ''}{fmtNum(Math.abs(displayValue), 0)}{displayValue < 0 ? ')' : ''}
+              {ovKey && WTPOverride.has(ovKey) && <span title="แก้มือ" style={{ fontSize: 13, marginLeft: 8, opacity: 0.9 }}>✏️</span>}
+            </>
+          )}
         </div>
         {hint && <div style={{ fontSize: 12, opacity: 0.85, marginTop: 4 }}>{hint}</div>}
       </div>
@@ -1056,9 +1091,15 @@ function BalanceCard({ tone, label, value, hint, icon }) {
   );
 }
 
-function PlanVsActualCard({ tone, icon, label, plan, actual, hint }) {
-  const pct = plan > 0 ? Math.max(0, Math.min(150, (actual / plan) * 100)) : 0;
-  const gap = actual - plan;
+function PlanVsActualCard({ tone, icon, label, plan, actual, hint, editMode, ovKey }) {
+  const planK   = ovKey ? `${ovKey}.plan`   : null;
+  const actualK = ovKey ? `${ovKey}.actual` : null;
+  useOverrideSub(planK || '_');
+  useOverrideSub(actualK || '_');
+  const planV   = planK   ? WTPOverride.resolve(planK,   plan)   : plan;
+  const actualV = actualK ? WTPOverride.resolve(actualK, actual) : actual;
+  const pct = planV > 0 ? Math.max(0, Math.min(150, (actualV / planV) * 100)) : 0;
+  const gap = actualV - planV;
   const tones = {
     good: { accent: 'var(--good)', bg: 'var(--good-bg)' },
     bad:  { accent: 'var(--bad)',  bg: 'var(--bad-bg)' },
@@ -1078,13 +1119,13 @@ function PlanVsActualCard({ tone, icon, label, plan, actual, hint }) {
         <div>
           <div style={{ fontSize: 11, color: 'var(--ink-500)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>Plan</div>
           <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--ink-700)', fontVariantNumeric: 'tabular-nums' }}>
-            {fmtNum(plan, 0)}
+            {planK ? <EditableNumber ovKey={planK} computed={plan} editMode={editMode} digits={0} /> : fmtNum(planV, 0)}
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontSize: 11, color: 'var(--ink-500)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>Actual</div>
           <div style={{ fontSize: 18, fontWeight: 700, color: t.accent, fontVariantNumeric: 'tabular-nums' }}>
-            {fmtNum(actual, 0)}
+            {actualK ? <EditableNumber ovKey={actualK} computed={actual} editMode={editMode} digits={0} /> : fmtNum(actualV, 0)}
           </div>
         </div>
       </div>
