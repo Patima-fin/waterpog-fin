@@ -74,9 +74,19 @@ function StackedBars({ data, height = 280, colors, formatY, maxY }) {
   const innerW = W - padL - padR;
   const innerH = height - padT - padB;
 
-  const computedMax = maxY ?? Math.max(...data.map(d => d.segments.reduce((s,x)=>s+x.value,0)));
-  const niceMax = Math.ceil(computedMax / 10_000_000) * 10_000_000;
-  const yScale = (v) => innerH - (v / niceMax) * innerH;
+  // Safe number helper — coerce NaN/undefined/null to 0 เพื่อกัน SVG attribute NaN
+  const num = (v) => { const n = Number(v); return isFinite(n) ? n : 0; };
+  // Empty-data guard: ถ้าไม่มีแถวเลย ให้ render placeholder text ไม่ใช่ NaN attribute
+  if (!Array.isArray(data) || data.length === 0) {
+    return <svg viewBox={`0 0 ${W} ${height}`} width="100%" height={height} style={{ display: 'block' }}>
+      <text x={W/2} y={height/2} fontSize="12" fill="var(--ink-400)" textAnchor="middle">ไม่มีข้อมูล</text>
+    </svg>;
+  }
+
+  const computedMax = maxY ?? Math.max(0, ...data.map(d => (d.segments || []).reduce((s,x)=>s+num(x.value),0)));
+  const safeMax = computedMax > 0 ? computedMax : 1; // กัน divide-by-zero
+  const niceMax = Math.max(1, Math.ceil(safeMax / 10_000_000) * 10_000_000);
+  const yScale = (v) => innerH - (num(v) / niceMax) * innerH;
   const colW = innerW / data.length;
   const barW = Math.min(48, colW * 0.55);
 
@@ -113,8 +123,8 @@ function StackedBars({ data, height = 280, colors, formatY, maxY }) {
         let acc = 0;
         return (
           <g key={i}>
-            {d.segments.map((s, si) => {
-              const v = Math.max(0, s.value) * t;
+            {(d.segments || []).map((s, si) => {
+              const v = Math.max(0, num(s.value)) * t;
               if (v <= 0) return null;
               const h = (v / niceMax) * innerH;
               const y0 = innerH - acc - h;
@@ -131,9 +141,9 @@ function StackedBars({ data, height = 280, colors, formatY, maxY }) {
               );
             })}
             <text x={x + barW / 2} y={padT + innerH + 16} fontSize="11" fill="var(--ink-700)" textAnchor="middle">{d.label}</text>
-            {d.net != null && (
+            {d.net != null && isFinite(num(d.net)) && (
               <text x={x + barW / 2} y={padT + innerH - acc - 6} fontSize="10" fontWeight="700" fill="var(--ink-900)" textAnchor="middle" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                {(d.net / 1_000_000).toFixed(1)}M
+                {(num(d.net) / 1_000_000).toFixed(1)}M
               </text>
             )}
           </g>
