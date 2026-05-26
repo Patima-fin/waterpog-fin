@@ -117,6 +117,41 @@ function App() {
     return () => { unsub(); window.removeEventListener('wtpSyncStatus', onStatus); };
   }, []);
 
+  // ── Global auto-backfill: paid IV ที่ยังไม่มี receipt → สร้างให้ ─────────
+  // ย้ายมาจาก InvoicesPage เพื่อให้ทำงาน regardless ของหน้าที่ user เปิดอยู่
+  // (Warroom/Daily ก็จะเห็น receipt ที่ backfill ทันที)
+  // Run on every data.invoices change (idempotent — ถ้าไม่มี missing → return wn)
+  aEffect(() => {
+    if (!data || !data.invoices || !data.invoices.length) return;
+    if (!WTPData.ensureReceiptForPaidInvoice) return;
+    let receipts = [...(data.receipts || [])];
+    const existingIvNos = new Set(receipts.map(r => r.invoiceNo).filter(Boolean));
+    let added = 0;
+    data.invoices.forEach(iv => {
+      if (iv.status !== 'paid') return;
+      if (!iv.actualReceive || !iv.actualReceive.date) return;
+      if (!iv.ivNo) return;
+      if (existingIvNos.has(iv.ivNo)) return;
+      const before = receipts.length;
+      receipts = WTPData.ensureReceiptForPaidInvoice(receipts, iv);
+      if (receipts.length > before) {
+        added++;
+        existingIvNos.add(iv.ivNo);
+      }
+    });
+    if (added > 0) {
+      let updatedData;
+      setData(d => {
+        updatedData = { ...d, receipts };
+        return updatedData;
+      });
+      if (updatedData && WTPData.forceSyncNow) {
+        setTimeout(() => WTPData.forceSyncNow(updatedData), 0);
+      }
+      console.info('[WTP] auto-created ' + added + ' receipt(s) for paid IVs missing receipts');
+    }
+  }, [data.invoices]);
+
   aEffect(() => {
     const onHash = () => setRoute(window.location.hash.replace(/^#/, '') || 'daily');
     window.addEventListener('hashchange', onHash);

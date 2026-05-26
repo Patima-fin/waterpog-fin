@@ -303,41 +303,8 @@ function InvoicesPage({ data, setData, toast }) {
     }
   }, [data.invoices]);
 
-  // ── Auto-sync: paid IV ที่ยังไม่มี receipt → สร้างให้ ─────────────────
-  // กรณี user เปลี่ยน IV เป็น paid ก่อน feature นี้ deploy → ไม่มี receipt
-  // ทำให้ Warroom Section 01 count ขาด. scan ทุกครั้งที่ invoices เปลี่ยน
-  // ตรวจหา paid IV ที่ ivNo ไม่อยู่ใน receipts → ใช้ ensureReceiptForPaidInvoice
-  // สร้างให้แล้ว push ขึ้น sheet
-  ivEffect(() => {
-    if (!data.invoices || !data.invoices.length) return;
-    if (!WTPData.ensureReceiptForPaidInvoice) return;
-    let receipts = [...(data.receipts || [])];
-    const existingIvNos = new Set(receipts.map(r => r.invoiceNo).filter(Boolean));
-    let added = 0;
-    data.invoices.forEach(iv => {
-      if (iv.status !== 'paid') return;
-      if (!iv.actualReceive || !iv.actualReceive.date) return;
-      if (!iv.ivNo) return;
-      if (existingIvNos.has(iv.ivNo)) return;
-      const before = receipts.length;
-      receipts = WTPData.ensureReceiptForPaidInvoice(receipts, iv);
-      if (receipts.length > before) {
-        added++;
-        existingIvNos.add(iv.ivNo);
-      }
-    });
-    if (added > 0) {
-      let updatedData;
-      setData(d => {
-        updatedData = { ...d, receipts };
-        return updatedData;
-      });
-      if (updatedData && WTPData.forceSyncNow) {
-        setTimeout(() => WTPData.forceSyncNow(updatedData), 0);
-      }
-      console.info('[WTP] auto-created ' + added + ' receipt(s) for paid IVs without receipts');
-    }
-  }, [data.invoices]);
+  // (auto-backfill paid IV → receipt ถูกย้ายไปใน app.jsx เพื่อให้ทำงาน
+  //  regardless ของหน้าที่ user เปิดอยู่ — Warroom/Daily ก็เห็น backfill)
 
   // Joined rows: invoice + project name + finance (assignee, debt)
   const VALID_STATUS = new Set(['pending_inspection', 'tracking', 'issue', 'paid']);
