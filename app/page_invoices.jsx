@@ -351,7 +351,9 @@ function InvoicesPage({ data, setData, toast }) {
       assigneeIsOverride,
       debt,
       debtIsOverride,
-      netExpected: balance - debt,
+      // คาดรับสุทธิ = balance หลังหัก WHT 1% (balance × 106/107) − ภาระหนี้
+      // ใช้สูตรเดียวกับ popup detail (line ~1306) เพื่อให้ตรงกันทั้งระบบ
+      netExpected: balance * 106 / 107 - debt,
     };
   }), [data.invoices, projectByCode, financeByCode]);
 
@@ -2284,7 +2286,8 @@ function IvReportStandalonePage({ data, setData, toast }) {
       projectName,
       assignee,
       debt,
-      netExpected: balance - debt,
+      // คาดรับสุทธิ = balance หลังหัก WHT 1% (balance × 106/107) − ภาระหนี้
+      netExpected: balance * 106 / 107 - debt,
     };
   }), [data.invoices, projectByCode, financeByCode]);
 

@@ -133,7 +133,8 @@ function DailyRevenueDashboard({ data, setData, toast }) {
         projectName: p['พื้นที่'] || p.name || iv.projectName || '—',
         assignee,
         debt,
-        netExpected: balance - debt,
+        // คาดรับสุทธิ = balance หลังหัก WHT 1% (balance × 106/107) − ภาระหนี้
+        netExpected: balance * 106 / 107 - debt,
       }];
     }),
     [invoices, financeByCode, projectByCode, ivTypeFilter]

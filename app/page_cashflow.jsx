@@ -137,11 +137,22 @@ const CATEGORY_LABELS_SHORT = {
 };
 
 // ─── Inflow helpers ────────────────────────────────────────────────────────
+// "คาดรับสุทธิ" = ยอดที่คาดว่าจะรับเข้ามาจริง หลังหัก WHT และภาระหนี้
+//
+// แหล่งข้อมูล (เรียงตามความน่าเชื่อถือ):
+//   1) iv.netExpected — pre-computed ที่หน้าใบแจ้งหนี้ (single source of truth)
+//   2) balance × 0.99 (หัก WHT 1%) - debt — fallback ถ้าไม่มี netExpected
+//
+// Note: ไม่ใส่ Math.max(0, ...) แล้ว เพราะถ้า debt > balance (ภาระหนี้สูงกว่ายอดค้าง)
+//   ควรเห็นยอดติดลบเพื่อรู้ว่าใบนี้รับไม่คุ้ม
 function ivNetExpected(iv) {
-  // Net = balance × 0.99 (WHT 1%) - debt (ภาระหนี้)
+  if (iv.netExpected != null && iv.netExpected !== '') {
+    return Number(iv.netExpected) || 0;
+  }
+  // Fallback: คำนวณเอง
   const bal = Number(iv.balance) || 0;
   const debt = Number(iv.debt) || 0;
-  return Math.max(0, bal * 0.99 - debt);
+  return bal * 0.99 - debt;
 }
 function ivIsPaid(iv) {
   const s = String(iv.status || '').toLowerCase();
