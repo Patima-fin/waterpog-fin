@@ -256,6 +256,16 @@ button { font: inherit; color: inherit; }
 .kpi-spark { position: absolute; right: 0; bottom: 0; opacity: 0.6; pointer-events: none; }
 .kpi-accent { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
 
+/* ---------------------------------- Daily pill horizontal layout (screen + print) ---------------------------------- */
+/* บังคับ value right-align ตามหลักบัญชี — digits ตรงกันทุก pill */
+.dpc-horizontal .dpc-value {
+  text-align: right !important;
+  font-variant-numeric: tabular-nums !important;
+}
+.dpc-horizontal .dpc-count {
+  justify-content: flex-end !important;
+}
+
 /* ---------------------------------- Hero pill (Daily revenue style) ---------------------------------- */
 .hero-pill {
   border-radius: 28px; padding: 22px 28px;
