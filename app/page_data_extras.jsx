@@ -826,6 +826,7 @@ function GenericViewModal({ row, onClose, fields, title, onDelete, onEdit }) {
 
 function ForecastEntriesPage({ data, setData, toast }) {
   // Build Bank_AC options from active bank accounts (skip closed/dormant)
+  // Supports both legacy seed schema (accountNo/bankName) and v2 sync schema (Bank_AC/BANK_NAME)
   const bankOptions = dxMemo(() => {
     const accounts = (data.bankAccounts || [])
       .filter(b => {
@@ -833,7 +834,7 @@ function ForecastEntriesPage({ data, setData, toast }) {
         return t !== 'closed' && t !== 'dormant';   // active accounts only
       })
       .map(b => {
-        const ac   = b.Bank_AC || b.bankAc || b.bank_ac || '';
+        const ac   = b.Bank_AC || b.bankAc || b.bank_ac || b.accountNo || b.account_no || '';
         const name = b.BANK_NAME || b.bankName || b.bank_name || '';
         return {
           value: ac,
