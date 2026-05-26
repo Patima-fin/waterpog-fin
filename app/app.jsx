@@ -100,13 +100,62 @@ function App() {
   const [syncInfo, setSyncInfo] = aState(() => WTPData.getSyncStatus ? WTPData.getSyncStatus() : { status: 'offline', time: null });
 
   // Persist data on change + expose globally for debugging in DevTools console
+  // + expose setData for WTPOverride (cloud-shared manual overrides)
   aEffect(() => {
     WTPData.save(data);
     window.__wtpData = data;
+    window.__wtpSetData = setData;
     if (WTPData.buildLookups) {
       try { window.__wtpLookups = WTPData.buildLookups(data); } catch (_) {}
     }
   }, [data]);
+
+  // Fire wtp-override-change เฉพาะเมื่อ data.manualOverrides เปลี่ยน
+  // → EditableNumber/useOverrideSub re-render เมื่อ cloud sync ดึงค่าใหม่จาก user อื่น
+  aEffect(() => {
+    window.dispatchEvent(new CustomEvent('wtp-override-change', { detail: { key: '*' } }));
+  }, [data.manualOverrides]);
+
+  // ── One-time migration: ดัน localStorage overrides ขึ้น cloud (รอบเดียวต่อ user)
+  // ทุก user ที่เคยกรอกค่ามือไว้ใน localStorage จะถูก push ขึ้น Sheet อัตโนมัติ
+  // เพื่อให้คนอื่น (ผู้บริหาร) มองเห็นค่าเดียวกัน
+  const migratedRef = React.useRef(false);
+  aEffect(() => {
+    if (migratedRef.current) return;
+    // รอจน manualOverrides โหลดจาก server เสร็จ (จะเป็น array แม้ว่าง)
+    if (!Array.isArray(data.manualOverrides)) return;
+    if (localStorage.getItem('wtp-override-migrated-v1') === '1') {
+      migratedRef.current = true;
+      return;
+    }
+    try {
+      const local = JSON.parse(localStorage.getItem('wtp-manual-overrides') || '{}');
+      const localKeys = Object.keys(local);
+      if (localKeys.length === 0) {
+        localStorage.setItem('wtp-override-migrated-v1', '1');
+        migratedRef.current = true;
+        return;
+      }
+      const existingKeys = new Set(data.manualOverrides.map(r => r && r.key).filter(Boolean));
+      const toAdd = localKeys.filter(k => !existingKeys.has(k));
+      if (toAdd.length === 0) {
+        localStorage.setItem('wtp-override-migrated-v1', '1');
+        migratedRef.current = true;
+        return;
+      }
+      let updatedBy = '';
+      try { updatedBy = (JSON.parse(localStorage.getItem('wtp-session') || 'null') || {}).username || ''; } catch (_) {}
+      const updatedAt = new Date().toISOString();
+      const newRows = toAdd.map(key => ({
+        id: `ov_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}_${key.slice(0, 8)}`,
+        key, value: Number(local[key]), updatedBy, updatedAt,
+      }));
+      setData(d => ({ ...d, manualOverrides: [...(d.manualOverrides || []), ...newRows] }));
+      localStorage.setItem('wtp-override-migrated-v1', '1');
+      migratedRef.current = true;
+      pushToast && pushToast(`อัปโหลดค่า manual override ${newRows.length} รายการขึ้นระบบกลาง — ผู้ใช้คนอื่นจะเห็นแล้ว`);
+    } catch (_) { /* non-fatal */ }
+  }, [data.manualOverrides]);
 
   // Subscribe to server data updates (from data_sync.js)
   aEffect(() => {

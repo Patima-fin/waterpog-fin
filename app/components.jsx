@@ -585,30 +585,80 @@ function StatusPill({ value, options, onChange, size = 'md' }) {
   );
 }
 
-// ─── Manual Override System ──────────────────────────────────────────────────
-// คีย์เลขมือทับค่าที่ระบบคำนวณ — เก็บใน localStorage (ไม่ sync ไป Apps Script)
-// ใช้ใน Warroom รายปี + Cashflow รายสัปดาห์ ตอน present ก่อนผูกข้อมูลจริง
+// ─── Manual Override System (Cloud-shared) ──────────────────────────────────
+// คีย์เลขมือทับค่าที่ระบบคำนวณ — sync ผ่าน Google Sheets (มองเห็นทุก user)
+// data.manualOverrides = [{ id, key, value, updatedBy, updatedAt }, ...]
+// localStorage = cache เร็ว สำหรับ cold-start ก่อน sync เสร็จ + offline fallback
+// ใช้ใน Warroom รายปี + Cashflow รายสัปดาห์ + Daily Bank Balance
 const OVERRIDE_LS_KEY = 'wtp-manual-overrides';
 const WTPOverride = {
-  _load() { try { return JSON.parse(localStorage.getItem(OVERRIDE_LS_KEY) || '{}'); } catch (_) { return {}; } },
-  _save(all) { try { localStorage.setItem(OVERRIDE_LS_KEY, JSON.stringify(all)); } catch (_) {} },
+  // ── Local cache (instant read, offline support) ─────────────────────
+  _loadLocal() { try { return JSON.parse(localStorage.getItem(OVERRIDE_LS_KEY) || '{}'); } catch (_) { return {}; } },
+  _saveLocal(all) { try { localStorage.setItem(OVERRIDE_LS_KEY, JSON.stringify(all)); } catch (_) {} },
+
+  // ── Cloud source (data.manualOverrides — shared สำหรับทุก user) ──────
+  _loadCloud() {
+    const arr = (window.__wtpData && window.__wtpData.manualOverrides) || [];
+    const m = {};
+    arr.forEach(r => { if (r && r.key != null && r.key !== '') m[r.key] = r.value; });
+    return m;
+  },
+
+  // ── Authoritative read = cloud overlay บน local (local เป็น cache เร็ว)
+  // ถ้า cloud ยังไม่โหลด → local จะเป็น fallback
+  _load() {
+    const cloud = this._loadCloud();
+    const local = this._loadLocal();
+    return { ...local, ...cloud };
+  },
+
   get(key) { return this._load()[key]; },
   has(key) {
     const v = this._load()[key];
     return v !== undefined && v !== null && v !== '';
   },
+
   set(key, value) {
-    const all = this._load();
-    if (value === null || value === '' || value === undefined) delete all[key];
-    else all[key] = value;
-    this._save(all);
+    // 1) Update local cache เพื่อตอบสนองทันที (ไม่รอ sync)
+    const local = this._loadLocal();
+    const clearing = value === null || value === '' || value === undefined;
+    if (clearing) delete local[key]; else local[key] = value;
+    this._saveLocal(local);
+
+    // 2) Push to cloud via setData → trigger sync to Google Sheets
+    if (typeof window.__wtpSetData === 'function') {
+      let updatedBy = '';
+      try { updatedBy = (JSON.parse(localStorage.getItem('wtp-session') || 'null') || {}).username || ''; } catch (_) {}
+      const updatedAt = new Date().toISOString();
+      window.__wtpSetData(d => {
+        const arr = Array.isArray(d.manualOverrides) ? d.manualOverrides : [];
+        const idx = arr.findIndex(r => r && r.key === key);
+        let next;
+        if (clearing) {
+          next = idx >= 0 ? arr.filter((_, i) => i !== idx) : arr;
+        } else {
+          const id = idx >= 0 ? arr[idx].id : `ov_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+          const row = { id, key, value: Number(value), updatedBy, updatedAt };
+          next = arr.slice();
+          if (idx >= 0) next[idx] = row; else next.push(row);
+        }
+        return { ...d, manualOverrides: next };
+      });
+    }
+
     window.dispatchEvent(new CustomEvent('wtp-override-change', { detail: { key } }));
   },
+
   clear(key) { this.set(key, null); },
+
   clearAll() {
-    this._save({});
+    this._saveLocal({});
+    if (typeof window.__wtpSetData === 'function') {
+      window.__wtpSetData(d => ({ ...d, manualOverrides: [] }));
+    }
     window.dispatchEvent(new CustomEvent('wtp-override-change', { detail: { key: '*' } }));
   },
+
   resolve(key, computed) {
     const v = this._load()[key];
     if (v === undefined || v === null || v === '') return computed;

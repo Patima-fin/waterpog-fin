@@ -34,7 +34,7 @@
                        'debtMaster', 'bankTransfers',
                        'stsServiceFee', 'stsPendingCalc', 'stsCalcResult',
                        'debtEvents', 'users', 'cashflowSnapshots',
-                       'followUpsLog'];
+                       'followUpsLog', 'manualOverrides'];
 
   // jsonFields per entity — for proper rowsToObjects parsing during safety re-fetch
   var ENTITY_JSON_FIELDS = {
@@ -181,6 +181,7 @@
       'users',                  // user accounts (manager-only management)
       'cashflowSnapshots',      // daily bank balance snapshots
       'followUpsLog',           // flat log of all invoice follow-ups
+      'manualOverrides',        // shared manual KPI overrides (visible to all users)
     ];
 
     return Promise.all(sheetOrder.map(fetchSheet)).then(function (results) {
@@ -217,6 +218,7 @@
       var users           = rowsToObjects(results[i++]);
       var cashflowSnapshots = rowsToObjects(results[i++]);
       var followUpsLog      = rowsToObjects(results[i++]);
+      var manualOverrides   = rowsToObjects(results[i++]);
 
       var data = {
         meta: {
@@ -311,6 +313,7 @@
         users:           users,
         cashflowSnapshots: cashflowSnapshots,
         followUpsLog:      followUpsLog,
+        manualOverrides:   manualOverrides,
       };
 
       // Preserve app-only fields from localStorage that aren't yet in the Sheet

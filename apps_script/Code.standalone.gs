@@ -52,6 +52,7 @@ var SHEETS = {
   USERS:            'users',        // user accounts (id, username, password, displayName, role)
   CASHFLOW_SNAPS:   'cashflowSnapshots', // daily snapshot of each bank balance
   FOLLOWUPS_LOG:    'followUpsLog',     // flat log of every follow-up entry across all invoices
+  MANUAL_OVERRIDES: 'manualOverrides',  // shared manual overrides (Warroom/Cashflow KPIs) — visible to all users
 };
 
 /* ── 1. WEB APP ENDPOINTS ───────────────────────────────────────── */
@@ -173,6 +174,7 @@ function getAll() {
     users:                 readTable(SHEETS.USERS),
     cashflowSnapshots:     readTable(SHEETS.CASHFLOW_SNAPS),
     followUpsLog:          readTable(SHEETS.FOLLOWUPS_LOG),
+    manualOverrides:       readTable(SHEETS.MANUAL_OVERRIDES),
   };
 }
 
@@ -206,6 +208,7 @@ function getEntity(name) {
     case 'users':                 return readTable(SHEETS.USERS);
     case 'cashflowSnapshots':     return readTable(SHEETS.CASHFLOW_SNAPS);
     case 'followUpsLog':          return readTable(SHEETS.FOLLOWUPS_LOG);
+    case 'manualOverrides':       return readTable(SHEETS.MANUAL_OVERRIDES);
   }
   return { error: 'unknown entity: ' + name };
 }
@@ -227,6 +230,7 @@ var JSON_FIELDS = {
   users:           [],
   cashflowSnapshots: [],
   followUpsLog:    [],
+  manualOverrides: [],
   bankTransfers:   [],
   stsServiceFee:   [],
   stsPendingCalc:  [],
@@ -499,6 +503,12 @@ var ENTITY_HEADERS = {
     'id','invoiceId','ivNo','jobNo','projectName',
     'followUpDate','note','createdAt','createdBy'
   ],
+  // ── manualOverrides (v3 added 2026-05-26) ──────────────────────────
+  // Manual override values for computed KPIs (Warroom รายปี + Cashflow รายสัปดาห์).
+  // หนึ่ง key ต่อหนึ่งแถว — แชร์ระหว่างทุก user (เห็นเหมือนกันทั้งระบบ)
+  manualOverrides: [
+    'id','key','value','updatedBy','updatedAt'
+  ],
   bankEntries: [
     'id','entryDate','bankName','accountNo','entryType','description',
     'amount','referenceNo','transferRef','linkedProjectCode','status','note'
@@ -571,6 +581,7 @@ function _entitySheet(entity) {
     users:           SHEETS.USERS,
     cashflowSnapshots: SHEETS.CASHFLOW_SNAPS,
     followUpsLog:    SHEETS.FOLLOWUPS_LOG,
+    manualOverrides: SHEETS.MANUAL_OVERRIDES,
   };
   if (!map[entity]) throw new Error('CRUD ไม่รองรับ entity: ' + entity);
   return { name: map[entity], headers: ENTITY_HEADERS[entity] };
@@ -744,6 +755,7 @@ function ensureV2Headers() {
     users:           SHEETS.USERS,
     cashflowSnapshots: SHEETS.CASHFLOW_SNAPS,
     followUpsLog:    SHEETS.FOLLOWUPS_LOG,
+    manualOverrides: SHEETS.MANUAL_OVERRIDES,
   };
   var results = [];
   Object.keys(entityMap).forEach(function (entity) {
