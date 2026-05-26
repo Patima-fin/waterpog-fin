@@ -665,6 +665,60 @@ const WTPOverride = {
     const n = Number(v);
     return isNaN(n) ? computed : n;
   },
+
+  // ── Diagnostic — เช็คว่า cloud sync ทำงานหรือไม่ ──────────────────
+  // เรียกใน DevTools console:  WTPOverride.diagnose()
+  diagnose() {
+    const local = this._loadLocal();
+    const cloud = this._loadCloud();
+    const localKeys = Object.keys(local);
+    const cloudKeys = Object.keys(cloud);
+    const onlyLocal = localKeys.filter(k => !(k in cloud));
+    const onlyCloud = cloudKeys.filter(k => !(k in local));
+    const dataHasField = window.__wtpData && Array.isArray(window.__wtpData.manualOverrides);
+    const dataLen = dataHasField ? window.__wtpData.manualOverrides.length : null;
+    console.group('🔍 WTPOverride diagnose');
+    console.log('Local cache (localStorage)         :', localKeys.length, 'keys'); console.table(local);
+    console.log('Cloud (data.manualOverrides)       :', cloudKeys.length, 'keys'); console.table(cloud);
+    console.log('data.manualOverrides loaded?       :', dataHasField, '(length =', dataLen, ')');
+    console.log('Only local (ยังไม่ขึ้น cloud)       :', onlyLocal);
+    console.log('Only cloud (มาจาก user อื่น)       :', onlyCloud);
+    if (!dataHasField) {
+      console.warn('⚠ data.manualOverrides ยังไม่โหลด — Apps Script อาจยังไม่ได้ deploy หรือชีตยังไม่มี');
+    } else if (onlyLocal.length > 0) {
+      console.warn('⚠ มี', onlyLocal.length, 'override ที่ยังไม่ได้ push ขึ้น cloud — เรียก WTPOverride.forceSync() เพื่อ push');
+    } else {
+      console.log('✅ Cloud + local ตรงกัน — user คนอื่นเห็นค่าเดียวกัน');
+    }
+    console.groupEnd();
+    return { localKeys, cloudKeys, onlyLocal, onlyCloud, dataHasField, dataLen };
+  },
+
+  // ── Force resync — ดัน local overrides ทั้งหมดขึ้น cloud (manual rescue)
+  forceSync() {
+    const local = this._loadLocal();
+    const keys = Object.keys(local);
+    if (keys.length === 0) { console.log('ไม่มี override ใน localStorage'); return 0; }
+    if (typeof window.__wtpSetData !== 'function') { console.error('window.__wtpSetData ยังไม่ ready'); return 0; }
+    let updatedBy = '';
+    try { updatedBy = (JSON.parse(localStorage.getItem('wtp-session') || 'null') || {}).username || ''; } catch (_) {}
+    const updatedAt = new Date().toISOString();
+    window.__wtpSetData(d => {
+      const arr = Array.isArray(d.manualOverrides) ? d.manualOverrides.slice() : [];
+      keys.forEach(key => {
+        const idx = arr.findIndex(r => r && r.key === key);
+        const id = idx >= 0 ? arr[idx].id : `ov_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}_${key.slice(0, 8)}`;
+        const row = { id, key, value: Number(local[key]), updatedBy, updatedAt };
+        if (idx >= 0) arr[idx] = row; else arr.push(row);
+      });
+      return { ...d, manualOverrides: arr };
+    });
+    if (typeof WTPData !== 'undefined' && WTPData.forceSyncNow) {
+      setTimeout(() => WTPData.forceSyncNow(), 100);
+    }
+    console.log('✅ Pushed', keys.length, 'overrides → cloud (รอ sync ~2 วินาที)');
+    return keys.length;
+  },
 };
 
 // Subscribe helper — เรียก setState เมื่อมี override เปลี่ยน (ของ key นี้ หรือ '*')
