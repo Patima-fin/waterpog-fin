@@ -531,6 +531,26 @@
     return { status: syncStatus, time: lastSyncTime };
   };
 
+  // forceSyncNow: bypass debounce — push pending changes immediately.
+  // Call from save handlers ที่ user-triggered (กดปุ่มบันทึก) เพื่อไม่ให้ข้อมูล
+  // หายถ้า user refresh ก่อน debounce timer ครบ 3 วินาที
+  WTPData.forceSyncNow = function (data) {
+    if (!serverDataLoaded) return;
+    if (inSyncDiff) return;
+    if (syncTimer) { clearTimeout(syncTimer); syncTimer = null; }
+    // data param optional — use latest from localStorage if not provided
+    var d = data || WTPData.load();
+    syncDiff(d);
+  };
+
+  // Flush pending sync on page unload (best-effort, may not complete)
+  window.addEventListener('beforeunload', function () {
+    if (syncTimer && !inSyncDiff) {
+      clearTimeout(syncTimer);
+      try { syncDiff(WTPData.load()); } catch (_) {}
+    }
+  });
+
   // First load
   loadFromServer();
 

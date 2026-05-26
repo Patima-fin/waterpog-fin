@@ -413,6 +413,10 @@ function InvoicesPage({ data, setData, toast }) {
     }));
     setDetail(prev => prev && prev.id === iv.id ? iv : prev);
     toast('บันทึกใบแจ้งหนี้แล้ว');
+    // Push to sheet immediately (bypass 3s debounce) so refresh ไม่กลืนข้อมูล
+    if (WTPData.forceSyncNow) {
+      setTimeout(() => WTPData.forceSyncNow(), 50);
+    }
   };
   const remove = (id) => {
     if (!confirm('ยืนยันการลบใบแจ้งหนี้นี้?')) return;
@@ -2184,6 +2188,10 @@ function IvReportStandalonePage({ data, setData, toast }) {
     }));
     setDetail(prev => prev && prev.id === iv.id ? iv : prev);
     toast && toast('บันทึกแล้ว');
+    // Immediate push — ไม่ให้ refresh กลืน
+    if (WTPData.forceSyncNow) {
+      setTimeout(() => WTPData.forceSyncNow(), 50);
+    }
   };
 
   return (

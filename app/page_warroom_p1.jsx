@@ -550,6 +550,10 @@ function WarroomDrillModal({ drill, data, setData, toast, thisMthByWeek, liveMon
       const what = patch.invType != null ? `ประเภท IV → ${patch.invType}` : 'หักโอนสิทธิ์';
       toast('✓ บันทึก ' + what);
     }
+    // immediate push — กัน user refresh ก่อน sync timer ครบ
+    if (WTPData.forceSyncNow) {
+      setTimeout(() => WTPData.forceSyncNow(), 50);
+    }
   };
 
   return (
