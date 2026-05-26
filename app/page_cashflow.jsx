@@ -823,36 +823,52 @@ function CashFlowDashboard({ data, setData, toast }) {
             </tr>
 
             {/* ── คงเหลือรายสัปดาห์ — closing per period (matches M_Forecast R30) */}
-            <tr style={{ background: 'var(--warn-bg)', fontWeight: 700 }}>
-              <td style={{ padding: '10px 14px', color: 'var(--warn)' }}>
-                💰 คงเหลือรายสัปดาห์ (สิ้นช่วง)
-              </td>
-              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums',
-                color: netEndOfCurrentWeek < 0 ? 'var(--bad)' : 'var(--good)' }}>
-                {fmtNum(netEndOfCurrentWeek, 0)}
-              </td>
-              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums',
-                color: netEndOfMonth < 0 ? 'var(--bad)' : 'var(--good)' }}>
-                {fmtNum(netEndOfMonth, 0)}
-              </td>
-              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--ink-500)', fontSize: 11 }}>
-                {isLastWeekOfMonth ? '(rest = เดือนถัดไป)' : ''}
-              </td>
-            </tr>
+            {/*  เปิด edit mode = override ได้ตรงๆ (ไม่ผ่านสูตร) */}
+            {(() => {
+              const netCurDisp = WTPOverride.resolve(`${ovPrefix}.s01.netCur`,   netEndOfCurrentWeek);
+              const netMonDisp = WTPOverride.resolve(`${ovPrefix}.s01.netMonth`, netEndOfMonth);
+              return (
+                <tr style={{ background: 'var(--warn-bg)', fontWeight: 700 }}>
+                  <td style={{ padding: '10px 14px', color: 'var(--warn)' }}>
+                    💰 คงเหลือรายสัปดาห์ (สิ้นช่วง)
+                  </td>
+                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+                    color: netCurDisp < 0 ? 'var(--bad)' : 'var(--good)' }}>
+                    {editMode
+                      ? <EditableNumber ovKey={`${ovPrefix}.s01.netCur`}   computed={netEndOfCurrentWeek} editMode={true} digits={0} />
+                      : <>{fmtNum(netCurDisp, 0)}{WTPOverride.has(`${ovPrefix}.s01.netCur`) && <span title="แก้มือ" style={{ fontSize: 9, marginLeft: 3 }}>✏️</span>}</>}
+                  </td>
+                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+                    color: netMonDisp < 0 ? 'var(--bad)' : 'var(--good)' }}>
+                    {editMode
+                      ? <EditableNumber ovKey={`${ovPrefix}.s01.netMonth`} computed={netEndOfMonth} editMode={true} digits={0} />
+                      : <>{fmtNum(netMonDisp, 0)}{WTPOverride.has(`${ovPrefix}.s01.netMonth`) && <span title="แก้มือ" style={{ fontSize: 9, marginLeft: 3 }}>✏️</span>}</>}
+                  </td>
+                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--ink-500)', fontSize: 11 }}>
+                    {isLastWeekOfMonth ? '(rest = เดือนถัดไป)' : ''}
+                  </td>
+                </tr>
+              );
+            })()}
 
             {/* ── Final Net Position — same as right column above */}
-            <tr style={{ background: 'var(--brand-50)', fontWeight: 800 }}>
-              <td style={{ padding: '12px 14px', color: 'var(--brand-700)' }}>
-                💼 ยอดคงเหลือสุทธิปลายงวด (Final Net Position)
-              </td>
-              <td colSpan={2} style={{ textAlign: 'center', fontSize: 11, color: 'var(--ink-500)' }}>
-                สิ้น{weeks[nowWeek]?.label || 'W?'} → {isLastWeekOfMonth ? 'สิ้นเดือนถัดไป' : 'สิ้นเดือน'}
-              </td>
-              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums',
-                color: netEndOfMonth < 0 ? 'var(--bad)' : 'var(--good)', fontSize: 18 }}>
-                {fmtNum(netEndOfMonth, 0)}
-              </td>
-            </tr>
+            {(() => {
+              const netMonDisp = WTPOverride.resolve(`${ovPrefix}.s01.netMonth`, netEndOfMonth);
+              return (
+                <tr style={{ background: 'var(--brand-50)', fontWeight: 800 }}>
+                  <td style={{ padding: '12px 14px', color: 'var(--brand-700)' }}>
+                    💼 ยอดคงเหลือสุทธิปลายงวด (Final Net Position)
+                  </td>
+                  <td colSpan={2} style={{ textAlign: 'center', fontSize: 11, color: 'var(--ink-500)' }}>
+                    สิ้น{weeks[nowWeek]?.label || 'W?'} → {isLastWeekOfMonth ? 'สิ้นเดือนถัดไป' : 'สิ้นเดือน'}
+                  </td>
+                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+                    color: netMonDisp < 0 ? 'var(--bad)' : 'var(--good)', fontSize: 18 }}>
+                    {fmtNum(netMonDisp, 0)}
+                  </td>
+                </tr>
+              );
+            })()}
           </tbody>
         </table>
       </div>
