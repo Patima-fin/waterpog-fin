@@ -957,19 +957,18 @@ function IvReportView({ rows, onOpen }) {
   const daysDiff = (d) => d ? Math.round((new Date(d) - new Date(today)) / 86400000) : null;
 
   // ── Section definitions ──────────────────────────────────────────────────
-  // ── ลำดับ: บวก (รับแล้ว/คาดรับ) → กลาง (ติดตาม/รอตรวจรับ) → ลบ (ปัญหา/เกินกำหนด) ──
-  // โทนสีเข้มสมัยใหม่ — fintech dashboard palette, จับคู่กับ brand navy
+  // ── สี family เดิม (เขียว/น้ำเงิน/ม่วง/อำพัน/แดง) — เข้มขึ้น + gradient header ──
   const sections = [
     {
       key: 'today',
       icon: '✓', label: 'รับเงินแล้ววันนี้',
-      color: '#064e3b', bg: '#ecfdf5', border: '#065f46',  // emerald-900/800
+      grad: 'linear-gradient(135deg, #15803d 0%, #14532d 100%)', border: '#166534', // green
       rows: rows.filter(iv => iv.status === 'paid' && iv.actualReceive?.date === today),
     },
     {
       key: 'this_week',
       icon: '📅', label: 'คาดรับสัปดาห์นี้',
-      color: '#1e3a8a', bg: '#eff6ff', border: '#1a4490',  // brand-700 navy
+      grad: 'linear-gradient(135deg, #1d4ed8 0%, #1e3a8a 100%)', border: '#1e40af', // blue
       rows: rows.filter(iv =>
         iv.status === 'tracking' &&
         iv.expectedReceive >= today && iv.expectedReceive <= weekEnd
@@ -978,7 +977,7 @@ function IvReportView({ rows, onOpen }) {
     {
       key: 'next_week',
       icon: '🗓', label: 'คาดรับสัปดาห์หน้า',
-      color: '#312e81', bg: '#eef2ff', border: '#3730a3',  // indigo-900/800
+      grad: 'linear-gradient(135deg, #6d28d9 0%, #4c1d95 100%)', border: '#5b21b6', // purple
       rows: rows.filter(iv =>
         iv.status === 'tracking' &&
         iv.expectedReceive >= nextWeekStart && iv.expectedReceive <= nextWeekEnd
@@ -987,7 +986,7 @@ function IvReportView({ rows, onOpen }) {
     {
       key: 'tracking',
       icon: '🔍', label: 'กำลังติดตาม (ยังไม่ชัดเจน)',
-      color: '#134e4a', bg: '#f0fdfa', border: '#115e59',  // teal-900/800 — modern, ไม่ใช่สีน้ำตาลแก่ๆ
+      grad: 'linear-gradient(135deg, #b45309 0%, #78350f 100%)', border: '#92400e', // amber
       rows: rows.filter(iv =>
         iv.status === 'tracking' &&
         !(iv.expectedReceive && iv.expectedReceive >= today && iv.expectedReceive <= nextWeekEnd) &&
@@ -997,20 +996,20 @@ function IvReportView({ rows, onOpen }) {
     {
       key: 'pending',
       icon: '📋', label: 'รอใบตรวจรับ',
-      color: '#0f172a', bg: '#f8fafc', border: '#1e293b',  // slate-900/800
+      grad: 'linear-gradient(135deg, #334155 0%, #0f172a 100%)', border: '#1e293b', // slate
       rows: rows.filter(iv => iv.status === 'pending_inspection'),
     },
     // ── 2 รายการล่างสุด: ติดปัญหา → เกินกำหนด ────────────────────
     {
       key: 'issue',
       icon: '⚠', label: 'ติดปัญหา',
-      color: '#881337', bg: '#fff1f2', border: '#9f1239',  // rose-900/800 — burgundy ทันสมัย
+      grad: 'linear-gradient(135deg, #9f1239 0%, #581c14 100%)', border: '#7f1d1d', // burgundy
       rows: rows.filter(iv => iv.status === 'issue'),
     },
     {
       key: 'overdue',
       icon: '🚨', label: 'เกินกำหนดชำระ',
-      color: '#7f1d1d', bg: '#fef2f2', border: '#991b1b',  // red-900/800 — deep red
+      grad: 'linear-gradient(135deg, #b91c1c 0%, #7f1d1d 100%)', border: '#991b1b', // red
       rows: rows.filter(iv =>
         iv.status === 'tracking' && iv.expectedReceive && iv.expectedReceive < today
       ),
@@ -1136,17 +1135,43 @@ function IvReportView({ rows, onOpen }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
 
-      {/* ── Summary strip — เน้นเชิงบวก (รับแล้ว / คาดรับ) ───────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
+      {/* ── Summary strip — gradient cards แบบ Daily Revenue Report ──────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
         {[
-          { label: 'รับแล้ววันนี้',     count: todayRows.length,  amt: sumActual(todayRows), bg: '#065f46', accent: '#10b981' },  // emerald-800
-          { label: 'คาดรับสัปดาห์นี้',  count: thisWkRows.length, amt: sumBal(thisWkRows),   bg: '#1a4490', accent: '#3b82f6' },  // brand-700 navy
-          { label: 'คาดรับสัปดาห์หน้า', count: nextWkRows.length, amt: sumBal(nextWkRows),   bg: '#3730a3', accent: '#818cf8' },  // indigo-800
+          { label: 'รับแล้ววันนี้',     en: "TODAY'S RECEIPTS",  icon: '✓', count: todayRows.length,  amt: sumActual(todayRows), grad: 'linear-gradient(135deg, #15803d 0%, #14532d 100%)', glow: 'rgba(34,197,94,.18)' },
+          { label: 'คาดรับสัปดาห์นี้',  en: 'EXPECTED THIS WEEK', icon: '📅', count: thisWkRows.length, amt: sumBal(thisWkRows),   grad: 'linear-gradient(135deg, #1d4ed8 0%, #1e3a8a 100%)', glow: 'rgba(59,130,246,.18)' },
+          { label: 'คาดรับสัปดาห์หน้า', en: 'EXPECTED NEXT WEEK', icon: '🗓', count: nextWkRows.length, amt: sumBal(nextWkRows),   grad: 'linear-gradient(135deg, #6d28d9 0%, #4c1d95 100%)', glow: 'rgba(139,92,246,.18)' },
         ].map((k, i) => (
-          <div key={i} style={{ background: k.bg, borderRadius: 8, padding: '9px 14px', color: 'white', borderLeft: `4px solid ${k.accent}` }}>
-            <div style={{ fontSize: 10.5, opacity: .85, marginBottom: 3, fontWeight: 600, letterSpacing: '.04em', textTransform: 'uppercase' }}>{k.label}</div>
-            <div style={{ fontWeight: 800, fontSize: 19, lineHeight: 1.05, fontVariantNumeric: 'tabular-nums' }}>{fmtNum(k.amt, 0)} <span style={{ fontSize: 11, fontWeight: 500, opacity: .8 }}>฿</span></div>
-            <div style={{ fontSize: 11, opacity: .9, marginTop: 2, fontWeight: 500 }}>{k.count} ใบ</div>
+          <div key={i} style={{
+            background: k.grad, borderRadius: 12, padding: '14px 18px', color: 'white',
+            position: 'relative', overflow: 'hidden',
+            boxShadow: `0 6px 18px ${k.glow}, 0 1px 3px rgba(0,0,0,.08)`,
+          }}>
+            {/* subtle radial highlight (top-right) */}
+            <div style={{
+              position: 'absolute', top: -30, right: -30, width: 140, height: 140,
+              background: 'radial-gradient(circle, rgba(255,255,255,.15) 0%, transparent 70%)',
+              pointerEvents: 'none',
+            }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, position: 'relative' }}>
+              <div style={{
+                width: 28, height: 28, borderRadius: 7,
+                background: 'rgba(255,255,255,.18)', display: 'grid', placeItems: 'center',
+                fontSize: 14, backdropFilter: 'blur(4px)',
+              }}>{k.icon}</div>
+              <div style={{ lineHeight: 1.15 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700 }}>{k.label}</div>
+                <div style={{ fontSize: 9, opacity: .75, letterSpacing: '.06em', fontWeight: 500 }}>{k.en}</div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, position: 'relative' }}>
+              <div style={{ fontWeight: 800, fontSize: 22, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+                {fmtNum(k.amt, 0)} <span style={{ fontSize: 12, fontWeight: 600, opacity: .82 }}>฿</span>
+              </div>
+              <div style={{ fontSize: 11.5, opacity: .92, fontWeight: 600, background: 'rgba(255,255,255,.15)', padding: '2px 8px', borderRadius: 10 }}>
+                {k.count} ใบ
+              </div>
+            </div>
           </div>
         ))}
       </div>
@@ -1158,9 +1183,9 @@ function IvReportView({ rows, onOpen }) {
         const secNet   = sec.rows.reduce((s, r) => s + (Number(r.netExpected) || 0), 0);
         return (
           <div key={sec.key} className="card" style={{ padding: 0, overflow: 'hidden', border: `1px solid ${sec.border}` }}>
-            {/* Section header — พื้นเข้ม ตัวอักษรขาว (มืออาชีพ + ชัดเจน) */}
+            {/* Section header — gradient เข้ม ตัวอักษรขาว (มืออาชีพ + ชัดเจน) */}
             <div style={{
-              background: sec.border, padding: '6px 12px',
+              background: sec.grad, padding: '7px 13px',
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
               color: 'white',
             }}>
