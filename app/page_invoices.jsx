@@ -413,9 +413,18 @@ function InvoicesPage({ data, setData, toast }) {
     // which is async; relying on it caused followUps to vanish on refresh)
     let updatedData;
     setData(d => {
+      const newInvoices = iv.id
+        ? d.invoices.map(x => x.id === iv.id ? iv : x)
+        : [{ ...iv, id: WTPData.newId() }, ...d.invoices];
+      // Mirror the embedded followUps arrays into the flat followUpsLog sheet
+      const user = (() => { try { return JSON.parse(localStorage.getItem('wtp-session') || 'null'); } catch(_) { return null; } })();
+      const newLog = WTPData.rebuildFollowUpsLog
+        ? WTPData.rebuildFollowUpsLog(newInvoices, user && user.username)
+        : (d.followUpsLog || []);
       updatedData = {
         ...d,
-        invoices: iv.id ? d.invoices.map(x => x.id === iv.id ? iv : x) : [{ ...iv, id: WTPData.newId() }, ...d.invoices],
+        invoices:     newInvoices,
+        followUpsLog: newLog,
       };
       return updatedData;
     });
@@ -2193,11 +2202,17 @@ function IvReportStandalonePage({ data, setData, toast }) {
   const save = (iv) => {
     let updatedData;
     setData(d => {
+      const newInvoices = iv.id
+        ? d.invoices.map(x => x.id === iv.id ? iv : x)
+        : [{ ...iv, id: WTPData.newId() }, ...d.invoices];
+      const user = (() => { try { return JSON.parse(localStorage.getItem('wtp-session') || 'null'); } catch(_) { return null; } })();
+      const newLog = WTPData.rebuildFollowUpsLog
+        ? WTPData.rebuildFollowUpsLog(newInvoices, user && user.username)
+        : (d.followUpsLog || []);
       updatedData = {
         ...d,
-        invoices: iv.id
-          ? d.invoices.map(x => x.id === iv.id ? iv : x)
-          : [{ ...iv, id: WTPData.newId() }, ...d.invoices],
+        invoices:     newInvoices,
+        followUpsLog: newLog,
       };
       return updatedData;
     });

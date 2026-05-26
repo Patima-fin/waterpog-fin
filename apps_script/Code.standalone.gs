@@ -51,6 +51,7 @@ var SHEETS = {
   AUDIT_LOG:        'auditLog',     // ผู้ใช้-การกระทำ-เวลา (auto-logged on every CRUD)
   USERS:            'users',        // user accounts (id, username, password, displayName, role)
   CASHFLOW_SNAPS:   'cashflowSnapshots', // daily snapshot of each bank balance
+  FOLLOWUPS_LOG:    'followUpsLog',     // flat log of every follow-up entry across all invoices
 };
 
 /* ── 1. WEB APP ENDPOINTS ───────────────────────────────────────── */
@@ -171,6 +172,7 @@ function getAll() {
     debtEvents:            readTable(SHEETS.DEBT_EVENTS),
     users:                 readTable(SHEETS.USERS),
     cashflowSnapshots:     readTable(SHEETS.CASHFLOW_SNAPS),
+    followUpsLog:          readTable(SHEETS.FOLLOWUPS_LOG),
   };
 }
 
@@ -203,6 +205,7 @@ function getEntity(name) {
     case 'debtEvents':            return readTable(SHEETS.DEBT_EVENTS);
     case 'users':                 return readTable(SHEETS.USERS);
     case 'cashflowSnapshots':     return readTable(SHEETS.CASHFLOW_SNAPS);
+    case 'followUpsLog':          return readTable(SHEETS.FOLLOWUPS_LOG);
   }
   return { error: 'unknown entity: ' + name };
 }
@@ -223,6 +226,7 @@ var JSON_FIELDS = {
   debtEvents:      [],
   users:           [],
   cashflowSnapshots: [],
+  followUpsLog:    [],
   bankTransfers:   [],
   stsServiceFee:   [],
   stsPendingCalc:  [],
@@ -488,6 +492,13 @@ var ENTITY_HEADERS = {
     // override invoice-level invType ถ้า admin แก้ใน Warroom drill modal
     'invType'
   ],
+  // ── followUpsLog (v3 added 2026-05-26) ─────────────────────────────
+  // ตารางบันทึกการติดตามรายตัว (flat) — ดูง่ายกว่า JSON ใน invoices.followUps
+  // ทุกครั้งที่ user เพิ่ม follow-up ใน IV → log entry ถูก append ที่นี่
+  followUpsLog: [
+    'id','invoiceId','ivNo','jobNo','projectName',
+    'followUpDate','note','createdAt','createdBy'
+  ],
   bankEntries: [
     'id','entryDate','bankName','accountNo','entryType','description',
     'amount','referenceNo','transferRef','linkedProjectCode','status','note'
@@ -559,6 +570,7 @@ function _entitySheet(entity) {
     debtEvents:      SHEETS.DEBT_EVENTS,
     users:           SHEETS.USERS,
     cashflowSnapshots: SHEETS.CASHFLOW_SNAPS,
+    followUpsLog:    SHEETS.FOLLOWUPS_LOG,
   };
   if (!map[entity]) throw new Error('CRUD ไม่รองรับ entity: ' + entity);
   return { name: map[entity], headers: ENTITY_HEADERS[entity] };
@@ -731,6 +743,7 @@ function ensureV2Headers() {
     debtEvents:      SHEETS.DEBT_EVENTS,
     users:           SHEETS.USERS,
     cashflowSnapshots: SHEETS.CASHFLOW_SNAPS,
+    followUpsLog:    SHEETS.FOLLOWUPS_LOG,
   };
   var results = [];
   Object.keys(entityMap).forEach(function (entity) {

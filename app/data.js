@@ -725,6 +725,35 @@
     return Math.round(bal * rate * (days / 365)); // per_annum (default)
   };
 
+  // ── rebuildFollowUpsLog ───────────────────────────────────────────────
+  // Derive flat log from invoices[].followUps so the followUpsLog sheet
+  // mirrors the JSON-in-cell follow-ups in a human-readable table.
+  // Called inside save() after invoice changes — keeps the log in sync.
+  // ID strategy: stable id_followup_<invoiceId>_<idx> so re-running this
+  // doesn't duplicate rows on the sheet (replaceAll wipes + writes).
+  const rebuildFollowUpsLog = (invoices, currentUser) => {
+    const out = [];
+    (invoices || []).forEach(iv => {
+      (iv.followUps || []).forEach((fu, idx) => {
+        if (!fu || (!fu.date && !fu.note)) return;
+        out.push({
+          id:           `fl_${iv.id || iv.ivNo || 'x'}_${idx}`,
+          invoiceId:    iv.id || '',
+          ivNo:         iv.ivNo || '',
+          jobNo:        iv.jobNo || '',
+          projectName:  iv.projectName || '',
+          followUpDate: fu.date || '',
+          note:         fu.note || '',
+          createdAt:    fu.createdAt || fu.date || '',
+          createdBy:    fu.createdBy || currentUser || '',
+        });
+      });
+    });
+    // newest first by followUpDate
+    out.sort((a, b) => (b.followUpDate || '').localeCompare(a.followUpDate || ''));
+    return out;
+  };
+
   // สรุปภาระหนี้แยกประเภท (คืน object { transfer_rights, od, pn, ... })
   const debtSummary = (debtLedger) => {
     const out = {};
@@ -743,5 +772,6 @@
     buildLookups,
     calcInterest,
     debtSummary,
+    rebuildFollowUpsLog,
   };
 })();
