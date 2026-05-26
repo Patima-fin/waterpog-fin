@@ -957,19 +957,19 @@ function IvReportView({ rows, onOpen }) {
   const daysDiff = (d) => d ? Math.round((new Date(d) - new Date(today)) / 86400000) : null;
 
   // ── Section definitions ──────────────────────────────────────────────────
-  // ── Pastel palette แบบ Pantone (mint / turquoise / lavender / yellow / coral) ──
-  // header = พื้นพาสเทล + ตัวอักษรเข้ม + ขอบสีกลาง ดูสดใสทันสมัย
+  // ── พาเลต Daily Revenue Report (brand blue / emerald / amber / purple / red) ──
+  // header = พื้น soft + ตัวอักษรเข้ม + ขอบสีกลาง ให้โทนเดียวกับ /#daily
   const sections = [
     {
       key: 'today',
       icon: '✓', label: 'รับเงินแล้ววันนี้',
-      grad: 'linear-gradient(135deg, #EAFFD0 0%, #BFEFAA 100%)', text: '#15803d', border: '#86d171', // mint
+      grad: 'linear-gradient(135deg, #d1fae5 0%, #6ee7b7 100%)', text: '#065f46', border: '#34d399', // emerald (Daily MTD)
       rows: rows.filter(iv => iv.status === 'paid' && iv.actualReceive?.date === today),
     },
     {
       key: 'this_week',
       icon: '📅', label: 'คาดรับสัปดาห์นี้',
-      grad: 'linear-gradient(135deg, #C2EFE8 0%, #95E1D3 100%)', text: '#0e7490', border: '#5fc9b8', // turquoise
+      grad: 'linear-gradient(135deg, #dbeafe 0%, #93c5fd 100%)', text: '#1e3a8a', border: '#63b3ed', // brand blue (Daily YTD)
       rows: rows.filter(iv =>
         iv.status === 'tracking' &&
         iv.expectedReceive >= today && iv.expectedReceive <= weekEnd
@@ -978,7 +978,7 @@ function IvReportView({ rows, onOpen }) {
     {
       key: 'next_week',
       icon: '🗓', label: 'คาดรับสัปดาห์หน้า',
-      grad: 'linear-gradient(135deg, #E1D4F7 0%, #C4A9F0 100%)', text: '#6b21a8', border: '#a78bfa', // lavender
+      grad: 'linear-gradient(135deg, #ede9fe 0%, #c4b5fd 100%)', text: '#5b21b6', border: '#b794f4', // purple (Daily month forecast)
       rows: rows.filter(iv =>
         iv.status === 'tracking' &&
         iv.expectedReceive >= nextWeekStart && iv.expectedReceive <= nextWeekEnd
@@ -987,7 +987,7 @@ function IvReportView({ rows, onOpen }) {
     {
       key: 'tracking',
       icon: '🔍', label: 'กำลังติดตาม (ยังไม่ชัดเจน)',
-      grad: 'linear-gradient(135deg, #FCE38A 0%, #F5C842 100%)', text: '#92400e', border: '#eab308', // pastel yellow
+      grad: 'linear-gradient(135deg, #fef3c7 0%, #fcd34d 100%)', text: '#92400e', border: '#f59e0b', // amber (Daily Today)
       rows: rows.filter(iv =>
         iv.status === 'tracking' &&
         !(iv.expectedReceive && iv.expectedReceive >= today && iv.expectedReceive <= nextWeekEnd) &&
@@ -997,20 +997,20 @@ function IvReportView({ rows, onOpen }) {
     {
       key: 'pending',
       icon: '📋', label: 'รอใบตรวจรับ',
-      grad: 'linear-gradient(135deg, #E2E8F0 0%, #CBD5E1 100%)', text: '#334155', border: '#94a3b8', // soft slate
+      grad: 'linear-gradient(135deg, #f1f5f9 0%, #cbd5e1 100%)', text: '#1e293b', border: '#94a3b8', // neutral slate
       rows: rows.filter(iv => iv.status === 'pending_inspection'),
     },
     // ── 2 รายการล่างสุด: ติดปัญหา → เกินกำหนด ────────────────────
     {
       key: 'issue',
       icon: '⚠', label: 'ติดปัญหา',
-      grad: 'linear-gradient(135deg, #FBC4C4 0%, #F38181 100%)', text: '#991b1b', border: '#ef5a5a', // pastel coral
+      grad: 'linear-gradient(135deg, #fed7aa 0%, #fb923c 100%)', text: '#7c2d12', border: '#f97316', // orange (distinct from overdue)
       rows: rows.filter(iv => iv.status === 'issue'),
     },
     {
       key: 'overdue',
       icon: '🚨', label: 'เกินกำหนดชำระ',
-      grad: 'linear-gradient(135deg, #F38181 0%, #E55353 100%)', text: '#7f1d1d', border: '#dc2626', // deeper coral
+      grad: 'linear-gradient(135deg, #fecaca 0%, #f87171 100%)', text: '#7f1d1d', border: '#fc8181', // red (Daily overdue)
       rows: rows.filter(iv =>
         iv.status === 'tracking' && iv.expectedReceive && iv.expectedReceive < today
       ),
@@ -1136,40 +1136,40 @@ function IvReportView({ rows, onOpen }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
 
-      {/* ── Summary strip — pastel cards (Pantone vibe) ──────────────────── */}
+      {/* ── Summary strip — gradient pills (โทนเดียวกับ Daily Revenue Report) ──── */}
       <div className="iv-summary-strip" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
         {[
-          { label: 'รับแล้ววันนี้',     en: "TODAY'S RECEIPTS",  icon: '✓',  count: todayRows.length,  amt: sumActual(todayRows), grad: 'linear-gradient(135deg, #EAFFD0 0%, #BFEFAA 100%)', text: '#14532d', border: '#86d171', glow: 'rgba(134,209,113,.25)' },
-          { label: 'คาดรับสัปดาห์นี้',  en: 'EXPECTED THIS WEEK', icon: '📅', count: thisWkRows.length, amt: sumBal(thisWkRows),   grad: 'linear-gradient(135deg, #C2EFE8 0%, #95E1D3 100%)', text: '#0e7490', border: '#5fc9b8', glow: 'rgba(95,201,184,.25)' },
-          { label: 'คาดรับสัปดาห์หน้า', en: 'EXPECTED NEXT WEEK', icon: '🗓', count: nextWkRows.length, amt: sumBal(nextWkRows),   grad: 'linear-gradient(135deg, #FCE38A 0%, #F5C842 100%)', text: '#92400e', border: '#eab308', glow: 'rgba(234,179,8,.22)' },
+          { label: 'รับแล้ววันนี้',     en: "TODAY'S RECEIPTS",  icon: '✓',  count: todayRows.length,  amt: sumActual(todayRows), grad: 'linear-gradient(135deg, #20c997 0%, #16906b 100%)', glow: 'rgba(32,201,151,.28)' },
+          { label: 'คาดรับสัปดาห์นี้',  en: 'EXPECTED THIS WEEK', icon: '📅', count: thisWkRows.length, amt: sumBal(thisWkRows),   grad: 'linear-gradient(135deg, #5b9eef 0%, #2a6fdb 100%)', glow: 'rgba(42,111,219,.28)' },
+          { label: 'คาดรับสัปดาห์หน้า', en: 'EXPECTED NEXT WEEK', icon: '🗓', count: nextWkRows.length, amt: sumBal(nextWkRows),   grad: 'linear-gradient(135deg, #ffa726 0%, #e87f15 100%)', glow: 'rgba(232,127,21,.28)' },
         ].map((k, i) => (
           <div key={i} className="iv-summary-card" style={{
-            background: k.grad, borderRadius: 14, padding: '14px 18px', color: k.text,
-            position: 'relative', overflow: 'hidden', border: `1.5px solid ${k.border}`,
+            background: k.grad, borderRadius: 14, padding: '14px 18px', color: 'white',
+            position: 'relative', overflow: 'hidden',
             boxShadow: `0 6px 18px ${k.glow}, 0 1px 2px rgba(0,0,0,.04)`,
           }}>
             {/* subtle highlight */}
             <div style={{
               position: 'absolute', top: -40, right: -40, width: 160, height: 160,
-              background: 'radial-gradient(circle, rgba(255,255,255,.55) 0%, transparent 65%)',
+              background: 'radial-gradient(circle, rgba(255,255,255,.18) 0%, transparent 65%)',
               pointerEvents: 'none',
             }} />
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, position: 'relative' }}>
               <div style={{
                 width: 30, height: 30, borderRadius: 8,
-                background: 'rgba(255,255,255,.7)', display: 'grid', placeItems: 'center',
-                fontSize: 15, boxShadow: '0 2px 4px rgba(0,0,0,.06)',
+                background: 'rgba(255,255,255,.18)', display: 'grid', placeItems: 'center',
+                fontSize: 15,
               }}>{k.icon}</div>
               <div style={{ lineHeight: 1.15 }}>
                 <div style={{ fontSize: 13, fontWeight: 800 }}>{k.label}</div>
-                <div style={{ fontSize: 9.5, opacity: .65, letterSpacing: '.06em', fontWeight: 600 }}>{k.en}</div>
+                <div style={{ fontSize: 9.5, opacity: .78, letterSpacing: '.06em', fontWeight: 600 }}>{k.en}</div>
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, position: 'relative' }}>
               <div style={{ fontWeight: 800, fontSize: 23, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
-                {fmtNum(k.amt, 0)} <span style={{ fontSize: 12, fontWeight: 700, opacity: .7 }}>฿</span>
+                {fmtNum(k.amt, 0)} <span style={{ fontSize: 12, fontWeight: 700, opacity: .82 }}>฿</span>
               </div>
-              <div style={{ fontSize: 11.5, fontWeight: 700, background: 'rgba(255,255,255,.65)', padding: '3px 10px', borderRadius: 10, boxShadow: '0 1px 2px rgba(0,0,0,.05)' }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, background: 'rgba(255,255,255,.22)', padding: '3px 10px', borderRadius: 10 }}>
                 {k.count} ใบ
               </div>
             </div>
