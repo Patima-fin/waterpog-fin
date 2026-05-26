@@ -957,27 +957,19 @@ function IvReportView({ rows, onOpen }) {
   const daysDiff = (d) => d ? Math.round((new Date(d) - new Date(today)) / 86400000) : null;
 
   // ── Section definitions ──────────────────────────────────────────────────
-  // ── ลำดับใหม่: เร่งด่วน → คาดรับ → ไม่ชัดเจน → ติดปัญหา (ล่างสุด) ──
-  // โทนสีเข้มขึ้น — header เป็นพื้นเข้ม ตัวอักษรขาว ดูเป็นทางการ
+  // ── ลำดับ: บวก (รับแล้ว/คาดรับ) → กลาง (ติดตาม/รอตรวจรับ) → ลบ (ปัญหา/เกินกำหนด) ──
+  // โทนสีเข้มสมัยใหม่ — fintech dashboard palette, จับคู่กับ brand navy
   const sections = [
-    {
-      key: 'overdue',
-      icon: '🚨', label: 'เกินกำหนดชำระ',
-      color: '#7f1d1d', bg: '#fef2f2', border: '#991b1b',
-      rows: rows.filter(iv =>
-        iv.status === 'tracking' && iv.expectedReceive && iv.expectedReceive < today
-      ),
-    },
     {
       key: 'today',
       icon: '✓', label: 'รับเงินแล้ววันนี้',
-      color: '#14532d', bg: '#ecfdf5', border: '#166534',
+      color: '#064e3b', bg: '#ecfdf5', border: '#065f46',  // emerald-900/800
       rows: rows.filter(iv => iv.status === 'paid' && iv.actualReceive?.date === today),
     },
     {
       key: 'this_week',
       icon: '📅', label: 'คาดรับสัปดาห์นี้',
-      color: '#1e3a8a', bg: '#eff6ff', border: '#1e40af',
+      color: '#1e3a8a', bg: '#eff6ff', border: '#1a4490',  // brand-700 navy
       rows: rows.filter(iv =>
         iv.status === 'tracking' &&
         iv.expectedReceive >= today && iv.expectedReceive <= weekEnd
@@ -986,7 +978,7 @@ function IvReportView({ rows, onOpen }) {
     {
       key: 'next_week',
       icon: '🗓', label: 'คาดรับสัปดาห์หน้า',
-      color: '#4c1d95', bg: '#f5f3ff', border: '#5b21b6',
+      color: '#312e81', bg: '#eef2ff', border: '#3730a3',  // indigo-900/800
       rows: rows.filter(iv =>
         iv.status === 'tracking' &&
         iv.expectedReceive >= nextWeekStart && iv.expectedReceive <= nextWeekEnd
@@ -995,7 +987,7 @@ function IvReportView({ rows, onOpen }) {
     {
       key: 'tracking',
       icon: '🔍', label: 'กำลังติดตาม (ยังไม่ชัดเจน)',
-      color: '#78350f', bg: '#fffbeb', border: '#92400e',
+      color: '#134e4a', bg: '#f0fdfa', border: '#115e59',  // teal-900/800 — modern, ไม่ใช่สีน้ำตาลแก่ๆ
       rows: rows.filter(iv =>
         iv.status === 'tracking' &&
         !(iv.expectedReceive && iv.expectedReceive >= today && iv.expectedReceive <= nextWeekEnd) &&
@@ -1005,25 +997,34 @@ function IvReportView({ rows, onOpen }) {
     {
       key: 'pending',
       icon: '📋', label: 'รอใบตรวจรับ',
-      color: '#1e293b', bg: '#f8fafc', border: '#334155',
+      color: '#0f172a', bg: '#f8fafc', border: '#1e293b',  // slate-900/800
       rows: rows.filter(iv => iv.status === 'pending_inspection'),
     },
-    // ── ติดปัญหา — ย้ายมาล่างสุดตามที่ผู้ใช้ขอ ─────────────────────
+    // ── 2 รายการล่างสุด: ติดปัญหา → เกินกำหนด ────────────────────
     {
       key: 'issue',
       icon: '⚠', label: 'ติดปัญหา',
-      color: '#581c14', bg: '#fef2f2', border: '#7f1d1d',
+      color: '#881337', bg: '#fff1f2', border: '#9f1239',  // rose-900/800 — burgundy ทันสมัย
       rows: rows.filter(iv => iv.status === 'issue'),
+    },
+    {
+      key: 'overdue',
+      icon: '🚨', label: 'เกินกำหนดชำระ',
+      color: '#7f1d1d', bg: '#fef2f2', border: '#991b1b',  // red-900/800 — deep red
+      rows: rows.filter(iv =>
+        iv.status === 'tracking' && iv.expectedReceive && iv.expectedReceive < today
+      ),
     },
   ];
 
-  // ── Summary KPIs ─────────────────────────────────────────────────────────
-  const pending  = rows.filter(r => r.status !== 'paid');
-  const totalBal = pending.reduce((s, r) => s + (Number(r.balance) || 0), 0);
-  const totalNet = pending.reduce((s, r) => s + (Number(r.netExpected) || 0), 0);
-  const cntOver  = sections.find(s => s.key === 'overdue').rows.length;
-  const cntIssue = sections.find(s => s.key === 'issue').rows.length;
-  const cntThis  = sections.find(s => s.key === 'this_week').rows.length;
+  // ── Summary KPIs — เน้นเชิงบวก: รับแล้ววันนี้ + คาดรับสัปดาห์นี้/หน้า ────
+  const pending     = rows.filter(r => r.status !== 'paid');
+  const todayRows   = sections.find(s => s.key === 'today').rows;
+  const thisWkRows  = sections.find(s => s.key === 'this_week').rows;
+  const nextWkRows  = sections.find(s => s.key === 'next_week').rows;
+  const sumBal      = (arr) => arr.reduce((a, r) => a + (Number(r.balance) || 0), 0);
+  const sumNet      = (arr) => arr.reduce((a, r) => a + (Number(r.netExpected) || 0), 0);
+  const sumActual   = (arr) => arr.reduce((a, r) => a + (Number(r.actualReceive?.amount) || Number(r.netExpected) || 0), 0);
 
   // ── Row component (detailed) ──────────────────────────────────────────────
   const IvDetailRow = ({ iv, secColor }) => {
@@ -1042,8 +1043,8 @@ function IvReportView({ rows, onOpen }) {
           borderBottom: '1px solid #f0f4f8',
           transition: 'background 120ms',
           display: 'grid',
-          gridTemplateColumns: '92px minmax(0, 1fr) 130px 110px',
-          gap: '0 10px',
+          gridTemplateColumns: '84px minmax(0, 1fr) 118px 96px',
+          gap: '0 8px',
           alignItems: 'center',
           fontSize: 11.5,
         }}
@@ -1076,21 +1077,21 @@ function IvReportView({ rows, onOpen }) {
             )}
           </div>
           {lastLog ? (
-            <div style={{ fontSize: 10.5, color: '#718096', display: 'flex', gap: 5, alignItems: 'center', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', marginTop: 1 }}>
-              <span style={{ color: '#a0aec0', fontSize: 9.5, flexShrink: 0 }}>
+            <div style={{ fontSize: 11, color: '#2d3748', fontWeight: 500, display: 'flex', gap: 5, alignItems: 'center', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', marginTop: 1 }}>
+              <span style={{ color: '#718096', fontSize: 10, flexShrink: 0, fontWeight: 600 }}>
                 {fmtDate(lastLog.date)}
                 {daysSince !== null && daysSince > 0 && (
-                  <span style={{ color: daysSince > 7 ? '#e53e3e' : '#a0aec0', marginLeft: 3 }}>
+                  <span style={{ color: daysSince > 7 ? '#c53030' : '#718096', marginLeft: 3, fontWeight: 700 }}>
                     ({daysSince}d)
                   </span>
                 )}
               </span>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={lastLog.note}>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#2d3748' }} title={lastLog.note}>
                 — {lastLog.note}
               </span>
             </div>
           ) : !isPaid && (
-            <div style={{ fontSize: 10, color: '#fc8181', fontStyle: 'italic', marginTop: 1 }}>⚠ ยังไม่มีการติดตาม</div>
+            <div style={{ fontSize: 10.5, color: '#c53030', fontWeight: 600, marginTop: 1 }}>⚠ ยังไม่มีการติดตาม</div>
           )}
         </div>
 
@@ -1135,18 +1136,17 @@ function IvReportView({ rows, onOpen }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
 
-      {/* ── Summary strip (compact + เข้ม) ───────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8 }}>
+      {/* ── Summary strip — เน้นเชิงบวก (รับแล้ว / คาดรับ) ───────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
         {[
-          { label: 'ใบค้างชำระทั้งหมด', value: `${pending.length} ใบ`, sub: `${fmtNum(totalBal,0)} ฿`, color: '#1e293b', bg: '#1e293b' },
-          { label: 'เกินกำหนด',         value: `${cntOver} ใบ`,        sub: cntOver > 0 ? 'ต้องจัดการด่วน' : 'ไม่มี',  color: '#7f1d1d', bg: cntOver > 0 ? '#991b1b' : '#166534' },
-          { label: 'ติดปัญหา',          value: `${cntIssue} ใบ`,       sub: cntIssue > 0 ? 'รอแก้ไข' : 'ไม่มี',         color: '#581c14', bg: cntIssue > 0 ? '#7f1d1d' : '#166534' },
-          { label: 'คาดรับสัปดาห์นี้', value: `${cntThis} ใบ`,        sub: `${fmtNum(sections.find(s=>s.key==='this_week').rows.reduce((a,r)=>a+(Number(r.balance)||0),0),0)} ฿`, color: '#1e3a8a', bg: '#1e40af' },
+          { label: 'รับแล้ววันนี้',     count: todayRows.length,  amt: sumActual(todayRows), bg: '#065f46', accent: '#10b981' },  // emerald-800
+          { label: 'คาดรับสัปดาห์นี้',  count: thisWkRows.length, amt: sumBal(thisWkRows),   bg: '#1a4490', accent: '#3b82f6' },  // brand-700 navy
+          { label: 'คาดรับสัปดาห์หน้า', count: nextWkRows.length, amt: sumBal(nextWkRows),   bg: '#3730a3', accent: '#818cf8' },  // indigo-800
         ].map((k, i) => (
-          <div key={i} style={{ background: k.bg, borderRadius: 8, padding: '7px 12px', color: 'white' }}>
-            <div style={{ fontSize: 10, opacity: .82, marginBottom: 2, fontWeight: 500, letterSpacing: '.03em', textTransform: 'uppercase' }}>{k.label}</div>
-            <div style={{ fontWeight: 800, fontSize: 17, lineHeight: 1.1 }}>{k.value}</div>
-            <div style={{ fontSize: 11, opacity: .9, fontVariantNumeric: 'tabular-nums', marginTop: 1 }}>{k.sub}</div>
+          <div key={i} style={{ background: k.bg, borderRadius: 8, padding: '9px 14px', color: 'white', borderLeft: `4px solid ${k.accent}` }}>
+            <div style={{ fontSize: 10.5, opacity: .85, marginBottom: 3, fontWeight: 600, letterSpacing: '.04em', textTransform: 'uppercase' }}>{k.label}</div>
+            <div style={{ fontWeight: 800, fontSize: 19, lineHeight: 1.05, fontVariantNumeric: 'tabular-nums' }}>{fmtNum(k.amt, 0)} <span style={{ fontSize: 11, fontWeight: 500, opacity: .8 }}>฿</span></div>
+            <div style={{ fontSize: 11, opacity: .9, marginTop: 2, fontWeight: 500 }}>{k.count} ใบ</div>
           </div>
         ))}
       </div>
