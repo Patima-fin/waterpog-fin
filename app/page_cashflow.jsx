@@ -474,10 +474,13 @@ function CashFlowDashboard({ data, setData, toast }) {
   };
   // ใช้ค่าที่ resolve override แล้ว เพื่อให้ "รวมรายจ่าย" สะท้อนยอดที่ user คีย์มือ
   // และ net end-of-week/month ก็ใช้ยอดนี้คำนวณต่อด้วย
+  // หมายเหตุ: outflow ใช้ Math.abs() เพราะ user อาจคีย์เป็นบวก หรือลบก็ได้
+  //   (display โชว์ในวงเล็บ → คน entry-level บางคนคีย์ติดลบ, บางคนคีย์บวก)
+  //   normalize ให้เป็นบวกเพื่อความเสถียรในการคำนวณ netEndOfWeek
   const _resolvedOut = (cat) => ({
-    current: WTPOverride.resolve(`${ovPrefix}.s01.out${cat}.current`, planOut[cat].current),
-    rest:    WTPOverride.resolve(`${ovPrefix}.s01.out${cat}.rest`,    planOut[cat].rest),
-    total:   WTPOverride.resolve(`${ovPrefix}.s01.out${cat}.total`,   planOut[cat].total),
+    current: Math.abs(WTPOverride.resolve(`${ovPrefix}.s01.out${cat}.current`, planOut[cat].current)),
+    rest:    Math.abs(WTPOverride.resolve(`${ovPrefix}.s01.out${cat}.rest`,    planOut[cat].rest)),
+    total:   Math.abs(WTPOverride.resolve(`${ovPrefix}.s01.out${cat}.total`,   planOut[cat].total)),
   });
   const totalOutCurrent = [1,2,3,4].reduce((s, c) => s + _resolvedOut(c).current, 0);
   const totalOutRest    = [1,2,3,4].reduce((s, c) => s + _resolvedOut(c).rest,    0);
@@ -885,8 +888,13 @@ function CashFlowDashboard({ data, setData, toast }) {
           const cellOvWeek = `${ovPrefix}.s02.w${i + 1}`;
           const planByCat   = [1, 2, 3, 4].map(c => WTPOverride.resolve(`${cellOvWeek}.cat${c}.plan`,   apForecastByWeekCat[i][c] || 0));
           const actualByCat = [1, 2, 3, 4].map(c => WTPOverride.resolve(`${cellOvWeek}.cat${c}.actual`, pvActualByWeekCat[i][c]   || 0));
-          const planTotal   = planByCat.reduce((s, v) => s + v, 0);
-          const actualTotal = actualByCat.reduce((s, v) => s + v, 0);
+          // รวม row — รองรับ override level "total" (ถ้า user override จะใช้ค่านี้แทนการรวม cell)
+          const planTotalRaw   = planByCat.reduce((s, v) => s + v, 0);
+          const actualTotalRaw = actualByCat.reduce((s, v) => s + v, 0);
+          const planTotal      = WTPOverride.resolve(`${cellOvWeek}.total.plan`,   planTotalRaw);
+          const actualTotal    = WTPOverride.resolve(`${cellOvWeek}.total.actual`, actualTotalRaw);
+          const planTotalOver  = WTPOverride.has(`${cellOvWeek}.total.plan`);
+          const actualTotalOver= WTPOverride.has(`${cellOvWeek}.total.actual`);
           const pct = planTotal > 0 ? (actualTotal / planTotal) * 100 : 0;
           const status = i < nowWeek ? 'past' : i === nowWeek ? 'now' : 'future';
           return (
@@ -951,8 +959,16 @@ function CashFlowDashboard({ data, setData, toast }) {
                 <tfoot>
                   <tr style={{ background: 'var(--ink-50)', fontWeight: 700 }}>
                     <td style={{ padding: '4px 6px' }}>รวม</td>
-                    <td style={{ padding: '4px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 11 }}>{fmtNum(planTotal, 0)}</td>
-                    <td style={{ padding: '4px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--bad)', fontSize: 11 }}>{fmtNum(actualTotal, 0)}</td>
+                    <td style={{ padding: '4px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 11 }}>
+                      {editMode
+                        ? <EditableNumber ovKey={`${cellOvWeek}.total.plan`}   computed={planTotalRaw}   editMode={true} digits={0} />
+                        : (<>{fmtNum(planTotal, 0)}{planTotalOver && <span title="แก้มือ" style={{ fontSize: 8, marginLeft: 2, color: 'var(--brand-500)' }}>✏️</span>}</>)}
+                    </td>
+                    <td style={{ padding: '4px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--bad)', fontSize: 11 }}>
+                      {editMode
+                        ? <EditableNumber ovKey={`${cellOvWeek}.total.actual`} computed={actualTotalRaw} editMode={true} digits={0} />
+                        : (<>{fmtNum(actualTotal, 0)}{actualTotalOver && <span title="แก้มือ" style={{ fontSize: 8, marginLeft: 2, color: 'var(--brand-500)' }}>✏️</span>}</>)}
+                    </td>
                   </tr>
                 </tfoot>
               </table>
@@ -967,39 +983,79 @@ function CashFlowDashboard({ data, setData, toast }) {
       </div>
 
       {/* Grand Total */}
-      <div className="card anim-in" style={{
-        padding: '14px 18px', marginBottom: 22,
-        background: 'linear-gradient(135deg, var(--brand-50), white)',
-        borderColor: 'var(--brand-200)',
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-600)' }}>Grand Total Actual</div>
-            <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--bad)', fontVariantNumeric: 'tabular-nums' }}>
-              {fmtNum(outflowActual, 0)}
+      {(() => {
+        // คำนวณ Grand Total โดยรวมยอด "รวม" ของแต่ละ week (เคารพ override total ของ week ด้วย)
+        let grandPlanRaw = 0, grandActualRaw = 0;
+        weeks.forEach((_, i) => {
+          const weekKey = `${ovPrefix}.s02.w${i + 1}`;
+          // sum cells in this week (ใช้ override level cell ก่อน)
+          let pSum = 0, aSum = 0;
+          [1, 2, 3, 4].forEach(cat => {
+            pSum += WTPOverride.resolve(`${weekKey}.cat${cat}.plan`,   apForecastByWeekCat[i][cat] || 0);
+            aSum += WTPOverride.resolve(`${weekKey}.cat${cat}.actual`, pvActualByWeekCat[i][cat]   || 0);
+          });
+          // แล้วใช้ override level week-total ทับอีกที (ถ้ามี)
+          grandPlanRaw   += WTPOverride.resolve(`${weekKey}.total.plan`,   pSum);
+          grandActualRaw += WTPOverride.resolve(`${weekKey}.total.actual`, aSum);
+        });
+        // override level Grand Total — top of stack (final override)
+        const gpKey = `${ovPrefix}.s02.grand.plan`;
+        const gaKey = `${ovPrefix}.s02.grand.actual`;
+        const grandPlan   = WTPOverride.resolve(gpKey, grandPlanRaw);
+        const grandActual = WTPOverride.resolve(gaKey, grandActualRaw);
+        const grandPlanOver   = WTPOverride.has(gpKey);
+        const grandActualOver = WTPOverride.has(gaKey);
+        const grandPct = grandPlan > 0 ? (grandActual / grandPlan) * 100 : 0;
+        const pctColor = grandPct >= 100 ? 'var(--bad)' : grandPct >= 70 ? 'var(--warn)' : 'var(--good)';
+        return (
+        <div className="card anim-in" style={{
+          padding: '14px 18px', marginBottom: 22,
+          background: 'linear-gradient(135deg, var(--brand-50), white)',
+          borderColor: 'var(--brand-200)',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 18 }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-600)' }}>Grand Total Plan</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink-700)', fontVariantNumeric: 'tabular-nums' }}>
+                {editMode
+                  ? <EditableNumber ovKey={gpKey} computed={grandPlanRaw} editMode={true} digits={0} />
+                  : (<>{fmtNum(grandPlan, 0)}{grandPlanOver && <span title="แก้มือ" style={{ fontSize: 10, marginLeft: 4, color: 'var(--brand-500)' }}>✏️</span>}</>)}
+              </div>
             </div>
-          </div>
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-600)' }}>% of Plan</div>
-            <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--brand-700)', fontVariantNumeric: 'tabular-nums' }}>
-              {outflowForecast > 0 ? ((outflowActual / outflowForecast) * 100).toFixed(2) : '0.00'}%
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-600)' }}>Grand Total Actual</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--bad)', fontVariantNumeric: 'tabular-nums' }}>
+                {editMode
+                  ? <EditableNumber ovKey={gaKey} computed={grandActualRaw} editMode={true} digits={0} />
+                  : (<>{fmtNum(grandActual, 0)}{grandActualOver && <span title="แก้มือ" style={{ fontSize: 10, marginLeft: 4, color: 'var(--brand-500)' }}>✏️</span>}</>)}
+              </div>
             </div>
-            <div style={{ fontSize: 10, color: 'var(--ink-500)' }}>
-              of {fmtNum(outflowForecast, 0)} แผน
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-600)' }}>% of Plan</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: pctColor, fontVariantNumeric: 'tabular-nums' }}>
+                {grandPct.toFixed(1)}%
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--ink-500)' }}>
+                จ่ายแล้ว {fmtNum(grandActual, 0)} / แผน {fmtNum(grandPlan, 0)}
+              </div>
             </div>
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ height: 12, background: 'var(--ink-100)', borderRadius: 6, overflow: 'hidden' }}>
-              <div style={{
-                width: `${Math.min(100, outflowForecast > 0 ? (outflowActual / outflowForecast) * 100 : 0)}%`,
-                height: '100%',
-                background: 'linear-gradient(90deg, var(--brand-500), var(--brand-700))',
-                transition: 'width 600ms',
-              }} />
+            <div style={{ flex: 1, minWidth: 180 }}>
+              <div style={{ height: 12, background: 'var(--ink-100)', borderRadius: 6, overflow: 'hidden' }}>
+                <div style={{
+                  width: `${Math.min(100, grandPct)}%`,
+                  height: '100%',
+                  background: grandPct >= 100 ? 'var(--bad)' : 'linear-gradient(90deg, var(--brand-500), var(--brand-700))',
+                  transition: 'width 600ms',
+                }} />
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--ink-500)', marginTop: 4, textAlign: 'right' }}>
+                คงเหลือต้องจ่าย {fmtNum(Math.max(0, grandPlan - grandActual), 0)} ฿
+              </div>
             </div>
           </div>
         </div>
-      </div>
+        );
+      })()}
 
       {/* Footer hints */}
       <div className="card" style={{ marginTop: 12, padding: 14, background: '#fffbeb', borderLeft: '4px solid #f6ad55', fontSize: 12, color: 'var(--ink-700)' }}>
@@ -1270,7 +1326,11 @@ function PlanRow({ label, current, rest, total, subtle, negative, carrySigned, o
     if (editMode) {
       return <EditableNumber ovKey={key} computed={val} editMode={true} digits={0} />;
     }
-    const resolved = WTPOverride.resolve(key, val);
+    let resolved = WTPOverride.resolve(key, val);
+    // สำหรับ outflow rows (negative=true): user อาจคีย์เป็นบวกหรือลบก็ได้
+    //   normalize เป็น absolute ก่อนโชว์ เพื่อให้ display สอดคล้องกับการคำนวณ
+    //   (math ก็ใช้ Math.abs ใน _resolvedOut)
+    if (negative) resolved = Math.abs(resolved);
     return (
       <>
         {fmtVal(resolved)}
