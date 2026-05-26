@@ -11,7 +11,12 @@
   // Helper: days between two ISO dates
   const daysBetween = (a, b) => {
     if (!a || !b) return null;
-    return Math.round((new Date(b) - new Date(a)) / (1000 * 60 * 60 * 24));
+    // ใช้ parseDateFlexible (จาก components.jsx) ถ้ามี — รองรับ DD/MM/YYYY Thai format
+    const parse = (window.parseDateFlexible) || (v => new Date(v));
+    const da = parse(a);
+    const db = parse(b);
+    if (!da || !db || isNaN(da) || isNaN(db)) return null;
+    return Math.round((db - da) / (1000 * 60 * 60 * 24));
   };
 
   const seed = () => ({

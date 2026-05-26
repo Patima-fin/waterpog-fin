@@ -85,7 +85,13 @@
   /* ── helpers ─────────────────────────────────────────────────────── */
   function rowsToObjects(rows, jsonFields) {
     if (!rows || rows.length < 2) return [];
-    var headers = rows[0];
+    // Trim header strings — kills leading/trailing spaces/newlines/zero-width chars
+    // ที่อาจติดมาจาก Google Sheets ตอน user paste (เคยทำให้ p['Start'] = undefined
+    // เพราะ header จริงเป็น " Start" หรือ "Start " มี space แอบอยู่)
+    var headers = (rows[0] || []).map(function (h) {
+      if (h == null) return h;
+      return String(h).replace(/[​-‍﻿]/g, '').trim();
+    });
 
     // Detect duplicate column headers — warn once so users can find/rename them.
     var seen = {};
@@ -112,9 +118,6 @@
         if (jsonFields && jsonFields.indexOf(h) >= 0 && typeof v === 'string' && v.length > 1) {
           try { v = JSON.parse(v); } catch (_) {}
         }
-        // Don't let an empty value overwrite a previously-set non-empty value.
-        // Handles duplicate column headers (e.g. two columns named `docno` where
-        // only one has data) — keeps the populated one as the canonical value.
         var existing = obj[h];
         var existingHasVal = existing != null && existing !== '';
         var newIsEmpty    = v == null || v === '';

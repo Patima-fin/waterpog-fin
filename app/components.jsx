@@ -21,18 +21,58 @@ function fmtMoney(n, opts = {}) {
   if (compact && abs >= 1000)     return (sign && n > 0 ? '+' : '') + (n / 1000).toLocaleString(TH_LOCALE, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' พัน';
   return (sign && n > 0 ? '+' : '') + Number(n).toLocaleString(TH_LOCALE, { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
+// Robust date parser — รองรับ ISO (YYYY-MM-DD), DD/MM/YYYY (Thai), MM/DD/YYYY (US), Date object
+function parseDateFlexible(v) {
+  if (v == null || v === '') return null;
+  // already Date object
+  if (v instanceof Date) return isNaN(v) ? null : v;
+  const s = String(v).trim();
+  if (!s) return null;
+  // ISO: YYYY-MM-DD or YYYY-MM-DDT...
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+    const d = new Date(s);
+    return isNaN(d) ? null : d;
+  }
+  // DD/MM/YYYY or DD/MM/YY — Thai/EU format (priority)
+  // กรณีนี้ user paste จาก Google Sheets ที่ตั้ง locale Thai
+  const m = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/);
+  if (m) {
+    let [_, a, b, y] = m;
+    let yi = parseInt(y, 10);
+    if (yi < 100) yi += 2000;
+    // Convert พ.ศ. → ค.ศ. (รองรับปีพศ เช่น 2569 → 2026)
+    if (yi > 2400) yi -= 543;
+    const a1 = parseInt(a, 10), b1 = parseInt(b, 10);
+    // Use DD/MM if first part > 12 (definitely day), else assume DD/MM for Thai
+    if (a1 > 12) {
+      // a = day, b = month
+      const d = new Date(yi, b1 - 1, a1);
+      return isNaN(d) ? null : d;
+    } else if (b1 > 12) {
+      // b = day, a = month (US)
+      const d = new Date(yi, a1 - 1, b1);
+      return isNaN(d) ? null : d;
+    } else {
+      // Ambiguous — default DD/MM (Thai)
+      const d = new Date(yi, b1 - 1, a1);
+      return isNaN(d) ? null : d;
+    }
+  }
+  // Fallback to native Date parser
+  const d = new Date(s);
+  return isNaN(d) ? null : d;
+}
+
 function fmtDate(iso) {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (isNaN(d)) return '—';
+  const d = parseDateFlexible(iso);
+  if (!d) return '—';
   const dd = String(d.getDate()).padStart(2, '0');
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   return `${dd}/${mm}/${d.getFullYear()}`;
 }
 function fmtDateLong(iso) {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (isNaN(d)) return '—';
+  const d = parseDateFlexible(iso);
+  if (!d) return '—';
   return d.toLocaleDateString('th-TH-u-ca-gregory', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
@@ -712,7 +752,7 @@ function EditModeToggle({ value, onChange, label = 'โหมดแก้ไข'
 
 // ─── Export to globals ───────────────────────────────────────────────────────
 Object.assign(window, {
-  fmtNum, fmtInt, fmtMoney, fmtDate, fmtDateLong,
+  fmtNum, fmtInt, fmtMoney, fmtDate, fmtDateLong, parseDateFlexible,
   useCountUp, AnimatedNumber, Icon, Modal, useToasts, Badge, KpiTile, EditableCell,
   useSortable, SortHeader, StatusPill,
   exportRowsToExcel, ExportButton, PrintButton,

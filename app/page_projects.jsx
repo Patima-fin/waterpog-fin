@@ -12,21 +12,49 @@ function ProjectsPage({ data, setData, toast }) {
 
   const rows = pjMemo(() => data.projects.map(p => {
     const code = p['Contract No.'] || p.code || '';
+    // Helper: get value from object trying multiple key variants (with/without space, trimmed key)
+    const get = (...keys) => {
+      for (const k of keys) {
+        if (p[k] != null && p[k] !== '') return p[k];
+      }
+      // last-resort: scan all keys, trim, compare case-insensitive
+      const wanted = keys.map(k => k && k.toString().trim().toLowerCase());
+      for (const rk of Object.keys(p)) {
+        const rkn = rk.trim().toLowerCase();
+        if (wanted.indexOf(rkn) >= 0 && p[rk] != null && p[rk] !== '') return p[rk];
+      }
+      return '';
+    };
+    const start  = get('Start',  'start',  'startDate', 'วันที่เริ่ม');
+    const finish = get('Finish', 'finish', 'finishDate', 'วันที่สิ้นสุด');
     return {
       ...p,
       _code:        code,
       _name:        p['พื้นที่'] || p.name || '—',
-      _start:       p['Start']  || p.startDate || '',
-      _finish:      p['Finish'] || p.finishDate || '',
-      _budget:      Number(p['งบประมาณ']             || p.allocBudget  || 0),
-      _signed:      Number(p['มูลค่าสัญญาที่เซ็น']   || p.signedValue  || 0),
-      _debt:        Number(p['ภาระหนี้']              || p.debt         || 0),
-      _assignee:    p['ผู้รับโอนสิทธิ์'] || p.assignee || '—',
+      _start:       start,
+      _finish:      finish,
+      _budget:      Number(get('งบประมาณ', 'allocBudget', 'budget')) || 0,
+      _signed:      Number(get('มูลค่าสัญญาที่เซ็น', 'signedValue')) || 0,
+      _debt:        Number(get('ภาระหนี้', 'debt')) || 0,
+      _assignee:    get('ผู้รับโอนสิทธิ์', 'assignee') || '—',
       _pogPct:      p['% (POG+STANK)']  != null ? Number(p['% (POG+STANK)'])  : null,
-      _status:      p['สถานะโครงการ']   || p.status   || '',
-      _timelineDays: WTPData.daysBetween(p['Start'] || p.startDate, p['Finish'] || p.finishDate),
+      _status:      get('สถานะโครงการ', 'status') || '',
+      _timelineDays: WTPData.daysBetween(start, finish),
     };
   }), [data.projects]);
+
+  // Debug helper — expose first project to window for inspection (F12 → __wtpDebug_proj0)
+  React.useEffect(() => {
+    if (data.projects && data.projects.length) {
+      window.__wtpDebug_proj0 = {
+        keys: Object.keys(data.projects[0]),
+        keysQuoted: Object.keys(data.projects[0]).map(k => JSON.stringify(k)),
+        raw: data.projects[0],
+        start: data.projects[0].Start,
+        finish: data.projects[0].Finish,
+      };
+    }
+  }, [data.projects]);
 
   const filtered = pjMemo(() => {
     let xs = rows;
