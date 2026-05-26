@@ -147,6 +147,10 @@
   }
 
   /* ── fetch one sheet as CSV rows ─────────────────────────────────── */
+  // หมายเหตุ: ตั้งใจให้ throw error ออกไป (ไม่ catch ภายใน) เพื่อให้ caller
+  // ใช้ Promise.allSettled แล้วตัดสินใจว่าจะ retry หรือใช้ cache เดิม
+  // ★ ห้าม return [] ตอน fail เด็ดขาด — เพราะ [] จะถูกเอาไปทับข้อมูลใน
+  //   localStorage (data loss bug) ตอนเจอ HTTP 429 / network error
   function fetchSheet(name) {
     // Add cache-busting timestamp so we always get the latest Sheet state.
     // Without this, Google's gviz endpoint may serve stale CSV for several minutes.
@@ -156,11 +160,7 @@
         if (!r.ok) throw new Error(name + ': HTTP ' + r.status);
         return r.text();
       })
-      .then(parseCSV)
-      .catch(function (err) {
-        console.warn('[WTP Sync] ดึงชีต', name, 'ล้มเหลว:', err.message);
-        return [];
-      });
+      .then(parseCSV);
   }
 
   /* ── load all sheets in parallel + assemble data structure ───────── */
@@ -184,7 +184,26 @@
       'manualOverrides',        // shared manual KPI overrides (visible to all users)
     ];
 
-    return Promise.all(sheetOrder.map(fetchSheet)).then(function (results) {
+    return Promise.allSettled(sheetOrder.map(fetchSheet)).then(function (settled) {
+      // ★ Atomic rule: ถ้ามี sheet ใดโหลด fail (HTTP 429 / network / etc.)
+      //   จะไม่ assemble + ไม่ทับ localStorage เลย — รักษาข้อมูลเดิมไว้
+      //   เพื่อป้องกัน data loss (เคยทำให้ user เห็น "บัญชี = 0" ตอนชน rate limit)
+      var failed = [];
+      settled.forEach(function (s, idx) {
+        if (s.status === 'rejected') {
+          failed.push({ name: sheetOrder[idx], err: s.reason && s.reason.message });
+        }
+      });
+      if (failed.length > 0) {
+        failed.forEach(function (f) {
+          console.warn('[WTP Sync] ดึงชีต', f.name, 'ล้มเหลว:', f.err);
+        });
+        console.warn('[WTP Sync] ⚠ ' + failed.length + '/' + sheetOrder.length +
+          ' ชีตโหลดไม่สำเร็จ — รักษาข้อมูลเดิมไว้ (ไม่ทับ localStorage) จะ retry รอบหน้า');
+        setSyncStatus('error');
+        return;  // ★ early return — ไม่ overwrite cachedServerData + ไม่เรียก origSave
+      }
+      var results = settled.map(function (s) { return s.value; });
       var i = 0;
       var metaKV     = rowsToKV(results[i++]);
       var pipelineKV = rowsToKV(results[i++]);
