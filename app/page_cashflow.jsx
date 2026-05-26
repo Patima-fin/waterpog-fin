@@ -666,6 +666,7 @@ function CashFlowDashboard({ data, setData, toast }) {
             {monthNames[month - 1]} {year + 543}
           </div>
           <button className="btn btn-ghost" onClick={goNextMonth} title="เดือนถัดไป">›</button>
+          <CloudSyncStatusButton />
           <EditModeToggle value={editMode} onChange={setEditMode} />
           <button className="btn btn-ghost" onClick={() => {
             // A4 landscape print — 5-week tracking fits beautifully across the wider page

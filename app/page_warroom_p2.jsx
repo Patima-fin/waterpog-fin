@@ -83,6 +83,7 @@ function WarRoomPage2({ data, setData, toast }) {
           <div className="page-sub">ประมาณการรับเงินจากโครงการทั้งหมด · ทั้งปี {meta.year} · ข้อมูล ณ {fmtDate(meta.asOf)}</div>
         </div>
         <div className="page-head-r">
+          <CloudSyncStatusButton />
           <EditModeToggle value={editMode} onChange={setEditMode} />
           <a className="btn btn-ghost" href="#warroom1"><Icon name="arrow" size={14} style={{ transform: 'rotate(180deg)' }} /> ย้อนกลับ · หน้า 1</a>
           <PrintButton label="พิมพ์ / PDF" />

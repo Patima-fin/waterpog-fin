@@ -829,6 +829,88 @@ function EditableNumber({ ovKey, computed, editMode, format, digits = 2, style, 
  * EditModeToggle — ปุ่ม toggle ที่ใช้ใส่ในหัวหน้า
  *   <EditModeToggle value={editMode} onChange={setEditMode} />
  */
+// ─── CloudSyncStatusButton — ปุ่มเช็คสถานะ cloud sync (เห็นค่าทุก user หรือไม่)
+// คลิกครั้งเดียว: เช็คสถานะ + auto force-sync ถ้ามีค่าค้าง + แสดงผลใน alert
+function CloudSyncStatusButton() {
+  useOverrideSubAny();
+  const [busy, setBusy] = useState(false);
+  const local = WTPOverride._loadLocal();
+  const cloud = WTPOverride._loadCloud();
+  const localKeys = Object.keys(local);
+  const cloudKeys = Object.keys(cloud);
+  const onlyLocal = localKeys.filter(k => !(k in cloud));
+  const dataReady = window.__wtpData && Array.isArray(window.__wtpData.manualOverrides);
+
+  // status: 'ok' (cloud=local), 'pending' (มีค่าที่ยังไม่ขึ้น cloud), 'error' (cloud ไม่ทำงาน)
+  const status = !dataReady ? 'error' : onlyLocal.length > 0 ? 'pending' : 'ok';
+  const styleByStatus = {
+    ok:      { bg: '#ecfdf5', border: '#10b981', color: '#065f46', icon: '☁️ ✓', label: 'ค่าทั้งหมดแชร์แล้ว' },
+    pending: { bg: '#fffbeb', border: '#f59e0b', color: '#92400e', icon: '⚠️',     label: `ยังไม่แชร์ ${onlyLocal.length} ค่า` },
+    error:   { bg: '#fef2f2', border: '#dc2626', color: '#991b1b', icon: '✕',     label: 'Cloud ไม่ทำงาน' },
+  }[status];
+
+  const handleClick = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      if (status === 'error') {
+        alert(
+          '⚠ ระบบ Cloud Sync ยังไม่ทำงาน\n\n' +
+          'สาเหตุที่เป็นไปได้:\n' +
+          '1. Apps Script ยังไม่ได้ deploy โค้ดใหม่\n' +
+          '2. ชีต "manualOverrides" ใน Google Sheet ยังไม่ถูกสร้าง\n' +
+          '3. กำลังโหลดข้อมูล — รอสักครู่แล้วลองใหม่\n\n' +
+          'ตอนนี้ค่าที่แนนกรอกอยู่เฉพาะเครื่องนี้ ไม่เห็นจากเครื่องอื่น'
+        );
+        return;
+      }
+      if (status === 'ok') {
+        alert(
+          '✅ Cloud Sync ทำงานปกติ\n\n' +
+          `• ค่าที่กรอกในเครื่องนี้: ${localKeys.length} ค่า\n` +
+          `• ค่าที่อยู่บน Cloud: ${cloudKeys.length} ค่า\n` +
+          '• ✓ ทุกค่าซิงค์แล้ว — เครื่องอื่น/ผู้บริหารจะเห็นทันทีหลัง refresh'
+        );
+        return;
+      }
+      // status === 'pending' — auto force-sync
+      const n = WTPOverride.forceSync();
+      // wait a moment then re-check
+      setTimeout(() => {
+        alert(
+          `⬆️ กำลังอัปโหลด ${n} ค่าขึ้น Cloud\n\n` +
+          'รอประมาณ 5 วินาที จากนั้นเครื่องอื่นจะเห็นค่าใหม่หลัง refresh\n\n' +
+          'หมายเหตุ: ถ้ายังไม่ขึ้นหลังจากนี้ แสดงว่า Apps Script ยังไม่ deploy หรือชีต manualOverrides ยังไม่มี'
+        );
+      }, 200);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      title="คลิกเพื่อตรวจสอบ/อัปโหลดค่าที่กรอกขึ้น Cloud (เพื่อให้ผู้บริหารและเครื่องอื่นเห็น)"
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6,
+        padding: '6px 12px', borderRadius: 18,
+        border: `1.5px solid ${styleByStatus.border}`,
+        background: styleByStatus.bg,
+        color: styleByStatus.color,
+        cursor: busy ? 'wait' : 'pointer',
+        fontSize: 12.5, fontWeight: 700,
+        transition: 'all .15s',
+        opacity: busy ? .6 : 1,
+      }}
+    >
+      <span>{styleByStatus.icon}</span>
+      <span>{styleByStatus.label}</span>
+    </button>
+  );
+}
+
 function EditModeToggle({ value, onChange, label = 'โหมดแก้ไข' }) {
   return (
     <button
@@ -862,4 +944,5 @@ Object.assign(window, {
   exportRowsToExcel, ExportButton, PrintButton,
   ColFilterDropdown, FilterableColHeader,
   WTPOverride, EditableNumber, EditModeToggle, useOverrideSub, useOverrideSubAny,
+  CloudSyncStatusButton,
 });
