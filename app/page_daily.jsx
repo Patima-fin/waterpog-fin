@@ -613,20 +613,21 @@ function DailyPillCard({ title, subtitle, icon, count, value, gradient, accent, 
           <div className="dpc-sub" style={{ fontSize: 10, opacity: 0.78, marginTop: 2, letterSpacing: '.08em', textTransform: 'uppercase' }}>{subtitle}</div>
         </div>
 
-        {/* Big VALUE — grows to fill */}
+        {/* Big VALUE — grows to fill, RIGHT-aligned (ตามหลักตัวเลขบัญชี → digits ตรงกัน) */}
         <div className="dpc-value" style={{
           flex: 1, fontSize: 30, fontWeight: 800,
           fontVariantNumeric: 'tabular-nums', letterSpacing: '-.02em', lineHeight: 1,
-          position: 'relative', zIndex: 1, textAlign: 'left',
+          position: 'relative', zIndex: 1, textAlign: 'right',
         }}>
           <AnimatedNumber value={value} digits={2} />
           <span className="dpc-unit" style={{ fontSize: 15, opacity: 0.82, fontWeight: 500, marginLeft: 4 }}>฿</span>
         </div>
 
-        {/* Count */}
+        {/* Count — fixed-width, right-aligned numeric */}
         <div className="dpc-count" style={{
           display: 'flex', alignItems: 'baseline', gap: 4, opacity: 0.92,
           flexShrink: 0, position: 'relative', zIndex: 1,
+          minWidth: 56, justifyContent: 'flex-end',
         }}>
           <span style={{ fontSize: 18, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
             <AnimatedNumber value={count} digits={0} />

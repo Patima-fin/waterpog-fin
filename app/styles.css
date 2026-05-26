@@ -1202,19 +1202,26 @@ button { font: inherit; color: inherit; }
     margin-top: 1pt !important;
     letter-spacing: .08em !important;
   }
-  /* ── Big value (ตัวเลข) ── */
+  /* ── Big value (ตัวเลข) — right-align ตามหลักบัญชี → digits ตรงกันทุก pill ── */
   body.dr-print-mode .dr-page .dpc-value {
     font-size: 24pt !important;
     font-weight: 800 !important;
     line-height: 1 !important;
+    text-align: right !important;
+    font-variant-numeric: tabular-nums !important;
   }
   body.dr-print-mode .dr-page .dpc-value .dpc-unit {
     font-size: 12pt !important;
   }
-  /* ── Count "1 ใบ" ── */
+  /* ── Count "1 ใบ" — fixed-width right-aligned ── */
+  body.dr-print-mode .dr-page .dpc-count {
+    min-width: 46pt !important;
+    justify-content: flex-end !important;
+  }
   body.dr-print-mode .dr-page .dpc-count > span:first-child {
     font-size: 15pt !important;
     font-weight: 800 !important;
+    font-variant-numeric: tabular-nums !important;
   }
   body.dr-print-mode .dr-page .dpc-count > span:last-child {
     font-size: 10.5pt !important;
