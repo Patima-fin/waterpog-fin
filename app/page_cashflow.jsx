@@ -331,13 +331,14 @@ function CashFlowDashboard({ data, setData, toast }) {
     const actual   = weeks.map(() => 0);
     invoices.forEach(iv => {
       const net = ivNetExpected(iv, financeByCode);
-      // Forecast: เฉพาะ IV ที่ status='tracking' (อยู่ระหว่างติดตามเงิน) เท่านั้น
-      //   ไม่นับ pending_inspection (รอตรวจรับ) หรือ issue (ติดปัญหา) — ยังไม่แน่ว่าจะรับได้
-      if (ivIsTracking(iv) && iv.expectedReceive && inMonth(iv.expectedReceive, year, month)) {
+      // Forecast: ลูกหนี้คงค้างทุกใบที่ยังไม่ได้รับเงิน (status ≠ paid)
+      //   ใช้ expectedReceive เป็นวันที่คาดว่าจะได้รับ
+      //   ใช้ net = คาดรับสุทธิ (จากหน้า IV) — ยอดเดียวที่เห็น ไม่หักอะไรเพิ่ม
+      if (!ivIsPaid(iv) && iv.expectedReceive && inMonth(iv.expectedReceive, year, month)) {
         const w = findWeekIdx(iv.expectedReceive, weeks);
         if (w >= 0) forecast[w] += net;
       }
-      // Actual: actualReceive.date in current month (รับชำระแล้ว นับทุก status)
+      // Actual: actualReceive.date in current month
       const ad = ivActualReceiveDate(iv);
       if (ad && inMonth(ad, year, month)) {
         const w = findWeekIdx(ad, weeks);
@@ -413,8 +414,8 @@ function CashFlowDashboard({ data, setData, toast }) {
     let iv = 0, loan = 0;
     const out = { 1: 0, 2: 0, 3: 0, 4: 0 };
     invoices.forEach(ivRow => {
-      // เฉพาะ IV ที่อยู่ระหว่างติดตามเงิน — เดียวกับ logic main
-      if (!ivIsTracking(ivRow)) return;
+      // ลูกหนี้คงค้างทุกใบที่ยังไม่ได้รับเงิน — เดียวกับ logic main
+      if (ivIsPaid(ivRow)) return;
       if (ivRow.expectedReceive && inMonth(ivRow.expectedReceive, nextYear, nextMonth)) {
         iv += ivNetExpected(ivRow, financeByCode);
       }
@@ -510,8 +511,8 @@ function CashFlowDashboard({ data, setData, toast }) {
 
     if (row === 'iv') {
       invoices.forEach(iv => {
-        // เฉพาะ IV status='tracking' — เดียวกับ logic main
-        if (!ivIsTracking(iv)) return;
+        // ลูกหนี้คงค้างทุกใบที่ยังไม่ได้รับเงิน — เดียวกับ logic main
+        if (ivIsPaid(iv)) return;
         const d = iv.expectedReceive;
         if (!d || !inPeriod(d)) return;
         items.push({
@@ -520,7 +521,10 @@ function CashFlowDashboard({ data, setData, toast }) {
           name: iv.projectName || iv.PROJECT_NAME || iv.customer || '—',
           ref: iv.ivNo || iv.IV_NO || iv.invoiceNo || '',
           amount: ivNetExpected(iv, financeByCode),
-          note: 'อยู่ระหว่างติดตามเงิน' + (iv.note ? ' · ' + iv.note : ''),
+          note: (() => {
+            const meta = window.WTPData?.IV_STATUS_META?.[iv.status];
+            return (meta?.short || iv.status || '—') + (iv.note ? ' · ' + iv.note : '');
+          })(),
         });
       });
       forecastEntries.forEach(fe => {
@@ -903,7 +907,8 @@ function CashFlowDashboard({ data, setData, toast }) {
         <div style={{ fontWeight: 700, marginBottom: 6 }}>💡 หมายเหตุ</div>
         <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.7 }}>
           <li>ยอดยกมา (B/F) — ดึงจาก <a href="#daily_balance" style={{ color: 'var(--brand-600)' }}>บันทึกยอดธนาคารรายวัน</a> วันสุดท้ายของเดือนที่แล้ว</li>
-          <li>รายรับโครงการ — ดึงจากหน้า <a href="#iv_report" style={{ color: 'var(--brand-600)' }}>รายงานติดตาม IV</a> เฉพาะที่ <strong>status = "อยู่ระหว่างติดตามเงิน"</strong> (Net = balance × 106/107 − ภาระหนี้)</li>
+          <li>รายรับโครงการ — <strong>ลูกหนี้คงค้างทุกใบที่ยังไม่ได้รับเงิน</strong> จากหน้า <a href="#iv_report" style={{ color: 'var(--brand-600)' }}>รายงานติดตาม IV</a> · บัคเก็ตด้วย expectedReceive · ใช้ยอด "คาดรับสุทธิ" ตรง ๆ</li>
+          <li>ถ้าตอนนี้เป็น <strong>สัปดาห์สุดท้ายของเดือน</strong> → คอลัมน์ "สัปดาห์ที่เหลือ" จะดึงยอดประมาณการของ <strong>เดือนถัดไป</strong> มาแสดงแทน</li>
           <li>ค่าใช้จ่าย — ดึงจาก <a href="#data_payable" style={{ color: 'var(--brand-600)' }}>DATA เจ้าหนี้คงค้าง</a> + <a href="#data_pv" style={{ color: 'var(--brand-600)' }}>DATA PV</a> + <a href="#data_forecast" style={{ color: 'var(--brand-600)' }}>ประมาณการนอกระบบ</a></li>
           <li>เงินกู้ — กรอกใน <a href="#data_forecast" style={{ color: 'var(--brand-600)' }}>ประมาณการนอกระบบ</a> โดยตั้ง EXPENSE_TYPE='LOAN' (PLANNED → ACTUAL เมื่อกู้จริง)</li>
           <li>หมวดค่าใช้จ่าย: 1=ดำเนินงาน · 2=โครงการ (มี jobcode) · 3=ฝ่ายการเงิน (dpt_code=FIN) · 4=เงินเดือน (จาก forecastEntries CATEGORY=4)</li>
