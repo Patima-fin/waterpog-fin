@@ -770,14 +770,18 @@ function CashFlowDashboard({ data, setData, toast }) {
             <PlanRow
               label="เงินสดคงเหลือยกมา"
               current={weekBF}
-              rest={netEndOfCurrentWeek}     /* carry forward — usually equals to closing of current week */
-              total={weekBF}                  /* total = month B/F (the starting point) */
+              rest={netEndOfCurrentWeek}
+              total={weekBF}
               subtle
-              carrySigned                    /* allow negative in rest column without parentheses */
+              carrySigned
+              editMode={editMode}
+              ovKey={`${ovPrefix}.s01.bf`}
             />
             <PlanRow label="รับเงินโครงการ"            current={planIv.current}   rest={planIv.rest}   total={planIv.current + planIv.rest}
+              editMode={editMode} ovKey={`${ovPrefix}.s01.iv`}
               onCellClick={(p) => openDrillDown('iv', p, `รับเงินโครงการ · ${p === 'current' ? weeks[nowWeek]?.label : p === 'rest' ? 'สัปดาห์ที่เหลือ' : 'TOTAL'}`)} />
             <PlanRow label="เงินกู้/สินเชื่อหมุนเวียน"  current={planLoan.current} rest={planLoan.rest} total={planLoan.current + planLoan.rest}
+              editMode={editMode} ovKey={`${ovPrefix}.s01.loan`}
               onCellClick={(p) => openDrillDown('loan', p, `เงินกู้/สินเชื่อ · ${p === 'current' ? weeks[nowWeek]?.label : p === 'rest' ? 'สัปดาห์ที่เหลือ' : 'TOTAL'}`)} />
 
             {/* ── OUTFLOW section ─────────────────────────────────────── */}
@@ -793,6 +797,8 @@ function CashFlowDashboard({ data, setData, toast }) {
                 rest={planOut[cat].rest}
                 total={planOut[cat].total}
                 negative
+                editMode={editMode}
+                ovKey={`${ovPrefix}.s01.out${cat}`}
                 onCellClick={(p) => openDrillDown(`out${cat}`, p, `${CATEGORY_LABELS[cat]} · ${p === 'current' ? weeks[nowWeek]?.label : p === 'rest' ? 'สัปดาห์ที่เหลือ' : 'TOTAL'}`)}
               />
             ))}
@@ -882,15 +888,20 @@ function CashFlowDashboard({ data, setData, toast }) {
                   {[1,2,3,4].map(cat => {
                     const p = apForecastByWeekCat[i][cat] || 0;
                     const a = pvActualByWeekCat[i][cat] || 0;
+                    const cellOv = `${ovPrefix}.s02.w${i + 1}.cat${cat}`;
                     return (
                       <tr key={cat} title={CATEGORY_LABELS[cat]}>
                         <td style={{ padding: '3px 6px', fontSize: 10, color: 'var(--ink-600)' }}>{cat}. {CATEGORY_LABELS_SHORT[cat]}</td>
                         <td style={{ padding: '3px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--ink-500)' }}>
-                          {p > 0 ? fmtNum(p, 0) : '—'}
+                          {editMode
+                            ? <EditableNumber ovKey={`${cellOv}.plan`} computed={p} editMode={true} digits={0} />
+                            : (p > 0 ? fmtNum(p, 0) : '—')}
                         </td>
                         <td style={{ padding: '3px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums',
                           color: a > 0 ? 'var(--bad)' : 'var(--ink-300)', fontWeight: 600 }}>
-                          {a > 0 ? fmtNum(a, 0) : '—'}
+                          {editMode
+                            ? <EditableNumber ovKey={`${cellOv}.actual`} computed={a} editMode={true} digits={0} />
+                            : (a > 0 ? fmtNum(a, 0) : '—')}
                         </td>
                       </tr>
                     );
@@ -1178,14 +1189,15 @@ function KpiCompare({ label, forecast, actual, accent, icon }) {
   );
 }
 
-function PlanRow({ label, current, rest, total, subtle, negative, carrySigned, onCellClick }) {
+function PlanRow({ label, current, rest, total, subtle, negative, carrySigned, onCellClick, editMode, ovKey }) {
   // negative   → outflow (always positive number wrapped in parens)
   // carrySigned→ row may show negative carry-forward without parens (e.g. -2,612,841)
   // onCellClick: (period) => void  — if provided, makes cells clickable for drill-down
+  // ovKey      → if provided + editMode, cells become EditableNumber with keys ovKey.current/.rest/.total
   const fmtVal = v => {
     if (v == null || v === 0) return '—';
-    if (carrySigned) return fmtNum(v, 0);                  // show signed
-    if (negative && v > 0) return `(${fmtNum(v, 0)})`;     // outflow → parens
+    if (carrySigned) return fmtNum(v, 0);
+    if (negative && v > 0) return `(${fmtNum(v, 0)})`;
     return fmtNum(v, 0);
   };
   const colorFor = v => {
@@ -1194,7 +1206,7 @@ function PlanRow({ label, current, rest, total, subtle, negative, carrySigned, o
     if (negative) return 'var(--bad)';
     return subtle ? 'var(--ink-500)' : 'inherit';
   };
-  const clickable = !!onCellClick;
+  const clickable = !!onCellClick && !editMode;  // disable drill in edit mode
   const cellStyle = (val, extra) => ({
     textAlign: 'right',
     fontVariantNumeric: 'tabular-nums',
@@ -1210,6 +1222,13 @@ function PlanRow({ label, current, rest, total, subtle, negative, carrySigned, o
     if (!clickable) return;
     e.currentTarget.style.background = on ? 'color-mix(in oklch, var(--brand-500) 12%, transparent)' : '';
   };
+  // helper เพื่อแสดงเลขใน cell — edit mode = EditableNumber, ปกติ = fmtVal
+  const renderCell = (val, subKey) => {
+    if (editMode && ovKey) {
+      return <EditableNumber ovKey={`${ovKey}.${subKey}`} computed={val} editMode={true} digits={0} />;
+    }
+    return fmtVal(val);
+  };
   return (
     <tr>
       <td style={{ paddingLeft: 24, fontSize: 12.5, color: subtle ? 'var(--ink-500)' : 'inherit' }}>{label}</td>
@@ -1219,7 +1238,7 @@ function PlanRow({ label, current, rest, total, subtle, negative, carrySigned, o
         onMouseLeave={e => hover(e, false)}
         title={clickable && current ? 'คลิกเพื่อดูรายการรายตัว' : ''}
         style={cellStyle(current, { background: 'color-mix(in oklch, var(--brand-50) 50%, transparent)' })}>
-        {fmtVal(current)}
+        {renderCell(current, 'current')}
       </td>
       <td
         onClick={() => clickable && rest && onCellClick('rest')}
@@ -1227,7 +1246,7 @@ function PlanRow({ label, current, rest, total, subtle, negative, carrySigned, o
         onMouseLeave={e => hover(e, false)}
         title={clickable && rest ? 'คลิกเพื่อดูรายการรายตัว' : ''}
         style={cellStyle(rest)}>
-        {fmtVal(rest)}
+        {renderCell(rest, 'rest')}
       </td>
       <td
         onClick={() => clickable && total && onCellClick('total')}
@@ -1235,7 +1254,7 @@ function PlanRow({ label, current, rest, total, subtle, negative, carrySigned, o
         onMouseLeave={e => hover(e, false)}
         title={clickable && total ? 'คลิกเพื่อดูรายการรายตัว' : ''}
         style={cellStyle(total, { fontWeight: 600, background: 'var(--ink-50)' })}>
-        {fmtVal(total)}
+        {renderCell(total, 'total')}
       </td>
     </tr>
   );
