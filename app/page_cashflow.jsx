@@ -162,6 +162,12 @@ function ivIsPaid(iv) {
   const s = String(iv.status || '').toLowerCase();
   return s === 'paid' || s === 'รับชำระแล้ว';
 }
+// ประมาณการรับเงินจะนับเฉพาะ IV ที่กำลัง "ติดตามรับเงิน" — ไม่นับ pending_inspection (ยังไม่ตรวจรับ)
+// หรือ issue (ติดปัญหา ยังไม่แน่ว่าจะรับได้)
+function ivIsTracking(iv) {
+  const s = String(iv.status || '').toLowerCase();
+  return s === 'tracking' || s === 'อยู่ระหว่างติดตามเงิน';
+}
 function ivActualReceiveDate(iv) {
   if (!iv.actualReceive) return null;
   // followUps is parsed JSON in data_sync, actualReceive may be object or string
@@ -325,12 +331,13 @@ function CashFlowDashboard({ data, setData, toast }) {
     const actual   = weeks.map(() => 0);
     invoices.forEach(iv => {
       const net = ivNetExpected(iv, financeByCode);
-      // Forecast: expectedReceive in current month, not yet paid
-      if (!ivIsPaid(iv) && iv.expectedReceive && inMonth(iv.expectedReceive, year, month)) {
+      // Forecast: เฉพาะ IV ที่ status='tracking' (อยู่ระหว่างติดตามเงิน) เท่านั้น
+      //   ไม่นับ pending_inspection (รอตรวจรับ) หรือ issue (ติดปัญหา) — ยังไม่แน่ว่าจะรับได้
+      if (ivIsTracking(iv) && iv.expectedReceive && inMonth(iv.expectedReceive, year, month)) {
         const w = findWeekIdx(iv.expectedReceive, weeks);
         if (w >= 0) forecast[w] += net;
       }
-      // Actual: actualReceive.date in current month
+      // Actual: actualReceive.date in current month (รับชำระแล้ว นับทุก status)
       const ad = ivActualReceiveDate(iv);
       if (ad && inMonth(ad, year, month)) {
         const w = findWeekIdx(ad, weeks);
@@ -406,7 +413,8 @@ function CashFlowDashboard({ data, setData, toast }) {
     let iv = 0, loan = 0;
     const out = { 1: 0, 2: 0, 3: 0, 4: 0 };
     invoices.forEach(ivRow => {
-      if (ivIsPaid(ivRow)) return;
+      // เฉพาะ IV ที่อยู่ระหว่างติดตามเงิน — เดียวกับ logic main
+      if (!ivIsTracking(ivRow)) return;
       if (ivRow.expectedReceive && inMonth(ivRow.expectedReceive, nextYear, nextMonth)) {
         iv += ivNetExpected(ivRow, financeByCode);
       }
@@ -502,7 +510,8 @@ function CashFlowDashboard({ data, setData, toast }) {
 
     if (row === 'iv') {
       invoices.forEach(iv => {
-        if (ivIsPaid(iv)) return;
+        // เฉพาะ IV status='tracking' — เดียวกับ logic main
+        if (!ivIsTracking(iv)) return;
         const d = iv.expectedReceive;
         if (!d || !inPeriod(d)) return;
         items.push({
@@ -511,7 +520,7 @@ function CashFlowDashboard({ data, setData, toast }) {
           name: iv.projectName || iv.PROJECT_NAME || iv.customer || '—',
           ref: iv.ivNo || iv.IV_NO || iv.invoiceNo || '',
           amount: ivNetExpected(iv, financeByCode),
-          note: iv.note || '',
+          note: 'อยู่ระหว่างติดตามเงิน' + (iv.note ? ' · ' + iv.note : ''),
         });
       });
       forecastEntries.forEach(fe => {
@@ -894,7 +903,7 @@ function CashFlowDashboard({ data, setData, toast }) {
         <div style={{ fontWeight: 700, marginBottom: 6 }}>💡 หมายเหตุ</div>
         <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.7 }}>
           <li>ยอดยกมา (B/F) — ดึงจาก <a href="#daily_balance" style={{ color: 'var(--brand-600)' }}>บันทึกยอดธนาคารรายวัน</a> วันสุดท้ายของเดือนที่แล้ว</li>
-          <li>รายรับโครงการ — ดึงจากหน้า <a href="#iv_report" style={{ color: 'var(--brand-600)' }}>รายงานติดตาม IV</a> (Net = balance × 99% − ภาระหนี้)</li>
+          <li>รายรับโครงการ — ดึงจากหน้า <a href="#iv_report" style={{ color: 'var(--brand-600)' }}>รายงานติดตาม IV</a> เฉพาะที่ <strong>status = "อยู่ระหว่างติดตามเงิน"</strong> (Net = balance × 106/107 − ภาระหนี้)</li>
           <li>ค่าใช้จ่าย — ดึงจาก <a href="#data_payable" style={{ color: 'var(--brand-600)' }}>DATA เจ้าหนี้คงค้าง</a> + <a href="#data_pv" style={{ color: 'var(--brand-600)' }}>DATA PV</a> + <a href="#data_forecast" style={{ color: 'var(--brand-600)' }}>ประมาณการนอกระบบ</a></li>
           <li>เงินกู้ — กรอกใน <a href="#data_forecast" style={{ color: 'var(--brand-600)' }}>ประมาณการนอกระบบ</a> โดยตั้ง EXPENSE_TYPE='LOAN' (PLANNED → ACTUAL เมื่อกู้จริง)</li>
           <li>หมวดค่าใช้จ่าย: 1=ดำเนินงาน · 2=โครงการ (มี jobcode) · 3=ฝ่ายการเงิน (dpt_code=FIN) · 4=เงินเดือน (จาก forecastEntries CATEGORY=4)</li>
