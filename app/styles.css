@@ -1110,17 +1110,27 @@ button { font: inherit; color: inherit; }
   }
 
   /* Summary pills (YTD / MTD / Today) — เรียงแนวตั้ง stacked เสมอตอนพิมพ์
-     (ตรงตามตัวอย่าง portrait preview ที่ user ต้องการ) */
+     ตรงตามตัวอย่าง portrait preview ที่ user ต้องการ
+     ── ใช้ display:block + width:100% แทน grid เพื่อ override
+        inline style `gridTemplateColumns: repeat(3, 1fr)` ของ React ให้ชัวร์ */
   body.dr-print-mode .dr-page .daily-pill-grid {
+    display: block !important;
     grid-template-columns: 1fr !important;
-    gap: 7pt !important;
+    gap: 0 !important;
     margin-bottom: 8pt !important;
   }
   body.dr-print-mode .dr-page .daily-pill-grid > div {
+    display: flex !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
     padding: 11pt 14pt !important;
+    margin-bottom: 7pt !important;
     border-radius: 10pt !important;
     break-inside: avoid !important;
     box-shadow: 0 2pt 5pt rgba(0,0,0,.08) !important;
+  }
+  body.dr-print-mode .dr-page .daily-pill-grid > div:last-child {
+    margin-bottom: 0 !important;
   }
 
   /* Today's received card + Outstanding card — keep with light card style */
