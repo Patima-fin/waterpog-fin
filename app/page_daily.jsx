@@ -410,7 +410,11 @@ function DailyRevenueDashboard({ data, setData, toast }) {
           horizontal={isPortrait}
           title={`มูลค่ารับสะสมในปี ${thisYear}`}
           subtitle="Year-to-date"
-          icon={<Icon name="chart" size={22} stroke={2.2} />}
+          icon={(
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
+              <path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 16v-5"/><path d="M12 16V8"/><path d="M16 16v-7"/>
+            </svg>
+          )}
           count={ytdList.length}
           value={sumBal(ytdList)}
           gradient="linear-gradient(135deg, #5b9eef 0%, #2a6fdb 100%)"
@@ -422,7 +426,11 @@ function DailyRevenueDashboard({ data, setData, toast }) {
           horizontal={isPortrait}
           title="มูลค่ารับสะสมในเดือนนี้"
           subtitle="Month-to-date"
-          icon={<Icon name="bank" size={22} stroke={2.2} />}
+          icon={(
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
+              <path d="M3 10 12 4l9 6"/><path d="M5 10v8M19 10v8M9 10v8M15 10v8"/><path d="M3 20h18"/>
+            </svg>
+          )}
           count={monthList.length}
           value={sumBal(monthList)}
           gradient="linear-gradient(135deg, #20c997 0%, #16906b 100%)"
@@ -434,7 +442,12 @@ function DailyRevenueDashboard({ data, setData, toast }) {
           horizontal={isPortrait}
           title="โครงการที่รับเงินวันนี้"
           subtitle="Today's receipts"
-          icon={<Icon name="money" size={22} stroke={2.2} />}
+          icon={(
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
+              <circle cx="12" cy="12" r="9"/>
+              <path d="M9 9.5c0-1 1.3-2 3-2s3 .9 3 1.8c0 1.4-3 1.7-3 3 0 1 1.5 1.7 3 1.7M12 7v10"/>
+            </svg>
+          )}
           count={todayList.length}
           value={sumBal(todayList)}
           gradient="linear-gradient(135deg, #ffa726 0%, #e87f15 100%)"
