@@ -2325,7 +2325,7 @@ function IvReportStandalonePage({ data, setData, toast }) {
     [data.projects]
   );
 
-  const [ivTypeFilter, setIvTypeFilter] = React.useState('all'); // 'all' | 'P' | 'O'
+  const [ivTypeFilter, setIvTypeFilter] = React.useState('P'); // 'all' | 'P' | 'O' — default 'P' (โครงการ)
 
   const allRows = React.useMemo(() => (data.invoices || []).map(iv => {
     const p = projectByCode[iv.jobNo] || projectByCode[iv.contractRef] || projectByCode[iv.projectCode] || {};

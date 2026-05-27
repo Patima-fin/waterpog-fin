@@ -32,7 +32,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
 
   const [drillModal, setDrillModal] = dRState(null); // { title, list } — paid drill
   const [fcModal,    setFcModal]    = dRState(null); // { title, list } — forecast drill
-  const [ivTypeFilter, setIvTypeFilter] = dRState('all'); // 'all' | 'P' | 'O'
+  const [ivTypeFilter, setIvTypeFilter] = dRState('P'); // 'all' | 'P' | 'O' — default 'P' (โครงการ)
   const [captureMode, setCaptureMode] = dRState('landscape'); // 'landscape' | 'portrait'
   const isPortrait = captureMode === 'portrait';
 
