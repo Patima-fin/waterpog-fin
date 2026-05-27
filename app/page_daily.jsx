@@ -481,7 +481,6 @@ function DailyRevenueDashboard({ data, setData, toast }) {
       <div className="card anim-in" style={{ padding: 0, overflow: 'hidden', marginBottom: 28 }}>
         <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)' }}>
           <div className="card-title">รายการใบแจ้งหนี้ที่รับเงินวันนี้</div>
-          <div className="card-sub">{todayList.length} รายการ · รวม {fmtNum(sumBal(todayList))} บาท</div>
         </div>
         <DailyIvTable list={todayList} projectByCode={projectByCode} showDate={false}
           empty="ยังไม่มีใบแจ้งหนี้ที่รับเงินในวันนี้ · บันทึกการรับเงินได้จากหน้า ใบแจ้งหนี้" />
