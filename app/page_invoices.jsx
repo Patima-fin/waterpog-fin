@@ -339,6 +339,10 @@ function InvoicesPage({ data, setData, toast }) {
     // invType: 'P' = ใบแจ้งหนี้โครงการ (default), 'O' = ใบแจ้งหนี้อื่นๆ
     const rawIvType = (iv.invType || iv.invtype || 'P').toString().trim().toUpperCase();
     const invType   = rawIvType === 'O' ? 'O' : 'P';
+    // customer: cloud sheet ใช้ customerName + customerCode (รองรับชื่อเก่าด้วย)
+    const customerName = (iv.customerName || iv.customer || iv.Customer || iv.cust_name || '').toString().trim();
+    const customerCode = (iv.customerCode || iv.cust_code || '').toString().trim();
+    const customer = customerName;
     return {
       ...iv,
       jobNo:       cleanJobNo,
@@ -346,6 +350,9 @@ function InvoicesPage({ data, setData, toast }) {
       status,
       invType,
       balance,
+      customer,
+      customerName,
+      customerCode,
       projectName: p['พื้นที่'] || p.name || iv.projectName || '—',
       assignee,
       assigneeIsOverride,
@@ -362,7 +369,7 @@ function InvoicesPage({ data, setData, toast }) {
     if (!q) return true;
     const fields = [
       iv.ivNo, iv.jobNo, iv.projectName, iv.contactName, iv.contactPhone,
-      iv.remark, iv.customer, iv.productType, iv.assignee, iv.contractRef,
+      iv.remark, iv.customer, iv.customerName, iv.customerCode, iv.productType, iv.assignee, iv.contractRef,
       iv.invoiceDate, iv.expectedReceive,
       iv.balance != null ? String(iv.balance) : '',
       iv.debt    != null ? String(iv.debt)    : '',
@@ -816,7 +823,19 @@ function InvoicesPage({ data, setData, toast }) {
                       {iv.projectName}
                     </span>
                   </div>
-                  {/* Line 2: latest follow-up note (only when present) */}
+                  {/* Line 2: customer (เจ้าของโครงการ / ลูกค้า) */}
+                  {iv.customer && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 3, overflow: 'hidden' }}
+                      title={`ลูกค้า: ${iv.customer}`}>
+                      <span style={{ flexShrink: 0, fontSize: 10, color: '#7c2d12', background: '#fef3c7', borderRadius: 4, padding: '0 5px', fontWeight: 700, border: '1px solid #fde68a' }}>
+                        👤
+                      </span>
+                      <span style={{ fontSize: 11, color: 'var(--ink-600)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, fontWeight: 500 }}>
+                        {iv.customer}
+                      </span>
+                    </div>
+                  )}
+                  {/* Line 3: latest follow-up note (only when present) */}
                   {iv.followUps && iv.followUps.length > 0 && (() => {
                     const last = iv.followUps[iv.followUps.length - 1];
                     return (
