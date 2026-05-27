@@ -226,25 +226,15 @@ function DailyRevenueDashboard({ data, setData, toast }) {
       const raw = await window.html2canvas(target, {
         backgroundColor: '#ffffff', scale: 2, useCORS: true, logging: false,
       });
-      // Compose to 1080×1920 (9:16 portrait — เหมาะสำหรับส่ง LINE)
-      // Fit ตามความกว้าง + top-align → เลย์เอาท์เหมือนตอนปริ๊น A4 (เต็มกว้าง, ขาวล้อมล่าง)
-      const W = 1080, H = 1920;
-      const padX = 32, padTop = 64, padBottom = 32;
-      const availW = W - padX * 2;
-      const availH = H - padTop - padBottom;
-      let s = availW / raw.width;
-      let drawH = raw.height * s;
-      if (drawH > availH) { s = availH / raw.height; drawH = availH; }
-      const drawW = raw.width * s;
+      // เติมขอบขาวรอบรูปให้สวยขึ้น (32px แต่ละด้าน × scale=2 = 64px)
+      const pad = 64;
       const out = document.createElement('canvas');
-      out.width = W;
-      out.height = H;
+      out.width = raw.width + pad * 2;
+      out.height = raw.height + pad * 2;
       const ctx = out.getContext('2d');
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, W, H);
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(raw, (W - drawW) / 2, padTop, drawW, drawH);
+      ctx.fillRect(0, 0, out.width, out.height);
+      ctx.drawImage(raw, pad, pad);
 
       const link = document.createElement('a');
       const stamp = todayStr.replace(/-/g, '');
