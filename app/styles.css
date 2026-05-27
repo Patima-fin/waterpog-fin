@@ -1340,19 +1340,15 @@ button { font: inherit; color: inherit; }
   }
 
   /* ── Snapshot-only tweaks (save-as-image) ──
-     หน้าเว็บ/Print ยังคงรูปเดิม, แต่ตอน html2canvas เก็บภาพ ปรับ 2 จุด:
-     (1) Footer "shiny gradient" → แบนเรียบ (gradient render ไม่สวยใน raster)
-     (2) Pill emoji icons → จัด baseline ให้ตรง (html2canvas render emoji เอียงเล็กน้อย) */
+     บังคับ capture area เป็น A4 portrait + flatten footer gradient */
+  body.dr-snapshot-mode .dr-page .report-capture-area {
+    max-width: 794px !important;   /* A4 portrait @ 96dpi (210mm) */
+    margin: 0 auto !important;
+  }
   body.dr-snapshot-mode .dr-page .report-capture-area > div:last-child {
     background: #ffffff !important;
     border-top: 1pt solid #e2e8f0 !important;
     border-radius: 0 !important;
-  }
-  body.dr-snapshot-mode .dr-page .dpc-icon {
-    line-height: 1 !important;
-    text-align: center !important;
-    font-feature-settings: normal !important;
-    padding-top: 1pt !important; /* ดัน emoji ขึ้นเล็กน้อยให้กึ่งกลางจริง */
   }
 
   /* Hide cursors / hover affordances */

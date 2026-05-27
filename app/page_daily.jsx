@@ -640,7 +640,7 @@ function DailyPillCard({ title, subtitle, icon, count, value, gradient, accent, 
         {/* Icon */}
         <div className="dpc-icon" style={{
           width: 42, height: 42, borderRadius: 10,
-          background: 'rgba(255,255,255,0.18)',
+          background: 'rgba(0,0,0,0.22)',
           display: 'grid', placeItems: 'center', fontSize: 19,
           flexShrink: 0, position: 'relative', zIndex: 1,
         }}>{icon}</div>
@@ -708,7 +708,7 @@ function DailyPillCard({ title, subtitle, icon, count, value, gradient, accent, 
       <div className="dpc-header" style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', gap: 10 }}>
         <div className="dpc-icon" style={{
           width: 32, height: 32, borderRadius: 8,
-          background: 'rgba(255,255,255,0.16)',
+          background: 'rgba(0,0,0,0.22)',
           display: 'grid', placeItems: 'center', fontSize: 16,
           flexShrink: 0,
         }}>{icon}</div>
