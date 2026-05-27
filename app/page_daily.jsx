@@ -573,6 +573,23 @@ function DailyRevenueDashboard({ data, setData, toast }) {
         </div>
       </div>
 
+      {/* ── Brand footer (visible in screenshots) ─────────────────────── */}
+      <div style={{
+        marginTop: 28, padding: '14px 18px',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        borderTop: '2px solid var(--brand-100, #dbe7f6)',
+        background: 'linear-gradient(90deg, transparent, var(--brand-50, #f0f6ff), transparent)',
+        borderRadius: 10, gap: 12, flexWrap: 'wrap',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <img src="waterpog_Logo-02.png" alt="Water POG" style={{ width: 28, height: 28, objectFit: 'contain' }} />
+          <div style={{ fontSize: 10.5, color: 'var(--ink-500)' }}>Water POG · Financial Console</div>
+        </div>
+        <div style={{ fontSize: 10.5, color: 'var(--ink-500)', textAlign: 'right', fontStyle: 'italic' }}>
+          เอกสารใช้ภายในเท่านั้น
+        </div>
+      </div>
+
       </div>{/* ═══ End report capture area ═══ */}
 
       {/* Paid drill-down popup */}
