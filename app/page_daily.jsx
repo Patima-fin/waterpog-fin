@@ -78,7 +78,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
         jobNo:       cj || r.projectCode || linkedIv?.jobNo || '—',
         ivNo:        r.invoiceNo || r.receiptNo,
         projectName: r.projectName || p['พื้นที่'] || p.name || linkedIv?.projectName || '—',
-        period:      r.period || linkedIv?.period || 1,
+        period:      (() => { const v = linkedIv?.period ?? r.period ?? 1; const n = Number(v); return Number.isFinite(n) ? n : 1; })(),
         balance:     Number(r.grossAmount) || 0,
         netReceived: Number(r.netReceived) || Number(r.grossAmount) || 0,
         invType:     ivType,
@@ -100,7 +100,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
         jobNo:       cj,
         ivNo:        iv.ivNo,
         projectName: p['พื้นที่'] || p.name || iv.projectName || '—',
-        period:      iv.period || 1,
+        period:      (() => { const n = Number(iv.period ?? 1); return Number.isFinite(n) ? n : 1; })(),
         balance:     Number(iv.balance) || 0,
         netReceived: Number(iv.actualReceive.amount) || Number(iv.balance) || 0,
         invType:     drInvType(iv),
@@ -623,11 +623,11 @@ function DailyPillCard({ title, subtitle, icon, count, value, gradient, accent, 
           <span className="dpc-unit" style={{ fontSize: 15, opacity: 0.82, fontWeight: 500, marginLeft: 4 }}>฿</span>
         </div>
 
-        {/* Count — fixed-width, right-aligned numeric */}
+        {/* Count — fixed-width, right-aligned numeric (width คงที่ → ขอบขวาของ value ตรงทุกแถว) */}
         <div className="dpc-count" style={{
           display: 'flex', alignItems: 'baseline', gap: 4, opacity: 0.92,
           flexShrink: 0, position: 'relative', zIndex: 1,
-          minWidth: 56, justifyContent: 'flex-end',
+          width: 72, justifyContent: 'flex-end',
         }}>
           <span style={{ fontSize: 18, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
             <AnimatedNumber value={count} digits={0} />
@@ -635,12 +635,10 @@ function DailyPillCard({ title, subtitle, icon, count, value, gradient, accent, 
           <span style={{ fontSize: 12, opacity: 0.85 }}>ใบ</span>
         </div>
 
-        {/* Chevron — far right */}
-        {clickable && (
-          <svg className="dpc-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: .6, flexShrink: 0, position: 'relative', zIndex: 1 }}>
-            <polyline points="9 6 15 12 9 18"/>
-          </svg>
-        )}
+        {/* Chevron — far right (always reserve space so ขอบขวาของ value ตรงทุกแถว แม้ไม่มี onClick) */}
+        <svg className="dpc-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: clickable ? .6 : 0, flexShrink: 0, position: 'relative', zIndex: 1 }}>
+          <polyline points="9 6 15 12 9 18"/>
+        </svg>
       </div>
     );
   }
@@ -716,7 +714,7 @@ function DailyIvTable({ list, projectByCode, showDate, empty }) {
           <th style={{ width: 90 }}>Job No</th>
           <th style={{ width: 110 }}>เลข IV</th>
           <th>ชื่อโครงการ</th>
-          <th style={{ width: 56, textAlign: 'center' }}>งวด</th>
+          <th style={{ width: 80, textAlign: 'center', whiteSpace: 'nowrap' }}>งวด</th>
           <th style={{ width: 140, textAlign: 'right' }}>Balance (บาท)</th>
           {showDate && <th style={{ width: 108 }}>วันที่รับเงิน</th>}
         </tr>
@@ -734,7 +732,7 @@ function DailyIvTable({ list, projectByCode, showDate, empty }) {
               <td style={{ whiteSpace: 'nowrap' }}><span style={{ fontWeight: 600, fontSize: 13 }}>{iv.jobNo}</span></td>
               <td style={{ whiteSpace: 'nowrap' }}><span style={{ color: 'var(--ink-500)', fontSize: 12 }}>{iv.ivNo}</span></td>
               <td style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={name}>{name}</td>
-              <td style={{ textAlign: 'center' }}>{iv.period}</td>
+              <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>{iv.period === 0 ? 'งวดเดียว' : iv.period}</td>
               <td className="num strong" style={{ whiteSpace: 'nowrap' }}>{fmtNum(iv.balance || 0)}</td>
               {showDate && <td style={{ color: 'var(--ink-600)', whiteSpace: 'nowrap' }}>{fmtDate(iv.receiveDate || iv.actualReceive?.date)}</td>}
             </tr>
@@ -794,7 +792,7 @@ function ForecastTable({ list, todayStr, empty }) {
           <th style={{ width: 90 }}>Job No</th>
           <th style={{ width: 120 }}>เลข IV</th>
           <th>ชื่อโครงการ</th>
-          <th style={{ width: 60, textAlign: 'center' }}>งวด</th>
+          <th style={{ width: 80, textAlign: 'center', whiteSpace: 'nowrap' }}>งวด</th>
           <th style={{ width: 140, textAlign: 'right' }}>Balance (฿)</th>
           <th style={{ width: 135, textAlign: 'right' }}>คาดรับสุทธิ (฿)</th>
           <th style={{ width: 110, textAlign: 'center' }}>วันคาดรับ</th>
@@ -816,7 +814,7 @@ function ForecastTable({ list, todayStr, empty }) {
               <td style={{ overflow: 'hidden', maxWidth: 0 }}>
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }} title={iv.projectName}>{iv.projectName}</span>
               </td>
-              <td style={{ textAlign: 'center' }}>{iv.period}</td>
+              <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>{iv.period === 0 ? 'งวดเดียว' : iv.period}</td>
               <td className="num strong">{fmtNum(iv.balance || 0)}</td>
               <td className="num" style={{ color: 'var(--good)', fontWeight: 700 }}>{fmtNum(iv.netExpected || 0)}</td>
               <td style={{ textAlign: 'center', color: isOverdue ? '#e53e3e' : 'var(--ink-600)', fontWeight: isOverdue ? 700 : 400 }}>
