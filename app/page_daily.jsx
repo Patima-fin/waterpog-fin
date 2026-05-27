@@ -410,7 +410,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
           horizontal={isPortrait}
           title={`มูลค่ารับสะสมในปี ${thisYear}`}
           subtitle="Year-to-date"
-          icon="📈"
+          icon={<Icon name="chart" size={22} stroke={2.2} />}
           count={ytdList.length}
           value={sumBal(ytdList)}
           gradient="linear-gradient(135deg, #5b9eef 0%, #2a6fdb 100%)"
@@ -422,7 +422,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
           horizontal={isPortrait}
           title="มูลค่ารับสะสมในเดือนนี้"
           subtitle="Month-to-date"
-          icon="🏦"
+          icon={<Icon name="bank" size={22} stroke={2.2} />}
           count={monthList.length}
           value={sumBal(monthList)}
           gradient="linear-gradient(135deg, #20c997 0%, #16906b 100%)"
@@ -434,7 +434,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
           horizontal={isPortrait}
           title="โครงการที่รับเงินวันนี้"
           subtitle="Today's receipts"
-          icon="💰"
+          icon={<Icon name="money" size={22} stroke={2.2} />}
           count={todayList.length}
           value={sumBal(todayList)}
           gradient="linear-gradient(135deg, #ffa726 0%, #e87f15 100%)"
