@@ -993,40 +993,47 @@ button { font: inherit; color: inherit; }
     display: flex !important;
     justify-content: space-between;
     align-items: center;
-    background: linear-gradient(135deg, #2a6fdb 0%, #1a4490 100%) !important;
+    background: linear-gradient(135deg, #1a4490 0%, #1f56b8 50%, #2a6fdb 100%) !important;
     color: white !important;
-    padding: 10pt 14pt !important;
+    padding: 12pt 16pt !important;
     border-radius: 10pt !important;
     margin-bottom: 8pt !important;
-    box-shadow: 0 4px 12px rgba(26,68,144,.25) !important;
+    box-shadow: 0 4pt 12pt rgba(26,68,144,.22) !important;
   }
-  body.iv-print-mode .iv-print-brand { display: flex; align-items: center; gap: 10pt; }
+  body.iv-print-mode .iv-print-brand { display: flex; align-items: center; gap: 12pt; }
   body.iv-print-mode .iv-print-logo {
-    width: 36pt; height: 36pt; border-radius: 9pt;
-    background: rgba(255,255,255,.15) !important;
+    width: 50pt; height: 50pt; border-radius: 10pt;
+    background: white !important;
     display: grid; place-items: center;
-    border: 1.5pt solid rgba(255,255,255,.3) !important;
+    padding: 4pt !important;
+    box-shadow: 0 3pt 8pt rgba(0,0,0,.18) !important;
+    flex-shrink: 0;
   }
-  body.iv-print-mode .iv-print-title { font-size: 15pt; font-weight: 800; line-height: 1.1; color: white !important; }
-  body.iv-print-mode .iv-print-sub { font-size: 8.5pt; opacity: .85; letter-spacing: .05em; font-weight: 500; }
-  body.iv-print-mode .iv-print-date { text-align: right; }
-  body.iv-print-mode .iv-print-date-big { font-size: 13pt; font-weight: 800; line-height: 1; color: white !important; }
-  body.iv-print-mode .iv-print-date-sub { font-size: 9pt; opacity: .9; margin-top: 3pt; font-weight: 500; }
+  body.iv-print-mode .iv-print-logo img {
+    width: 100% !important; height: auto !important; display: block; object-fit: contain;
+  }
+  body.iv-print-mode .iv-print-co {
+    font-size: 8pt; opacity: .88; letter-spacing: .18em; text-transform: uppercase; font-weight: 600; color: white !important;
+  }
+  body.iv-print-mode .iv-print-title { font-size: 18pt; font-weight: 800; line-height: 1.1; color: white !important; margin-top: 3pt; }
+  body.iv-print-mode .iv-print-sub { font-size: 9pt; opacity: .78; letter-spacing: .05em; font-weight: 500; margin-top: 2pt; }
+  body.iv-print-mode .iv-print-date { text-align: right; flex-shrink: 0; }
+  body.iv-print-mode .iv-print-date-big { font-size: 22pt; font-weight: 800; line-height: 1; color: white !important; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  body.iv-print-mode .iv-print-date-sub { font-size: 9pt; opacity: .9; margin-top: 4pt; font-weight: 500; }
 
-  /* Summary strip — pastel cards preserved */
+  /* Summary strip — stacked horizontal pills เหมือน Daily Hero */
   body.iv-print-mode .iv-summary-strip {
-    display: grid !important;
-    grid-template-columns: repeat(3, 1fr) !important;
-    gap: 6pt !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 5pt !important;
     margin-bottom: 7pt !important;
   }
   body.iv-print-mode .iv-summary-card {
-    padding: 8pt 11pt !important;
+    padding: 8pt 14pt !important;
     border-radius: 8pt !important;
     break-inside: avoid !important;
     box-shadow: 0 2pt 4pt rgba(0,0,0,.05) !important;
   }
-  body.iv-print-mode .iv-summary-card > div:first-of-type + div { gap: 6pt !important; }
 
   /* Sections (cards) — pastel headers + tight rows for A4 portrait */
   body.iv-print-mode .iv-section {
