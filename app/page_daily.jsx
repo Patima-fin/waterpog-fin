@@ -226,10 +226,11 @@ function DailyRevenueDashboard({ data, setData, toast }) {
       const raw = await window.html2canvas(target, {
         backgroundColor: '#ffffff', scale: 2, useCORS: true, logging: false,
       });
-      // Fix กว้าง 1080 (สูงปล่อยตามเนื้อหา) + ขอบขาวบน-ล่าง 32px
+      // Fix กว้าง 1080 (สูงปล่อยตามเนื้อหา) + ขอบขาวรอบทุกด้าน 32px
       const W = 1080;
-      const padY = 64;
-      const s = W / raw.width;
+      const padX = 64, padY = 64;
+      const drawW = W - padX * 2;
+      const s = drawW / raw.width;
       const drawH = raw.height * s;
       const out = document.createElement('canvas');
       out.width = W;
@@ -239,7 +240,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
       ctx.fillRect(0, 0, out.width, out.height);
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(raw, 0, padY, W, drawH);
+      ctx.drawImage(raw, padX, padY, drawW, drawH);
 
       const link = document.createElement('a');
       const stamp = todayStr.replace(/-/g, '');
