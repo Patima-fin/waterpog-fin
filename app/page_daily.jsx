@@ -228,7 +228,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
       });
       // Fix กว้าง 1080 (สูงปล่อยตามเนื้อหา) + ขอบขาวรอบทุกด้าน 32px
       const W = 1080;
-      const padX = 64, padY = 64;
+      const padX = 32, padY = 32;
       const drawW = W - padX * 2;
       const s = drawW / raw.width;
       const drawH = raw.height * s;
