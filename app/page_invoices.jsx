@@ -1073,7 +1073,7 @@ function IvReportView({ rows, onOpen }) {
         {/* Col 1: Job + IV (compact, single block) */}
         <div style={{ lineHeight: 1.2, minWidth: 0 }}>
           <div style={{ fontFamily: 'ui-monospace', fontWeight: 700, fontSize: 12, color: 'var(--brand-700,#2a6fdb)' }}>
-            {iv.jobNo} <span style={{ fontWeight: 400, color: '#a0aec0', fontSize: 10 }}>·ง{iv.period}</span>
+            {iv.jobNo} <span style={{ fontWeight: 400, color: '#a0aec0', fontSize: 10 }}>·{iv.period === 0 ? 'ง.เดียว' : `ง${iv.period}`}</span>
           </div>
           <div style={{ fontSize: 9.5, color: '#a0aec0', fontFamily: 'ui-monospace' }}>{iv.ivNo}</div>
         </div>
@@ -1462,7 +1462,16 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
           </div>
           <div className="field"><label>เลขที่ IV</label><input className="input" value={draft.ivNo || ''} onChange={(e) => set('ivNo', e.target.value)} placeholder="IV2026-XXX" /></div>
           <div className="field"><label>วันที่ IV</label><input className="input" type="date" value={draft.invoiceDate || ''} onChange={(e) => set('invoiceDate', e.target.value)} /></div>
-          <div className="field"><label>งวดที่</label><input className="input" type="number" value={draft.period || 1} onChange={(e) => set('period', Number(e.target.value))} /></div>
+          <div className="field"><label>งวดที่</label>
+            <select className="select input" value={draft.period ?? 1} onChange={(e) => set('period', Number(e.target.value))}>
+              <option value={1}>งวดที่ 1</option>
+              <option value={2}>งวดที่ 2</option>
+              <option value={3}>งวดที่ 3</option>
+              <option value={4}>งวดที่ 4</option>
+              <option value={5}>งวดที่ 5</option>
+              <option value={0}>งวดเดียว</option>
+            </select>
+          </div>
           <div className="field"><label>Balance (บาท)</label><input className="input" type="number" value={draft.balance || 0} onChange={(e) => set('balance', Number(e.target.value))} /></div>
           <div className="field"><label>สถานะ</label>
             <select className="select input" value={draft.status} onChange={(e) => { set('status', e.target.value); setSaveError(''); }}>
@@ -1588,9 +1597,16 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
             <div style={{ display: 'grid', gridTemplateColumns: '64px 152px 130px 120px 1fr 130px', gap: '0 10px' }}>
               <div className="field">
                 <label style={{ fontSize: 12 }}>งวดที่</label>
-                <input className="input" type="number" min="1" value={draft.period || 1}
+                <select className="select input" value={draft.period ?? 1}
                   onChange={(e) => set('period', Number(e.target.value))}
-                  style={{ textAlign: 'center', fontWeight: 700, fontSize: 15 }} />
+                  style={{ textAlign: 'center', fontWeight: 700, fontSize: 13 }}>
+                  <option value={1}>1</option>
+                  <option value={2}>2</option>
+                  <option value={3}>3</option>
+                  <option value={4}>4</option>
+                  <option value={5}>5</option>
+                  <option value={0}>งวดเดียว</option>
+                </select>
               </div>
               <div className="field">
                 <label style={{ fontSize: 12 }}>ประเภทใบแจ้งหนี้</label>
@@ -2032,7 +2048,7 @@ function ImportRawIvModal({ open, onClose, existing, onImport }) {
   const importNow = () => {
     const newRows = parsed.new_.map(r => ({
       ivNo: r.ivNo, jobNo: r.jobNo, invoiceDate: r.invoiceDate,
-      balance: r.balance, period: r.period || 1,
+      balance: r.balance, period: r.period === 0 ? 0 : (r.period || 1),
       productType: r.productType || '',
       projectName: r.projectName || '',
       contractRef: r.contractRef || '',
@@ -2128,7 +2144,7 @@ refcode\tinvno\tinvdate\tBalance\tremark\tCustomer
                       <td style={{ fontFamily: 'ui-monospace' }}>{r.ivNo}</td>
                       <td>{fmtDate(r.invoiceDate)}</td>
                       <td className="num">{fmtNum(r.balance, 0)}</td>
-                      <td style={{ textAlign: 'center' }}>{r.period || 1}</td>
+                      <td style={{ textAlign: 'center' }}>{r.period === 0 ? 'งวดเดียว' : (r.period || 1)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -2279,6 +2295,7 @@ function normalizeIvRow(r) {
 // ดึงเลขงวดจาก remark เช่น "งวดที่ 2 (60%)" → 2
 function extractPeriodFromRemark(remark) {
   if (!remark) return 1;
+  if (/งวดเดียว/.test(remark)) return 0;
   const m = remark.match(/งวดที่\s*(\d+)/);
   return m ? (parseInt(m[1]) || 1) : 1;
 }
