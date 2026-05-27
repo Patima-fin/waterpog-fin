@@ -174,6 +174,9 @@ function DailyRevenueDashboard({ data, setData, toast }) {
   //  (ไม่ขึ้นกับว่า user กำลังเปิดในโหมด landscape หรือ portrait)
   const handleDailyPrint = () => {
     const wasLandscape = !isPortrait;
+    // ใส่ class ก่อน setCaptureMode → AnimatedNumber เห็น print mode ตอน re-render → ข้าม animation
+    document.body.classList.add('dr-print-mode');
+    document.body.classList.add('dr-print-portrait');
     if (wasLandscape) setCaptureMode('portrait'); // trigger re-render → pills เป็น horizontal
 
     // Wait for React to commit the state change ก่อนค่อย print
@@ -191,8 +194,6 @@ function DailyRevenueDashboard({ data, setData, toast }) {
           html, body { background: #fff !important; }
         }
       `;
-      document.body.classList.add('dr-print-mode');
-      document.body.classList.add('dr-print-portrait');
       const cleanup = () => {
         document.body.classList.remove('dr-print-mode');
         document.body.classList.remove('dr-print-portrait');
@@ -213,12 +214,13 @@ function DailyRevenueDashboard({ data, setData, toast }) {
       return;
     }
     const wasLandscape = !isPortrait;
+    // ใส่ class ก่อน setCaptureMode → AnimatedNumber เห็น snapshot mode ตอน re-render → ข้าม animation
+    document.body.classList.add('dr-print-mode');
+    document.body.classList.add('dr-print-portrait');
+    document.body.classList.add('dr-snapshot-mode');
     if (wasLandscape) setCaptureMode('portrait'); // ใช้ layout เดียวกับตอนพิมพ์
 
     await new Promise(r => setTimeout(r, wasLandscape ? 280 : 40));
-    document.body.classList.add('dr-print-mode');
-    document.body.classList.add('dr-print-portrait');
-    document.body.classList.add('dr-snapshot-mode'); // marker → CSS เฉพาะตอน save-as-image
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
     const target = document.querySelector('.dr-page .report-capture-area') || document.querySelector('.dr-page');

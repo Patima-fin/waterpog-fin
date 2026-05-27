@@ -375,8 +375,16 @@ function useCountUp(target, duration = 900, deps = []) {
 }
 
 function AnimatedNumber({ value, digits = 2, prefix = '', suffix = '', duration = 900 }) {
+  // ตอน snapshot/print → แสดงค่าสุดท้ายทันที (กันเลขเพี้ยนกลาง ๆ animation)
+  const isStatic = typeof document !== 'undefined' && document.body && (
+    document.body.classList.contains('dr-snapshot-mode') ||
+    document.body.classList.contains('dr-print-mode') ||
+    document.body.classList.contains('iv-snapshot-mode') ||
+    document.body.classList.contains('iv-print-mode')
+  );
   const v = useCountUp(value || 0, duration, [value]);
-  return <span>{prefix}{fmtNum(v, digits)}{suffix}</span>;
+  const shown = isStatic ? (value || 0) : v;
+  return <span>{prefix}{fmtNum(shown, digits)}{suffix}</span>;
 }
 
 // ─── Icons (inline SVG – minimal, no third-party) ────────────────────────────
