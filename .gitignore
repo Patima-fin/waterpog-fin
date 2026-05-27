@@ -11,3 +11,9 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Google Drive shortcuts (local pointers, not real files)
+*.gsheet
+*.gdoc
+*.gslides
+*.gform
