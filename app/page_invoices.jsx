@@ -2422,10 +2422,20 @@ function IvReportStandalonePage({ data, setData, toast }) {
     document.body.classList.add('iv-print-mode');
     document.body.classList.add('iv-snapshot-mode'); // marker → CSS เฉพาะตอน save-as-image
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const target = document.querySelector('.iv-report-page') || document.body;
+    // บังคับ render width คงที่ → output 1080 จะหน้าตาเหมือนกันทุกจอ
+    const SRC_W = 960;
+    const prevWidth = target.style.width;
+    const prevMaxWidth = target.style.maxWidth;
+    const prevMargin = target.style.margin;
+    target.style.setProperty('width', SRC_W + 'px', 'important');
+    target.style.setProperty('max-width', SRC_W + 'px', 'important');
+    target.style.setProperty('margin', '0 auto', 'important');
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
     try {
-      const target = document.querySelector('.iv-report-page') || document.body;
       const raw = await window.html2canvas(target, {
-        backgroundColor: '#ffffff', scale: 2, useCORS: true, logging: false,
+        backgroundColor: '#ffffff', scale: 2, useCORS: true, logging: false, width: SRC_W, windowWidth: SRC_W,
       });
       // Fix กว้าง 1080 (สูงปล่อยตามเนื้อหา) + ขอบขาวรอบทุกด้าน 32px
       const W = 1080;
@@ -2452,6 +2462,9 @@ function IvReportStandalonePage({ data, setData, toast }) {
       console.error('save image failed', err);
       alert('บันทึกรูปไม่สำเร็จ: ' + (err && err.message ? err.message : err));
     } finally {
+      target.style.width = prevWidth;
+      target.style.maxWidth = prevMaxWidth;
+      target.style.margin = prevMargin;
       document.body.classList.remove('iv-print-mode');
       document.body.classList.remove('iv-snapshot-mode');
     }
