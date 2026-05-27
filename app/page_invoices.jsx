@@ -2413,6 +2413,44 @@ function IvReportStandalonePage({ data, setData, toast }) {
     setTimeout(() => window.print(), 50);
   };
 
+  // ── Save as PNG — capture print layout via html2canvas, no PDF middle step ──
+  const handleSaveImage = async () => {
+    if (typeof window.html2canvas !== 'function') {
+      alert('ตัวช่วยบันทึกรูปยังโหลดไม่เสร็จ — กรุณาลองใหม่อีกครั้ง');
+      return;
+    }
+    document.body.classList.add('iv-print-mode');
+    document.body.classList.add('iv-snapshot-mode'); // marker → CSS เฉพาะตอน save-as-image
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    try {
+      const target = document.querySelector('.iv-report-page') || document.body;
+      const raw = await window.html2canvas(target, {
+        backgroundColor: '#ffffff', scale: 2, useCORS: true, logging: false,
+      });
+      // เติมขอบขาวรอบรูปให้สวยขึ้น (32px แต่ละด้าน × scale=2 = 64px)
+      const pad = 64;
+      const out = document.createElement('canvas');
+      out.width = raw.width + pad * 2;
+      out.height = raw.height + pad * 2;
+      const ctx = out.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, out.width, out.height);
+      ctx.drawImage(raw, pad, pad);
+
+      const link = document.createElement('a');
+      const stamp = (today instanceof Date ? today : new Date()).toISOString().slice(0, 10).replace(/-/g, '');
+      link.download = `iv-tracking-${stamp}.png`;
+      link.href = out.toDataURL('image/png');
+      link.click();
+    } catch (err) {
+      console.error('save image failed', err);
+      alert('บันทึกรูปไม่สำเร็จ: ' + (err && err.message ? err.message : err));
+    } finally {
+      document.body.classList.remove('iv-print-mode');
+      document.body.classList.remove('iv-snapshot-mode');
+    }
+  };
+
   return (
     <div className="page iv-report-page">
       <div className="page-head anim-in">
@@ -2441,6 +2479,9 @@ function IvReportStandalonePage({ data, setData, toast }) {
             sheetName="ติดตาม IV"
             title="รายงานติดตามใบแจ้งหนี้คงค้าง"
           />
+          <button className="btn btn-ghost" onClick={handleSaveImage} title="บันทึกหน้านี้เป็นรูป PNG (เลย์เอาท์ A4 แนวตั้ง)">
+            <Icon name="download" size={14} /> บันทึกเป็นรูป
+          </button>
           <button className="btn btn-ghost" onClick={handlePrint} title="พิมพ์ A4 แนวตั้ง (Ctrl+P)">
             <Icon name="print" size={14} /> พิมพ์ / PDF
           </button>

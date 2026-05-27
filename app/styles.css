@@ -953,8 +953,10 @@ button { font: inherit; color: inherit; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    IV REPORT — A4 portrait print mode (modern & beautiful, like the web)
+   Applies on @media print AND on screen when body has iv-print-mode (for
+   html2canvas snapshot → PNG download flow).
    ═══════════════════════════════════════════════════════════════════════════ */
-@media print {
+@media screen, print {
   /* Force backgrounds + gradients to print correctly (Chrome/Edge/Safari) */
   body.iv-print-mode,
   body.iv-print-mode * {
@@ -1060,8 +1062,9 @@ button { font: inherit; color: inherit; }
 /* ═══════════════════════════════════════════════════════════════════════════
    DAILY REVENUE REPORT — A4 print mode (สวยเหมือนหน้าเว็บ)
    Trigger: body.dr-print-mode (+ .dr-print-portrait optional)
+   Applies on @media print AND on screen so html2canvas can capture the layout.
    ═══════════════════════════════════════════════════════════════════════════ */
-@media print {
+@media screen, print {
   /* Force gradients/backgrounds (Chrome/Edge/Safari) */
   body.dr-print-mode,
   body.dr-print-mode * {
@@ -1334,6 +1337,22 @@ button { font: inherit; color: inherit; }
     padding: 8pt 12pt !important;
     break-inside: avoid !important;
     page-break-inside: avoid !important;
+  }
+
+  /* ── Snapshot-only tweaks (save-as-image) ──
+     หน้าเว็บ/Print ยังคงรูปเดิม, แต่ตอน html2canvas เก็บภาพ ปรับ 2 จุด:
+     (1) Footer "shiny gradient" → แบนเรียบ (gradient render ไม่สวยใน raster)
+     (2) Pill emoji icons → จัด baseline ให้ตรง (html2canvas render emoji เอียงเล็กน้อย) */
+  body.dr-snapshot-mode .dr-page .report-capture-area > div:last-child {
+    background: #ffffff !important;
+    border-top: 1pt solid #e2e8f0 !important;
+    border-radius: 0 !important;
+  }
+  body.dr-snapshot-mode .dr-page .dpc-icon {
+    line-height: 1 !important;
+    text-align: center !important;
+    font-feature-settings: normal !important;
+    padding-top: 1pt !important; /* ดัน emoji ขึ้นเล็กน้อยให้กึ่งกลางจริง */
   }
 
   /* Hide cursors / hover affordances */
