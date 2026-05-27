@@ -396,14 +396,8 @@ function DailyRevenueDashboard({ data, setData, toast }) {
             borderTop: isPortrait ? '1px solid rgba(255,255,255,0.18)' : 'none',
             paddingTop: isPortrait ? 14 : 0,
           }}>
-            <div className="dr-hero-date-label" style={{ fontSize: 10.5, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '.18em', fontWeight: 600 }}>
-              วันที่ของรายงาน
-            </div>
-            <div className="dr-hero-date-big" style={{ fontSize: isPortrait ? 32 : 36, fontWeight: 800, marginTop: 4, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
+            <div className="dr-hero-date-big" style={{ fontSize: isPortrait ? 32 : 36, fontWeight: 800, letterSpacing: '-.02em', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
               {fmtDate(todayStr)}
-            </div>
-            <div className="dr-hero-date-sub" style={{ fontSize: 12, opacity: 0.85, marginTop: 4 }}>
-              {todayLabel}
             </div>
           </div>
         </div>
@@ -576,28 +570,6 @@ function DailyRevenueDashboard({ data, setData, toast }) {
         </div>
         <div style={{ overflowX: 'auto' }}>
           <ForecastTable list={outstandingRows} todayStr={todayStr} empty="ไม่มีใบแจ้งหนี้คงค้าง" />
-        </div>
-      </div>
-
-      {/* ── Brand footer (visible in screenshots) ─────────────────────── */}
-      <div style={{
-        marginTop: 28, padding: '14px 18px',
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        borderTop: '2px solid var(--brand-100, #dbe7f6)',
-        background: 'linear-gradient(90deg, transparent, var(--brand-50, #f0f6ff), transparent)',
-        borderRadius: 10, gap: 12, flexWrap: 'wrap',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <img src="waterpog_Logo-02.png" alt="Water POG" style={{ width: 28, height: 28, objectFit: 'contain' }} />
-          <div>
-            <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--brand-700)' }}>{meta.companyName}</div>
-            <div style={{ fontSize: 10.5, color: 'var(--ink-500)' }}>Water POG · Financial Console</div>
-          </div>
-        </div>
-        <div style={{ fontSize: 10.5, color: 'var(--ink-500)', textAlign: 'right' }}>
-          ออกรายงาน · {new Date().toLocaleDateString('th-TH-u-ca-gregory', { day: '2-digit', month: 'short', year: 'numeric' })}
-          <br />
-          <span style={{ fontStyle: 'italic' }}>เอกสารใช้ภายในเท่านั้น</span>
         </div>
       </div>
 
