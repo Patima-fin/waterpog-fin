@@ -2325,7 +2325,9 @@ function IvReportStandalonePage({ data, setData, toast }) {
     [data.projects]
   );
 
-  const rows = React.useMemo(() => (data.invoices || []).map(iv => {
+  const [ivTypeFilter, setIvTypeFilter] = React.useState('all'); // 'all' | 'P' | 'O'
+
+  const allRows = React.useMemo(() => (data.invoices || []).map(iv => {
     const p = projectByCode[iv.jobNo] || projectByCode[iv.contractRef] || projectByCode[iv.projectCode] || {};
     const f = financeByCode[iv.jobNo] || financeByCode[iv.contractRef] || financeByCode[iv.projectCode] || {};
     const debt     = Number(f.debt ?? f['ภาระหนี้'] ?? 0);
@@ -2338,6 +2340,9 @@ function IvReportStandalonePage({ data, setData, toast }) {
     // Map dueDate → expectedReceive for date filtering, prefer actualReceiveDate if set
     const expectedReceive = iv.expectedReceive || iv.dueDate || iv.actualReceiveDate || null;
     const balance = Number(iv.balance) || 0;
+    // Normalize invType — 'P' (default) หรือ 'O'
+    const rawIvType = (iv.invType || iv.invtype || 'P').toString().trim().toUpperCase();
+    const invType   = rawIvType === 'O' ? 'O' : 'P';
     return {
       ...iv,
       status,
@@ -2345,10 +2350,16 @@ function IvReportStandalonePage({ data, setData, toast }) {
       projectName,
       assignee,
       debt,
+      invType,
       // คาดรับสุทธิ = balance หลังหัก WHT 1% (balance × 106/107) − ภาระหนี้
       netExpected: balance * 106 / 107 - debt,
     };
   }), [data.invoices, projectByCode, financeByCode]);
+
+  const rows = React.useMemo(
+    () => ivTypeFilter === 'all' ? allRows : allRows.filter(r => r.invType === ivTypeFilter),
+    [allRows, ivTypeFilter]
+  );
 
   const pending = rows.filter(r => r.status !== 'paid');
   const today   = new Date().toISOString().slice(0, 10);
@@ -2504,6 +2515,32 @@ function IvReportStandalonePage({ data, setData, toast }) {
           <button className="btn btn-ghost" onClick={handlePrint} title="พิมพ์ A4 แนวตั้ง (Ctrl+P)">
             <Icon name="print" size={14} /> พิมพ์ / PDF
           </button>
+        </div>
+      </div>
+
+      {/* Top toolbar — invType filter (hidden on print/snapshot) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14, flexWrap: 'wrap' }} className="anim-in no-print">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 12, color: 'var(--ink-500)' }}>กรองประเภท:</span>
+          {[
+            { k: 'all', label: 'ทั้งหมด',           bg: '#f8fafc', color: '#2d3748', bd: '#cbd5e0' },
+            { k: 'P',   label: '📋 โครงการ (P)',    bg: '#ebf8ff', color: '#1e4fbd', bd: '#63b3ed' },
+            { k: 'O',   label: '🛒 อื่นๆ (O)',       bg: '#faf5ff', color: '#6b46c1', bd: '#b794f4' },
+          ].map(t => {
+            const active = ivTypeFilter === t.k;
+            return (
+              <button key={t.k} onClick={() => setIvTypeFilter(t.k)}
+                style={{
+                  fontSize: 12, padding: '5px 12px', borderRadius: 16, cursor: 'pointer',
+                  border: `1.5px solid ${active ? t.bd : 'transparent'}`,
+                  background: active ? t.bg : 'transparent',
+                  color: active ? t.color : 'var(--ink-500)',
+                  fontWeight: active ? 700 : 500,
+                }}>
+                {t.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
