@@ -1070,21 +1070,22 @@ function IvReportView({ rows, onOpen }) {
         onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
         onMouseLeave={e => e.currentTarget.style.background = ''}
       >
-        {/* Col 1: Job + Period + IV */}
+        {/* Col 1: Job (line 1) + Period chip (line 2) + IV (line 3) — stacked เพื่อความสม่ำเสมอ */}
         <div style={{ lineHeight: 1.2, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-            <span style={{ fontFamily: 'ui-monospace', fontWeight: 700, fontSize: 12, color: 'var(--brand-700,#2a6fdb)' }}>
-              {iv.jobNo}
-            </span>
-            {(iv.period === 0 || Number(iv.period) > 0) && (
+          <div style={{ fontFamily: 'ui-monospace', fontWeight: 700, fontSize: 12, color: 'var(--brand-700,#2a6fdb)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {iv.jobNo}
+          </div>
+          {(iv.period === 0 || Number(iv.period) > 0) && (
+            <div style={{ marginTop: 2 }}>
               <span style={{
                 fontSize: 9.5, fontWeight: 700, background: '#edf2f7', color: '#4a5568',
                 borderRadius: 3, padding: '1px 5px', lineHeight: 1.3, whiteSpace: 'nowrap',
+                display: 'inline-block',
               }}>
                 {iv.period === 0 ? 'งวดเดียว' : `งวดที่ ${iv.period}`}
               </span>
-            )}
-          </div>
+            </div>
+          )}
           <div style={{ fontSize: 9.5, color: '#a0aec0', fontFamily: 'ui-monospace', marginTop: 1 }}>{iv.ivNo}</div>
         </div>
 
@@ -1168,9 +1169,47 @@ function IvReportView({ rows, onOpen }) {
       {/* ── Summary strip — gradient pills (โทนเดียวกับ Daily Revenue Report) ──── */}
       <div className="iv-summary-strip" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
         {[
-          { label: 'รับแล้ววันนี้',     en: "TODAY'S RECEIPTS",  icon: '✓',  count: todayRows.length,  amt: sumActual(todayRows), grad: 'linear-gradient(135deg, #20c997 0%, #16906b 100%)', glow: 'rgba(32,201,151,.28)' },
-          { label: 'คาดรับสัปดาห์นี้',  en: 'EXPECTED THIS WEEK', icon: '📅', count: thisWkRows.length, amt: sumBal(thisWkRows),   grad: 'linear-gradient(135deg, #5b9eef 0%, #2a6fdb 100%)', glow: 'rgba(42,111,219,.28)' },
-          { label: 'คาดรับสัปดาห์หน้า', en: 'EXPECTED NEXT WEEK', icon: '🗓', count: nextWkRows.length, amt: sumBal(nextWkRows),   grad: 'linear-gradient(135deg, #a78bfa 0%, #7c3aed 100%)', glow: 'rgba(124,58,237,.28)' },
+          {
+            label: 'รับแล้ววันนี้', en: "TODAY'S RECEIPTS",
+            // check-circle (line icon, โทนเดียวกับ SVG หน้า Daily)
+            icon: (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                <polyline points="22 4 12 14.01 9 11.01"/>
+              </svg>
+            ),
+            count: todayRows.length,  amt: sumActual(todayRows),
+            grad: 'linear-gradient(135deg, #20c997 0%, #16906b 100%)', glow: 'rgba(32,201,151,.28)',
+          },
+          {
+            label: 'คาดรับสัปดาห์นี้', en: 'EXPECTED THIS WEEK',
+            // calendar
+            icon: (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                <line x1="16" y1="2" x2="16" y2="6"/>
+                <line x1="8" y1="2" x2="8" y2="6"/>
+                <line x1="3" y1="10" x2="21" y2="10"/>
+              </svg>
+            ),
+            count: thisWkRows.length, amt: sumBal(thisWkRows),
+            grad: 'linear-gradient(135deg, #5b9eef 0%, #2a6fdb 100%)', glow: 'rgba(42,111,219,.28)',
+          },
+          {
+            label: 'คาดรับสัปดาห์หน้า', en: 'EXPECTED NEXT WEEK',
+            // calendar with forward arrow
+            icon: (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                <line x1="16" y1="2" x2="16" y2="6"/>
+                <line x1="8" y1="2" x2="8" y2="6"/>
+                <line x1="3" y1="10" x2="21" y2="10"/>
+                <polyline points="11 14 14 17 11 20"/>
+              </svg>
+            ),
+            count: nextWkRows.length, amt: sumBal(nextWkRows),
+            grad: 'linear-gradient(135deg, #a78bfa 0%, #7c3aed 100%)', glow: 'rgba(124,58,237,.28)',
+          },
         ].map((k, i) => (
           <div key={i} className="iv-summary-card" style={{
             background: k.grad, borderRadius: 14, padding: '14px 18px', color: 'white',
@@ -1185,9 +1224,8 @@ function IvReportView({ rows, onOpen }) {
             }} />
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, position: 'relative' }}>
               <div style={{
-                width: 30, height: 30, borderRadius: 8,
+                width: 32, height: 32, borderRadius: 8,
                 background: 'rgba(255,255,255,.18)', display: 'grid', placeItems: 'center',
-                fontSize: 15,
               }}>{k.icon}</div>
               <div style={{ lineHeight: 1.15 }}>
                 <div style={{ fontSize: 13, fontWeight: 800 }}>{k.label}</div>
@@ -2353,6 +2391,11 @@ function IvReportStandalonePage({ data, setData, toast }) {
     // Normalize invType — 'P' (default) หรือ 'O'
     const rawIvType = (iv.invType || iv.invtype || 'P').toString().trim().toUpperCase();
     const invType   = rawIvType === 'O' ? 'O' : 'P';
+    // Normalize period — ใบเก่าอาจไม่มี field period → derive จาก remark เพื่อให้ chip ขึ้นสม่ำเสมอ
+    const rawPeriod = Number(iv.period);
+    const period    = Number.isFinite(rawPeriod) && (rawPeriod === 0 || rawPeriod > 0)
+      ? rawPeriod
+      : extractPeriodFromRemark(iv.remark || '');
     return {
       ...iv,
       status,
@@ -2361,6 +2404,7 @@ function IvReportStandalonePage({ data, setData, toast }) {
       assignee,
       debt,
       invType,
+      period,
       // คาดรับสุทธิ = balance หลังหัก WHT 1% (balance × 106/107) − ภาระหนี้
       netExpected: balance * 106 / 107 - debt,
     };
