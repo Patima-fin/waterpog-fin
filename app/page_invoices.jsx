@@ -2086,6 +2086,9 @@ function ImportRawIvModal({ open, onClose, existing, onImport }) {
   const [parsed, setParsed] = ivState({ all: [], existing: [], updated: [], new_: [] });
   const [fileInfo, setFileInfo] = ivState(null); // { name, sheets, picked }
   const [fileErr, setFileErr]   = ivState('');
+  const [helpOpen, setHelpOpen] = ivState(false);
+  const [pasteOpen, setPasteOpen] = ivState(false);
+  const [dragOver, setDragOver]   = ivState(false);
   const fileInputRef = ivRef(null);
 
   // อ่านไฟล์ Excel/CSV → แปลงเป็น TSV → ใส่ใน textarea (reuse parseRawIv)
@@ -2214,7 +2217,23 @@ function ImportRawIvModal({ open, onClose, existing, onImport }) {
   return (
     <Modal
       open={open}
-      title="📥 นำเข้า RAW_IV_OUTSTANDING"
+      title={
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <span>นำเข้าใบแจ้งหนี้คงค้างจากระบบ</span>
+          <button type="button" onClick={() => setHelpOpen(o => !o)}
+            title={helpOpen ? 'ซ่อนคำอธิบาย' : 'ดูคำอธิบาย / คอลัมน์ที่รองรับ'}
+            aria-label="help"
+            style={{
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              width: 22, height: 22, borderRadius: '50%',
+              background: helpOpen ? '#f6ad55' : '#fefce8',
+              color: helpOpen ? '#fff' : '#b45309',
+              border: '1.5px solid #f6ad55', cursor: 'pointer', padding: 0,
+              fontSize: 13, fontWeight: 700, lineHeight: 1,
+              transition: 'background .12s',
+            }}>ⓘ</button>
+        </span>
+      }
       onClose={onClose}
       footer={<>
         <button className="btn btn-ghost" onClick={onClose}>ยกเลิก</button>
@@ -2226,22 +2245,41 @@ function ImportRawIvModal({ open, onClose, existing, onImport }) {
         </button>
       </>}
     >
-      <div style={{ fontSize: 12.5, marginBottom: 8, color: 'var(--ink-500)' }}>
-        นำเข้าใบแจ้งหนี้คงค้างที่ดึงจากระบบ — <strong>อัปโหลดไฟล์ .xlsx/.csv</strong> หรือ <strong>วาง TSV/JSON</strong>. คอลัมน์ที่ใช้:&nbsp;
-        <strong>proj_dpt</strong> (หรือ refcode), <strong>invno</strong>, <strong>invdate</strong>, <strong>Balance</strong>, <strong>remark</strong>, <strong>Customer</strong>, <strong>invtype</strong>
-        <br />
-        งวด (period) จะดึงจาก <strong>remark</strong> อัตโนมัติ เช่น "งวดที่ 2" → period = 2
-        <br />
-        ระบบจะเปรียบเทียบกับใบในตาราง — เฉพาะใบที่ <strong>ไม่ซ้ำ</strong> จะถูกนำเข้า
-      </div>
+      {helpOpen && (
+        <div style={{
+          fontSize: 12, marginBottom: 12, padding: '10px 12px',
+          background: '#fefce8', border: '1px solid #fde68a', borderLeft: '3px solid #f6ad55',
+          borderRadius: 7, color: 'var(--ink-700)', lineHeight: 1.65,
+        }}>
+          <div>📥 <strong>อัปโหลดไฟล์ .xlsx/.csv</strong> หรือ <strong>วาง TSV/JSON</strong>. คอลัมน์ที่ใช้:&nbsp;
+            <strong>proj_dpt</strong> (หรือ refcode), <strong>invno</strong>, <strong>invdate</strong>, <strong>Balance</strong>, <strong>remark</strong>, <strong>Customer</strong>, <strong>invtype</strong>
+          </div>
+          <div>📆 งวด (period) จะดึงจาก <strong>remark</strong> อัตโนมัติ เช่น "งวดที่ 2" → period = 2</div>
+          <div>🔁 ระบบจะเปรียบเทียบกับใบในตาราง — เฉพาะใบที่ <strong>ไม่ซ้ำ</strong> จะถูกนำเข้า</div>
+        </div>
+      )}
 
-      {/* ── อัปโหลดไฟล์ Excel ──────────────────────────────────────────── */}
-      <div style={{
-        border: '1.5px dashed var(--brand-300, #90b4f2)',
-        borderRadius: 10, padding: '12px 14px', marginBottom: 12,
-        background: 'color-mix(in oklch, var(--brand-500) 5%, transparent)',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+      {/* ── อัปโหลดไฟล์ Excel — รองรับ drag & drop ──────────────────── */}
+      <div
+        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); if (!dragOver) setDragOver(true); }}
+        onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(true); }}
+        onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setDragOver(false); }}
+        onDrop={(e) => {
+          e.preventDefault(); e.stopPropagation();
+          setDragOver(false);
+          const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+          if (f) handleFile(f);
+        }}
+        style={{
+          border: dragOver ? '2.5px dashed var(--brand-500)' : '2px dashed var(--brand-300, #90b4f2)',
+          borderRadius: 12, padding: '28px 20px',
+          minHeight: 120, marginBottom: 12, transition: 'all .12s ease',
+          background: dragOver
+            ? 'color-mix(in oklch, var(--brand-500) 14%, transparent)'
+            : 'color-mix(in oklch, var(--brand-500) 5%, transparent)',
+          display: 'flex', flexDirection: 'column', justifyContent: 'center',
+        }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
           <label style={{
             display: 'inline-flex', alignItems: 'center', gap: 6,
             padding: '6px 12px', borderRadius: 7, cursor: 'pointer',
@@ -2258,8 +2296,8 @@ function ImportRawIvModal({ open, onClose, existing, onImport }) {
               style={{ display: 'none' }}
             />
           </label>
-          <span style={{ fontSize: 11.5, color: 'var(--ink-500)' }}>
-            รองรับ .xlsx, .xls, .csv (ระบบจะอ่าน sheet แรกอัตโนมัติ)
+          <span style={{ fontSize: 11.5, color: dragOver ? 'var(--brand-700)' : 'var(--ink-500)', fontWeight: dragOver ? 600 : 400 }}>
+            {dragOver ? '⬇️ วางไฟล์ที่นี่' : 'หรือลากไฟล์มาวาง — รองรับ .xlsx, .xls, .csv'}
           </span>
           {fileInfo && (
             <button type="button" onClick={clearFile}
@@ -2295,25 +2333,44 @@ function ImportRawIvModal({ open, onClose, existing, onImport }) {
         )}
       </div>
 
-      <div style={{ fontSize: 11, color: 'var(--ink-400)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ flex: 1, height: 1, background: 'var(--ink-100)' }}></span>
-        <span>หรือวางข้อมูลโดยตรง (TSV / JSON)</span>
-        <span style={{ flex: 1, height: 1, background: 'var(--ink-100)' }}></span>
-      </div>
-
-      <textarea
-        className="input"
-        rows={8}
-        placeholder={`ตัวอย่าง (วางจาก Excel RAW_IV_OUTSTANDING ได้เลย):
+      {/* ── ปุ่ม "วางข้อมูลโดยตรง" → expand textarea ──────────────────── */}
+      {!pasteOpen ? (
+        <button type="button" onClick={() => setPasteOpen(true)}
+          style={{
+            width: '100%', padding: '8px 14px', marginBottom: 8,
+            background: 'var(--ink-50, #f7f8fa)', border: '1px dashed var(--ink-200, #cbd5e0)',
+            borderRadius: 7, color: 'var(--ink-600)', cursor: 'pointer',
+            fontSize: 12, fontWeight: 500,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+          }}>
+          <span>📋</span>
+          <span>หรือกดที่นี่เพื่อวางข้อมูลโดยตรง (TSV / JSON)</span>
+        </button>
+      ) : (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+            <span style={{ fontSize: 11, color: 'var(--ink-500)' }}>วางข้อมูล TSV / JSON ที่นี่</span>
+            <button type="button" onClick={() => { setPasteOpen(false); if (!fileInfo) setRaw(''); }}
+              style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--ink-400)', fontSize: 11, padding: '0 4px' }}>
+              ✕ ซ่อน
+            </button>
+          </div>
+          <textarea
+            className="input"
+            rows={8}
+            autoFocus
+            placeholder={`ตัวอย่าง (วางจาก Excel RAW_IV_OUTSTANDING ได้เลย):
 
 refcode\tinvno\tinvdate\tBalance\tremark\tCustomer
 6802-01\tIV2603-031\t11/03/2026\t5,395,000.00\tระบบผลิตน้ำประปาขนาดใหญ่\tที่ทำการปกครองอำเภอเขาย้อย
 6901-01\tIV2604-025\t28/04/2026\t3,240,000.00\tระบบผลิตน้ำประปา-งวดที่ 2 (60%)\tองค์การบริหารส่วนตำบลบ้านนา
 …`}
-        value={raw}
-        onChange={(e) => setRaw(e.target.value)}
-        style={{ fontFamily: 'ui-monospace', fontSize: 12, width: '100%', resize: 'vertical' }}
-      />
+            value={raw}
+            onChange={(e) => setRaw(e.target.value)}
+            style={{ fontFamily: 'ui-monospace', fontSize: 12, width: '100%', resize: 'vertical' }}
+          />
+        </>
+      )}
 
       {/* Preview */}
       {raw.trim() && (
