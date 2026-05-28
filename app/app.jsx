@@ -331,8 +331,8 @@ function App() {
     case 'cashflow':       page = <CashFlowDashboard data={data} setData={setData} toast={pushToast} />; break;
     case 'projects':       page = <ProjectsPage data={data} setData={setData} toast={pushToast} />; break;
     case 'invoices':       page = <InvoicesPage data={data} setData={setData} toast={pushToast} />; break;
-    case 'debt':           page = <DebtPage data={data} />; break;
-    case 'debt_ledger':    page = <DebtLedgerPage data={data} />; break;
+    case 'debt':           page = <DebtPage data={data} setData={setData} toast={pushToast} />; break;
+    case 'debt_ledger':    page = <DebtLedgerPage data={data} setData={setData} toast={pushToast} />; break;
     case 'iv_report':      page = <IvReportStandalonePage data={data} setData={setData} toast={pushToast} />; break;
     case 'receipts':       page = <ReceiptsPage data={data} />; break;
     case 'bank_diary':     page = <BankDiaryPage data={data} setData={setData} toast={pushToast} />; break;
