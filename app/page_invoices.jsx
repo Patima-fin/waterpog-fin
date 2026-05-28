@@ -1165,54 +1165,42 @@ function IvReportView({ rows, onOpen }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
 
-      {/* ── Summary strip — horizontal pills เหมือน Daily (icon | title | amount | count) ──── */}
-      <div className="iv-summary-strip" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {/* ── Summary strip — gradient pills (โทนเดียวกับ Daily Revenue Report) ──── */}
+      <div className="iv-summary-strip" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
         {[
           { label: 'รับแล้ววันนี้',     en: "TODAY'S RECEIPTS",  icon: '✓',  count: todayRows.length,  amt: sumActual(todayRows), grad: 'linear-gradient(135deg, #20c997 0%, #16906b 100%)', glow: 'rgba(32,201,151,.28)' },
           { label: 'คาดรับสัปดาห์นี้',  en: 'EXPECTED THIS WEEK', icon: '📅', count: thisWkRows.length, amt: sumBal(thisWkRows),   grad: 'linear-gradient(135deg, #5b9eef 0%, #2a6fdb 100%)', glow: 'rgba(42,111,219,.28)' },
           { label: 'คาดรับสัปดาห์หน้า', en: 'EXPECTED NEXT WEEK', icon: '🗓', count: nextWkRows.length, amt: sumBal(nextWkRows),   grad: 'linear-gradient(135deg, #a78bfa 0%, #7c3aed 100%)', glow: 'rgba(124,58,237,.28)' },
         ].map((k, i) => (
           <div key={i} className="iv-summary-card" style={{
-            background: k.grad, borderRadius: 14, padding: '14px 22px', color: 'white',
+            background: k.grad, borderRadius: 14, padding: '14px 18px', color: 'white',
             position: 'relative', overflow: 'hidden',
             boxShadow: `0 6px 18px ${k.glow}, 0 1px 2px rgba(0,0,0,.04)`,
-            display: 'flex', alignItems: 'center', gap: 16,
           }}>
-            {/* Decorative glows */}
-            <div style={{ position: 'absolute', right: -50, top: -50, width: 140, height: 140, borderRadius: '50%', background: 'rgba(255,255,255,.08)', pointerEvents: 'none' }} />
-            <div style={{ position: 'absolute', right: -10, bottom: -40, width: 80, height: 80, borderRadius: '50%', background: 'rgba(255,255,255,.05)', pointerEvents: 'none' }} />
-
-            {/* Icon */}
+            {/* subtle highlight */}
             <div style={{
-              width: 42, height: 42, borderRadius: 10,
-              background: 'rgba(0,0,0,.22)', display: 'grid', placeItems: 'center',
-              fontSize: 19, flexShrink: 0, position: 'relative', zIndex: 1,
-            }}>{k.icon}</div>
-
-            {/* Title block */}
-            <div style={{ flexShrink: 0, position: 'relative', zIndex: 1, minWidth: 180, lineHeight: 1.2 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, letterSpacing: '.01em' }}>{k.label}</div>
-              <div style={{ fontSize: 10, opacity: 0.78, marginTop: 2, letterSpacing: '.08em', textTransform: 'uppercase' }}>{k.en}</div>
+              position: 'absolute', top: -40, right: -40, width: 160, height: 160,
+              background: 'radial-gradient(circle, rgba(255,255,255,.18) 0%, transparent 65%)',
+              pointerEvents: 'none',
+            }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, position: 'relative' }}>
+              <div style={{
+                width: 30, height: 30, borderRadius: 8,
+                background: 'rgba(255,255,255,.18)', display: 'grid', placeItems: 'center',
+                fontSize: 15,
+              }}>{k.icon}</div>
+              <div style={{ lineHeight: 1.15 }}>
+                <div style={{ fontSize: 13, fontWeight: 800 }}>{k.label}</div>
+                <div style={{ fontSize: 9.5, opacity: .78, letterSpacing: '.06em', fontWeight: 600 }}>{k.en}</div>
+              </div>
             </div>
-
-            {/* Big amount — flex right-aligned */}
-            <div style={{
-              flex: 1, fontSize: 30, fontWeight: 800,
-              fontVariantNumeric: 'tabular-nums', letterSpacing: '-.02em', lineHeight: 1,
-              position: 'relative', zIndex: 1, textAlign: 'right',
-            }}>
-              {fmtNum(k.amt, 0)}
-              <span style={{ fontSize: 15, opacity: 0.82, fontWeight: 500, marginLeft: 4 }}>฿</span>
-            </div>
-
-            {/* Count — fixed width */}
-            <div style={{
-              display: 'flex', alignItems: 'baseline', gap: 4, opacity: 0.92,
-              flexShrink: 0, position: 'relative', zIndex: 1,
-              width: 72, justifyContent: 'flex-end',
-            }}>
-              <span style={{ fontSize: 18, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{k.count}</span>
-              <span style={{ fontSize: 12, opacity: 0.85 }}>ใบ</span>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, position: 'relative' }}>
+              <div style={{ fontWeight: 800, fontSize: 23, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+                {fmtNum(k.amt, 0)} <span style={{ fontSize: 12, fontWeight: 700, opacity: .82 }}>฿</span>
+              </div>
+              <div style={{ fontSize: 11.5, fontWeight: 700, background: 'rgba(255,255,255,.22)', padding: '3px 10px', borderRadius: 10 }}>
+                {k.count} ใบ
+              </div>
             </div>
           </div>
         ))}
