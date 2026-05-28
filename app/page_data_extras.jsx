@@ -26,6 +26,10 @@ function DataCrudPage({ data, setData, toast, config }) {
   const [showImport, setShowImport]   = dxState(false);
   const [importText, setImportText]   = dxState('');
   const [importStats, setImportStats] = dxState(null);   // {added, skipped, errors}
+  const [importHelpOpen, setImportHelpOpen]   = dxState(false);
+  const [importPasteOpen, setImportPasteOpen] = dxState(false);
+  const [importDragOver, setImportDragOver]   = dxState(false);
+  const [importFileName, setImportFileName]   = dxState('');
   // Clear selection whenever the filter/search/mode changes
   dxEffect(() => { setSelected(new Set()); }, [filter, query, bulkMode]);
   // Excel-like per-column filters — { [colKey]: Set<displayValue> }
@@ -294,6 +298,7 @@ function DataCrudPage({ data, setData, toast, config }) {
         const ws = wb.Sheets[sheetName];
         const tsv = window.XLSX.utils.sheet_to_csv(ws, { FS: '\t' });
         setImportText(tsv);
+        setImportFileName(file.name);
         toast(`อ่านไฟล์ ${file.name} แล้ว — กรุณาตรวจสอบและกด "นำเข้า"`);
       } catch (err) {
         toast('อ่านไฟล์ไม่สำเร็จ: ' + err.message);
@@ -539,86 +544,158 @@ function DataCrudPage({ data, setData, toast, config }) {
           importFields.slice(0, 4).map(f => f.label).join('\t') +
           (importFields.length > 4 ? '\t...' : '') + '\n...';
         return (
-        <Modal open={showImport} title={'นำเข้า · ' + config.title} maxWidth={760}
-          onClose={() => { setShowImport(false); setImportText(''); setImportStats(null); }}
+        <Modal open={showImport} maxWidth={760}
+          title={
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <span>นำเข้า · {config.title}</span>
+              <button type="button" onClick={() => setImportHelpOpen(o => !o)}
+                title={importHelpOpen ? 'ซ่อนคำอธิบาย' : 'ดูคำอธิบาย / คอลัมน์ที่รองรับ'}
+                aria-label="help"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  width: 22, height: 22, borderRadius: '50%',
+                  background: importHelpOpen ? '#f6ad55' : '#fefce8',
+                  color: importHelpOpen ? '#fff' : '#b45309',
+                  border: '1.5px solid #f6ad55', cursor: 'pointer', padding: 0,
+                  fontSize: 13, fontWeight: 700, lineHeight: 1,
+                  transition: 'background .12s',
+                }}>ⓘ</button>
+            </span>
+          }
+          onClose={() => { setShowImport(false); setImportText(''); setImportStats(null); setImportPasteOpen(false); setImportFileName(''); }}
           footer={<>
-            <button className="btn btn-ghost" onClick={() => { setShowImport(false); setImportText(''); setImportStats(null); }}>ปิด</button>
+            <button className="btn btn-ghost" onClick={() => { setShowImport(false); setImportText(''); setImportStats(null); setImportPasteOpen(false); setImportFileName(''); }}>ปิด</button>
             <button className="btn btn-primary" onClick={handleImport} disabled={!importText.trim()}>
               <Icon name="upload" size={13} /> นำเข้า ({previewRows} แถว)
             </button>
           </>}>
 
-          {/* Step 1 — Download template */}
+          {/* Help callout */}
+          {importHelpOpen && (
+            <div style={{
+              fontSize: 12, marginBottom: 12, padding: '10px 12px',
+              background: '#fefce8', border: '1px solid #fde68a', borderLeft: '3px solid #f6ad55',
+              borderRadius: 7, color: 'var(--ink-700)', lineHeight: 1.65,
+            }}>
+              <div>📥 <strong>อัปโหลดไฟล์ .xlsx/.csv</strong> หรือ <strong>วาง Excel</strong>. แถวแรกต้องเป็นชื่อคอลัมน์ (ตาม Template)</div>
+              <div>📋 <strong>คอลัมน์ที่ระบบรองรับ ({importFields.length})</strong>:&nbsp;
+                <span style={{ fontFamily: 'ui-monospace', fontSize: 11.5, color: 'var(--ink-600)' }}>
+                  {importFields.map(f => f.label).join(', ')}
+                </span>
+              </div>
+              <div>📦 แนะนำให้ <strong>ดาวน์โหลด Template</strong> ก่อนเริ่ม เพื่อให้คอลัมน์ตรงสเปค</div>
+            </div>
+          )}
+
+          {/* Template download — compact strip */}
           <div style={{
             background: 'color-mix(in oklch, var(--brand-500) 6%, transparent)',
             border: '1px solid color-mix(in oklch, var(--brand-500) 22%, transparent)',
-            borderRadius: 10, padding: '12px 14px', marginBottom: 14,
+            borderRadius: 8, padding: '8px 12px', marginBottom: 10,
+            display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-              <div style={{
-                width: 24, height: 24, borderRadius: '50%', background: 'var(--brand-500)',
-                color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 12,
-              }}>1</div>
-              <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--brand-700)' }}>
-                ดาวน์โหลด Template ก่อน
-              </div>
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--ink-600)', marginBottom: 10, lineHeight: 1.55 }}>
-              เปิดไฟล์ใน Excel/Google Sheet → กรอกข้อมูลตามคอลัมน์ → คัดลอกทั้งหมด (Ctrl+A → Ctrl+C) มาวางในกล่องด้านล่าง
-              หรืออัปโหลดไฟล์โดยตรง
-            </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button className="btn btn-primary" onClick={() => handleDownloadTemplate('xlsx')}>
-                <Icon name="download" size={13} /> Template .xlsx
-              </button>
-              <button className="btn btn-ghost" onClick={() => handleDownloadTemplate('csv')}>
-                <Icon name="download" size={13} /> Template .csv
-              </button>
-              <label className="btn btn-ghost" style={{ cursor: 'pointer', marginLeft: 'auto' }}>
-                <Icon name="upload" size={13} /> เลือกไฟล์ .xlsx
+            <span style={{ fontSize: 12, color: 'var(--brand-700)', fontWeight: 600 }}>📦 ดาวน์โหลด Template:</span>
+            <button className="btn btn-sm" onClick={() => handleDownloadTemplate('xlsx')}
+              style={{ fontSize: 11.5, padding: '3px 10px' }}>
+              <Icon name="download" size={12} /> .xlsx
+            </button>
+            <button className="btn btn-sm btn-ghost" onClick={() => handleDownloadTemplate('csv')}
+              style={{ fontSize: 11.5, padding: '3px 10px' }}>
+              <Icon name="download" size={12} /> .csv
+            </button>
+            <span style={{ fontSize: 11, color: 'var(--ink-500)', marginLeft: 'auto' }}>
+              เปิดใน Excel → กรอกข้อมูล → upload หรือ paste กลับ
+            </span>
+          </div>
+
+          {/* Big drop zone — drag & drop or click to choose */}
+          <div
+            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); if (!importDragOver) setImportDragOver(true); }}
+            onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setImportDragOver(true); }}
+            onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setImportDragOver(false); }}
+            onDrop={(e) => {
+              e.preventDefault(); e.stopPropagation();
+              setImportDragOver(false);
+              const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+              if (f) handleFileUpload(f);
+            }}
+            style={{
+              border: importDragOver ? '2.5px dashed var(--brand-500)' : '2px dashed var(--brand-300, #90b4f2)',
+              borderRadius: 12, padding: '28px 20px',
+              minHeight: 120, marginBottom: 12, transition: 'all .12s ease',
+              background: importDragOver
+                ? 'color-mix(in oklch, var(--brand-500) 14%, transparent)'
+                : 'color-mix(in oklch, var(--brand-500) 5%, transparent)',
+              display: 'flex', flexDirection: 'column', justifyContent: 'center',
+            }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
+              <label style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '6px 12px', borderRadius: 7, cursor: 'pointer',
+                background: 'var(--brand-500)', color: '#fff', fontWeight: 600, fontSize: 12.5,
+                border: 'none',
+              }}>
+                <Icon name="upload" size={13} />
+                เลือกไฟล์ Excel
                 <input
                   type="file"
-                  accept=".xlsx,.xls,.csv"
-                  style={{ display: 'none' }}
+                  accept=".xlsx,.xls,.xlsm,.csv,.tsv,.txt"
                   onChange={(e) => handleFileUpload(e.target.files?.[0])}
+                  style={{ display: 'none' }}
                 />
               </label>
+              <span style={{ fontSize: 11.5, color: importDragOver ? 'var(--brand-700)' : 'var(--ink-500)', fontWeight: importDragOver ? 600 : 400 }}>
+                {importDragOver ? '⬇️ วางไฟล์ที่นี่' : 'หรือลากไฟล์มาวาง — รองรับ .xlsx, .xls, .csv'}
+              </span>
+              {importFileName && (
+                <button type="button" onClick={() => { setImportFileName(''); setImportText(''); }}
+                  style={{ marginLeft: 'auto', background: 'transparent', border: '1px solid var(--ink-200)', borderRadius: 6, padding: '3px 9px', fontSize: 11, color: 'var(--ink-600)', cursor: 'pointer' }}>
+                  ✕ ล้างไฟล์
+                </button>
+              )}
             </div>
+            {importFileName && (
+              <div style={{ marginTop: 10, fontSize: 12, color: 'var(--ink-700)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                <span style={{ fontSize: 13 }}>📄</span>
+                <strong>{importFileName}</strong>
+                <span style={{ fontSize: 11, color: 'var(--ink-500)' }}>· อ่านแล้ว {previewRows} แถว</span>
+              </div>
+            )}
           </div>
 
-          {/* Step 2 — Paste data */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-            <div style={{
-              width: 24, height: 24, borderRadius: '50%', background: 'var(--brand-500)',
-              color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 12,
-            }}>2</div>
-            <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--brand-700)' }}>
-              วางข้อมูลจาก Excel (แถวแรก = หัวตาราง)
-            </div>
-          </div>
-          <textarea
-            className="input"
-            rows={10}
-            value={importText}
-            onChange={e => setImportText(e.target.value)}
-            placeholder={placeholderText}
-            style={{ fontFamily: 'ui-monospace', fontSize: 11.5, width: '100%', resize: 'vertical', marginBottom: 10 }}
-          />
-
-          {/* Expected columns hint */}
-          <details style={{ marginBottom: 10 }}>
-            <summary style={{ cursor: 'pointer', fontSize: 12, color: 'var(--brand-700)', fontWeight: 600 }}>
-              📋 คอลัมน์ที่ระบบรองรับ ({importFields.length} คอลัมน์)
-            </summary>
-            <div style={{ marginTop: 8, padding: 10, background: 'var(--ink-25, #f9fafb)', borderRadius: 8, fontSize: 11.5, lineHeight: 1.7 }}>
-              {importFields.map((f, i) => (
-                <div key={i} style={{ display: 'flex', gap: 8 }}>
-                  <span style={{ fontFamily: 'ui-monospace', fontWeight: 600, color: 'var(--brand-700)', minWidth: 130 }}>{f.label}</span>
-                  <span className="muted">— {f.type || 'text'}</span>
-                </div>
-              ))}
-            </div>
-          </details>
+          {/* Paste — collapsed behind button */}
+          {!importPasteOpen ? (
+            <button type="button" onClick={() => setImportPasteOpen(true)}
+              style={{
+                width: '100%', padding: '8px 14px', marginBottom: 8,
+                background: 'var(--ink-50, #f7f8fa)', border: '1px dashed var(--ink-200, #cbd5e0)',
+                borderRadius: 7, color: 'var(--ink-600)', cursor: 'pointer',
+                fontSize: 12, fontWeight: 500,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              }}>
+              <span>📋</span>
+              <span>หรือกดที่นี่เพื่อวางข้อมูลโดยตรง (TSV / CSV)</span>
+            </button>
+          ) : (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ fontSize: 11, color: 'var(--ink-500)' }}>วางข้อมูลจาก Excel (แถวแรก = หัวตาราง)</span>
+                <button type="button" onClick={() => { setImportPasteOpen(false); if (!importFileName) setImportText(''); }}
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--ink-400)', fontSize: 11, padding: '0 4px' }}>
+                  ✕ ซ่อน
+                </button>
+              </div>
+              <textarea
+                className="input"
+                rows={10}
+                autoFocus
+                value={importText}
+                onChange={e => setImportText(e.target.value)}
+                placeholder={placeholderText}
+                style={{ fontFamily: 'ui-monospace', fontSize: 11.5, width: '100%', resize: 'vertical', marginBottom: 10 }}
+              />
+            </>
+          )}
 
           {/* Stats after import */}
           {importStats && (
@@ -1329,8 +1406,32 @@ function DataPayablePage({ data, setData, toast }) {
   const [dptFilter, setDptFilter]   = dxState('all');
   const [sortKey, setSortKey]       = dxState('vchdate');
   const [sortDir, setSortDir]       = dxState('desc');
-  const [showImport, setShowImport] = dxState(false);
-  const [importText, setImportText] = dxState('');
+  const [showImport, setShowImport]           = dxState(false);
+  const [importText, setImportText]           = dxState('');
+  const [importHelpOpen, setImportHelpOpen]   = dxState(false);
+  const [importPasteOpen, setImportPasteOpen] = dxState(false);
+  const [importDragOver, setImportDragOver]   = dxState(false);
+  const [importFileName, setImportFileName]   = dxState('');
+
+  // อัปโหลด .xlsx ตรงๆ → แปลงเป็น TSV → ใส่ใน textarea (reuse handleImport)
+  const handleFileUpload = (file) => {
+    if (!file) return;
+    if (!window.XLSX) { toast('ไม่พบไลบรารี SheetJS — กรุณาใช้วิธี Copy-Paste แทน'); return; }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const wb = window.XLSX.read(e.target.result, { type: 'array', cellDates: false });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const tsv = window.XLSX.utils.sheet_to_csv(ws, { FS: '\t' });
+        setImportText(tsv);
+        setImportFileName(file.name);
+        toast(`อ่านไฟล์ ${file.name} แล้ว — กรุณาตรวจสอบและกด "นำเข้า"`);
+      } catch (err) {
+        toast('อ่านไฟล์ไม่สำเร็จ: ' + err.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
 
   // Normalise due-date field variants → 'due2' before any filtering / display
   const rows = dxMemo(() => (data.payables || []).map(_normPayableRow), [data.payables]);
@@ -1454,6 +1555,8 @@ function DataPayablePage({ data, setData, toast }) {
     }
     setShowImport(false);
     setImportText('');
+    setImportPasteOpen(false);
+    setImportFileName('');
     toast(`นำเข้าแล้ว ${added} รายการ · ข้ามซ้ำ ${skipped} รายการ`);
   };
 
@@ -1642,24 +1745,129 @@ function DataPayablePage({ data, setData, toast }) {
 
       {/* Import modal */}
       {showImport && (
-        <Modal open={showImport} title="นำเข้า Excel · AP Outstanding" maxWidth={680}
-          onClose={() => { setShowImport(false); setImportText(''); }}
+        <Modal open={showImport} maxWidth={680}
+          title={
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <span>นำเข้า Excel · AP Outstanding</span>
+              <button type="button" onClick={() => setImportHelpOpen(o => !o)}
+                title={importHelpOpen ? 'ซ่อนคำอธิบาย' : 'ดูคำอธิบาย / กฎการนำเข้า'}
+                aria-label="help"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  width: 22, height: 22, borderRadius: '50%',
+                  background: importHelpOpen ? '#f6ad55' : '#fefce8',
+                  color: importHelpOpen ? '#fff' : '#b45309',
+                  border: '1.5px solid #f6ad55', cursor: 'pointer', padding: 0,
+                  fontSize: 13, fontWeight: 700, lineHeight: 1,
+                  transition: 'background .12s',
+                }}>ⓘ</button>
+            </span>
+          }
+          onClose={() => { setShowImport(false); setImportText(''); setImportPasteOpen(false); setImportFileName(''); }}
           footer={<>
-            <button className="btn btn-ghost" onClick={() => { setShowImport(false); setImportText(''); }}>ยกเลิก</button>
-            <button className="btn btn-primary" onClick={handleImport}><Icon name="upload" size={13} /> นำเข้า</button>
+            <button className="btn btn-ghost" onClick={() => { setShowImport(false); setImportText(''); setImportPasteOpen(false); setImportFileName(''); }}>ยกเลิก</button>
+            <button className="btn btn-primary" onClick={handleImport} disabled={!importText.trim()}><Icon name="upload" size={13} /> นำเข้า</button>
           </>}>
-          <div style={{ fontSize: 13, color: 'var(--ink-600)', marginBottom: 10, lineHeight: 1.6 }}>
-            คัดลอกข้อมูลจาก Excel <strong>พร้อมแถวหัวตาราง</strong> แล้ววางในช่องด้านล่าง<br />
-            รายการที่ <strong>vchno ซ้ำ</strong>กับข้อมูลที่มีอยู่แล้วจะถูกข้ามโดยอัตโนมัติ — เฉพาะแถวใหม่เท่านั้นที่จะถูกเพิ่ม
+
+          {importHelpOpen && (
+            <div style={{
+              fontSize: 12, marginBottom: 12, padding: '10px 12px',
+              background: '#fefce8', border: '1px solid #fde68a', borderLeft: '3px solid #f6ad55',
+              borderRadius: 7, color: 'var(--ink-700)', lineHeight: 1.65,
+            }}>
+              <div>📥 <strong>อัปโหลดไฟล์ .xlsx/.csv</strong> หรือ <strong>วาง TSV</strong>. แถวแรกต้องเป็นชื่อคอลัมน์ (header)</div>
+              <div>🔁 รายการที่ <strong>vchno ซ้ำ</strong> กับข้อมูลที่มีอยู่จะถูกข้ามโดยอัตโนมัติ — เฉพาะแถวใหม่เท่านั้นที่ถูกเพิ่ม</div>
+              <div>📆 คอลัมน์วันครบกำหนด: ถ้าไม่มี <code>due2</code> ระบบจะ map จาก due/duedate/Due/maturity ฯลฯ ให้อัตโนมัติ</div>
+            </div>
+          )}
+
+          {/* Big drop zone */}
+          <div
+            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); if (!importDragOver) setImportDragOver(true); }}
+            onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setImportDragOver(true); }}
+            onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setImportDragOver(false); }}
+            onDrop={(e) => {
+              e.preventDefault(); e.stopPropagation();
+              setImportDragOver(false);
+              const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+              if (f) handleFileUpload(f);
+            }}
+            style={{
+              border: importDragOver ? '2.5px dashed var(--brand-500)' : '2px dashed var(--brand-300, #90b4f2)',
+              borderRadius: 12, padding: '28px 20px',
+              minHeight: 120, marginBottom: 12, transition: 'all .12s ease',
+              background: importDragOver
+                ? 'color-mix(in oklch, var(--brand-500) 14%, transparent)'
+                : 'color-mix(in oklch, var(--brand-500) 5%, transparent)',
+              display: 'flex', flexDirection: 'column', justifyContent: 'center',
+            }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
+              <label style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '6px 12px', borderRadius: 7, cursor: 'pointer',
+                background: 'var(--brand-500)', color: '#fff', fontWeight: 600, fontSize: 12.5,
+                border: 'none',
+              }}>
+                <Icon name="upload" size={13} />
+                เลือกไฟล์ Excel
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,.xlsm,.csv,.tsv,.txt"
+                  onChange={(e) => handleFileUpload(e.target.files?.[0])}
+                  style={{ display: 'none' }}
+                />
+              </label>
+              <span style={{ fontSize: 11.5, color: importDragOver ? 'var(--brand-700)' : 'var(--ink-500)', fontWeight: importDragOver ? 600 : 400 }}>
+                {importDragOver ? '⬇️ วางไฟล์ที่นี่' : 'หรือลากไฟล์มาวาง — รองรับ .xlsx, .xls, .csv'}
+              </span>
+              {importFileName && (
+                <button type="button" onClick={() => { setImportFileName(''); setImportText(''); }}
+                  style={{ marginLeft: 'auto', background: 'transparent', border: '1px solid var(--ink-200)', borderRadius: 6, padding: '3px 9px', fontSize: 11, color: 'var(--ink-600)', cursor: 'pointer' }}>
+                  ✕ ล้างไฟล์
+                </button>
+              )}
+            </div>
+            {importFileName && (
+              <div style={{ marginTop: 10, fontSize: 12, color: 'var(--ink-700)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                <span style={{ fontSize: 13 }}>📄</span>
+                <strong>{importFileName}</strong>
+              </div>
+            )}
           </div>
-          <textarea
-            className="input"
-            rows={14}
-            value={importText}
-            onChange={e => setImportText(e.target.value)}
-            placeholder={"วางข้อมูล TSV จาก Excel ที่นี่…\n(เลือกทั้งหมดใน Excel → Ctrl+C → วางที่นี่)"}
-            style={{ fontFamily: 'ui-monospace', fontSize: 11.5, width: '100%', resize: 'vertical' }}
-          />
+
+          {/* Paste — collapsed behind button */}
+          {!importPasteOpen ? (
+            <button type="button" onClick={() => setImportPasteOpen(true)}
+              style={{
+                width: '100%', padding: '8px 14px', marginBottom: 8,
+                background: 'var(--ink-50, #f7f8fa)', border: '1px dashed var(--ink-200, #cbd5e0)',
+                borderRadius: 7, color: 'var(--ink-600)', cursor: 'pointer',
+                fontSize: 12, fontWeight: 500,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              }}>
+              <span>📋</span>
+              <span>หรือกดที่นี่เพื่อวางข้อมูลโดยตรง (TSV จาก Excel)</span>
+            </button>
+          ) : (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ fontSize: 11, color: 'var(--ink-500)' }}>วางข้อมูล TSV จาก Excel ที่นี่ (แถวแรก = หัวตาราง)</span>
+                <button type="button" onClick={() => { setImportPasteOpen(false); if (!importFileName) setImportText(''); }}
+                  style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--ink-400)', fontSize: 11, padding: '0 4px' }}>
+                  ✕ ซ่อน
+                </button>
+              </div>
+              <textarea
+                className="input"
+                rows={14}
+                autoFocus
+                value={importText}
+                onChange={e => setImportText(e.target.value)}
+                placeholder={"วางข้อมูล TSV จาก Excel ที่นี่…\n(เลือกทั้งหมดใน Excel → Ctrl+C → วางที่นี่)"}
+                style={{ fontFamily: 'ui-monospace', fontSize: 11.5, width: '100%', resize: 'vertical' }}
+              />
+            </>
+          )}
         </Modal>
       )}
 
