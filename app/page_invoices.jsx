@@ -1365,9 +1365,11 @@ function IvAmountInput({ value, onChange }) {
 // Detail modal: landscape split — read-only system data (left) + tracking (right)
 // ────────────────────────────────────────────────────────────────────────────
 function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, financeByCode, projectByCode }) {
-  const [draft, setDraft]         = ivState(iv);
-  const [newLog, setNewLog]       = ivState({ date: new Date().toISOString().slice(0, 10), note: '' });
-  const [saveError, setSaveError] = ivState('');
+  const [draft, setDraft]                 = ivState(iv);
+  const [newLog, setNewLog]               = ivState({ date: new Date().toISOString().slice(0, 10), note: '' });
+  const [saveError, setSaveError]         = ivState('');
+  const [debtOvFocused, setDebtOvFocused] = ivState(false);
+  const [debtOvRaw, setDebtOvRaw]         = ivState('');
 
   React.useEffect(() => {
     setDraft(iv);
@@ -1388,6 +1390,14 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
   const project  = projectByCode[draft.jobNo];
   const finance  = financeByCode[draft.jobNo];
   const debt     = resolveDebt(draft, finance);
+
+  // ── debt override display state — formatted number with commas, blank = use default ─
+  const debtOvNum = (draft.debtOverride == null || draft.debtOverride === '')
+    ? null : Number(draft.debtOverride);
+  const debtOvDisplay = debtOvNum == null ? '' : fmtNum(debtOvNum, 2);
+  const debtPlaceholder = Number(finance?.debt ?? finance?.['ภาระหนี้'])
+    ? fmtNum(Number(finance?.debt ?? finance?.['ภาระหนี้']), 2)
+    : '— จากโครงการ —';
   // ── ภาษีหัก ณ ที่จ่าย 1% (สำหรับงานราชการ) ──────────────────────────────
   // Balance ในระบบรวม VAT 7% แล้ว → หัก WHT 1% ของยอดก่อน VAT
   // สูตร: balance * 106/107 = ยอดหลังหัก WHT
@@ -1479,6 +1489,12 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <Badge kind={s.badge}>{s.label}</Badge>
           <span style={{ fontFamily: 'ui-monospace', fontWeight: 700, color: 'var(--brand-700)', fontSize: 13 }}>{draft.jobNo || '—'}</span>
+          {draft.productType && (
+            <span title="สินค้า (productType)" style={{
+              fontSize: 11, fontWeight: 700, background: 'var(--brand-100,#dceaff)', color: 'var(--brand-700)',
+              borderRadius: 4, padding: '2px 7px', letterSpacing: '0.04em', lineHeight: 1.2,
+            }}>{draft.productType}</span>
+          )}
           <span style={{ color: 'var(--ink-300)', fontSize: 12 }}>·</span>
           <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink-700)' }}>{project?.['พื้นที่'] || project?.name || iv.projectName || '—'}</span>
         </div>
@@ -1607,14 +1623,25 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
                 </label>
                 {canEdit ? (
                   <div style={{ position: 'relative' }}>
-                    <input className="input" type="number" min="0" step="0.01"
-                      placeholder={Number(finance?.debt ?? finance?.['ภาระหนี้']) ? String(Number(finance?.debt ?? finance?.['ภาระหนี้'])) : '— จากโครงการ —'}
-                      value={draft.debtOverride ?? ''}
-                      onChange={(e) => set('debtOverride', e.target.value === '' ? null : Number(e.target.value))}
+                    <input className="input" type="text" inputMode="decimal"
+                      placeholder={debtPlaceholder}
+                      value={debtOvFocused ? debtOvRaw : debtOvDisplay}
+                      onChange={(e) => setDebtOvRaw(e.target.value)}
+                      onFocus={(e) => {
+                        setDebtOvFocused(true);
+                        setDebtOvRaw(debtOvNum == null ? '' : String(debtOvNum));
+                        setTimeout(() => e.target.select(), 0);
+                      }}
+                      onBlur={() => {
+                        const txt = String(debtOvRaw).trim();
+                        if (txt === '') set('debtOverride', null);
+                        else set('debtOverride', parseFloat(txt.replace(/,/g, '')) || 0);
+                        setDebtOvFocused(false);
+                      }}
                       title="ว่าง = ใช้ค่าจากโครงการ · กรอก = override"
-                      style={{ fontSize: 12.5, height: 32, textAlign: 'right', fontFamily: 'ui-monospace', fontWeight: 600, color: 'var(--bad)' }} />
+                      style={{ fontSize: 12.5, height: 32, textAlign: 'right', paddingRight: 22, fontFamily: 'ui-monospace', fontWeight: 600, color: 'var(--bad)' }} />
                     {draft.debtOverride != null && draft.debtOverride !== '' && (
-                      <button type="button" onClick={() => set('debtOverride', null)} title="ล้าง override กลับไปใช้ค่าจากโครงการ"
+                      <button type="button" onClick={() => { set('debtOverride', null); setDebtOvRaw(''); }} title="ล้าง override กลับไปใช้ค่าจากโครงการ"
                         style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--ink-400)', fontSize: 14, padding: '0 4px' }}>×</button>
                     )}
                   </div>
@@ -1637,12 +1664,27 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
                 💡 ว่าง = ใช้ค่าจากข้อมูลโครงการ · กรอก = override เฉพาะ IV นี้
               </div>
             )}
+
+            {/* แถว 3: หมายเหตุจากระบบ (read-only) */}
+            {draft.remark && (
+              <div style={{ marginTop: 10 }}>
+                <label style={{ fontSize: 11, color: 'var(--ink-500)', display: 'flex', alignItems: 'center', gap: 3 }}>
+                  <span style={{ fontSize: 10, opacity: 0.5 }}>🔒</span>หมายเหตุจากระบบ
+                </label>
+                <div style={{
+                  minHeight: 32, borderRadius: 7, border: '1px solid var(--ink-100)',
+                  background: 'var(--ink-50, #f7f8fa)', padding: '7px 9px',
+                  fontSize: 12.5, color: 'var(--ink-800)', lineHeight: 1.5,
+                  whiteSpace: 'pre-wrap', wordBreak: 'break-word', cursor: 'default', userSelect: 'text',
+                }} title={draft.remark}>{draft.remark}</div>
+              </div>
+            )}
           </div>
 
           {/* ── ข้อมูลติดตาม ───────────────────────────────────────────────── */}
           <div>
             <SectionHdr label="ข้อมูลติดตาม — กรอกได้" icon="edit" />
-            <div style={{ display: 'grid', gridTemplateColumns: '64px 152px 130px 120px 1fr 130px', gap: '0 10px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '95px 195px 170px 125px minmax(110px, 1fr) 125px', gap: '0 10px' }}>
               <div className="field">
                 <label style={{ fontSize: 12 }}>งวดที่</label>
                 <select className="select input" value={draft.period ?? 1}
@@ -1785,19 +1827,6 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
                   : 'ยังไม่มีบันทึกรับเงิน — กด "+ บันทึก" เมื่อเงินเข้าจริง'}
               </div>
             )}
-          </div>
-
-          {/* ── หมายเหตุ / บันทึก ─────────────────────────────────────────── */}
-          <div>
-            <SectionHdr label="หมายเหตุ / บันทึก" icon="edit" />
-            <textarea
-              className="input"
-              rows={2}
-              value={draft.remark || ''}
-              onChange={(e) => set('remark', e.target.value)}
-              placeholder="บันทึกหมายเหตุเกี่ยวกับใบแจ้งหนี้นี้…"
-              style={{ width: '100%', resize: 'none', fontSize: 13, boxSizing: 'border-box' }}
-            />
           </div>
 
         </div>
@@ -2055,6 +2084,68 @@ function DiagStat({ label, value, color }) {
 function ImportRawIvModal({ open, onClose, existing, onImport }) {
   const [raw, setRaw] = ivState('');
   const [parsed, setParsed] = ivState({ all: [], existing: [], updated: [], new_: [] });
+  const [fileInfo, setFileInfo] = ivState(null); // { name, sheets, picked }
+  const [fileErr, setFileErr]   = ivState('');
+  const fileInputRef = ivRef(null);
+
+  // อ่านไฟล์ Excel/CSV → แปลงเป็น TSV → ใส่ใน textarea (reuse parseRawIv)
+  const handleFile = (file) => {
+    if (!file) return;
+    setFileErr('');
+    if (typeof XLSX === 'undefined') {
+      setFileErr('ยังไม่ได้โหลด SheetJS — รีโหลดหน้าใหม่แล้วลองอีกครั้ง');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const buf = e.target.result;
+        const wb  = XLSX.read(buf, { type: 'array', cellDates: false });
+        if (!wb.SheetNames || wb.SheetNames.length === 0) {
+          setFileErr('ไฟล์ว่าง — ไม่พบ sheet ในไฟล์');
+          return;
+        }
+        const sheetName = wb.SheetNames[0];
+        const ws        = wb.Sheets[sheetName];
+        // แปลงเป็น TSV (formatted values, ไม่ใช่ raw numbers — เพื่อให้วันที่ออกเป็น "09/04/2026")
+        const tsv = XLSX.utils.sheet_to_csv(ws, { FS: '\t', RS: '\n', rawNumbers: false, blankrows: false });
+        setRaw(tsv);
+        setFileInfo({ name: file.name, sheets: wb.SheetNames, picked: sheetName });
+      } catch (err) {
+        console.error('xlsx read error', err);
+        setFileErr('อ่านไฟล์ไม่สำเร็จ: ' + (err && err.message ? err.message : String(err)));
+      }
+    };
+    reader.onerror = () => setFileErr('อ่านไฟล์ไม่สำเร็จ');
+    reader.readAsArrayBuffer(file);
+  };
+
+  // เปลี่ยน sheet ที่จะใช้ (กรณีไฟล์ Excel มีหลาย sheet)
+  const switchSheet = (sheetName) => {
+    if (!fileInputRef.current || !fileInputRef.current.files || !fileInputRef.current.files[0]) return;
+    const file = fileInputRef.current.files[0];
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const wb = XLSX.read(e.target.result, { type: 'array', cellDates: false });
+        const ws = wb.Sheets[sheetName];
+        if (!ws) { setFileErr('ไม่พบ sheet: ' + sheetName); return; }
+        const tsv = XLSX.utils.sheet_to_csv(ws, { FS: '\t', RS: '\n', rawNumbers: false, blankrows: false });
+        setRaw(tsv);
+        setFileInfo(fi => fi ? { ...fi, picked: sheetName } : fi);
+      } catch (err) {
+        setFileErr('อ่าน sheet ไม่สำเร็จ: ' + (err && err.message ? err.message : String(err)));
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const clearFile = () => {
+    setFileInfo(null);
+    setFileErr('');
+    setRaw('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
   React.useEffect(() => {
     if (!raw.trim()) { setParsed({ all: [], existing: [], updated: [], new_: [] }); return; }
@@ -2136,12 +2227,78 @@ function ImportRawIvModal({ open, onClose, existing, onImport }) {
       </>}
     >
       <div style={{ fontSize: 12.5, marginBottom: 8, color: 'var(--ink-500)' }}>
-        วางข้อมูลใบแจ้งหนี้คงค้างที่ดึงจากระบบ (รูปแบบ TSV จาก Excel หรือ JSON). คอลัมน์ที่ใช้:&nbsp;
-        <strong>refcode</strong> (Job/Contract code), <strong>invno</strong>, <strong>invdate</strong>, <strong>Balance</strong>
+        นำเข้าใบแจ้งหนี้คงค้างที่ดึงจากระบบ — <strong>อัปโหลดไฟล์ .xlsx/.csv</strong> หรือ <strong>วาง TSV/JSON</strong>. คอลัมน์ที่ใช้:&nbsp;
+        <strong>proj_dpt</strong> (หรือ refcode), <strong>invno</strong>, <strong>invdate</strong>, <strong>Balance</strong>, <strong>remark</strong>, <strong>Customer</strong>, <strong>invtype</strong>
         <br />
         งวด (period) จะดึงจาก <strong>remark</strong> อัตโนมัติ เช่น "งวดที่ 2" → period = 2
         <br />
         ระบบจะเปรียบเทียบกับใบในตาราง — เฉพาะใบที่ <strong>ไม่ซ้ำ</strong> จะถูกนำเข้า
+      </div>
+
+      {/* ── อัปโหลดไฟล์ Excel ──────────────────────────────────────────── */}
+      <div style={{
+        border: '1.5px dashed var(--brand-300, #90b4f2)',
+        borderRadius: 10, padding: '12px 14px', marginBottom: 12,
+        background: 'color-mix(in oklch, var(--brand-500) 5%, transparent)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <label style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '6px 12px', borderRadius: 7, cursor: 'pointer',
+            background: 'var(--brand-500)', color: '#fff', fontWeight: 600, fontSize: 12.5,
+            border: 'none',
+          }}>
+            <Icon name="upload" size={13} />
+            เลือกไฟล์ Excel
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.xlsm,.csv,.tsv,.txt"
+              onChange={(e) => handleFile(e.target.files && e.target.files[0])}
+              style={{ display: 'none' }}
+            />
+          </label>
+          <span style={{ fontSize: 11.5, color: 'var(--ink-500)' }}>
+            รองรับ .xlsx, .xls, .csv (ระบบจะอ่าน sheet แรกอัตโนมัติ)
+          </span>
+          {fileInfo && (
+            <button type="button" onClick={clearFile}
+              style={{ marginLeft: 'auto', background: 'transparent', border: '1px solid var(--ink-200)', borderRadius: 6, padding: '3px 9px', fontSize: 11, color: 'var(--ink-600)', cursor: 'pointer' }}>
+              ✕ ล้างไฟล์
+            </button>
+          )}
+        </div>
+        {fileInfo && (
+          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--ink-700)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13 }}>📄</span>
+            <strong>{fileInfo.name}</strong>
+            {fileInfo.sheets.length > 1 ? (
+              <>
+                <span style={{ fontSize: 11, color: 'var(--ink-500)' }}>· Sheet:</span>
+                <select
+                  className="select input"
+                  value={fileInfo.picked}
+                  onChange={(e) => switchSheet(e.target.value)}
+                  style={{ height: 26, fontSize: 12, padding: '0 8px' }}>
+                  {fileInfo.sheets.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </>
+            ) : (
+              <span style={{ fontSize: 11, color: 'var(--ink-500)' }}>· sheet: {fileInfo.picked}</span>
+            )}
+          </div>
+        )}
+        {fileErr && (
+          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--bad)', background: 'color-mix(in oklch, var(--bad) 8%, transparent)', border: '1px solid color-mix(in oklch, var(--bad) 22%, transparent)', borderRadius: 6, padding: '5px 10px' }}>
+            ⚠️ {fileErr}
+          </div>
+        )}
+      </div>
+
+      <div style={{ fontSize: 11, color: 'var(--ink-400)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ flex: 1, height: 1, background: 'var(--ink-100)' }}></span>
+        <span>หรือวางข้อมูลโดยตรง (TSV / JSON)</span>
+        <span style={{ flex: 1, height: 1, background: 'var(--ink-100)' }}></span>
       </div>
 
       <textarea
