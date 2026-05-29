@@ -25,7 +25,9 @@ function DataCrudPage({ data, setData, toast, config }) {
   // Import modal state (generic paste/upload for any DataCrudPage)
   const [showImport, setShowImport]   = dxState(false);
   const [importText, setImportText]   = dxState('');
-  const [importStats, setImportStats] = dxState(null);   // {added, skipped, errors}
+  const [importStats, setImportStats] = dxState(null);   // {added, changed, skipped, deleted, errors}
+  const [importPreview, setImportPreview] = dxState(null);   // {added, changed, unchanged, missing} when dedupKey diff is ready
+  const [deleteMissingChoice, setDeleteMissingChoice] = dxState(false);
   const [importHelpOpen, setImportHelpOpen]   = dxState(false);
   const [importPasteOpen, setImportPasteOpen] = dxState(false);
   const [importDragOver, setImportDragOver]   = dxState(false);
@@ -214,6 +216,18 @@ function DataCrudPage({ data, setData, toast, config }) {
     return { headers, rows };
   };
 
+  // Normalise value for diff comparison — numbers as numbers, others trimmed strings
+  const normCmp = (x) => {
+    if (x == null || x === '') return '';
+    if (typeof x === 'number') return isNaN(x) ? '' : x;
+    const s = String(x).trim();
+    if (s === '') return '';
+    // try numeric (handles "1,234.56" / "-1234")
+    const stripped = s.replace(/,/g, '').replace(/[฿$\s]/g, '');
+    if (/^-?\d+(\.\d+)?$/.test(stripped)) return Number(stripped);
+    return s;
+  };
+
   const handleImport = () => {
     if (!importText.trim()) { toast('ไม่มีข้อมูล — กรุณาวางข้อมูลจาก Excel ก่อน'); return; }
     const { headers, rows } = parseDelimited(importText);
@@ -229,29 +243,159 @@ function DataCrudPage({ data, setData, toast, config }) {
       return;
     }
     const fieldByKey = Object.fromEntries(importFields.map(f => [f.key, f]));
-    const newRows = [];
-    let skipped = 0;
-    const errors = [];
-    rows.forEach((cols, i) => {
-      if (cols.every(c => !String(c || '').trim())) { skipped++; return; }
-      const obj = { id: WTPData.newId() };
+    // Build parsed objects (no id yet — id only assigned on commit for new rows)
+    const parsedRows = [];
+    let blankSkipped = 0;
+    rows.forEach((cols) => {
+      if (cols.every(c => !String(c || '').trim())) { blankSkipped++; return; }
+      const obj = {};
       Object.entries(headerMap).forEach(([colIdx, key]) => {
         const f = fieldByKey[key];
         obj[key] = coerceVal(cols[colIdx], f?.type);
       });
-      // Fill empty defaults from emptyRow
-      if (config.emptyRow) {
-        Object.entries(config.emptyRow).forEach(([k, v]) => {
-          if (obj[k] === undefined || obj[k] === '' || obj[k] === null) obj[k] = v;
-        });
-      }
-      newRows.push(obj);
+      parsedRows.push(obj);
     });
-    if (newRows.length > 0) {
-      setData(d => ({ ...d, [config.dataKey]: [...newRows, ...(d[config.dataKey] || [])] }));
+
+    const dedupKey = config.dedupKey;
+
+    // ── Mode 1: no dedupKey → behaviour เดิม (append ทั้งหมด) ─────────────
+    if (!dedupKey) {
+      const newRows = parsedRows.map(obj => {
+        const filled = { id: WTPData.newId(), ...obj };
+        if (config.emptyRow) {
+          Object.entries(config.emptyRow).forEach(([k, v]) => {
+            if (filled[k] === undefined || filled[k] === '' || filled[k] === null) filled[k] = v;
+          });
+        }
+        return filled;
+      });
+      if (newRows.length > 0) {
+        setData(d => ({ ...d, [config.dataKey]: [...newRows, ...(d[config.dataKey] || [])] }));
+      }
+      setImportStats({ added: newRows.length, skipped: blankSkipped, errors: [] });
+      toast(`นำเข้าแล้ว ${newRows.length} รายการ${blankSkipped ? ` · ข้าม ${blankSkipped}` : ''}`);
+      return;
     }
-    setImportStats({ added: newRows.length, skipped, errors });
-    toast(`นำเข้าแล้ว ${newRows.length} รายการ${skipped ? ` · ข้าม ${skipped}` : ''}`);
+
+    // ── Mode 2: มี dedupKey → diff แล้วโชว์ preview ก่อน commit ──────────
+    const existing = data[config.dataKey] || [];
+    const existingByKey = new Map();
+    existing.forEach(r => {
+      const k = String(r[dedupKey] ?? '').trim();
+      if (k) existingByKey.set(k, r);
+    });
+
+    const importedKeys = new Set();
+    const cat = { added: [], changed: [], unchanged: [], missing: [] };
+    let noKeyCount = 0;
+
+    parsedRows.forEach(obj => {
+      const k = String(obj[dedupKey] ?? '').trim();
+      if (!k) {
+        // ไม่มี dedupKey ในแถว → ถือเป็น added (เพิ่มใหม่ลอย ๆ)
+        noKeyCount++;
+        cat.added.push({ row: obj, key: '(ไม่มีเลข)' });
+        return;
+      }
+      importedKeys.add(k);
+      const ex = existingByKey.get(k);
+      if (!ex) {
+        cat.added.push({ row: obj, key: k });
+        return;
+      }
+      // diff field-by-field (เฉพาะ field ที่มีใน import)
+      const diff = {};
+      Object.entries(obj).forEach(([fk, v]) => {
+        if (fk === dedupKey) return;
+        if (normCmp(ex[fk]) !== normCmp(v)) {
+          diff[fk] = { old: ex[fk], new: v };
+        }
+      });
+      if (Object.keys(diff).length === 0) {
+        cat.unchanged.push({ row: obj, existing: ex, key: k });
+      } else {
+        cat.changed.push({ row: obj, existing: ex, key: k, diff });
+      }
+    });
+
+    // หาเลขในช่วง [min,max] ที่อยู่ใน DB แต่ไม่อยู่ใน import → น่าจะถูกยกเลิก
+    // ใช้เฉพาะ key ที่อยู่ทั้งสองฝั่ง (changed + unchanged) มาคำนวณช่วง
+    // เพื่อกันกรณี added มีเลขห่างไกล (เช่น PV99999) แล้วทำให้ช่วงครอบ DB หมด
+    const overlapKeys = [...cat.changed, ...cat.unchanged].map(x => x.key).filter(Boolean);
+    if (overlapKeys.length >= 2) {
+      const sorted = overlapKeys.slice().sort();
+      const lo = sorted[0], hi = sorted[sorted.length - 1];
+      const seenMissing = new Set();
+      existing.forEach(r => {
+        const k = String(r[dedupKey] ?? '').trim();
+        if (k && k >= lo && k <= hi && !importedKeys.has(k) && !seenMissing.has(k)) {
+          seenMissing.add(k);
+          cat.missing.push({ row: r, key: k });
+        }
+      });
+      cat.range = { lo, hi };
+    }
+
+    cat.blankSkipped = blankSkipped;
+    cat.noKeyCount = noKeyCount;
+    cat.fieldByKey = fieldByKey;
+    setImportPreview(cat);
+    setDeleteMissingChoice(false);
+    setImportStats(null);
+  };
+
+  // Apply the preview → upsert + optional delete
+  const commitImport = () => {
+    if (!importPreview) return;
+    const preview = importPreview;
+    setData(d => {
+      let next = [...(d[config.dataKey] || [])];
+
+      // 1) update changed — merge import fields into existing row (keep id, keep untouched fields)
+      const changedById = new Map();
+      preview.changed.forEach(({ existing, row }) => {
+        if (existing?.id) changedById.set(existing.id, row);
+      });
+      if (changedById.size > 0) {
+        next = next.map(r => changedById.has(r.id) ? { ...r, ...changedById.get(r.id) } : r);
+      }
+
+      // 2) add new — fill emptyRow defaults + new id
+      const newRows = preview.added.map(({ row }) => {
+        const filled = { ...row };
+        if (config.emptyRow) {
+          Object.entries(config.emptyRow).forEach(([k, v]) => {
+            if (filled[k] === undefined || filled[k] === '' || filled[k] === null) filled[k] = v;
+          });
+        }
+        filled.id = WTPData.newId();
+        return filled;
+      });
+      if (newRows.length > 0) next = [...newRows, ...next];
+
+      // 3) delete missing (optional)
+      if (deleteMissingChoice && preview.missing.length > 0) {
+        const missingIds = new Set(preview.missing.map(m => m.row?.id).filter(Boolean));
+        next = next.filter(r => !missingIds.has(r.id));
+      }
+
+      return { ...d, [config.dataKey]: next };
+    });
+
+    const stats = {
+      added: preview.added.length,
+      changed: preview.changed.length,
+      skipped: preview.unchanged.length + (preview.blankSkipped || 0),
+      deleted: deleteMissingChoice ? preview.missing.length : 0,
+      errors: [],
+    };
+    setImportStats(stats);
+    setImportPreview(null);
+    setImportText('');
+    setImportFileName('');
+    const parts = [`เพิ่ม ${stats.added}`, `แก้ ${stats.changed}`, `ข้าม ${stats.skipped}`];
+    if (stats.deleted > 0) parts.push(`ลบ ${stats.deleted}`);
+    toast(parts.join(' · '));
   };
 
   // Download xlsx template using SheetJS (window.XLSX loaded in index.html)
@@ -562,13 +706,30 @@ function DataCrudPage({ data, setData, toast, config }) {
                 }}>ⓘ</button>
             </span>
           }
-          onClose={() => { setShowImport(false); setImportText(''); setImportStats(null); setImportPasteOpen(false); setImportFileName(''); }}
-          footer={<>
-            <button className="btn btn-ghost" onClick={() => { setShowImport(false); setImportText(''); setImportStats(null); setImportPasteOpen(false); setImportFileName(''); }}>ปิด</button>
+          onClose={() => { setShowImport(false); setImportText(''); setImportStats(null); setImportPreview(null); setImportPasteOpen(false); setImportFileName(''); }}
+          footer={importPreview ? <>
+            <button className="btn btn-ghost" onClick={() => setImportPreview(null)}>← ย้อนกลับ</button>
+            <button className="btn btn-primary" onClick={commitImport}>
+              <Icon name="check" size={13} /> ยืนยันนำเข้า
+              ({importPreview.added.length}+{importPreview.changed.length}{deleteMissingChoice && importPreview.missing.length ? `-${importPreview.missing.length}` : ''})
+            </button>
+          </> : <>
+            <button className="btn btn-ghost" onClick={() => { setShowImport(false); setImportText(''); setImportStats(null); setImportPreview(null); setImportPasteOpen(false); setImportFileName(''); }}>ปิด</button>
             <button className="btn btn-primary" onClick={handleImport} disabled={!importText.trim()}>
-              <Icon name="upload" size={13} /> นำเข้า ({previewRows} แถว)
+              <Icon name="upload" size={13} /> {config.dedupKey ? 'ตรวจสอบข้อมูล' : 'นำเข้า'} ({previewRows} แถว)
             </button>
           </>}>
+
+          {/* ── Preview / Diff stage (only when dedupKey set + handleImport ran) ── */}
+          {importPreview ? (
+            <ImportPreview
+              preview={importPreview}
+              dedupKey={config.dedupKey}
+              fieldByKey={importPreview.fieldByKey || {}}
+              deleteMissing={deleteMissingChoice}
+              setDeleteMissing={setDeleteMissingChoice}
+            />
+          ) : <>
 
           {/* Help callout */}
           {importHelpOpen && (
@@ -701,12 +862,14 @@ function DataCrudPage({ data, setData, toast, config }) {
           {importStats && (
             <div style={{
               padding: 10, borderRadius: 8,
-              background: importStats.added > 0 ? 'color-mix(in oklch, var(--good) 12%, transparent)' : 'color-mix(in oklch, var(--bad) 12%, transparent)',
-              border: `1px solid ${importStats.added > 0 ? 'var(--good)' : 'var(--bad)'}`,
+              background: (importStats.added > 0 || importStats.changed > 0) ? 'color-mix(in oklch, var(--good) 12%, transparent)' : 'color-mix(in oklch, var(--bad) 12%, transparent)',
+              border: `1px solid ${(importStats.added > 0 || importStats.changed > 0) ? 'var(--good)' : 'var(--bad)'}`,
               fontSize: 12.5,
             }}>
-              ✅ เพิ่มแล้ว <strong>{importStats.added}</strong> รายการ
+              ✅ เพิ่ม <strong>{importStats.added}</strong>
+              {importStats.changed > 0 && <> · ✏️ แก้ <strong>{importStats.changed}</strong></>}
               {importStats.skipped > 0 && <> · ⏭️ ข้าม <strong>{importStats.skipped}</strong></>}
+              {importStats.deleted > 0 && <> · 🗑️ ลบ <strong>{importStats.deleted}</strong></>}
               {importStats.errors?.length > 0 && (
                 <div style={{ marginTop: 6, color: 'var(--bad)' }}>
                   ⚠️ {importStats.errors.join('; ')}
@@ -714,6 +877,7 @@ function DataCrudPage({ data, setData, toast, config }) {
               )}
             </div>
           )}
+          </>}
         </Modal>
         );
       })()}
@@ -916,6 +1080,163 @@ function GenericViewModal({ row, onClose, fields, title, onDelete, onEdit, onCop
         })()}
       </div>
     </Modal>
+  );
+}
+
+// ─── Import preview (diff) — รายงาน 4 หมวด ก่อน commit จริง ─────────────────
+function ImportPreview({ preview, dedupKey, fieldByKey, deleteMissing, setDeleteMissing }) {
+  const [openSec, setOpenSec] = dxState({ added: false, changed: true, unchanged: false, missing: true });
+  const { added = [], changed = [], unchanged = [], missing = [], range, blankSkipped = 0, noKeyCount = 0 } = preview;
+  const total = added.length + changed.length + unchanged.length;
+
+  const sectionCard = (key, color, icon, title, count, hint) => {
+    const open = openSec[key];
+    return (
+      <div style={{
+        border: `1px solid ${color}`,
+        borderRadius: 8,
+        overflow: 'hidden',
+        background: `color-mix(in oklch, ${color} 5%, transparent)`,
+      }}>
+        <button type="button" onClick={() => setOpenSec(s => ({ ...s, [key]: !s[key] }))}
+          disabled={count === 0}
+          style={{
+            width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+            padding: '8px 12px', background: 'transparent', border: 'none',
+            cursor: count === 0 ? 'default' : 'pointer', textAlign: 'left',
+            opacity: count === 0 ? 0.55 : 1,
+          }}>
+          <span style={{ fontSize: 16 }}>{icon}</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color }}>{title}</span>
+          <span style={{ fontSize: 13, fontWeight: 800, color, marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>{count}</span>
+          {count > 0 && <span style={{ fontSize: 11, color: 'var(--ink-500)' }}>{open ? '▲' : '▼'}</span>}
+        </button>
+        {hint && <div style={{ padding: '0 12px 8px', fontSize: 11.5, color: 'var(--ink-600)', lineHeight: 1.5 }}>{hint}</div>}
+      </div>
+    );
+  };
+
+  const fmtVal = (v, type) => {
+    if (v === null || v === undefined || v === '') return <span style={{ color: 'var(--ink-400)' }}>—</span>;
+    if (type === 'number') return fmtNum(parseNum(v), 2);
+    if (type === 'date') return fmtDate(v) || String(v);
+    return String(v);
+  };
+
+  const renderDiffList = () => (
+    <div style={{ maxHeight: 280, overflowY: 'auto', padding: '4px 12px 12px', display: 'grid', gap: 8 }}>
+      {changed.map((c, i) => (
+        <div key={i} style={{ borderLeft: '3px solid oklch(70% 0.16 75)', paddingLeft: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--brand-700)', fontFamily: 'ui-monospace' }}>{c.key}</div>
+          <div style={{ display: 'grid', gap: 3, marginTop: 4 }}>
+            {Object.entries(c.diff).map(([fk, { old, new: nw }]) => {
+              const f = fieldByKey[fk];
+              const label = f?.label || fk;
+              return (
+                <div key={fk} style={{ fontSize: 11.5, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <span style={{ color: 'var(--ink-500)', minWidth: 100 }}>{label}:</span>
+                  <span style={{ background: 'color-mix(in oklch, var(--bad) 12%, transparent)', padding: '1px 6px', borderRadius: 4, textDecoration: 'line-through', color: 'var(--bad)' }}>{fmtVal(old, f?.type)}</span>
+                  <span style={{ color: 'var(--ink-400)' }}>→</span>
+                  <span style={{ background: 'color-mix(in oklch, var(--good) 14%, transparent)', padding: '1px 6px', borderRadius: 4, color: 'var(--good)', fontWeight: 600 }}>{fmtVal(nw, f?.type)}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  const renderKeyList = (items, getLabel) => (
+    <div style={{ maxHeight: 220, overflowY: 'auto', padding: '4px 12px 12px', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+      {items.map((it, i) => (
+        <span key={i} style={{
+          fontSize: 11.5, fontFamily: 'ui-monospace',
+          padding: '2px 8px', borderRadius: 4,
+          background: 'var(--ink-50, #f4f6f9)', border: '1px solid var(--ink-100)',
+          color: 'var(--ink-700)',
+        }}>{getLabel(it)}</span>
+      ))}
+    </div>
+  );
+
+  return (
+    <div style={{ display: 'grid', gap: 10 }}>
+      {/* Summary banner */}
+      <div style={{
+        padding: '10px 14px', borderRadius: 8,
+        background: 'color-mix(in oklch, var(--brand-500) 8%, transparent)',
+        border: '1px solid color-mix(in oklch, var(--brand-500) 26%, transparent)',
+        fontSize: 12.5, lineHeight: 1.6,
+      }}>
+        <div style={{ fontWeight: 700, color: 'var(--brand-700)', marginBottom: 4 }}>
+          📋 ตรวจสอบข้อมูลก่อนนำเข้า — เปรียบเทียบด้วย <code style={{ fontFamily: 'ui-monospace', background: 'rgba(0,0,0,0.06)', padding: '1px 5px', borderRadius: 3 }}>{dedupKey}</code>
+        </div>
+        <div style={{ color: 'var(--ink-600)' }}>
+          พบทั้งหมด <strong>{total}</strong> แถวในไฟล์
+          {blankSkipped > 0 && <> · ข้ามว่าง {blankSkipped}</>}
+          {noKeyCount > 0 && <> · ไม่มี {dedupKey} ({noKeyCount}) — ถือเป็นรายการใหม่</>}
+        </div>
+      </div>
+
+      {/* 4 sections */}
+      {sectionCard('added', 'var(--good)', '🆕', 'ใหม่ (จะเพิ่ม)', added.length,
+        added.length === 0 ? 'ไม่มีรายการใหม่' : null)}
+      {openSec.added && added.length > 0 && renderKeyList(added, a => a.key)}
+
+      {sectionCard('changed', 'oklch(60% 0.18 75)', '✏️', 'เปลี่ยนแปลง (จะอัปเดต)', changed.length,
+        changed.length === 0 ? 'ไม่มีรายการที่เปลี่ยน' : 'รายการเหล่านี้มีอยู่แล้ว แต่ข้อมูลในไฟล์ต่างจากของเดิม — กดยืนยันจะอัปเดตทับ')}
+      {openSec.changed && changed.length > 0 && renderDiffList()}
+
+      {sectionCard('unchanged', 'var(--ink-400)', '=', 'เหมือนเดิม (ข้าม)', unchanged.length,
+        unchanged.length === 0 ? null : 'รายการเหล่านี้เหมือนกับใน DB ทุกประการ — จะไม่ทำอะไร')}
+      {openSec.unchanged && unchanged.length > 0 && renderKeyList(unchanged, u => u.key)}
+
+      {/* Missing — special: with checkbox */}
+      <div style={{
+        border: `1px solid ${missing.length > 0 ? 'var(--bad)' : 'var(--ink-200)'}`,
+        borderRadius: 8, overflow: 'hidden',
+        background: missing.length > 0 ? 'color-mix(in oklch, var(--bad) 6%, transparent)' : 'transparent',
+      }}>
+        <button type="button" onClick={() => setOpenSec(s => ({ ...s, missing: !s.missing }))}
+          disabled={missing.length === 0}
+          style={{
+            width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+            padding: '8px 12px', background: 'transparent', border: 'none',
+            cursor: missing.length === 0 ? 'default' : 'pointer', textAlign: 'left',
+            opacity: missing.length === 0 ? 0.55 : 1,
+          }}>
+          <span style={{ fontSize: 16 }}>⚠️</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: missing.length > 0 ? 'var(--bad)' : 'var(--ink-500)' }}>
+            หายไประหว่างช่วง (อาจถูกยกเลิก)
+          </span>
+          <span style={{ fontSize: 13, fontWeight: 800, color: missing.length > 0 ? 'var(--bad)' : 'var(--ink-500)', marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>
+            {missing.length}
+          </span>
+          {missing.length > 0 && <span style={{ fontSize: 11, color: 'var(--ink-500)' }}>{openSec.missing ? '▲' : '▼'}</span>}
+        </button>
+        {missing.length > 0 && (
+          <div style={{ padding: '0 12px 8px', fontSize: 11.5, color: 'var(--ink-700)', lineHeight: 1.55 }}>
+            ในช่วง <strong>{range?.lo}</strong> ถึง <strong>{range?.hi}</strong> มีเลขที่ใน DB แต่หายจากไฟล์ใหม่ — ปกติแปลว่ารายการนั้นถูกยกเลิกในระบบต้นทาง
+          </div>
+        )}
+        {openSec.missing && missing.length > 0 && renderKeyList(missing, m => m.key)}
+        {missing.length > 0 && (
+          <label style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '8px 12px', borderTop: '1px dashed var(--bad)',
+            background: 'rgba(255,255,255,0.5)',
+            fontSize: 12.5, cursor: 'pointer',
+          }}>
+            <input type="checkbox" checked={deleteMissing} onChange={e => setDeleteMissing(e.target.checked)} />
+            <span>ลบรายการที่หายไป {missing.length} รายการนี้ออกจาก DB ด้วย</span>
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--ink-500)' }}>
+              {deleteMissing ? '🗑️ จะลบ' : 'ค่าเริ่มต้น: เก็บไว้'}
+            </span>
+          </label>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -1162,6 +1483,7 @@ function DataPVPage({ data, setData, toast }) {
       title: 'DATA PV · Payment Voucher',
       sub: 'RAW_PV_PAYMENT · รายการจ่ายเงินจริงทั้งหมด · วาง RAW ได้เลย',
       dataKey: 'pvVouchers',
+      dedupKey: 'PL_PV_No',   // นำเข้าใหม่ → เทียบ PL_PV_No → แจ้งเตือนซ้ำ/เปลี่ยน/หาย
       addLabel: 'เพิ่ม PV',
       singular: 'PV',
       searchPlaceholder: 'ค้นหา PL_PV_No / Payee / AP_No / Ref_Code…',
