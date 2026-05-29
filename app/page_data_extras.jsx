@@ -505,9 +505,28 @@ function DataCrudPage({ data, setData, toast, config }) {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const wb = window.XLSX.read(e.target.result, { type: 'array', cellDates: false });
+        // อ่านแบบ raw (serial numbers) แล้ว convert ทุก cell ที่มี date format
+        // เป็น 'YYYY-MM-DD' ผ่าน XLSX.SSF.parse_date_code — กัน timezone bug
+        // ของ cellDates: true (เลื่อนวันที่ 1 วันใน UTC+7) และกัน sheet_to_csv
+        // คืน '5/5/26' (US locale) ที่ทำให้ format detection หลง
+        const wb = window.XLSX.read(e.target.result, { type: 'array', cellDates: false, cellNF: true });
         const sheetName = wb.SheetNames[0];
         const ws = wb.Sheets[sheetName];
+        Object.keys(ws).forEach(addr => {
+          if (addr[0] === '!') return;
+          const c = ws[addr];
+          if (!c) return;
+          // numeric cell with a date format code → convert to ISO
+          if (c.t === 'n' && typeof c.v === 'number' && c.z && /[ymd]/i.test(String(c.z))) {
+            try {
+              const dc = window.XLSX.SSF.parse_date_code(c.v);
+              if (dc && dc.y) {
+                const iso = `${dc.y}-${String(dc.m).padStart(2,'0')}-${String(dc.d).padStart(2,'0')}`;
+                c.v = iso; c.w = iso; c.t = 's';
+              }
+            } catch (_) { /* skip */ }
+          }
+        });
         const tsv = window.XLSX.utils.sheet_to_csv(ws, { FS: '\t' });
         setImportText(tsv);
         setImportFileName(file.name);
@@ -1891,8 +1910,23 @@ function DataPayablePage({ data, setData, toast }) {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const wb = window.XLSX.read(e.target.result, { type: 'array', cellDates: false });
+        // อ่าน raw แล้ว convert date cells ผ่าน SSF.parse_date_code (กัน timezone bug)
+        const wb = window.XLSX.read(e.target.result, { type: 'array', cellDates: false, cellNF: true });
         const ws = wb.Sheets[wb.SheetNames[0]];
+        Object.keys(ws).forEach(addr => {
+          if (addr[0] === '!') return;
+          const c = ws[addr];
+          if (!c) return;
+          if (c.t === 'n' && typeof c.v === 'number' && c.z && /[ymd]/i.test(String(c.z))) {
+            try {
+              const dc = window.XLSX.SSF.parse_date_code(c.v);
+              if (dc && dc.y) {
+                const iso = `${dc.y}-${String(dc.m).padStart(2,'0')}-${String(dc.d).padStart(2,'0')}`;
+                c.v = iso; c.w = iso; c.t = 's';
+              }
+            } catch (_) { /* skip */ }
+          }
+        });
         const tsv = window.XLSX.utils.sheet_to_csv(ws, { FS: '\t' });
         setImportText(tsv);
         setImportFileName(file.name);
