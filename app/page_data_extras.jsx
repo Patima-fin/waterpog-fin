@@ -157,7 +157,27 @@ function DataCrudPage({ data, setData, toast, config }) {
     return map;
   };
 
-  const coerceVal = (raw, type) => {
+  // Detect date format from a column's sample values
+  //   'MMDD' = MM/DD/YYYY (US/Excel default)  — เจอเมื่อค่าใดมี first part > 12
+  //   'DDMM' = DD/MM/YYYY (Thai standard)    — default ถ้าตรวจไม่ได้
+  //   'ISO'  = YYYY-MM-DD                    — already canonical
+  const detectDateFormat = (samples) => {
+    let ddmmHits = 0, mmddHits = 0;
+    for (const s of samples) {
+      if (!s) continue;
+      const m = String(s).match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-]\d{2,4}$/);
+      if (!m) continue;
+      const a = +m[1], b = +m[2];
+      // a is "first part" = day in DD/MM, month in MM/DD
+      if (a > 12 && b <= 12) ddmmHits++;
+      else if (b > 12 && a <= 12) mmddHits++;
+      // else: both ≤ 12, ambiguous
+    }
+    if (mmddHits > ddmmHits) return 'MMDD';
+    return 'DDMM';   // default — Thai standard, also matches DDMM auto-detection
+  };
+
+  const coerceVal = (raw, type, dateFmt) => {
     if (raw == null) return '';
     const s = String(raw).trim();
     if (s === '') return '';
@@ -173,7 +193,11 @@ function DataCrudPage({ data, setData, toast, config }) {
       if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
       const m1 = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
       if (m1) {
-        let [, dd, mm, yy] = m1;
+        let [, a, b, yy] = m1;
+        // dateFmt = 'MMDD' → a=month b=day; default DDMM → a=day b=month
+        let dd, mm;
+        if (dateFmt === 'MMDD') { mm = a; dd = b; }
+        else { dd = a; mm = b; }
         if (yy.length === 2) yy = (Number(yy) > 50 ? '19' : '20') + yy;
         // Thai Buddhist year support (e.g., 2569 → 2026)
         if (Number(yy) > 2400) yy = String(Number(yy) - 543);
@@ -253,6 +277,16 @@ function DataCrudPage({ data, setData, toast, config }) {
       return;
     }
     const fieldByKey = Object.fromEntries(importFields.map(f => [f.key, f]));
+
+    // Auto-detect date format per date column — scan all values to find
+    // unambiguous days (>12) before parsing
+    const dateFmtByKey = {};
+    Object.entries(headerMap).forEach(([colIdx, key]) => {
+      if (fieldByKey[key]?.type !== 'date') return;
+      const samples = rows.map(cols => String(cols[colIdx] || '').trim()).filter(Boolean);
+      dateFmtByKey[key] = detectDateFormat(samples);
+    });
+
     // Build parsed objects (no id yet — id only assigned on commit for new rows)
     const parsedRows = [];
     let blankSkipped = 0;
@@ -261,7 +295,7 @@ function DataCrudPage({ data, setData, toast, config }) {
       const obj = {};
       Object.entries(headerMap).forEach(([colIdx, key]) => {
         const f = fieldByKey[key];
-        obj[key] = coerceVal(cols[colIdx], f?.type);
+        obj[key] = coerceVal(cols[colIdx], f?.type, dateFmtByKey[key]);
       });
       parsedRows.push(obj);
     });
