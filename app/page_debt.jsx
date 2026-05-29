@@ -31,19 +31,19 @@ function downloadDebtImportTemplate() {
     return;
   }
   const cols = [
-    'debtCategory', 'contractNo', 'borrowerName', 'status',
+    'debtCategory', 'contractNo', 'borrowerName', 'status', 'facilityType',
     'receiveDate', 'startDate', 'maturityDate',
     'principalAmount', 'interestRate', 'balance', 'currency',
     'bankName', 'projectCode', 'projectName', 'note',
   ];
   const headersTh = [
-    'หมวด*', 'เลขที่สัญญา*', 'ผู้กู้/เจ้าหนี้*', 'สถานะ (Active/Close)',
+    'หมวด*', 'เลขที่สัญญา*', 'ผู้กู้/เจ้าหนี้*', 'สถานะ (Active/Close)', 'ประเภทวงเงิน',
     'วันที่รับเงิน (DD/MM/YYYY)', 'วันเริ่มสัญญา', 'วันครบกำหนด',
-    'วงเงิน*', 'อัตราดอกเบี้ย/ปี (เช่น 0.075)', 'คงเหลือ', 'สกุลเงิน (THB/USD)',
+    'วงเงิน*', 'อัตราดอกเบี้ย/ปี (เช่น 0.075 หรือ 7.5)', 'คงเหลือ', 'สกุลเงิน (THB/USD)',
     'ธนาคาร/เจ้าหนี้', 'รหัสโครงการ', 'ชื่อโครงการ', 'หมายเหตุ',
   ];
   const example = [
-    'WCI', 'WCI-2026-001', 'นายสมชาย ทรัพย์มาก', 'Active',
+    'WCI', 'WCI-2026-001', 'นายสมชาย ทรัพย์มาก', 'Active', 'PE',
     '15/03/2026', '15/03/2026', '15/03/2027',
     1000000, 0.075, 1000000, 'THB',
     '—', 'PP073', 'ระบบประปา ต.โคก', 'เงินกู้ระยะสั้น 12 เดือน',
@@ -53,10 +53,11 @@ function downloadDebtImportTemplate() {
     'ห้ามซ้ำกับสัญญาที่มีอยู่แล้ว',
     'ชื่อเต็มผู้ให้กู้/บริษัท',
     'ค่าว่าง = Active',
+    `ประเภทวงเงิน: ${FACILITY_TYPES.join(' / ')} (ว่างได้)`,
     'รูปแบบ DD/MM/YYYY',
     '', '',
     'ตัวเลข ไม่ต้องใส่ comma',
-    'ตัวเลขทศนิยม 0.075 = 7.5%/ปี',
+    'ทศนิยม 0.075 หรือพิมพ์ 7.5',
     'ว่าง = ใช้ค่าวงเงิน', 'ค่าว่าง = THB',
     '', '', '', '',
   ];
@@ -108,11 +109,15 @@ function parseDebtImportFile(file, onDone, onErr) {
         if (rate > 1) rate = rate / 100; // user typed 7.5 → 0.075
         const principal = num(r.principalAmount);
         const balance = r.balance === '' || r.balance == null ? principal : num(r.balance);
+        const ftRaw = String(r.facilityType || '').trim().toUpperCase();
+        // match against known types (case-insensitive)
+        const ftMatch = FACILITY_TYPES.find(t => t.toUpperCase() === ftRaw) || '';
         return {
           debtCategory: String(r.debtCategory || '').trim() || 'อื่นๆ',
           contractNo:   String(r.contractNo || '').trim(),
           borrowerName: String(r.borrowerName || '').trim(),
           status:       (String(r.status || '').trim() === 'Close') ? 'Close' : 'Active',
+          facilityType: ftMatch,
           receiveDate:  parseDate(r.receiveDate),
           startDate:    parseDate(r.startDate),
           maturityDate: parseDate(r.maturityDate),
@@ -139,6 +144,7 @@ function parseDebtImportFile(file, onDone, onErr) {
 function DebtFormModal({ open, initial, onClose, onSave, isNew }) {
   const blank = {
     debtCategory: 'WCI', contractNo: '', borrowerName: '', status: 'Active',
+    facilityType: '',
     receiveDate: new Date().toISOString().slice(0, 10),
     startDate:   new Date().toISOString().slice(0, 10),
     maturityDate: '',
@@ -227,6 +233,19 @@ function DebtFormModal({ open, initial, onClose, onSave, isNew }) {
         <div className="field">
           <label>ธนาคาร / เจ้าหนี้</label>
           <input className="input" value={draft.bankName} onChange={e => set('bankName', e.target.value)} placeholder="—" />
+        </div>
+        <div className="field">
+          <label>ประเภทวงเงิน (Facility)</label>
+          <select className="select input" value={draft.facilityType || ''} onChange={e => set('facilityType', e.target.value)}
+            style={{ fontWeight: 600,
+                     color: draft.facilityType ? FACILITY_META[draft.facilityType]?.color : undefined,
+                     background: draft.facilityType ? FACILITY_META[draft.facilityType]?.bg : undefined,
+                     borderColor: draft.facilityType ? FACILITY_META[draft.facilityType]?.color : undefined }}>
+            <option value="">— ไม่ระบุ —</option>
+            {FACILITY_TYPES.map(t => (
+              <option key={t} value={t}>{t}{FACILITY_META[t]?.full ? ` · ${FACILITY_META[t].full}` : ''}</option>
+            ))}
+          </select>
         </div>
 
         <div className="field">
@@ -572,6 +591,7 @@ function DebtPage({ data, setData, toast }) {
             columns={[
               { key: 'debtCategory',    label: 'หมวด' },
               { key: 'contractNo',      label: 'เลขที่สัญญา' },
+              { key: 'facilityType',    label: 'ประเภทวงเงิน' },
               { key: 'borrowerName',    label: 'ผู้กู้ / เจ้าหนี้' },
               { key: 'status',          label: 'สถานะ' },
               { key: 'receiveDate',     label: 'วันรับเงิน',   type: 'date' },
@@ -813,6 +833,7 @@ function DebtPage({ data, setData, toast }) {
                         </Badge>
                       </td>
                       <td style={{ fontFamily: 'ui-monospace', fontSize: 11.5, color: 'var(--ink-700)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.contractNo || ''}>
+                        {r.facilityType && <span style={{ marginRight: 4 }}><FacilityChip type={r.facilityType} /></span>}
                         {r.contractNo || '—'}
                       </td>
                       <td style={{ fontSize: 12.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.borrowerName || ''}>
@@ -1017,6 +1038,12 @@ function DebtPage({ data, setData, toast }) {
               {fld('สกุลเงิน', view.currency || 'THB')}
               {fld('ผู้กู้ / ผู้รับสินเชื่อ', view.borrowerName, { bold: true, span: 2 })}
               {fld('ธนาคาร / เจ้าหนี้', view.bankName)}
+              {fld('ประเภทวงเงิน',
+                view.facilityType
+                  ? <FacilityChip type={view.facilityType} size="md" />
+                  : '—',
+                { span: 1 }
+              )}
 
               <Hdr label="ระยะเวลา" icon="forecast" />
               {fld('วันที่รับเงิน', fmtDate(view.receiveDate || view.startDate))}

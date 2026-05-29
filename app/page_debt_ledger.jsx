@@ -27,6 +27,37 @@ const DL_CATEGORY_BG = {
 
 const TH_MONTH = ['', 'ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
 
+// ── Facility types (ประเภทวงเงินธนาคาร) — ใช้ทั่วทั้ง 2 หน้า ────────────────
+// PE   = Pre-shipment / Pre-Receivable    (เบิกก่อนรับชำระ)
+// POST = Post-shipment / Post-Receivable  (เบิกหลังออก IV / โอนสิทธิ์รับเงิน)
+const FACILITY_TYPES = ['PE', 'POST', 'OD', 'PN', 'L/G', 'T/R', 'L/C', 'TL', 'อื่นๆ'];
+const FACILITY_META = {
+  'PE':    { color: '#b45309', bg: '#fef3c7', label: 'PE',    full: 'Pre-Export / Pre-Receivable' },
+  'POST':  { color: '#0369a1', bg: '#dbeafe', label: 'POST',  full: 'Post-Receivable / โอนสิทธิ์รับเงิน' },
+  'OD':    { color: '#7c2d12', bg: '#fed7aa', label: 'OD',    full: 'Overdraft' },
+  'PN':    { color: '#6b21a8', bg: '#f3e8ff', label: 'PN',    full: 'Promissory Note' },
+  'L/G':   { color: '#166534', bg: '#dcfce7', label: 'L/G',   full: 'Letter of Guarantee' },
+  'T/R':   { color: '#0e7490', bg: '#cffafe', label: 'T/R',   full: 'Trust Receipt' },
+  'L/C':   { color: '#9d174d', bg: '#fce7f3', label: 'L/C',   full: 'Letter of Credit' },
+  'TL':    { color: '#1e3a8a', bg: '#e0e7ff', label: 'TL',    full: 'Term Loan' },
+  'อื่นๆ': { color: '#525252', bg: '#f5f5f5', label: 'อื่นๆ', full: 'Other' },
+};
+function FacilityChip({ type, size = 'sm' }) {
+  if (!type) return null;
+  const m = FACILITY_META[type] || { color: '#525252', bg: '#f5f5f5', label: type, full: type };
+  return (
+    <span title={m.full} style={{
+      display: 'inline-block',
+      fontSize: size === 'sm' ? 9.5 : 11, fontWeight: 700,
+      letterSpacing: 0.3,
+      background: m.bg, color: m.color,
+      border: `1px solid ${m.color}33`,
+      borderRadius: 4, padding: size === 'sm' ? '0 5px' : '1px 8px',
+      lineHeight: 1.55,
+    }}>{m.label}</span>
+  );
+}
+
 // ── Comma-formatted number input ────────────────────────────────────────────
 // value = raw number; display = "8,000,000.00" when blurred, "8000000" when focused
 function NumberInput({ value, onChange, digits = 0, style, ...rest }) {
@@ -470,6 +501,7 @@ function RolloverModal({ open, master, onClose, onSave }) {
       projectCode:   master.projectCode || '',
       projectName:   master.projectName || '',
       debtCategory:  master.debtCategory || 'อื่นๆ',
+      facilityType:  master.facilityType || '',
       note:          '',
     }]);
   }, [open, master]);
@@ -479,6 +511,7 @@ function RolloverModal({ open, master, onClose, onSave }) {
     if (!master) return;
     const bal = Number(master.balance || master.principalAmount) || 0;
     const today = new Date().toISOString().slice(0, 10);
+    const oldFacility = master.facilityType || '';
     const base = {
       interestRate:  master.interestRate || 0,
       receiveDate:   today,
@@ -489,6 +522,7 @@ function RolloverModal({ open, master, onClose, onSave }) {
       projectCode:   master.projectCode || '',
       projectName:   master.projectName || '',
       debtCategory:  master.debtCategory || 'อื่นๆ',
+      facilityType:  oldFacility,
       note:          '',
     };
     if (newMode === 'transfer') {
@@ -504,6 +538,16 @@ function RolloverModal({ open, master, onClose, onSave }) {
         contractNo:   (master.contractNo || '') + '-R',
         borrowerName: master.borrowerName || '',
         principalAmount: bal, balance: bal,
+      }]);
+    } else if (newMode === 'convert') {
+      // PE → POST (or any facility swap): same borrower, same principal, change facilityType
+      const guessNew = oldFacility === 'PE' ? 'POST' : (oldFacility === 'POST' ? 'PE' : '');
+      setNewContracts([{
+        ...base,
+        contractNo:   (master.contractNo || '').replace(/-(PE|POST|OD|PN|LG|TR|LC|TL)$/i, '') + (guessNew ? '-' + guessNew : '-NEW'),
+        borrowerName: master.borrowerName || '',
+        principalAmount: bal, balance: bal,
+        facilityType: guessNew,
       }]);
     } else {
       // split → 2 contracts default
@@ -541,9 +585,10 @@ function RolloverModal({ open, master, onClose, onSave }) {
   ) && !tooMuch && newContracts.length >= 1;
 
   const modeOptions = [
-    { k: 'transfer', icon: '👥', title: 'เปลี่ยนชื่อ',  desc: 'ปิดสัญญาเดิม → ทำสัญญาใหม่ในชื่อคนอื่น (วงเงินเท่าเดิม)' },
-    { k: 'resize',   icon: '📉', title: 'ปรับวงเงิน',  desc: 'ปิดสัญญาเดิม → ทำสัญญาใหม่ด้วยวงเงินที่ลดลง' },
-    { k: 'split',    icon: '✂️', title: 'แยกสัญญา',    desc: 'ปิดสัญญาเดิม → แยกเป็น 2 สัญญาขึ้นไป' },
+    { k: 'convert',  icon: '🔁', title: 'แปลงประเภทวงเงิน', desc: 'ปิดสัญญาเดิม → ทำสัญญาใหม่ เปลี่ยนประเภทวงเงิน (เช่น PE → POST)' },
+    { k: 'transfer', icon: '👥', title: 'เปลี่ยนชื่อ',       desc: 'ปิดสัญญาเดิม → ทำสัญญาใหม่ในชื่อคนอื่น (วงเงินเท่าเดิม)' },
+    { k: 'resize',   icon: '📉', title: 'ปรับวงเงิน',       desc: 'ปิดสัญญาเดิม → ทำสัญญาใหม่ด้วยวงเงินที่ลดลง' },
+    { k: 'split',    icon: '✂️', title: 'แยกสัญญา',          desc: 'ปิดสัญญาเดิม → แยกเป็น 2 สัญญาขึ้นไป' },
   ];
 
   return (
@@ -573,7 +618,7 @@ function RolloverModal({ open, master, onClose, onSave }) {
       {/* Mode selector */}
       <div style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 11, color: 'var(--ink-500)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>1. เลือกประเภทการปรับสัญญา</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
           {modeOptions.map(o => {
             const active = mode === o.k;
             return (
@@ -600,8 +645,9 @@ function RolloverModal({ open, master, onClose, onSave }) {
         <div style={{ fontSize: 11, color: '#991b1b', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
           ⊘ จะปิดสัญญาเดิม
         </div>
-        <div style={{ display: 'flex', gap: 14, fontSize: 12.5, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 14, fontSize: 12.5, flexWrap: 'wrap', alignItems: 'center' }}>
           <div><strong style={{ fontFamily: 'ui-monospace' }}>{master.contractNo}</strong></div>
+          {master.facilityType && <FacilityChip type={master.facilityType} />}
           <div>{master.borrowerName}</div>
           <div>วงเงิน {fmtNum(Number(master.principalAmount) || 0, 0)} ฿</div>
           <div>คงเหลือ <strong>{fmtNum(oldBalance, 0)}</strong> ฿</div>
@@ -647,7 +693,29 @@ function RolloverModal({ open, master, onClose, onSave }) {
                 <label>เลขที่สัญญา *</label>
                 <input className="input" value={c.contractNo} onChange={e => updateContract(i, { contractNo: e.target.value })} />
               </div>
-              <div className="field" style={{ margin: 0, gridColumn: 'span 2' }}>
+              <div className="field" style={{ margin: 0 }}>
+                <label>
+                  ประเภทวงเงิน
+                  {mode === 'convert' && master.facilityType && (
+                    <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--ink-500)' }}>
+                      (เดิม <strong style={{ color: FACILITY_META[master.facilityType]?.color }}>{master.facilityType}</strong>)
+                    </span>
+                  )}
+                </label>
+                <select className="select input" value={c.facilityType || ''}
+                  onChange={e => updateContract(i, { facilityType: e.target.value })}
+                  style={mode === 'convert' ? {
+                    borderColor: c.facilityType && c.facilityType !== master.facilityType ? FACILITY_META[c.facilityType]?.color : 'var(--ink-200)',
+                    background: c.facilityType && c.facilityType !== master.facilityType ? FACILITY_META[c.facilityType]?.bg : '#fff',
+                    fontWeight: 700,
+                  } : undefined}>
+                  <option value="">— เลือกประเภท —</option>
+                  {FACILITY_TYPES.map(t => (
+                    <option key={t} value={t}>{t}{FACILITY_META[t]?.full ? ` · ${FACILITY_META[t].full}` : ''}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="field" style={{ margin: 0 }}>
                 <label>ผู้กู้ / เจ้าหนี้ *</label>
                 <input className="input" value={c.borrowerName} onChange={e => updateContract(i, { borrowerName: e.target.value })} placeholder={mode === 'transfer' ? 'ชื่อผู้กู้ใหม่' : ''} />
               </div>
@@ -800,6 +868,15 @@ function useDebtContractActions(setData, toast) {
         createdAt: at, createdBy: username,
       }));
       const newContractNos = newRows.map(r => r.contractNo).join(', ');
+      // Auto-build closedReason
+      const autoReason = (() => {
+        if (mode === 'convert') {
+          const from = master.facilityType || '?';
+          const tos = [...new Set(newRows.map(r => r.facilityType || '?'))].join(', ');
+          return `แปลงประเภทวงเงิน ${from} → ${tos}`;
+        }
+        return { transfer: 'เปลี่ยนชื่อ/โอนสิทธิ', resize: 'ปรับวงเงิน', split: 'แยกสัญญา' }[mode] || 'ทำสัญญาใหม่';
+      })();
       let updated;
       setData(d => {
         const list = d.debtMaster || [];
@@ -807,7 +884,7 @@ function useDebtContractActions(setData, toast) {
           ...m,
           status: 'Close',
           closedDate: closeDate,
-          closedReason: reason || ({ transfer: 'เปลี่ยนชื่อ/โอนสิทธิ', resize: 'ปรับวงเงิน', split: 'แยกสัญญา' }[mode] || 'ทำสัญญาใหม่'),
+          closedReason: reason || autoReason,
           linkedToContracts: newContractNos,
           closedBy: username, closedAt: at,
         } : m);
@@ -966,6 +1043,7 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
         title={
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <Badge kind="b-blue" dot={false} style={{ background: bg, color, border: `1px solid ${color}55`, fontSize: 11.5 }}>{cat}</Badge>
+            {master.facilityType && <FacilityChip type={master.facilityType} size="md" />}
             <span style={{ fontFamily: 'ui-monospace', fontWeight: 700, color: 'var(--brand-700)', fontSize: 13 }}>{master.contractNo}</span>
             <span style={{ color: 'var(--ink-300)', fontSize: 12 }}>·</span>
             <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink-700)' }}>{master.borrowerName}</span>
