@@ -216,13 +216,23 @@ function DataCrudPage({ data, setData, toast, config }) {
     return { headers, rows };
   };
 
-  // Normalise value for diff comparison — numbers as numbers, others trimmed strings
-  const normCmp = (x) => {
-    if (x == null || x === '') return '';
+  // Normalise value for diff comparison — type-aware
+  //   number field: '' / null / '0' / 0 / 0.00 → 0 (ทุกตัวถือว่าเท่ากัน)
+  //   string/date field: '' / null → ''
+  const normCmp = (x, type) => {
+    if (type === 'number') {
+      if (x == null || x === '') return 0;
+      if (typeof x === 'number') return isNaN(x) ? 0 : x;
+      const stripped = String(x).replace(/,/g, '').replace(/[฿$\s]/g, '').trim();
+      if (stripped === '') return 0;
+      const n = Number(stripped);
+      return isNaN(n) ? 0 : n;
+    }
+    if (x == null) return '';
     if (typeof x === 'number') return isNaN(x) ? '' : x;
     const s = String(x).trim();
     if (s === '') return '';
-    // try numeric (handles "1,234.56" / "-1234")
+    // try numeric auto-coerce (กรณี field type ไม่ระบุแต่ค่าเป็นเลข)
     const stripped = s.replace(/,/g, '').replace(/[฿$\s]/g, '');
     if (/^-?\d+(\.\d+)?$/.test(stripped)) return Number(stripped);
     return s;
@@ -303,11 +313,12 @@ function DataCrudPage({ data, setData, toast, config }) {
         cat.added.push({ row: obj, key: k });
         return;
       }
-      // diff field-by-field (เฉพาะ field ที่มีใน import)
+      // diff field-by-field (เฉพาะ field ที่มีใน import) — type-aware compare
       const diff = {};
       Object.entries(obj).forEach(([fk, v]) => {
         if (fk === dedupKey) return;
-        if (normCmp(ex[fk]) !== normCmp(v)) {
+        const t = fieldByKey[fk]?.type;
+        if (normCmp(ex[fk], t) !== normCmp(v, t)) {
           diff[fk] = { old: ex[fk], new: v };
         }
       });
@@ -726,6 +737,7 @@ function DataCrudPage({ data, setData, toast, config }) {
               preview={importPreview}
               dedupKey={config.dedupKey}
               fieldByKey={importPreview.fieldByKey || {}}
+              subFields={config.previewSubFields || []}
               deleteMissing={deleteMissingChoice}
               setDeleteMissing={setDeleteMissingChoice}
             />
@@ -1084,10 +1096,20 @@ function GenericViewModal({ row, onClose, fields, title, onDelete, onEdit, onCop
 }
 
 // ─── Import preview (diff) — รายงาน 4 หมวด ก่อน commit จริง ─────────────────
-function ImportPreview({ preview, dedupKey, fieldByKey, deleteMissing, setDeleteMissing }) {
+function ImportPreview({ preview, dedupKey, fieldByKey, subFields = [], deleteMissing, setDeleteMissing }) {
   const [openSec, setOpenSec] = dxState({ added: false, changed: true, unchanged: false, missing: true });
   const { added = [], changed = [], unchanged = [], missing = [], range, blankSkipped = 0, noKeyCount = 0 } = preview;
   const total = added.length + changed.length + unchanged.length;
+
+  // Build subtitle string from configured subFields (e.g. Payee + cc_remark)
+  // Prefers `existing` (full DB row) when available, else falls back to `row` (import row)
+  const getSubInfo = (item) => {
+    if (!subFields.length) return null;
+    const src = item.existing || item.row;
+    if (!src) return null;
+    const parts = subFields.map(k => src[k]).filter(v => v != null && String(v).trim() !== '');
+    return parts.length ? parts.map(p => String(p)).join(' · ') : null;
+  };
 
   const sectionCard = (key, color, icon, title, count, hint) => {
     const open = openSec[key];
@@ -1124,10 +1146,15 @@ function ImportPreview({ preview, dedupKey, fieldByKey, deleteMissing, setDelete
   };
 
   const renderDiffList = () => (
-    <div style={{ maxHeight: 280, overflowY: 'auto', padding: '4px 12px 12px', display: 'grid', gap: 8 }}>
-      {changed.map((c, i) => (
+    <div style={{ maxHeight: 320, overflowY: 'auto', padding: '4px 12px 12px', display: 'grid', gap: 10 }}>
+      {changed.map((c, i) => {
+        const sub = getSubInfo(c);
+        return (
         <div key={i} style={{ borderLeft: '3px solid oklch(70% 0.16 75)', paddingLeft: 10 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--brand-700)', fontFamily: 'ui-monospace' }}>{c.key}</div>
+          {sub && (
+            <div style={{ fontSize: 11, color: 'var(--ink-600)', marginTop: 1, lineHeight: 1.4 }}>{sub}</div>
+          )}
           <div style={{ display: 'grid', gap: 3, marginTop: 4 }}>
             {Object.entries(c.diff).map(([fk, { old, new: nw }]) => {
               const f = fieldByKey[fk];
@@ -1143,22 +1170,42 @@ function ImportPreview({ preview, dedupKey, fieldByKey, deleteMissing, setDelete
             })}
           </div>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 
-  const renderKeyList = (items, getLabel) => (
-    <div style={{ maxHeight: 220, overflowY: 'auto', padding: '4px 12px 12px', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-      {items.map((it, i) => (
-        <span key={i} style={{
-          fontSize: 11.5, fontFamily: 'ui-monospace',
-          padding: '2px 8px', borderRadius: 4,
-          background: 'var(--ink-50, #f4f6f9)', border: '1px solid var(--ink-100)',
-          color: 'var(--ink-700)',
-        }}>{getLabel(it)}</span>
-      ))}
-    </div>
-  );
+  const renderItemList = (items) => {
+    if (subFields.length === 0) {
+      // chip layout when no subFields configured
+      return (
+        <div style={{ maxHeight: 220, overflowY: 'auto', padding: '4px 12px 12px', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {items.map((it, i) => (
+            <span key={i} style={{
+              fontSize: 11.5, fontFamily: 'ui-monospace',
+              padding: '2px 8px', borderRadius: 4,
+              background: 'var(--ink-50, #f4f6f9)', border: '1px solid var(--ink-100)',
+              color: 'var(--ink-700)',
+            }}>{it.key}</span>
+          ))}
+        </div>
+      );
+    }
+    // row layout: key + subtitle (Payee · remark)
+    return (
+      <div style={{ maxHeight: 240, overflowY: 'auto', padding: '4px 12px 12px', display: 'grid', gap: 4 }}>
+        {items.map((it, i) => {
+          const sub = getSubInfo(it);
+          return (
+            <div key={i} style={{ fontSize: 11.5, display: 'flex', gap: 10, alignItems: 'baseline', borderBottom: '1px dashed var(--ink-100)', paddingBottom: 3 }}>
+              <span style={{ fontFamily: 'ui-monospace', fontWeight: 600, color: 'var(--brand-700)', flexShrink: 0, minWidth: 130 }}>{it.key}</span>
+              <span style={{ color: 'var(--ink-600)', lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis' }}>{sub || <span className="muted">—</span>}</span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
   return (
     <div style={{ display: 'grid', gap: 10 }}>
@@ -1182,7 +1229,7 @@ function ImportPreview({ preview, dedupKey, fieldByKey, deleteMissing, setDelete
       {/* 4 sections */}
       {sectionCard('added', 'var(--good)', '🆕', 'ใหม่ (จะเพิ่ม)', added.length,
         added.length === 0 ? 'ไม่มีรายการใหม่' : null)}
-      {openSec.added && added.length > 0 && renderKeyList(added, a => a.key)}
+      {openSec.added && added.length > 0 && renderItemList(added)}
 
       {sectionCard('changed', 'oklch(60% 0.18 75)', '✏️', 'เปลี่ยนแปลง (จะอัปเดต)', changed.length,
         changed.length === 0 ? 'ไม่มีรายการที่เปลี่ยน' : 'รายการเหล่านี้มีอยู่แล้ว แต่ข้อมูลในไฟล์ต่างจากของเดิม — กดยืนยันจะอัปเดตทับ')}
@@ -1190,7 +1237,7 @@ function ImportPreview({ preview, dedupKey, fieldByKey, deleteMissing, setDelete
 
       {sectionCard('unchanged', 'var(--ink-400)', '=', 'เหมือนเดิม (ข้าม)', unchanged.length,
         unchanged.length === 0 ? null : 'รายการเหล่านี้เหมือนกับใน DB ทุกประการ — จะไม่ทำอะไร')}
-      {openSec.unchanged && unchanged.length > 0 && renderKeyList(unchanged, u => u.key)}
+      {openSec.unchanged && unchanged.length > 0 && renderItemList(unchanged)}
 
       {/* Missing — special: with checkbox */}
       <div style={{
@@ -1220,7 +1267,7 @@ function ImportPreview({ preview, dedupKey, fieldByKey, deleteMissing, setDelete
             ในช่วง <strong>{range?.lo}</strong> ถึง <strong>{range?.hi}</strong> มีเลขที่ใน DB แต่หายจากไฟล์ใหม่ — ปกติแปลว่ารายการนั้นถูกยกเลิกในระบบต้นทาง
           </div>
         )}
-        {openSec.missing && missing.length > 0 && renderKeyList(missing, m => m.key)}
+        {openSec.missing && missing.length > 0 && renderItemList(missing)}
         {missing.length > 0 && (
           <label style={{
             display: 'flex', alignItems: 'center', gap: 8,
@@ -1484,6 +1531,7 @@ function DataPVPage({ data, setData, toast }) {
       sub: 'RAW_PV_PAYMENT · รายการจ่ายเงินจริงทั้งหมด · วาง RAW ได้เลย',
       dataKey: 'pvVouchers',
       dedupKey: 'PL_PV_No',   // นำเข้าใหม่ → เทียบ PL_PV_No → แจ้งเตือนซ้ำ/เปลี่ยน/หาย
+      previewSubFields: ['Payee', 'cc_remark'],   // แสดงใต้เลข PV ใน preview เพื่อให้รู้ว่ารายการอะไร
       addLabel: 'เพิ่ม PV',
       singular: 'PV',
       searchPlaceholder: 'ค้นหา PL_PV_No / Payee / AP_No / Ref_Code…',
