@@ -288,68 +288,91 @@ function DataCrudPage({ data, setData, toast, config }) {
     }
 
     // ── Mode 2: มี dedupKey → diff แล้วโชว์ preview ก่อน commit ──────────
+    // dedupKey รับได้ทั้ง string เดี่ยว หรือ array (compound key เช่น ['PL_PV_No','AP_No'])
+    const dedupKeys  = Array.isArray(dedupKey) ? dedupKey : [dedupKey];
+    const primaryKey = dedupKeys[0];   // ใช้สำหรับ group ใน UI (เช่น PL_PV_No)
+    const SEP = '|';
+    const makeTuple = (r) => dedupKeys.map(k => String(r[k] ?? '').trim()).join(SEP);
+
+    // Date scope — ถ้ามี config.scopeDateField จะคำนวณช่วงวันที่ของไฟล์ import
+    // แล้ว filter DB ที่อยู่นอกช่วงทิ้ง (ไม่นับเป็น missing)
+    const scopeField = config.scopeDateField;
+    let dateLo = null, dateHi = null;
+    if (scopeField) {
+      const ds = parsedRows.map(r => String(r[scopeField] ?? '').slice(0, 10)).filter(s => /^\d{4}-\d{2}-\d{2}$/.test(s)).sort();
+      if (ds.length > 0) { dateLo = ds[0]; dateHi = ds[ds.length - 1]; }
+    }
+    const inDateScope = (r) => {
+      if (!scopeField || !dateLo || !dateHi) return true;
+      const d = String(r[scopeField] ?? '').slice(0, 10);
+      return d && d >= dateLo && d <= dateHi;
+    };
+
     const existing = data[config.dataKey] || [];
-    const existingByKey = new Map();
+    // Map<tuple, DB row[]> — รองรับ duplicates ใน DB (PV+AP เดียวกัน เกิดมาแล้วใน DB)
+    const existingByTuple = new Map();
     existing.forEach(r => {
-      const k = String(r[dedupKey] ?? '').trim();
-      if (k) existingByKey.set(k, r);
+      const k = makeTuple(r);
+      if (!k.replace(new RegExp(SEP, 'g'), '').trim()) return;   // empty tuple
+      if (!existingByTuple.has(k)) existingByTuple.set(k, []);
+      existingByTuple.get(k).push(r);
     });
 
-    const importedKeys = new Set();
+    const importedTuples = new Set();
     const cat = { added: [], changed: [], unchanged: [], missing: [] };
     let noKeyCount = 0;
 
     parsedRows.forEach(obj => {
-      const k = String(obj[dedupKey] ?? '').trim();
-      if (!k) {
-        // ไม่มี dedupKey ในแถว → ถือเป็น added (เพิ่มใหม่ลอย ๆ)
+      const tuple = makeTuple(obj);
+      const tupleClean = tuple.replace(new RegExp(SEP, 'g'), '').trim();
+      if (!tupleClean) {
         noKeyCount++;
-        cat.added.push({ row: obj, key: '(ไม่มีเลข)' });
+        cat.added.push({ row: obj, key: tuple, primary: '(ไม่มีเลข)' });
         return;
       }
-      importedKeys.add(k);
-      const ex = existingByKey.get(k);
-      if (!ex) {
-        cat.added.push({ row: obj, key: k });
+      importedTuples.add(tuple);
+      const exList = existingByTuple.get(tuple);
+      if (!exList || exList.length === 0) {
+        cat.added.push({ row: obj, key: tuple, primary: obj[primaryKey] || '' });
         return;
       }
-      // diff field-by-field (เฉพาะ field ที่มีใน import) — type-aware compare
+      // Use first matching row (if DB has multiple, others will still appear; we match 1:1 by position)
+      const ex = exList.shift();
       const diff = {};
       Object.entries(obj).forEach(([fk, v]) => {
-        if (fk === dedupKey) return;
+        if (dedupKeys.includes(fk)) return;
         const t = fieldByKey[fk]?.type;
         if (normCmp(ex[fk], t) !== normCmp(v, t)) {
           diff[fk] = { old: ex[fk], new: v };
         }
       });
+      const item = { row: obj, existing: ex, key: tuple, primary: ex[primaryKey] || obj[primaryKey] || '' };
       if (Object.keys(diff).length === 0) {
-        cat.unchanged.push({ row: obj, existing: ex, key: k });
+        cat.unchanged.push(item);
       } else {
-        cat.changed.push({ row: obj, existing: ex, key: k, diff });
+        cat.changed.push({ ...item, diff });
       }
     });
 
-    // หาเลขในช่วง [min,max] ที่อยู่ใน DB แต่ไม่อยู่ใน import → น่าจะถูกยกเลิก
-    // ใช้เฉพาะ key ที่อยู่ทั้งสองฝั่ง (changed + unchanged) มาคำนวณช่วง
-    // เพื่อกันกรณี added มีเลขห่างไกล (เช่น PV99999) แล้วทำให้ช่วงครอบ DB หมด
-    const overlapKeys = [...cat.changed, ...cat.unchanged].map(x => x.key).filter(Boolean);
-    if (overlapKeys.length >= 2) {
-      const sorted = overlapKeys.slice().sort();
-      const lo = sorted[0], hi = sorted[sorted.length - 1];
-      const seenMissing = new Set();
-      existing.forEach(r => {
-        const k = String(r[dedupKey] ?? '').trim();
-        if (k && k >= lo && k <= hi && !importedKeys.has(k) && !seenMissing.has(k)) {
-          seenMissing.add(k);
-          cat.missing.push({ row: r, key: k });
+    // หา missing: tuple ใน DB (ที่อยู่ใน date scope) ที่ไม่อยู่ใน importedTuples
+    // existingByTuple ยังเหลือเฉพาะ row ที่ไม่ได้ถูก match (.shift() เอาออกตอน matching)
+    existingByTuple.forEach((rows, tuple) => {
+      rows.forEach(r => {
+        if (!inDateScope(r)) return;
+        if (importedTuples.has(tuple)) {
+          // tuple นี้มีใน import แต่ DB มีหลาย row → row ที่เกินถือเป็น duplicate (ไม่ใช่ missing) — ข้าม
+          return;
         }
+        cat.missing.push({ row: r, key: tuple, primary: r[primaryKey] || '' });
       });
-      cat.range = { lo, hi };
-    }
+    });
 
     cat.blankSkipped = blankSkipped;
-    cat.noKeyCount = noKeyCount;
-    cat.fieldByKey = fieldByKey;
+    cat.noKeyCount   = noKeyCount;
+    cat.fieldByKey   = fieldByKey;
+    cat.dateRange    = (dateLo && dateHi) ? { lo: dateLo, hi: dateHi } : null;
+    cat.dedupKeys    = dedupKeys;
+    cat.primaryKey   = primaryKey;
     setImportPreview(cat);
     setDeleteMissingChoice(false);
     setImportStats(null);
@@ -735,7 +758,6 @@ function DataCrudPage({ data, setData, toast, config }) {
           {importPreview ? (
             <ImportPreview
               preview={importPreview}
-              dedupKey={config.dedupKey}
               fieldByKey={importPreview.fieldByKey || {}}
               subFields={config.previewSubFields || []}
               deleteMissing={deleteMissingChoice}
@@ -1095,48 +1117,58 @@ function GenericViewModal({ row, onClose, fields, title, onDelete, onEdit, onCop
   );
 }
 
-// ─── Import preview (diff) — รายงาน 4 หมวด ก่อน commit จริง ─────────────────
-function ImportPreview({ preview, dedupKey, fieldByKey, subFields = [], deleteMissing, setDeleteMissing }) {
-  const [openSec, setOpenSec] = dxState({ added: false, changed: true, unchanged: false, missing: true });
-  const { added = [], changed = [], unchanged = [], missing = [], range, blankSkipped = 0, noKeyCount = 0 } = preview;
+// ─── Import preview (diff) — group per primary key (e.g. PV) ───────────────
+function ImportPreview({ preview, fieldByKey, subFields = [], deleteMissing, setDeleteMissing }) {
+  const { added = [], changed = [], unchanged = [], missing = [], blankSkipped = 0, noKeyCount = 0,
+          dateRange, dedupKeys = [], primaryKey } = preview;
   const total = added.length + changed.length + unchanged.length;
+  // secondary key (เช่น AP_No) — แสดงในแต่ละแถวของกร๊ป
+  const secondaryKey = dedupKeys.length > 1 ? dedupKeys[1] : null;
+  const [showUnchangedGroups, setShowUnchangedGroups] = dxState(false);
+  const [openGroups, setOpenGroups] = dxState(() => new Set());
 
-  // Build subtitle string from configured subFields (e.g. Payee + cc_remark)
-  // Prefers `existing` (full DB row) when available, else falls back to `row` (import row)
-  const getSubInfo = (item) => {
-    if (!subFields.length) return null;
-    const src = item.existing || item.row;
-    if (!src) return null;
-    const parts = subFields.map(k => src[k]).filter(v => v != null && String(v).trim() !== '');
-    return parts.length ? parts.map(p => String(p)).join(' · ') : null;
-  };
+  // ── Group all items by primary key (PV) ──────────────────────────────────
+  const groups = dxMemo(() => {
+    const m = new Map();
+    const upsert = (item, status) => {
+      const p = String(item.primary ?? '').trim() || '(ไม่มีเลข)';
+      if (!m.has(p)) {
+        m.set(p, {
+          primary: p,
+          payee: '',
+          items: [],
+          counts: { added: 0, changed: 0, unchanged: 0, missing: 0 },
+        });
+      }
+      const g = m.get(p);
+      const src = item.existing || item.row;
+      if (src?.Payee && !g.payee) g.payee = src.Payee;
+      g.items.push({ ...item, status });
+      g.counts[status]++;
+    };
+    added.forEach(it => upsert(it, 'added'));
+    changed.forEach(it => upsert(it, 'changed'));
+    unchanged.forEach(it => upsert(it, 'unchanged'));
+    missing.forEach(it => upsert(it, 'missing'));
+    return [...m.values()].sort((a, b) => String(a.primary).localeCompare(String(b.primary)));
+  }, [preview]);
 
-  const sectionCard = (key, color, icon, title, count, hint) => {
-    const open = openSec[key];
-    return (
-      <div style={{
-        border: `1px solid ${color}`,
-        borderRadius: 8,
-        overflow: 'hidden',
-        background: `color-mix(in oklch, ${color} 5%, transparent)`,
-      }}>
-        <button type="button" onClick={() => setOpenSec(s => ({ ...s, [key]: !s[key] }))}
-          disabled={count === 0}
-          style={{
-            width: '100%', display: 'flex', alignItems: 'center', gap: 10,
-            padding: '8px 12px', background: 'transparent', border: 'none',
-            cursor: count === 0 ? 'default' : 'pointer', textAlign: 'left',
-            opacity: count === 0 ? 0.55 : 1,
-          }}>
-          <span style={{ fontSize: 16 }}>{icon}</span>
-          <span style={{ fontSize: 13, fontWeight: 700, color }}>{title}</span>
-          <span style={{ fontSize: 13, fontWeight: 800, color, marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>{count}</span>
-          {count > 0 && <span style={{ fontSize: 11, color: 'var(--ink-500)' }}>{open ? '▲' : '▼'}</span>}
-        </button>
-        {hint && <div style={{ padding: '0 12px 8px', fontSize: 11.5, color: 'var(--ink-600)', lineHeight: 1.5 }}>{hint}</div>}
-      </div>
-    );
-  };
+  // counter at group level (กี่ PV ที่ touched)
+  const groupCounts = dxMemo(() => {
+    let withAny = 0, allUnchanged = 0;
+    groups.forEach(g => {
+      const hasNonUnchanged = (g.counts.added + g.counts.changed + g.counts.missing) > 0;
+      if (hasNonUnchanged) withAny++;
+      else allUnchanged++;
+    });
+    return { withAny, allUnchanged, total: groups.length };
+  }, [groups]);
+
+  // Filter: by default hide PVs ที่ทุก AP เหมือนเดิม
+  const visibleGroups = dxMemo(() => {
+    if (showUnchangedGroups) return groups;
+    return groups.filter(g => (g.counts.added + g.counts.changed + g.counts.missing) > 0);
+  }, [groups, showUnchangedGroups]);
 
   const fmtVal = (v, type) => {
     if (v === null || v === undefined || v === '') return <span style={{ color: 'var(--ink-400)' }}>—</span>;
@@ -1145,18 +1177,57 @@ function ImportPreview({ preview, dedupKey, fieldByKey, subFields = [], deleteMi
     return String(v);
   };
 
-  const renderDiffList = () => (
-    <div style={{ maxHeight: 320, overflowY: 'auto', padding: '4px 12px 12px', display: 'grid', gap: 10 }}>
-      {changed.map((c, i) => {
-        const sub = getSubInfo(c);
-        return (
-        <div key={i} style={{ borderLeft: '3px solid oklch(70% 0.16 75)', paddingLeft: 10 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--brand-700)', fontFamily: 'ui-monospace' }}>{c.key}</div>
-          {sub && (
-            <div style={{ fontSize: 11, color: 'var(--ink-600)', marginTop: 1, lineHeight: 1.4 }}>{sub}</div>
+  const STATUS_META = {
+    added:     { color: 'var(--good)',           icon: '🆕', label: 'ใหม่' },
+    changed:   { color: 'oklch(60% 0.18 75)',    icon: '✏️', label: 'แก้' },
+    unchanged: { color: 'var(--ink-400)',        icon: '=',  label: 'เหมือนเดิม' },
+    missing:   { color: 'var(--bad)',            icon: '⚠️', label: 'หาย' },
+  };
+
+  const toggleGroup = (primary) => {
+    setOpenGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(primary)) next.delete(primary);
+      else next.add(primary);
+      return next;
+    });
+  };
+
+  const renderItem = (it, idx) => {
+    const meta = STATUS_META[it.status];
+    const sub = (() => {
+      const src = it.existing || it.row;
+      if (!src || !subFields.length) return null;
+      const parts = subFields.map(k => src[k]).filter(v => v != null && String(v).trim() !== '');
+      return parts.length ? parts.map(p => String(p)).join(' · ') : null;
+    })();
+    const secLabel = secondaryKey ? String((it.existing || it.row || {})[secondaryKey] ?? '').trim() : '';
+    return (
+      <div key={idx} style={{
+        borderLeft: `3px solid ${meta.color}`,
+        paddingLeft: 10, paddingTop: 4, paddingBottom: 4,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12 }}>
+          <span style={{ fontSize: 14 }}>{meta.icon}</span>
+          <span style={{
+            fontSize: 10.5, fontWeight: 700, color: meta.color,
+            background: `color-mix(in oklch, ${meta.color} 14%, transparent)`,
+            padding: '1px 6px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.4,
+          }}>{meta.label}</span>
+          {secLabel && (
+            <span style={{ fontFamily: 'ui-monospace', fontSize: 12, fontWeight: 600, color: 'var(--ink-800)' }}>
+              {secLabel}
+            </span>
           )}
-          <div style={{ display: 'grid', gap: 3, marginTop: 4 }}>
-            {Object.entries(c.diff).map(([fk, { old, new: nw }]) => {
+          {sub && (
+            <span style={{ fontSize: 11, color: 'var(--ink-500)', flex: 1, lineHeight: 1.4 }}>
+              {sub}
+            </span>
+          )}
+        </div>
+        {it.status === 'changed' && it.diff && (
+          <div style={{ display: 'grid', gap: 3, marginTop: 4, marginLeft: 26 }}>
+            {Object.entries(it.diff).map(([fk, { old, new: nw }]) => {
               const f = fieldByKey[fk];
               const label = f?.label || fk;
               return (
@@ -1169,42 +1240,17 @@ function ImportPreview({ preview, dedupKey, fieldByKey, subFields = [], deleteMi
               );
             })}
           </div>
-        </div>
-        );
-      })}
-    </div>
-  );
-
-  const renderItemList = (items) => {
-    if (subFields.length === 0) {
-      // chip layout when no subFields configured
-      return (
-        <div style={{ maxHeight: 220, overflowY: 'auto', padding: '4px 12px 12px', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {items.map((it, i) => (
-            <span key={i} style={{
-              fontSize: 11.5, fontFamily: 'ui-monospace',
-              padding: '2px 8px', borderRadius: 4,
-              background: 'var(--ink-50, #f4f6f9)', border: '1px solid var(--ink-100)',
-              color: 'var(--ink-700)',
-            }}>{it.key}</span>
-          ))}
-        </div>
-      );
-    }
-    // row layout: key + subtitle (Payee · remark)
-    return (
-      <div style={{ maxHeight: 240, overflowY: 'auto', padding: '4px 12px 12px', display: 'grid', gap: 4 }}>
-        {items.map((it, i) => {
-          const sub = getSubInfo(it);
-          return (
-            <div key={i} style={{ fontSize: 11.5, display: 'flex', gap: 10, alignItems: 'baseline', borderBottom: '1px dashed var(--ink-100)', paddingBottom: 3 }}>
-              <span style={{ fontFamily: 'ui-monospace', fontWeight: 600, color: 'var(--brand-700)', flexShrink: 0, minWidth: 130 }}>{it.key}</span>
-              <span style={{ color: 'var(--ink-600)', lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis' }}>{sub || <span className="muted">—</span>}</span>
-            </div>
-          );
-        })}
+        )}
       </div>
     );
+  };
+
+  // เลือกสีกรอบของกร๊ปตาม dominant status (ถ้ามี missing/added/changed ใช้สีนั้น)
+  const groupBorderColor = (g) => {
+    if (g.counts.missing > 0) return 'var(--bad)';
+    if (g.counts.added > 0)   return 'var(--good)';
+    if (g.counts.changed > 0) return 'oklch(60% 0.18 75)';
+    return 'var(--ink-200)';
   };
 
   return (
@@ -1214,75 +1260,95 @@ function ImportPreview({ preview, dedupKey, fieldByKey, subFields = [], deleteMi
         padding: '10px 14px', borderRadius: 8,
         background: 'color-mix(in oklch, var(--brand-500) 8%, transparent)',
         border: '1px solid color-mix(in oklch, var(--brand-500) 26%, transparent)',
-        fontSize: 12.5, lineHeight: 1.6,
+        fontSize: 12.5, lineHeight: 1.65,
       }}>
         <div style={{ fontWeight: 700, color: 'var(--brand-700)', marginBottom: 4 }}>
-          📋 ตรวจสอบข้อมูลก่อนนำเข้า — เปรียบเทียบด้วย <code style={{ fontFamily: 'ui-monospace', background: 'rgba(0,0,0,0.06)', padding: '1px 5px', borderRadius: 3 }}>{dedupKey}</code>
+          📋 ตรวจสอบข้อมูลก่อนนำเข้า — match ด้วย{' '}
+          <code style={{ fontFamily: 'ui-monospace', background: 'rgba(0,0,0,0.06)', padding: '1px 5px', borderRadius: 3 }}>
+            {dedupKeys.join(' + ')}
+          </code>
+          {dateRange && <> · ขอบเขตวันที่ <strong>{dateRange.lo}</strong> ถึง <strong>{dateRange.hi}</strong></>}
         </div>
-        <div style={{ color: 'var(--ink-600)' }}>
-          พบทั้งหมด <strong>{total}</strong> แถวในไฟล์
-          {blankSkipped > 0 && <> · ข้ามว่าง {blankSkipped}</>}
-          {noKeyCount > 0 && <> · ไม่มี {dedupKey} ({noKeyCount}) — ถือเป็นรายการใหม่</>}
+        <div style={{ color: 'var(--ink-700)', display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+          <span>📦 ไฟล์ <strong>{total}</strong> แถว</span>
+          <span>🗂️ กระทบ <strong>{groupCounts.withAny}</strong> {primaryKey}</span>
+          <span style={{ color: 'var(--good)' }}>🆕 {added.length}</span>
+          <span style={{ color: 'oklch(55% 0.18 75)' }}>✏️ {changed.length}</span>
+          <span style={{ color: 'var(--ink-500)' }}>= {unchanged.length}</span>
+          <span style={{ color: 'var(--bad)' }}>⚠️ {missing.length}</span>
+          {blankSkipped > 0 && <span>⏭️ ข้ามว่าง {blankSkipped}</span>}
         </div>
-      </div>
-
-      {/* 4 sections */}
-      {sectionCard('added', 'var(--good)', '🆕', 'ใหม่ (จะเพิ่ม)', added.length,
-        added.length === 0 ? 'ไม่มีรายการใหม่' : null)}
-      {openSec.added && added.length > 0 && renderItemList(added)}
-
-      {sectionCard('changed', 'oklch(60% 0.18 75)', '✏️', 'เปลี่ยนแปลง (จะอัปเดต)', changed.length,
-        changed.length === 0 ? 'ไม่มีรายการที่เปลี่ยน' : 'รายการเหล่านี้มีอยู่แล้ว แต่ข้อมูลในไฟล์ต่างจากของเดิม — กดยืนยันจะอัปเดตทับ')}
-      {openSec.changed && changed.length > 0 && renderDiffList()}
-
-      {sectionCard('unchanged', 'var(--ink-400)', '=', 'เหมือนเดิม (ข้าม)', unchanged.length,
-        unchanged.length === 0 ? null : 'รายการเหล่านี้เหมือนกับใน DB ทุกประการ — จะไม่ทำอะไร')}
-      {openSec.unchanged && unchanged.length > 0 && renderItemList(unchanged)}
-
-      {/* Missing — special: with checkbox */}
-      <div style={{
-        border: `1px solid ${missing.length > 0 ? 'var(--bad)' : 'var(--ink-200)'}`,
-        borderRadius: 8, overflow: 'hidden',
-        background: missing.length > 0 ? 'color-mix(in oklch, var(--bad) 6%, transparent)' : 'transparent',
-      }}>
-        <button type="button" onClick={() => setOpenSec(s => ({ ...s, missing: !s.missing }))}
-          disabled={missing.length === 0}
-          style={{
-            width: '100%', display: 'flex', alignItems: 'center', gap: 10,
-            padding: '8px 12px', background: 'transparent', border: 'none',
-            cursor: missing.length === 0 ? 'default' : 'pointer', textAlign: 'left',
-            opacity: missing.length === 0 ? 0.55 : 1,
-          }}>
-          <span style={{ fontSize: 16 }}>⚠️</span>
-          <span style={{ fontSize: 13, fontWeight: 700, color: missing.length > 0 ? 'var(--bad)' : 'var(--ink-500)' }}>
-            หายไประหว่างช่วง (อาจถูกยกเลิก)
-          </span>
-          <span style={{ fontSize: 13, fontWeight: 800, color: missing.length > 0 ? 'var(--bad)' : 'var(--ink-500)', marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>
-            {missing.length}
-          </span>
-          {missing.length > 0 && <span style={{ fontSize: 11, color: 'var(--ink-500)' }}>{openSec.missing ? '▲' : '▼'}</span>}
-        </button>
-        {missing.length > 0 && (
-          <div style={{ padding: '0 12px 8px', fontSize: 11.5, color: 'var(--ink-700)', lineHeight: 1.55 }}>
-            ในช่วง <strong>{range?.lo}</strong> ถึง <strong>{range?.hi}</strong> มีเลขที่ใน DB แต่หายจากไฟล์ใหม่ — ปกติแปลว่ารายการนั้นถูกยกเลิกในระบบต้นทาง
-          </div>
-        )}
-        {openSec.missing && missing.length > 0 && renderItemList(missing)}
-        {missing.length > 0 && (
-          <label style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            padding: '8px 12px', borderTop: '1px dashed var(--bad)',
-            background: 'rgba(255,255,255,0.5)',
-            fontSize: 12.5, cursor: 'pointer',
-          }}>
-            <input type="checkbox" checked={deleteMissing} onChange={e => setDeleteMissing(e.target.checked)} />
-            <span>ลบรายการที่หายไป {missing.length} รายการนี้ออกจาก DB ด้วย</span>
-            <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--ink-500)' }}>
-              {deleteMissing ? '🗑️ จะลบ' : 'ค่าเริ่มต้น: เก็บไว้'}
-            </span>
+        {groupCounts.allUnchanged > 0 && (
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, marginTop: 6, cursor: 'pointer', color: 'var(--ink-600)' }}>
+            <input type="checkbox" checked={showUnchangedGroups} onChange={e => setShowUnchangedGroups(e.target.checked)} />
+            แสดง {primaryKey} ที่เหมือนเดิมทั้งหมด ({groupCounts.allUnchanged})
           </label>
         )}
       </div>
+
+      {/* PV group list */}
+      <div style={{ maxHeight: 420, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, paddingRight: 4 }}>
+        {visibleGroups.length === 0 && (
+          <div style={{ padding: 20, textAlign: 'center', color: 'var(--ink-500)', fontSize: 12.5 }}>
+            ไม่มีกลุ่มที่กระทบ — ทุกอย่างเหมือนเดิม
+          </div>
+        )}
+        {visibleGroups.map((g) => {
+          const border = groupBorderColor(g);
+          const totalAP = g.items.length;
+          // เปิดอัตโนมัติถ้ามี <= 5 กร๊ป (เพราะอ่านได้หมด); ที่เหลือ click เพื่อขยาย
+          const open = openGroups.has(g.primary) || (visibleGroups.length <= 5);
+          return (
+            <div key={g.primary} style={{
+              border: `1px solid ${border}`,
+              borderRadius: 8, overflow: 'hidden',
+              background: `color-mix(in oklch, ${border} 4%, transparent)`,
+              flexShrink: 0,   // กัน flex items ย่อตัวลงเมื่อ total > maxHeight
+            }}>
+              <button type="button" onClick={() => toggleGroup(g.primary)}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+                  padding: '8px 12px', background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left',
+                }}>
+                <span style={{ fontFamily: 'ui-monospace', fontWeight: 700, color: 'var(--brand-700)', fontSize: 13 }}>{g.primary}</span>
+                {g.payee && <span style={{ fontSize: 11.5, color: 'var(--ink-600)', flex: 1, lineHeight: 1.4 }}>{g.payee}</span>}
+                <span style={{ fontSize: 11, color: 'var(--ink-500)' }}>
+                  {totalAP} {secondaryKey || 'AP'}
+                </span>
+                <span style={{ display: 'flex', gap: 4 }}>
+                  {g.counts.changed > 0  && <span style={{ fontSize: 10.5, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: 'color-mix(in oklch, oklch(60% 0.18 75) 14%, transparent)', color: 'oklch(50% 0.18 75)' }}>✏️ {g.counts.changed}</span>}
+                  {g.counts.added > 0    && <span style={{ fontSize: 10.5, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: 'color-mix(in oklch, var(--good) 14%, transparent)', color: 'var(--good)' }}>🆕 {g.counts.added}</span>}
+                  {g.counts.missing > 0  && <span style={{ fontSize: 10.5, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: 'color-mix(in oklch, var(--bad) 14%, transparent)', color: 'var(--bad)' }}>⚠️ {g.counts.missing}</span>}
+                  {g.counts.unchanged > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: 'var(--ink-50, #f4f6f9)', color: 'var(--ink-600)', border: '1px solid var(--ink-100)' }}>✓ {g.counts.unchanged}</span>}
+                </span>
+                <span style={{ fontSize: 11, color: 'var(--ink-500)', marginLeft: 4 }}>{open ? '▲' : '▼'}</span>
+              </button>
+              {open && (
+                <div style={{ padding: '6px 12px 10px', display: 'grid', gap: 6 }}>
+                  {g.items.map((it, i) => renderItem(it, i))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Missing delete checkbox (footer) */}
+      {missing.length > 0 && (
+        <label style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '10px 12px', borderRadius: 8,
+          border: '1px solid var(--bad)',
+          background: 'color-mix(in oklch, var(--bad) 6%, transparent)',
+          fontSize: 12.5, cursor: 'pointer',
+        }}>
+          <input type="checkbox" checked={deleteMissing} onChange={e => setDeleteMissing(e.target.checked)} />
+          <span>
+            ⚠️ มี <strong>{missing.length}</strong> รายการที่อยู่ใน DB ภายในช่วงวันที่ <strong>{dateRange?.lo}</strong> ถึง <strong>{dateRange?.hi}</strong> แต่ไม่มีในไฟล์ใหม่ —
+            ติ๊กเพื่อ <strong style={{ color: 'var(--bad)' }}>ลบออกจาก DB ด้วย</strong> (default: เก็บไว้)
+          </span>
+        </label>
+      )}
     </div>
   );
 }
@@ -1530,8 +1596,9 @@ function DataPVPage({ data, setData, toast }) {
       title: 'DATA PV · Payment Voucher',
       sub: 'RAW_PV_PAYMENT · รายการจ่ายเงินจริงทั้งหมด · วาง RAW ได้เลย',
       dataKey: 'pvVouchers',
-      dedupKey: 'PL_PV_No',   // นำเข้าใหม่ → เทียบ PL_PV_No → แจ้งเตือนซ้ำ/เปลี่ยน/หาย
-      previewSubFields: ['Payee', 'cc_remark'],   // แสดงใต้เลข PV ใน preview เพื่อให้รู้ว่ารายการอะไร
+      dedupKey: ['PL_PV_No', 'AP_No'],   // compound key — PV เดียวมีหลาย AP ได้
+      scopeDateField: 'Pmt_Date',         // เทียบ missing เฉพาะ row ที่อยู่ในช่วงวันที่ของไฟล์ import
+      previewSubFields: ['Payee', 'cc_remark'],   // subtitle ใน preview
       addLabel: 'เพิ่ม PV',
       singular: 'PV',
       searchPlaceholder: 'ค้นหา PL_PV_No / Payee / AP_No / Ref_Code…',
