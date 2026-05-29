@@ -215,28 +215,46 @@ function DataCrudPage({ data, setData, toast, config }) {
     return s;
   };
 
-  // Parse TSV (Excel paste) or CSV
+  // Parse TSV (Excel paste) or CSV — state machine ที่รองรับ quoted field
+  //   เซลล์ที่มี delim หรือ newline ฝัง จะถูกครอบ "..." ตามมาตรฐาน RFC 4180
+  //   "" ใน quote = literal "
   const parseDelimited = (text) => {
-    const lines = text.replace(/\r\n?/g, '\n').split('\n').filter(l => l.trim());
-    if (lines.length === 0) return { headers: [], rows: [] };
-    // Detect delimiter: tab if any line contains tab, else comma
-    const delim = lines[0].includes('\t') ? '\t' : ',';
-    const split = (line) => {
-      if (delim === '\t') return line.split('\t');
-      // simple CSV split with quoted fields
-      const out = []; let cur = ''; let inQ = false;
-      for (let i = 0; i < line.length; i++) {
-        const c = line[i];
-        if (c === '"' && line[i+1] === '"') { cur += '"'; i++; }
-        else if (c === '"') inQ = !inQ;
-        else if (c === ',' && !inQ) { out.push(cur); cur = ''; }
-        else cur += c;
+    const src = text.replace(/\r\n?/g, '\n');
+    if (!src.trim()) return { headers: [], rows: [] };
+    // Detect delimiter from first non-quoted segment of first line
+    const firstNL = src.indexOf('\n');
+    const firstLine = firstNL >= 0 ? src.slice(0, firstNL) : src;
+    const delim = firstLine.includes('\t') ? '\t' : ',';
+
+    const all = [];           // ผลลัพธ์: array ของ rows
+    let row = [];             // row ที่กำลังสร้าง
+    let cur = '';             // field ที่กำลังสร้าง
+    let inQ = false;          // อยู่ใน quoted field?
+    let fieldStarted = false; // เห็นอักขระแล้วใน field นี้?
+
+    for (let i = 0; i < src.length; i++) {
+      const c = src[i];
+      if (inQ) {
+        if (c === '"') {
+          if (src[i + 1] === '"') { cur += '"'; i++; }   // escaped quote
+          else inQ = false;
+        } else {
+          cur += c;   // รวม tab/newline ใน quote ลง field
+        }
+      } else {
+        if (c === '"' && !fieldStarted) { inQ = true; fieldStarted = true; }
+        else if (c === delim) { row.push(cur); cur = ''; fieldStarted = false; }
+        else if (c === '\n') { row.push(cur); all.push(row); row = []; cur = ''; fieldStarted = false; }
+        else { cur += c; fieldStarted = true; }
       }
-      out.push(cur);
-      return out;
-    };
-    const headers = split(lines[0]).map(h => h.trim());
-    const rows = lines.slice(1).map(split);
+    }
+    // flush last field/row
+    if (cur !== '' || row.length > 0) { row.push(cur); all.push(row); }
+    // กรอง row ว่างทั้งบรรทัด
+    const nonEmpty = all.filter(r => r.some(c => String(c).trim() !== ''));
+    if (nonEmpty.length === 0) return { headers: [], rows: [] };
+    const headers = nonEmpty[0].map(h => String(h).trim());
+    const rows = nonEmpty.slice(1);
     return { headers, rows };
   };
 
