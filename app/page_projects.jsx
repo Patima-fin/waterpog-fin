@@ -348,16 +348,21 @@ function ProjectsPage({ data, setData, toast }) {
              cfMonth, cf30, cf60, cf90 };
   }, [filtered]);
 
-  // ── Filter facets (unique values + counts) ─────────────────────────────
+  // ── Filter facets (unique values + counts จาก enriched ทั้งหมด, ไม่ใช่ filtered) ──
+  // เพื่อให้ user เห็นว่าแต่ละสถานะมีกี่รายการก่อนตัดสินใจกรอง
   const facets = pjMemo(() => {
-    const provinces = {}, types = {}, assignees = {};
+    const provinces = {}, types = {}, assignees = {}, statusCount = {}, agingCount = {};
+    Object.keys(PROJ_STATUS).forEach(s => statusCount[s] = 0);
+    ['0-30','31-60','61-90','90+'].forEach(b => agingCount[b] = 0);
     enriched.forEach(p => {
       if (p._province) provinces[p._province] = (provinces[p._province] || 0) + 1;
       if (p._type) types[p._type] = (types[p._type] || 0) + 1;
       const a = p._assignee || '(ไม่โอน)';
       assignees[a] = (assignees[a] || 0) + 1;
+      statusCount[p._status] = (statusCount[p._status] || 0) + 1;
+      if (p._agingBucket) agingCount[p._agingBucket] = (agingCount[p._agingBucket] || 0) + 1;
     });
-    return { provinces, types, assignees };
+    return { provinces, types, assignees, statusCount, agingCount };
   }, [enriched]);
 
   // ── Auto insights ──────────────────────────────────────────────────────
@@ -518,7 +523,7 @@ function ProjectsPage({ data, setData, toast }) {
         {filterOpen && (
           <FilterPanel
             filters={filters} setFilters={setFilters}
-            facets={facets} kpi={kpi} clear={clearFilters}
+            facets={facets} clear={clearFilters}
             toggleSetItem={toggleSetItem}
           />
         )}
@@ -1117,7 +1122,7 @@ function ProjectsToolbar({ query, setQuery, filterOpen, setFilterOpen, activeFil
 }
 
 // ─── Filter Panel (left side) ──────────────────────────────────────────────
-function FilterPanel({ filters, setFilters, facets, kpi, clear, toggleSetItem }) {
+function FilterPanel({ filters, setFilters, facets, clear, toggleSetItem }) {
   const Section = ({ title, items, filterKey, fmt }) => (
     <div style={{ marginBottom: 14 }}>
       <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>{title}</div>
@@ -1158,7 +1163,7 @@ function FilterPanel({ filters, setFilters, facets, kpi, clear, toggleSetItem })
       </div>
 
       <Section title="สถานะโครงการ" filterKey="status"
-        items={Object.keys(PROJ_STATUS).map(s => [s, kpi.byStatus[s] || 0])}
+        items={Object.keys(PROJ_STATUS).map(s => [s, facets.statusCount[s] || 0])}
         fmt={(s) => PROJ_STATUS[s].label} />
       <Section title="จังหวัด" filterKey="province"
         items={Object.entries(facets.provinces).sort((a, b) => b[1] - a[1])} />
@@ -1167,7 +1172,8 @@ function FilterPanel({ filters, setFilters, facets, kpi, clear, toggleSetItem })
       <Section title="ผู้รับโอนสิทธิ์" filterKey="assignee"
         items={Object.entries(facets.assignees).sort((a, b) => b[1] - a[1])} />
       <Section title="Aging ลูกหนี้" filterKey="aging"
-        items={[['0-30', 0], ['31-60', 0], ['61-90', 0], ['90+', 0]]} />
+        items={[['0-30', facets.agingCount['0-30'] || 0], ['31-60', facets.agingCount['31-60'] || 0],
+                ['61-90', facets.agingCount['61-90'] || 0], ['90+', facets.agingCount['90+'] || 0]]} />
     </div>
   );
 }
