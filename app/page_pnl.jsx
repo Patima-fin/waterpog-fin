@@ -233,17 +233,14 @@ function PL_parseRows(rows) {
     if (!g) g = PL_inferGroup(code, nameLkp);
     if (!g || !PL_GROUP_META[g]) return; // unclassifiable → skip
 
-    // expense (กลุ่ม cogs/costService/commission/selling/admin/finance) ใน ฐาน DATA
-    // ต้องเก็บเป็นบวก (normal balance positive). หากเจอค่าลบ (เช่นข้อมูล Feb ที่
-    // upload ก่อน sign-normalization fix) → flip กลับเป็นบวกตอนอ่าน
-    const isExpenseGroup = !PL_REVENUE_KEYS[g];
+    // อ่านค่าจาก ฐาน DATA ตามจริง — ไม่ flip sign เพราะ expense อาจมี cost reversal
+    // ที่ legitimate เป็นค่าลบ (เช่น 5140001 POC ตอนกลับรายการ) ที่ต้อง "ลดต้นทุน"
     const arr = monthCol.map(col => {
       if (!col) return 0;
       const raw = r[col];
       if (raw == null || raw === '') return 0;
       const num = Number(String(raw).replace(/[^0-9.\-]/g, ''));
-      if (isNaN(num)) return 0;
-      return (isExpenseGroup && num < 0) ? -num : num;
+      return isNaN(num) ? 0 : num;
     });
     if (arr.every(v => v === 0) && (code == null || code === '')) return; // blank row
     groups[g] = PL_addArr(groups[g], arr);
@@ -373,12 +370,16 @@ function PnLPage({ data, setData, toast }) {
         const cCol = findCol(['ac_code', 'code', 'รหัสบัญชี', 'รหัส', 'maincode']);
         const nCol = findCol(['ac_des', 'ชื่อบัญชี', 'name', 'description', 'desc', 'รายการ']);
         const aCol = findCol(['amount', 'ยอด', 'จำนวน', 'net', 'total']);
-        // ทุกเดือนใช้ "ช่อง L" (คอลัมน์ที่ 12 = index 11) เป็นยอดของเดือนนั้น
-        // หมายเหตุ: บัญชีใช้ convention col L ไม่เหมือนกันในแต่ละไฟล์ —
-        //   TB01 (ม.ค.) expense L = + (=+H-I = cur_dr−cur_cr)
-        //   TB02 (ก.พ.) expense L = − (=I-H = cur_cr−cur_dr) ← uniform formula
-        // เพื่อให้ระบบเก็บค่า "normal balance positive" สำหรับ expense เสมอ
-        // → flip sign สำหรับ expense (code != 4xxx) เมื่อ L < 0
+        // หลัก: คำนวณจาก cur_dr / cur_cr (ของเดือนนั้น) ตามประเภทบัญชี
+        //   Revenue (4xxx) : amount = cur_cr − cur_dr   (บวก = revenue ปกติ)
+        //   Expense (5xxx+): amount = cur_dr − cur_cr   (บวก = expense ปกติ)
+        // วิธีนี้รองรับทั้ง:
+        //   - TB01 (col L = signed-by-type, positive)
+        //   - TB02+ (col L = uniform =I-H, expense negative)
+        //   - Cost reversal (เช่น TB04 5140001 cur_cr=2M, cur_dr=0 → −2M = "ลดต้นทุน" ✓)
+        // ใช้ col L เฉพาะเป็น fallback ถ้าไม่มี cur_dr/cur_cr
+        const cdrCol = findCol(['cur_dr', 'cur dr', 'curdr']);
+        const ccrCol = findCol(['cur_cr', 'cur cr', 'curcr']);
         const lCol = 11;
         const num = (v) => {
           const n = Number(String(v == null ? '' : v).replace(/[^0-9.\-]/g, ''));
@@ -389,10 +390,18 @@ function PnLPage({ data, setData, toast }) {
           const row = aoa[i];
           const code = cCol >= 0 ? String(row[cCol] || '').trim() : '';
           if (!code) continue;
-          let amount = aCol >= 0 ? num(row[aCol]) : num(row[lCol]);
-          // normalize: expense (non-4xxx) ต้องเป็นบวกเสมอ (ตาม convention ของระบบ)
           const first = String(code).trim().charAt(0);
-          if (first !== '4' && amount < 0) amount = -amount;
+          let amount = 0;
+          if (aCol >= 0) {
+            amount = num(row[aCol]);
+          } else if (cdrCol >= 0 && ccrCol >= 0) {
+            const cdr = num(row[cdrCol]), ccr = num(row[ccrCol]);
+            amount = first === '4' ? (ccr - cdr) : (cdr - ccr);
+          } else {
+            // fallback: col L + sign normalize สำหรับ expense
+            amount = num(row[lCol]);
+            if (first !== '4' && amount < 0) amount = -amount;
+          }
           out.push({ code, name: nCol >= 0 ? String(row[nCol] || '').trim() : '', amount });
         }
         resolve(out);
