@@ -525,14 +525,24 @@ function PnLPage({ data, setData, toast }) {
   }, [comp, lastMonth]);
 
   const saveImage = () => {
-    if (!window.html2canvas || !reportRef.current) { toast('ระบบบันทึกรูปยังไม่พร้อม'); return; }
+    if (!window.html2canvas) { toast('ระบบบันทึกรูปยังไม่พร้อม — โหลด html2canvas ไม่สำเร็จ'); return; }
+    if (!reportRef.current) { toast('ไม่พบส่วนรายงานที่จะบันทึก'); return; }
     toast('กำลังเตรียมรูปภาพรายงาน…');
-    window.html2canvas(reportRef.current, { scale: 2, backgroundColor: '#ffffff' }).then(canvas => {
+    window.html2canvas(reportRef.current, {
+      scale: 2,
+      backgroundColor: '#ffffff',
+      useCORS: true,
+      logging: false,
+    }).then(canvas => {
       const a = document.createElement('a');
       a.href = canvas.toDataURL('image/png');
       a.download = 'PnL_' + new Date().toISOString().slice(0, 10) + '.png';
       a.click();
-    }).catch(() => toast('บันทึกรูปไม่สำเร็จ'));
+      toast('บันทึกรูปสำเร็จ');
+    }).catch(err => {
+      console.error('[PnL saveImage] failed:', err);
+      toast('บันทึกรูปไม่สำเร็จ: ' + (err && err.message ? err.message : 'unknown'));
+    });
   };
 
   if (loading) {
