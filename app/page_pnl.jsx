@@ -233,12 +233,17 @@ function PL_parseRows(rows) {
     if (!g) g = PL_inferGroup(code, nameLkp);
     if (!g || !PL_GROUP_META[g]) return; // unclassifiable → skip
 
+    // expense (กลุ่ม cogs/costService/commission/selling/admin/finance) ใน ฐาน DATA
+    // ต้องเก็บเป็นบวก (normal balance positive). หากเจอค่าลบ (เช่นข้อมูล Feb ที่
+    // upload ก่อน sign-normalization fix) → flip กลับเป็นบวกตอนอ่าน
+    const isExpenseGroup = !PL_REVENUE_KEYS[g];
     const arr = monthCol.map(col => {
       if (!col) return 0;
       const raw = r[col];
       if (raw == null || raw === '') return 0;
       const num = Number(String(raw).replace(/[^0-9.\-]/g, ''));
-      return isNaN(num) ? 0 : num;
+      if (isNaN(num)) return 0;
+      return (isExpenseGroup && num < 0) ? -num : num;
     });
     if (arr.every(v => v === 0) && (code == null || code === '')) return; // blank row
     groups[g] = PL_addArr(groups[g], arr);
