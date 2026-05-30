@@ -312,6 +312,7 @@ function PnLPage({ data, setData, toast }) {
   const [mapOpen, setMapOpen]   = plState(false);   // group-map modal
   const [openGrp, setOpenGrp]   = plState(PL_GROUP_ORDER[0]); // accordion expanded key
   const reportRef = plRef(null);
+  const pageRef   = plRef(null);   // capture ทั้งหน้าตอน "บันทึกเป็นรูป"
 
   // upload state
   const [file, setFile]       = plState(null);
@@ -526,13 +527,19 @@ function PnLPage({ data, setData, toast }) {
 
   const saveImage = () => {
     if (!window.html2canvas) { toast('ระบบบันทึกรูปยังไม่พร้อม — โหลด html2canvas ไม่สำเร็จ'); return; }
-    if (!reportRef.current) { toast('ไม่พบส่วนรายงานที่จะบันทึก'); return; }
+    const target = pageRef.current || reportRef.current;
+    if (!target) { toast('ไม่พบส่วนรายงานที่จะบันทึก'); return; }
     toast('กำลังเตรียมรูปภาพรายงาน…');
-    window.html2canvas(reportRef.current, {
+    // ใช้ scrollWidth/scrollHeight เพื่อจับ "ทั้งหน้า" — ไม่จำกัดที่ viewport
+    window.html2canvas(target, {
       scale: 2,
-      backgroundColor: '#ffffff',
+      backgroundColor: '#f4f7fb',  // ใช้สีพื้นเดียวกับ body
       useCORS: true,
       logging: false,
+      width:  target.scrollWidth,
+      height: target.scrollHeight,
+      windowWidth:  target.scrollWidth,
+      windowHeight: target.scrollHeight,
     }).then(canvas => {
       const a = document.createElement('a');
       a.href = canvas.toDataURL('image/png');
@@ -622,7 +629,7 @@ function PnLPage({ data, setData, toast }) {
   };
 
   return (
-    <div className="page pnl-page">
+    <div className="page pnl-page" ref={pageRef}>
       {/* ── HERO BANNER ────────────────────────────────────────────────── */}
       <div className="anim-in" style={{
         background: 'linear-gradient(135deg, #2563eb 0%, #1e3a8a 100%)',
