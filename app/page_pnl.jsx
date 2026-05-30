@@ -369,7 +369,11 @@ function PnLPage({ data, setData, toast }) {
         const nCol = findCol(['ac_des', 'ชื่อบัญชี', 'name', 'description', 'desc', 'รายการ']);
         const aCol = findCol(['amount', 'ยอด', 'จำนวน', 'net', 'total']);
         // ทุกเดือนใช้ "ช่อง L" (คอลัมน์ที่ 12 = index 11) เป็นยอดของเดือนนั้น
-        // (TB ของบัญชี: end_cr/end_dr = YTD สะสม, ช่อง L = period-only signed)
+        // หมายเหตุ: บัญชีใช้ convention col L ไม่เหมือนกันในแต่ละไฟล์ —
+        //   TB01 (ม.ค.) expense L = + (=+H-I = cur_dr−cur_cr)
+        //   TB02 (ก.พ.) expense L = − (=I-H = cur_cr−cur_dr) ← uniform formula
+        // เพื่อให้ระบบเก็บค่า "normal balance positive" สำหรับ expense เสมอ
+        // → flip sign สำหรับ expense (code != 4xxx) เมื่อ L < 0
         const lCol = 11;
         const num = (v) => {
           const n = Number(String(v == null ? '' : v).replace(/[^0-9.\-]/g, ''));
@@ -380,8 +384,10 @@ function PnLPage({ data, setData, toast }) {
           const row = aoa[i];
           const code = cCol >= 0 ? String(row[cCol] || '').trim() : '';
           if (!code) continue;
-          // ใช้ aCol ถ้าไฟล์มี header amount/ยอด/จำนวน ชัดเจน ไม่งั้นใช้ช่อง L
-          const amount = aCol >= 0 ? num(row[aCol]) : num(row[lCol]);
+          let amount = aCol >= 0 ? num(row[aCol]) : num(row[lCol]);
+          // normalize: expense (non-4xxx) ต้องเป็นบวกเสมอ (ตาม convention ของระบบ)
+          const first = String(code).trim().charAt(0);
+          if (first !== '4' && amount < 0) amount = -amount;
           out.push({ code, name: nCol >= 0 ? String(row[nCol] || '').trim() : '', amount });
         }
         resolve(out);
