@@ -22,6 +22,7 @@ const { useState: plState, useEffect: plEffect, useMemo: plMemo, useRef: plRef }
 const PL_SHEET = 'ฐาน DATA';
 
 const PL_MONTHS_TH = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+const PL_MONTHS_TH_FULL = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
 
 // 9 TYPE labels — ตรงกับบรรทัดในงบ (index = ลำดับใน PL_GROUP_ORDER)
 const PL_TYPES = [
@@ -317,7 +318,6 @@ function PnLPage({ data, setData, toast }) {
   const [drag, setDrag]       = plState(false);
   const [busy, setBusy]       = plState(false);
   const [newAccts, setNewAccts] = plState(null);   // [{code,name,amount,group}]
-  const [uploadOpen, setUploadOpen] = plState(false);  // upload modal
   const [viewMode, setViewMode]     = plState('month'); // 'month' | 'quarter'
   const fileInputRef = plRef(null);
 
@@ -467,7 +467,6 @@ function PnLPage({ data, setData, toast }) {
       if (unknown.length) {
         setNewAccts(unknown.map(a => ({ ...a, group: PL_inferGroup(a.code, a.name) || '' })));
         toast('พบผังบัญชีใหม่ ' + unknown.length + ' รายการ — โปรดจัดประเภท (อีก ' + (accts.length - unknown.length) + ' รายการ ระบบจัดให้แล้ว)');
-        setUploadOpen(false);
         setBusy(false);
       } else {
         toast('จัดกลุ่มจาก TYP ครบ ' + accts.length + ' รายการ · กำลังบันทึก…');
@@ -500,7 +499,7 @@ function PnLPage({ data, setData, toast }) {
       if (resp && resp.error) { toast('นำเข้าไม่สำเร็จ: ' + resp.error); }
       else {
         toast('นำเข้าเดือน ' + PL_MONTHS_TH[impMonth - 1] + ' สำเร็จ — กำลังรีเฟรช');
-        setNewAccts(null); setFile(null); setUploadOpen(false);
+        setNewAccts(null); setFile(null);
         setTimeout(loadData, 1200);   // re-read ฐาน DATA after backend aggregates
       }
     } catch (err) { toast('นำเข้าไม่สำเร็จ: ' + err.message); }
@@ -615,46 +614,41 @@ function PnLPage({ data, setData, toast }) {
       {/* ── HERO BANNER ────────────────────────────────────────────────── */}
       <div className="anim-in" style={{
         background: 'linear-gradient(135deg, #2563eb 0%, #1e3a8a 100%)',
-        borderRadius: 16, padding: '24px 28px', color: 'white',
+        borderRadius: 16, padding: '22px 28px', color: 'white',
         marginBottom: 18, boxShadow: '0 10px 28px rgba(30, 58, 138, 0.18)',
-        display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap',
+        display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap',
       }}>
+        {/* W logo */}
         <div style={{
-          width: 56, height: 56, borderRadius: 14, background: 'rgba(255,255,255,0.18)',
-          display: 'grid', placeItems: 'center', fontSize: 24, fontWeight: 800,
-          border: '1px solid rgba(255,255,255,0.3)', flexShrink: 0,
-        }}>W</div>
+          width: 56, height: 56, borderRadius: 14, background: 'white',
+          display: 'grid', placeItems: 'center', flexShrink: 0,
+          boxShadow: '0 2px 6px rgba(0,0,0,0.08)',
+        }}>
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+            <path d="M3 5 L6 19 L9 9 L12 16 L15 9 L18 19 L21 5"
+              stroke="#2563eb" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </div>
         <div style={{ flex: 1, minWidth: 220 }}>
-          <div style={{ fontSize: 10.5, letterSpacing: 1.2, opacity: 0.78, textTransform: 'uppercase', fontWeight: 600 }}>
+          <div style={{ fontSize: 10.5, letterSpacing: 1.4, opacity: 0.85, textTransform: 'uppercase', fontWeight: 600 }}>
             Water POG · Financial Console
           </div>
           <h1 style={{ fontSize: 26, margin: '3px 0 4px', fontWeight: 700, color: 'white', lineHeight: 1.15 }}>
             งบกำไรขาดทุนทางบัญชี
             {isSample && <span style={{ marginLeft: 10, fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'rgba(252,211,77,0.3)', verticalAlign: 'middle', fontWeight: 600 }}>ข้อมูลตัวอย่าง</span>}
           </h1>
-          <div style={{ fontSize: 12.5, opacity: 0.88 }}>
+          <div style={{ fontSize: 12.5, opacity: 0.9 }}>
             Profit &amp; Loss Statement · ปีบัญชี {PL_BUDGET_2569.year} (สะสมตั้งแต่ต้นปี)
           </div>
         </div>
-        <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
-          <div style={{ fontSize: 10.5, opacity: 0.8, letterSpacing: 0.4 }}>ข้อมูลล่าสุดถึงเดือน</div>
-          <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: 0.3 }}>
-            {PL_MONTHS_TH[Math.max(0, lastMonth - 1)]} {PL_BUDGET_2569.year}
+        <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end' }}>
+          <div>
+            <div style={{ fontSize: 10.5, opacity: 0.8, letterSpacing: 0.4 }}>ข้อมูลล่าสุดถึงเดือน</div>
+            <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: 0.3 }}>
+              {PL_MONTHS_TH_FULL[Math.max(0, lastMonth - 1)]} {PL_BUDGET_2569.year}
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            {userCanEdit && (
-              <button onClick={() => setUploadOpen(true)} style={{
-                background: 'rgba(255,255,255,0.95)', color: '#1e3a8a',
-                border: 0, borderRadius: 8, padding: '6px 12px',
-                fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                display: 'inline-flex', alignItems: 'center', gap: 5,
-              }} title="นำเข้า DATA INPUT ของเดือน">
-                <Icon name="upload" size={13} /> อัปโหลดข้อมูล
-              </button>
-            )}
-            <button onClick={() => setMapOpen(true)} style={pnlHeroBtn}>
-              <Icon name="filter" size={13} /> ผังการจัดกลุ่ม
-            </button>
+          <div style={{ display: 'flex', gap: 6 }}>
             <button onClick={saveImage} style={pnlHeroBtn}>
               <Icon name="download" size={13} /> บันทึกเป็นรูป
             </button>
@@ -665,48 +659,66 @@ function PnLPage({ data, setData, toast }) {
         </div>
       </div>
 
-      {/* KPI — 4 horizontal cards */}
+      {/* KPI — 4 horizontal cards (clean style ตาม mockup) */}
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
         gap: 14, marginBottom: 18,
       }}>
         {[
-          { label: 'รายได้รวม', value: k.revenue, icon: '📈', accent: '#2563eb',
-            badge: 'ยอดสะสม ' + lastMonth + ' เดือน', badgeBg: '#eff6ff', badgeColor: '#1e40af' },
-          { label: 'ต้นทุนรวม', value: k.cost, icon: '📦', accent: '#475569',
+          { label: 'รายได้รวม', value: k.revenue,
+            iconSvg: <path d="M3 17l6-6 4 4 7-7M14 8h7v7" />,
+            iconBg: '#eff6ff', iconColor: '#2563eb',
+            badge: 'ยอดสะสม ' + lastMonth + ' เดือน', badgeBg: '#f1f5f9', badgeColor: '#64748b' },
+          { label: 'ต้นทุนรวม', value: k.cost,
+            iconSvg: <><rect x="4" y="6" width="16" height="14" rx="2"/><path d="M4 10h16M9 6V4h6v2"/></>,
+            iconBg: '#f1f5f9', iconColor: '#64748b',
             badge: PL_fmtPct(k.costM) + ' ของรายได้', badgeBg: '#f1f5f9', badgeColor: '#475569' },
-          { label: 'กำไรขั้นต้น (Gross Profit)', value: k.gp, icon: '💰', accent: '#16a34a',
-            badge: 'Margin ' + PL_fmtPct(k.gpM), badgeBg: k.gpM >= 0 ? '#dcfce7' : '#fef2f2', badgeColor: k.gpM >= 0 ? '#15803d' : '#b91c1c',
+          { label: 'กำไรขั้นต้น (Gross Profit)', value: k.gp,
+            iconSvg: <><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9c0-1.1 1.3-2 3-2s3 .9 3 2-1.3 2-3 2-3 .9-3 2 1.3 2 3 2 3-.9 3-2"/></>,
+            iconBg: '#dcfce7', iconColor: '#16a34a',
+            badge: 'Margin ' + PL_fmtPct(k.gpM),
+            badgeBg: k.gpM >= 0 ? '#dcfce7' : '#fef2f2', badgeColor: k.gpM >= 0 ? '#15803d' : '#b91c1c',
             badgeArrow: k.gpM >= 0 ? '↑' : '↓' },
-          { label: 'กำไร(ขาดทุน)สุทธิ', value: k.net, icon: k.net < 0 ? '📉' : '📊',
-            accent: k.net < 0 ? '#dc2626' : '#16a34a',
+          { label: 'กำไร(ขาดทุน)สุทธิ', value: k.net,
+            iconSvg: k.net < 0
+              ? <path d="M3 7l6 6 4-4 7 7M14 16h7v-7"/>
+              : <path d="M3 17l6-6 4 4 7-7M14 8h7v7"/>,
+            iconBg: k.net < 0 ? '#fee2e2' : '#dcfce7',
+            iconColor: k.net < 0 ? '#dc2626' : '#16a34a',
             badge: (k.net < 0 ? 'ขาดทุน ' : 'กำไร ') + PL_fmtPct(k.netM),
-            badgeBg: k.net < 0 ? '#fef2f2' : '#dcfce7',
+            badgeBg: k.net < 0 ? '#fee2e2' : '#dcfce7',
             badgeColor: k.net < 0 ? '#b91c1c' : '#15803d',
             badgeArrow: k.net < 0 ? '↓' : '↑',
-            valueColor: k.net < 0 ? '#dc2626' : 'inherit' },
+            valueColor: k.net < 0 ? '#dc2626' : 'inherit',
+            cardBg: k.net < 0 ? 'linear-gradient(180deg, #fef2f2 0%, #ffffff 100%)' : 'white',
+            cardBorder: k.net < 0 ? '#fecaca' : '#e2e8f0' },
         ].map((tile, i) => (
           <div key={i} style={{
-            background: 'white', borderRadius: 12, padding: 16,
-            borderLeft: '4px solid ' + tile.accent,
-            boxShadow: '0 1px 3px rgba(15,23,42,0.06)',
-            display: 'flex', flexDirection: 'column', gap: 8,
+            background: tile.cardBg || 'white',
+            borderRadius: 12, padding: 18,
+            border: '1px solid ' + (tile.cardBorder || '#e2e8f0'),
+            boxShadow: '0 1px 3px rgba(15,23,42,0.05)',
+            display: 'flex', flexDirection: 'column', gap: 10,
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{
-                width: 28, height: 28, borderRadius: 8, background: '#f1f5f9',
-                display: 'grid', placeItems: 'center', fontSize: 14,
-              }}>{tile.icon}</div>
-              <div style={{ fontSize: 12, color: '#64748b', fontWeight: 500 }}>{tile.label}</div>
+            <div style={{
+              width: 36, height: 36, borderRadius: 9,
+              background: tile.iconBg,
+              display: 'grid', placeItems: 'center',
+            }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                stroke={tile.iconColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                {tile.iconSvg}
+              </svg>
             </div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: tile.valueColor || '#0f172a', letterSpacing: '-0.5px' }}>
-              {PL_fmt(tile.value)} <span style={{ fontSize: 12, color: '#64748b', fontWeight: 400 }}>บาท</span>
+            <div style={{ fontSize: 12, color: '#64748b', fontWeight: 500 }}>{tile.label}</div>
+            <div style={{ fontSize: 24, fontWeight: 700, color: tile.valueColor || '#0f172a', letterSpacing: '-0.5px', lineHeight: 1.1 }}>
+              {PL_fmt(tile.value)}
             </div>
             <div style={{
               display: 'inline-flex', alignItems: 'center', gap: 4, alignSelf: 'flex-start',
               background: tile.badgeBg, color: tile.badgeColor,
-              fontSize: 10.5, padding: '2px 8px', borderRadius: 10, fontWeight: 600,
+              fontSize: 11, padding: '3px 9px', borderRadius: 12, fontWeight: 600,
             }}>
               {tile.badgeArrow && <span>{tile.badgeArrow}</span>}
               {tile.badge}
@@ -714,6 +726,52 @@ function PnLPage({ data, setData, toast }) {
           </div>
         ))}
       </div>
+
+      {/* UPLOAD SECTION — heading + compact upload (สำหรับพนักงานบัญชี) */}
+      {userCanEdit && (<>
+        <div className="pnl-section-head">
+          <h2>อัปโหลดข้อมูลรายเดือน</h2>
+          <span className="pnl-tag">นำเข้าไฟล์ DATA INPUT เพื่ออัปเดตงบประจำเดือน</span>
+        </div>
+        <div className="card pnl-card" style={{ marginBottom: 18 }}>
+          <div className="pnl-upload-row">
+            <div className={'pnl-dropzone' + (drag ? ' drag' : '') + (file ? ' has-file' : '')}
+              onClick={() => fileInputRef.current && fileInputRef.current.click()}
+              onDragEnter={(e) => { e.preventDefault(); setDrag(true); }}
+              onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+              onDragLeave={(e) => { e.preventDefault(); setDrag(false); }}
+              onDrop={onDrop}>
+              <div className="pnl-dz-ic"><Icon name="upload" size={22} /></div>
+              <div className="pnl-dz-main">{file ? <>เลือกไฟล์แล้ว: <u>{file.name}</u></> : <>ลากไฟล์มาวางที่นี่ หรือ <u>เลือกไฟล์</u></>}</div>
+              <div className="pnl-dz-sub">{file ? (file.size / 1024 / 1024).toFixed(2) + ' MB · พร้อมนำเข้า' : 'รองรับ .xlsx, .csv (ชีต DATA INPUT) ขนาดไม่เกิน 10 MB'}</div>
+              <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" hidden
+                onChange={(e) => pickFile(e.target.files[0])} />
+            </div>
+            <div className="pnl-upload-side">
+              <label className="pnl-field"><span>เลือกเดือนที่นำเข้า</span>
+                <select value={impMonth} onChange={(e) => setImpMonth(Number(e.target.value))}>
+                  {PL_MONTHS_TH.map((m, i) => <option key={i} value={i + 1}>{(i + 1)} · {m} {PL_BUDGET_2569.year}</option>)}
+                </select>
+              </label>
+              <label className="pnl-field"><span>สถานะข้อมูล</span>
+                <select value={impAudit} onChange={(e) => setImpAudit(e.target.value)}>
+                  <option value="PRE-CLOSING">PRE-CLOSING · ยังไม่ผ่านการตรวจสอบ</option>
+                  <option value="AUDITED">AUDITED · ตรวจสอบแล้ว</option>
+                </select>
+              </label>
+              <button className="btn btn-primary" disabled={busy || !file} onClick={handleVerify}>
+                <Icon name="check" size={14} /> {busy ? 'กำลังประมวลผล…' : 'ตรวจสอบและนำเข้า'}
+              </button>
+              <div className="pnl-hint"><Icon name="search" size={13} /> ระบบจะเทียบผังบัญชีกับฐานข้อมูล หากพบบัญชีใหม่จะให้จัดประเภทก่อนบันทึก · บัญชีที่ไม่อยู่ในไฟล์จะถูก reset เป็น 0</div>
+              <div style={{ marginTop: 6 }}>
+                <button className="btn btn-ghost" onClick={() => setMapOpen(true)} style={{ fontSize: 11, padding: '4px 10px' }}>
+                  <Icon name="filter" size={12} /> ผังการจัดกลุ่ม
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </>)}
 
       {/* NEW ACCOUNTS ALERT */}
       {newAccts && (
@@ -1004,47 +1062,6 @@ function PnLPage({ data, setData, toast }) {
           </>
         );
       })()}
-
-      {/* UPLOAD MODAL — เปิดจากปุ่ม "อัปโหลดข้อมูล" บน hero banner */}
-      <Modal open={uploadOpen} onClose={() => { setUploadOpen(false); setFile(null); }} wide
-        title="อัปโหลดข้อมูลรายเดือน (DATA INPUT)">
-        <div style={{ padding: '8px 20px 18px' }}>
-          <div style={{ fontSize: 12.5, color: 'var(--ink-500)', marginBottom: 12 }}>
-            นำเข้าไฟล์ TB ของบัญชี (.xlsx) เพื่ออัปเดตงบประจำเดือนเข้าฐานข้อมูล
-          </div>
-          <div className="pnl-upload-row">
-            <div className={'pnl-dropzone' + (drag ? ' drag' : '') + (file ? ' has-file' : '')}
-              onClick={() => fileInputRef.current && fileInputRef.current.click()}
-              onDragEnter={(e) => { e.preventDefault(); setDrag(true); }}
-              onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
-              onDragLeave={(e) => { e.preventDefault(); setDrag(false); }}
-              onDrop={onDrop}>
-              <div className="pnl-dz-ic"><Icon name="upload" size={22} /></div>
-              <div className="pnl-dz-main">{file ? <>เลือกไฟล์แล้ว: <u>{file.name}</u></> : <>ลากไฟล์มาวางที่นี่ หรือ <u>เลือกไฟล์</u></>}</div>
-              <div className="pnl-dz-sub">{file ? (file.size / 1024 / 1024).toFixed(2) + ' MB · พร้อมนำเข้า' : 'รองรับ .xlsx, .csv (ชีต DATA INPUT)'}</div>
-              <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" hidden
-                onChange={(e) => pickFile(e.target.files[0])} />
-            </div>
-            <div className="pnl-upload-side">
-              <label className="pnl-field"><span>เลือกเดือนที่นำเข้า</span>
-                <select value={impMonth} onChange={(e) => setImpMonth(Number(e.target.value))}>
-                  {PL_MONTHS_TH.map((m, i) => <option key={i} value={i + 1}>{(i + 1)} · {m}</option>)}
-                </select>
-              </label>
-              <label className="pnl-field"><span>สถานะข้อมูล</span>
-                <select value={impAudit} onChange={(e) => setImpAudit(e.target.value)}>
-                  <option value="PRE-CLOSING">PRE-CLOSING · ยังไม่ตรวจสอบ</option>
-                  <option value="AUDITED">AUDITED · ตรวจสอบแล้ว</option>
-                </select>
-              </label>
-              <button className="btn btn-primary" disabled={busy || !file} onClick={handleVerify}>
-                <Icon name="check" size={14} /> {busy ? 'กำลังประมวลผล…' : 'ตรวจสอบและนำเข้า'}
-              </button>
-              <div className="pnl-hint"><Icon name="search" size={13} /> ระบบจะเทียบผังบัญชีกับฐานข้อมูล หากพบบัญชีใหม่จะให้จัดประเภทก่อนบันทึก · บัญชีที่ไม่อยู่ในไฟล์จะถูก reset เป็น 0</div>
-            </div>
-          </div>
-        </div>
-      </Modal>
 
       {/* DETAIL MODAL (single group) */}
       <Modal open={!!detailKey} onClose={() => setDetailKey(null)} wide
