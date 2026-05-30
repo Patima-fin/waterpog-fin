@@ -19,6 +19,9 @@ const PROJ_STATUS = {
   closed:           { label: 'ปิดโครงการ',        color: '#15803d', bg: '#dcfce7', dot: '#16a34a', order: 8 },
 };
 
+// ตัวเลือกผู้รับโอนสิทธิ์ — เริ่มจากค่าใน data history ถ้ามี + preset 7 ค่า
+const ASSIGNEE_OPTIONS = ['ไม่โอนสิทธิ', 'KTB', 'WCI+STS', 'LIT', 'Funding', 'P2P', 'คุณประกอบ'];
+
 const isStatusDone = (s) => /done|paid|รับชำระ|ปิด/i.test(String(s || ''));
 const isTruthy = (v) => v != null && v !== '' && v !== 0 && v !== '0';
 const toNum = (v) => { const n = Number(String(v ?? '').toString().replace(/[, ]/g, '')); return isNaN(n) ? 0 : n; };
@@ -546,10 +549,63 @@ function UploadModal({ existingProjects, onClose, onParsed, diff, onConfirm }) {
     try {
       const buf = await f.arrayBuffer();
       const wb = window.XLSX.read(buf, { type: 'array', cellDates: true });
-      // หา sheet ที่ชื่อขึ้นต้นด้วย "Main all" (รองรับทุกปี: 67/68/69/...)
+      // ── Auto-detect mode: assignee-only file vs full Project Control ──
+      // assignee-only = single sheet มี "ผู้รับโอนสิทธิ์" column (3-col format)
+      const firstSheet = wb.SheetNames[0];
+      const firstHeader = window.XLSX.utils.sheet_to_json(wb.Sheets[firstSheet], { header: 1 })[0] || [];
+      const isAssigneeMode = wb.SheetNames.length <= 2 &&
+        firstHeader.some(h => /ผู้รับโอนสิทธิ์|assignee/i.test(String(h || ''))) &&
+        firstHeader.some(h => /JOB\s*No|Contract|รหัส/i.test(String(h || '')));
+      if (isAssigneeMode) {
+        const rows = window.XLSX.utils.sheet_to_json(wb.Sheets[firstSheet], { defval: null, raw: false });
+        // หา key columns
+        const codeKey = Object.keys(rows[0] || {}).find(k => /JOB\s*No|Contract\s*No|รหัสโครงการ|รหัสสัญญา/i.test(k));
+        const assigneeKey = Object.keys(rows[0] || {}).find(k => /ผู้รับโอนสิทธิ์|assignee/i.test(k));
+        if (!codeKey || !assigneeKey) {
+          setError('ไม่พบคอลัมน์ JOB No. หรือ ผู้รับโอนสิทธิ์'); setBusy(false); return;
+        }
+        const existingByCode = {};
+        existingProjects.forEach(p => {
+          const code = String(p['Contract No.'] || p.code || '').trim();
+          if (code) existingByCode[code] = p;
+        });
+        // strip product type suffix สำหรับการ match เผื่อ data sheet มีเฉพาะ JOB ไม่มี product
+        const stripSuffix = (s) => { const m = String(s||'').trim().match(/^(.+?)-[A-Z]{2,6}$/); return m ? m[1] : String(s||'').trim(); };
+        const updated = [], unchanged = [], notFound = [];
+        rows.forEach(r => {
+          const code = String(r[codeKey] || '').trim();
+          if (!code) return;
+          const newAssg = String(r[assigneeKey] || '').trim();
+          if (!newAssg) return;
+          // try exact match, then suffix-stripped match
+          let ex = existingByCode[code];
+          if (!ex) {
+            const stripped = stripSuffix(code);
+            ex = Object.values(existingByCode).find(p => stripSuffix(p['Contract No.'] || p.code || '') === stripped);
+          }
+          if (!ex) {
+            notFound.push({ code, assignee: newAssg, name: r[Object.keys(r)[1]] || '' });
+            return;
+          }
+          const oldAssg = String(ex['ผู้รับโอนสิทธิ์'] || ex.assignee || '').trim();
+          if (oldAssg === newAssg) {
+            unchanged.push({ code });
+          } else {
+            updated.push({
+              code: String(ex['Contract No.'] || ex.code || code).trim(),
+              name: ex['พื้นที่'] || ex.name || '',
+              changes: [{ field: 'ผู้รับโอนสิทธิ์', oldV: oldAssg, newV: newAssg }],
+              row: { ...ex, 'ผู้รับโอนสิทธิ์': newAssg },
+            });
+          }
+        });
+        onParsed({ newRows: [], updated, unchanged, notFound, totalRead: rows.length, mode: 'assignee' });
+        setBusy(false); return;
+      }
+      // ── Full Project Control mode ──
       const mainSheets = wb.SheetNames.filter(n => /^Main\s*all/i.test(n));
       if (mainSheets.length === 0) {
-        setError('ไม่พบ sheet ที่ชื่อขึ้นต้นด้วย "Main all" ในไฟล์'); setBusy(false); return;
+        setError('ไม่พบ sheet ที่ชื่อขึ้นต้นด้วย "Main all" ในไฟล์ · สำหรับไฟล์ผู้รับโอนสิทธิ์ ต้องมีคอลัมน์ "JOB No." + "ผู้รับโอนสิทธิ์"'); setBusy(false); return;
       }
       // รวมข้อมูลจากทุก Main all sheets
       const allRows = [];
@@ -695,14 +751,24 @@ function UploadModal({ existingProjects, onClose, onParsed, diff, onConfirm }) {
 }
 
 function DiffPreview({ diff, onConfirm, onReset }) {
+  const isAssigneeMode = diff.mode === 'assignee';
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 16 }}>
+      {isAssigneeMode && (
+        <div style={{
+          padding: '8px 12px', background: '#dbeafe', borderRadius: 6,
+          fontSize: 11.5, color: '#1e40af', marginBottom: 12,
+        }}>
+          📋 ตรวจพบไฟล์ <strong>ผู้รับโอนสิทธิ์</strong> — จะอัปเดตเฉพาะคอลัมน์ "ผู้รับโอนสิทธิ์" ของโครงการที่ match ด้วย JOB No. เท่านั้น (ไม่สร้างโครงการใหม่)
+        </div>
+      )}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(' + (diff.notFound ? 5 : 4) + ',1fr)', gap: 10, marginBottom: 16 }}>
         {[
           { label: 'อ่านได้รวม',    value: diff.totalRead, color: '#1e40af', bg: '#dbeafe' },
-          { label: 'เพิ่มใหม่',      value: diff.newRows.length, color: '#15803d', bg: '#dcfce7' },
+          ...(isAssigneeMode ? [] : [{ label: 'เพิ่มใหม่', value: diff.newRows.length, color: '#15803d', bg: '#dcfce7' }]),
           { label: 'อัปเดต',         value: diff.updated.length, color: '#9a3412', bg: '#fef3c7' },
           { label: 'ไม่เปลี่ยน',     value: diff.unchanged.length, color: '#475569', bg: '#f1f5f9' },
+          ...(diff.notFound ? [{ label: 'ไม่พบรหัส', value: diff.notFound.length, color: '#7f1d1d', bg: '#fee2e2' }] : []),
         ].map((c, i) => (
           <div key={i} style={{ padding: '10px 14px', background: c.bg, borderRadius: 8 }}>
             <div style={{ fontSize: 10.5, color: c.color, fontWeight: 600 }}>{c.label}</div>
@@ -766,6 +832,24 @@ function DiffPreview({ diff, onConfirm, onReset }) {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {diff.notFound && diff.notFound.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <h4 style={{ margin: '0 0 8px', fontSize: 13, color: '#7f1d1d' }}>
+            ⚠️ ไม่พบในระบบ ({diff.notFound.length}) — จะไม่ถูกอัปเดต
+          </h4>
+          <div style={{ maxHeight: 140, overflowY: 'auto', border: '1px solid #fecaca', borderRadius: 8, padding: 10, fontSize: 11 }}>
+            {diff.notFound.slice(0, 20).map((nf, i) => (
+              <div key={i} style={{ padding: '4px 0', borderBottom: i < 19 ? '1px solid #fee2e2' : 0 }}>
+                <span style={{ fontFamily: 'ui-monospace', fontWeight: 600 }}>{nf.code}</span>
+                <span style={{ color: '#94a3b8', marginLeft: 8 }}>→ {nf.assignee}</span>
+                {nf.name && <span style={{ color: '#475569', marginLeft: 8 }}>· {String(nf.name).slice(0, 50)}</span>}
+              </div>
+            ))}
+            {diff.notFound.length > 20 && <div style={{ color: '#94a3b8', marginTop: 6 }}>... และอีก {diff.notFound.length - 20} รายการ</div>}
           </div>
         </div>
       )}
@@ -1219,7 +1303,7 @@ function ProjectDrawer({ project, allEnriched, onClose, onSave }) {
 
         {/* CONTENT */}
         <div style={{ flex: 1, overflowY: 'auto', padding: 18 }}>
-          {tab === 'overview' && <OverviewTab p={p} />}
+          {tab === 'overview' && <OverviewTab p={p} onSave={onSave} />}
           {tab === 'timeline' && <TimelineTab events={events} />}
           {tab === 'finance'  && <FinanceTab p={p} />}
           {tab === 'invoices' && <InvoicesTab p={p} />}
@@ -1229,15 +1313,80 @@ function ProjectDrawer({ project, allEnriched, onClose, onSave }) {
   );
 }
 
-function OverviewTab({ p }) {
+function OverviewTab({ p, onSave }) {
   const Field = ({ label, value }) => (
     <div style={{ padding: '10px 0', borderBottom: '1px solid #f1f5f9' }}>
       <div style={{ fontSize: 11, color: '#64748b', marginBottom: 3 }}>{label}</div>
       <div style={{ fontSize: 13, color: '#0f172a', fontWeight: 500 }}>{value || <span style={{ color: '#cbd5e1' }}>—</span>}</div>
     </div>
   );
+
+  const [assgEdit, setAssgEdit] = pjState(false);
+  const [customInput, setCustomInput] = pjState('');
+  const currentAssg = p['ผู้รับโอนสิทธิ์'] || p.assignee || '';
+  const allOptions = Array.from(new Set([...ASSIGNEE_OPTIONS, currentAssg].filter(Boolean)));
+
+  const handleSelect = (val) => {
+    if (val === '__custom__') return; // custom input shown
+    onSave({ 'ผู้รับโอนสิทธิ์': val });
+    setAssgEdit(false);
+  };
+  const saveCustom = () => {
+    if (!customInput.trim()) return;
+    onSave({ 'ผู้รับโอนสิทธิ์': customInput.trim() });
+    setCustomInput(''); setAssgEdit(false);
+  };
+
   return (
     <div>
+      {/* Assignee editor — เด่นที่ด้านบน */}
+      <div style={{
+        padding: 12, background: '#fef3c7', borderRadius: 8, marginBottom: 14,
+        border: '1px solid #fcd34d',
+      }}>
+        <div style={{ fontSize: 11, color: '#92400e', fontWeight: 600, marginBottom: 6 }}>
+          👤 ผู้รับโอนสิทธิ์
+        </div>
+        {!assgEdit ? (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: currentAssg ? '#0f172a' : '#94a3b8' }}>
+              {currentAssg || 'ยังไม่ระบุ'}
+            </span>
+            <button onClick={() => setAssgEdit(true)} style={{
+              background: 'white', border: '1px solid #f59e0b', color: '#92400e',
+              borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+            }}>✏️ แก้ไข</button>
+          </div>
+        ) : (
+          <div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+              {allOptions.map(opt => (
+                <button key={opt} onClick={() => handleSelect(opt)} style={{
+                  background: opt === currentAssg ? '#1e40af' : 'white',
+                  color: opt === currentAssg ? 'white' : '#475569',
+                  border: '1px solid ' + (opt === currentAssg ? '#1e40af' : '#cbd5e1'),
+                  borderRadius: 6, padding: '4px 12px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer',
+                }}>{opt}</button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input value={customInput} onChange={e => setCustomInput(e.target.value)}
+                placeholder="หรือพิมพ์ใหม่..." style={{
+                flex: 1, padding: '5px 10px', fontSize: 12, border: '1px solid #cbd5e1', borderRadius: 6,
+              }} />
+              <button onClick={saveCustom} disabled={!customInput.trim()} style={{
+                background: '#16a34a', border: 0, color: 'white', borderRadius: 6,
+                padding: '5px 12px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer',
+                opacity: customInput.trim() ? 1 : 0.5,
+              }}>✓ บันทึก</button>
+              <button onClick={() => setAssgEdit(false)} style={{
+                background: 'transparent', border: 0, color: '#64748b', fontSize: 14, cursor: 'pointer',
+              }}>✕</button>
+            </div>
+          </div>
+        )}
+      </div>
+
       <Field label="ชื่อโครงการ / พื้นที่" value={p._name} />
       <Field label="จังหวัด" value={p._province} />
       <Field label="ประเภทงาน" value={p._type} />
@@ -1246,7 +1395,6 @@ function OverviewTab({ p }) {
       <Field label="เริ่มงาน → สิ้นสุด" value={`${fmtD(p._start)} → ${fmtD(p._finish)}`} />
       <Field label="งบประมาณ" value={p._budget ? fmtMoney(p._budget) + ' บาท' : null} />
       <Field label="มูลค่าสัญญา (ไม่รวม VAT)" value={fmtMoney(p._contractValue) + ' บาท'} />
-      <Field label="ผู้รับโอนสิทธิ์" value={p._assignee} />
       <Field label="ภาระหนี้" value={p._debt ? fmtMoney(p._debt) + ' บาท' : null} />
       <Field label="Ref.code" value={p._refCode} />
       <Field label="Remark" value={p['Remark']} />
