@@ -31,6 +31,13 @@ const isCancelledFlag = (v) => {
   if (toNum(v) === 1) return true;
   return /^(❌|❎|✗|✘|x|true|yes)$/i.test(String(v).trim());
 };
+// หา flag ยกเลิกจาก row/project — รองรับ header ที่มีช่องว่างต่อท้าย ฯลฯ
+const getCancelFlag = (p) => {
+  if (!p) return false;
+  if (isCancelledFlag(p['ยกเลิกโครงการ'])) return true;
+  for (const k in p) { if (/ยกเลิก/.test(k) && isCancelledFlag(p[k])) return true; }
+  return false;
+};
 
 // strip product-type suffix: "PP064-STIIS" → "PP064"
 const normalizeCode = (code) => {
@@ -59,7 +66,7 @@ function saveLocalProjects(arr) {
 
 function computeProjectStatus(p, projInvoices, projReceipts) {
   // ยกเลิกโครงการ — column Z "ยกเลิกโครงการ" = 1 (มาก่อนทุกสถานะ)
-  if (isCancelledFlag(p['ยกเลิกโครงการ'])) return 'cancelled';
+  if (getCancelFlag(p)) return 'cancelled';
 
   // รอลงนาม — Sign Date IS NULL (ใช้ Start date เป็นเกณฑ์: ถ้ายังไม่มีวันเริ่มงาน
   // = ยังไม่ลงนามจริง). `เซ็นสัญญา` flag อย่างเดียวเชื่อไม่ได้ — ในข้อมูลจริง
@@ -586,8 +593,7 @@ function ProjectsPage({ data, setData, toast }) {
           onSave={(patch) => {
             const matchP = (p) => (p.id != null && p.id === drawerProj._id)
               || String(p['Contract No.'] || p.code || '').trim() === drawerProj._code;
-            setData(d => ({ ...d, projects: (d.projects || []).map(p => matchP(p) ? { ...p, ...patch } : p) }));
-            // patch + persist local snapshot ด้วย ไม่งั้นแก้แล้วหายตอน sync
+            // แก้ + persist เฉพาะ local snapshot (ไม่ push เข้า cloud sheet)
             setLocalProjects(prev => {
               const arr = (prev && prev.length) ? prev : (data.projects || []);
               const next = arr.map(p => matchP(p) ? { ...p, ...patch } : p);
@@ -606,14 +612,14 @@ function ProjectsPage({ data, setData, toast }) {
           onParsed={setUploadDiff}
           diff={uploadDiff}
           onConfirm={(merged) => {
-            // persist ลง localStorage ก่อน เพื่อให้รอด cloud sync (ข้อมูลยกเลิก
-            // มีเฉพาะในไฟล์ที่อัปโหลด ไม่มีใน Google Sheet)
+            // เก็บใน localStorage เท่านั้น — ไม่ push เข้า cloud sheet
+            // (ข้อมูล "ยกเลิกโครงการ" + โครงการยกเลิกที่ไม่มี Contract No.
+            //  มีเฉพาะในไฟล์ Excel · ถ้า setData จะถูก sync เข้าชีตจน data เพี้ยน)
             saveLocalProjects(merged);
             setLocalProjects(merged);
-            setData(d => ({ ...d, projects: merged }));
             const nCancel = merged.filter(p => isCancelledFlag(p['ยกเลิกโครงการ'])).length;
             toast('อัปเดตข้อมูลโครงการแล้ว · ' + merged.length + ' รายการ'
-              + (nCancel ? ' · ยกเลิก ' + nCancel : ''));
+              + (nCancel ? ' · ยกเลิก ' + nCancel + ' โครงการ' : ''));
             setUploadOpen(false); setUploadDiff(null);
           }}
         />
@@ -735,6 +741,7 @@ function UploadModal({ existingProjects, onClose, onParsed, diff, onConfirm }) {
       };
       const newRows = [], updated = [], unchanged = [];
       const seenCodes = new Set();
+      let cancelledCount = 0;
       // helper: สร้าง synthetic code จากชื่อโครงการ (สำหรับยกเลิกที่ไม่มี Contract No.)
       const syntheticCode = (name) => {
         const s = String(name || '').trim();
@@ -744,7 +751,7 @@ function UploadModal({ existingProjects, onClose, onParsed, diff, onConfirm }) {
       };
       allRows.forEach(r => {
         let code = String(r['Contract No.'] || '').trim();
-        const isCancelled = isCancelledFlag(r['ยกเลิกโครงการ']);
+        const isCancelled = getCancelFlag(r);
         const name = String(r['พื้นที่'] || '').trim();
         // ถ้าไม่มี Contract No. แต่เป็นโครงการยกเลิกและมีชื่อ → ใช้ชื่อสร้าง synthetic code
         if (!code) {
@@ -753,6 +760,7 @@ function UploadModal({ existingProjects, onClose, onParsed, diff, onConfirm }) {
         }
         if (seenCodes.has(code)) return; // กัน duplicate ข้าม sheet
         seenCodes.add(code);
+        if (isCancelled) cancelledCount++;
         const norm = normalize(r);
         // บังคับให้ Contract No. ของ row มีค่า (ใช้ synthetic เมื่อจำเป็น)
         if (!norm['Contract No.']) norm['Contract No.'] = code;
@@ -777,7 +785,7 @@ function UploadModal({ existingProjects, onClose, onParsed, diff, onConfirm }) {
           else unchanged.push({ code });
         }
       });
-      onParsed({ newRows, updated, unchanged, totalRead: seenCodes.size });
+      onParsed({ newRows, updated, unchanged, totalRead: seenCodes.size, cancelledCount });
     } catch (err) {
       console.error(err); setError('อ่านไฟล์ไม่สำเร็จ: ' + (err.message || err));
     } finally { setBusy(false); }
@@ -865,20 +873,26 @@ function DiffPreview({ diff, onConfirm, onReset }) {
           📋 ตรวจพบไฟล์ <strong>ผู้รับโอนสิทธิ์</strong> — จะอัปเดตเฉพาะคอลัมน์ "ผู้รับโอนสิทธิ์" ของโครงการที่ match ด้วย JOB No. เท่านั้น (ไม่สร้างโครงการใหม่)
         </div>
       )}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(' + (diff.notFound ? 5 : 4) + ',1fr)', gap: 10, marginBottom: 16 }}>
-        {[
+      {(() => {
+        const cards = [
           { label: 'อ่านได้รวม',    value: diff.totalRead, color: '#1e40af', bg: '#dbeafe' },
           ...(isAssigneeMode ? [] : [{ label: 'เพิ่มใหม่', value: diff.newRows.length, color: '#15803d', bg: '#dcfce7' }]),
           { label: 'อัปเดต',         value: diff.updated.length, color: '#9a3412', bg: '#fef3c7' },
           { label: 'ไม่เปลี่ยน',     value: diff.unchanged.length, color: '#475569', bg: '#f1f5f9' },
           ...(diff.notFound ? [{ label: 'ไม่พบรหัส', value: diff.notFound.length, color: '#7f1d1d', bg: '#fee2e2' }] : []),
-        ].map((c, i) => (
+          ...(!isAssigneeMode && diff.cancelledCount ? [{ label: 'ยกเลิกโครงการ', value: diff.cancelledCount, color: '#7f1d1d', bg: '#fee2e2' }] : []),
+        ];
+        return (
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(' + cards.length + ',1fr)', gap: 10, marginBottom: 16 }}>
+        {cards.map((c, i) => (
           <div key={i} style={{ padding: '10px 14px', background: c.bg, borderRadius: 8 }}>
             <div style={{ fontSize: 10.5, color: c.color, fontWeight: 600 }}>{c.label}</div>
             <div style={{ fontSize: 22, fontWeight: 700, color: c.color }}>{c.value}</div>
           </div>
         ))}
       </div>
+        );
+      })()}
 
       {diff.newRows.length > 0 && (
         <div style={{ marginBottom: 16 }}>
