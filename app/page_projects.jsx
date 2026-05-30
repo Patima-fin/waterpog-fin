@@ -106,7 +106,18 @@ function enrichProjects(projects, allInvoices, allReceipts) {
     const projReceipts = [].concat(rcByCode[cleanCode] || [], rcByCode[code] || [])
       .filter((r, i, arr) => arr.findIndex(x => x.id === r.id) === i);
 
-    const contractValue = toNum(get('มูลค่าสัญญาที่เซ็น', 'signedValue'));
+    // มูลค่าสัญญา — ใช้ "รวม VAT" ก่อน (ตามที่บัญชีคิด & ที่ invoice/receipt ใช้)
+    // fall back เป็นค่า "ไม่รวม VAT" หรือ signedValue
+    const contractValue = toNum(get('มูลค่าสัญญาที่เซ็น (รวมVAT)', 'มูลค่าสัญญาที่เซ็น (รวม VAT)', 'มูลค่าสัญญาที่เซ็น', 'signedValue'));
+    const contractValueNoVAT = toNum(get('มูลค่าสัญญาที่เซ็น', 'signedValue'));
+    const progressPct = (() => {
+      const v = get('% Progress', '%Progress', 'percent_progress');
+      if (v === '' || v == null) return null;
+      const n = Number(v);
+      if (isNaN(n)) return null;
+      // ถ้าเป็น 0–1 → คูณ 100 (excel เก็บเป็น decimal)
+      return n <= 1 ? n * 100 : n;
+    })();
     const totalInvoiced  = projInvoices.reduce((s, iv) => s + toNum(iv.balance), 0);
     const totalReceived  = projReceipts.reduce((s, r) => s + toNum(r.netReceived || r.grossAmount), 0)
                         || toNum(get('Receive'));
@@ -158,6 +169,8 @@ function enrichProjects(projects, allInvoices, allReceipts) {
       _finish: get('Finish', 'finishDate'),
       _signedDate: get('เซ็นสัญญา', 'signedAt'),
       _contractValue: contractValue,
+      _contractValueNoVAT: contractValueNoVAT,
+      _progressPct: progressPct,
       _budget: toNum(get('งบประมาณ', 'allocBudget')),
       _assignee: get('ผู้รับโอนสิทธิ์', 'assignee') || '',
       _debt: toNum(get('ภาระหนี้', 'debt')),
@@ -186,7 +199,7 @@ const COL_GROUPS = [
   { key: 'contract',  label: 'ข้อมูลสัญญา',     icon: '📝', default: true,
     cols: ['signedDate', 'start', 'finish', 'contractValue'] },
   { key: 'progress',  label: 'ความคืบหน้า',      icon: '🚧', default: false,
-    cols: ['statusDetail', 'milestoneCount', 'latestDelivery'] },
+    cols: ['statusDetail', 'progressPct', 'milestoneCount', 'latestDelivery'] },
   { key: 'finance',   label: 'การเงินรวม',       icon: '💰', default: true,
     cols: ['totalInvoiced', 'totalReceived', 'outstanding', 'backlog', 'collectionPct'] },
   { key: 'invoice',   label: 'Invoice',          icon: '📄', default: false,
@@ -204,8 +217,9 @@ const ALL_COLS = {
   signedDate:     { label: 'วันที่ลงนาม',    width: 90 },
   start:          { label: 'เริ่มงาน',        width: 90 },
   finish:         { label: 'สิ้นสุด',         width: 90 },
-  contractValue:  { label: 'มูลค่าสัญญา (฿)', width: 130, align: 'right' },
+  contractValue:  { label: 'มูลค่าสัญญา (รวม VAT) ฿', width: 150, align: 'right' },
   statusDetail:   { label: 'สถานะงาน',       width: 140 },
+  progressPct:    { label: '% Progress',     width: 110, align: 'right' },
   milestoneCount: { label: 'งวดส่งมอบ',      width: 80, align: 'center' },
   latestDelivery: { label: 'ส่งมอบล่าสุด',   width: 100 },
   totalInvoiced:  { label: 'Invoice รวม (฿)', width: 130, align: 'right' },
@@ -431,6 +445,21 @@ function ProjectsPage({ data, setData, toast }) {
       case 'finish': return fmtD(p._finish);
       case 'contractValue': return <span style={{ fontWeight: 600 }}>{fmtMoney(p._contractValue)}</span>;
       case 'statusDetail': return <StatusPill status={p._status} />;
+      case 'progressPct': {
+        if (p._progressPct == null) return <span style={{ color: '#94a3b8' }}>—</span>;
+        const v = Math.max(0, Math.min(100, p._progressPct));
+        const col = v >= 90 ? '#16a34a' : v >= 50 ? '#d97706' : v > 0 ? '#dc2626' : '#94a3b8';
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ flex: 1, height: 6, background: '#f1f5f9', borderRadius: 99, overflow: 'hidden', minWidth: 50 }}>
+              <div style={{ width: v + '%', height: '100%', background: col }} />
+            </div>
+            <span style={{ fontSize: 11, fontWeight: 600, color: col, minWidth: 38, textAlign: 'right' }}>
+              {v.toFixed(0)}%
+            </span>
+          </div>
+        );
+      }
       case 'milestoneCount': {
         const m = [p['Payment 1 Status'], p['Payment 2 Status'], p['Payment 3 Status']]
           .map(s => isStatusDone(s) ? '●' : '○').join(' ');
@@ -1394,7 +1423,13 @@ function OverviewTab({ p, onSave }) {
       <Field label="แจ้งเข้าดำเนินการ" value={fmtD(p['แจ้งเข้าดำเนินการ'])} />
       <Field label="เริ่มงาน → สิ้นสุด" value={`${fmtD(p._start)} → ${fmtD(p._finish)}`} />
       <Field label="งบประมาณ" value={p._budget ? fmtMoney(p._budget) + ' บาท' : null} />
-      <Field label="มูลค่าสัญญา (ไม่รวม VAT)" value={fmtMoney(p._contractValue) + ' บาท'} />
+      <Field label="มูลค่าสัญญา (รวม VAT)" value={fmtMoney(p._contractValue) + ' บาท'} />
+      {p._contractValueNoVAT > 0 && p._contractValueNoVAT !== p._contractValue && (
+        <Field label="มูลค่าสัญญา (ไม่รวม VAT)" value={fmtMoney(p._contractValueNoVAT) + ' บาท'} />
+      )}
+      {p._progressPct != null && (
+        <Field label="% Progress" value={p._progressPct.toFixed(1) + '%'} />
+      )}
       <Field label="ภาระหนี้" value={p._debt ? fmtMoney(p._debt) + ' บาท' : null} />
       <Field label="Ref.code" value={p._refCode} />
       <Field label="Remark" value={p['Remark']} />
