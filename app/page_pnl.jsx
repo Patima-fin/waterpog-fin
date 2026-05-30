@@ -368,17 +368,25 @@ function PnLPage({ data, setData, toast }) {
         const cCol = findCol(['ac_code', 'code', 'รหัสบัญชี', 'รหัส', 'maincode']);
         const nCol = findCol(['ac_des', 'ชื่อบัญชี', 'name', 'description', 'desc', 'รายการ']);
         const aCol = findCol(['amount', 'ยอด', 'จำนวน', 'net', 'total']);
-        // TB-style fallback: ไม่มี amount column แต่มี end_dr/end_cr → คำนวณ signed net เอง
-        // (revenue 4xxx = end_cr − end_dr, expense 5xxx = end_dr − end_cr — ให้ผลเป็นค่าบวก "normal balance")
+        // "ช่อง L" (คอลัมน์ที่ 12 = index 11) = ยอดเฉพาะเดือน (period-only)
+        // ตาม spec ของพี่บัญชี: TB ใช้ end_cr/end_dr เป็นยอด YTD สะสม
+        // แต่ "ช่อง L" คือ delta เดือนนั้น (เช่น TB02 4100001 → L=29.1M = ก.พ.เท่านั้น
+        // ไม่ใช่ end_cr=69.8M ที่เป็น YTD)
+        // ลำดับความสำคัญ: amount column → ช่อง L → end_dr/end_cr (fallback สุดท้าย)
+        const lCol = 11;
         const edrCol = findCol(['end_dr', 'end dr', 'enddr']);
         const ecrCol = findCol(['end_cr', 'end cr', 'endcr']);
-        // ถ้าทั้ง amount และ end_dr/cr หาไม่เจอ → fallback ไป "ช่อง L" (คอลัมน์ที่ 12, index 11)
-        // ตาม spec ของพี่บัญชี (TB01.xlsx มียอด signed-net ที่คอลัมน์ L โดยไม่มี header)
-        const lCol = 11;
         const num = (v) => {
           const n = Number(String(v == null ? '' : v).replace(/[^0-9.\-]/g, ''));
           return isNaN(n) ? 0 : n;
         };
+        // ตรวจว่า "ช่อง L" มียอดจริงไหม (ดูแถวข้อมูล 5 แถวแรกหลัง header)
+        // หาก L ว่างหมด → fall back ไป end_dr/end_cr
+        let lHasData = false;
+        for (let i = hdrIdx + 1; i < Math.min(aoa.length, hdrIdx + 30); i++) {
+          const v = (aoa[i] || [])[lCol];
+          if (v != null && v !== '' && num(v) !== 0) { lHasData = true; break; }
+        }
         const out = [];
         for (let i = hdrIdx + 1; i < aoa.length; i++) {
           const row = aoa[i];
@@ -387,13 +395,14 @@ function PnLPage({ data, setData, toast }) {
           let amount = 0;
           if (aCol >= 0) {
             amount = num(row[aCol]);
+          } else if (lHasData && row[lCol] != null && row[lCol] !== '') {
+            // ช่อง L = ยอดเดือนนั้น (signed อยู่แล้วตาม normal balance ของบัญชี)
+            amount = num(row[lCol]);
           } else if (edrCol >= 0 && ecrCol >= 0) {
-            // signed by account-type convention: 4xxx → cr−dr, 5xxx → dr−cr
+            // fallback สุดท้าย: คำนวณจาก end_dr/end_cr (YTD) — 4xxx → cr−dr, 5xxx → dr−cr
             const dr = num(row[edrCol]), cr = num(row[ecrCol]);
             const first = String(code).trim().charAt(0);
             amount = first === '4' ? (cr - dr) : (dr - cr);
-          } else if (row[lCol] != null && row[lCol] !== '') {
-            amount = num(row[lCol]);
           }
           out.push({ code, name: nCol >= 0 ? String(row[nCol] || '').trim() : '', amount });
         }
