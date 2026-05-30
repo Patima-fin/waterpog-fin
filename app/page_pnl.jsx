@@ -318,6 +318,7 @@ function PnLPage({ data, setData, toast }) {
   const [drag, setDrag]       = plState(false);
   const [busy, setBusy]       = plState(false);
   const [newAccts, setNewAccts] = plState(null);   // [{code,name,amount,group}]
+  const [uploadOpen, setUploadOpen] = plState(false);   // upload modal
   const [viewMode, setViewMode]     = plState('month'); // 'month' | 'quarter'
   const fileInputRef = plRef(null);
 
@@ -467,6 +468,7 @@ function PnLPage({ data, setData, toast }) {
       if (unknown.length) {
         setNewAccts(unknown.map(a => ({ ...a, group: PL_inferGroup(a.code, a.name) || '' })));
         toast('พบผังบัญชีใหม่ ' + unknown.length + ' รายการ — โปรดจัดประเภท (อีก ' + (accts.length - unknown.length) + ' รายการ ระบบจัดให้แล้ว)');
+        setUploadOpen(false);
         setBusy(false);
       } else {
         toast('จัดกลุ่มจาก TYP ครบ ' + accts.length + ' รายการ · กำลังบันทึก…');
@@ -499,7 +501,7 @@ function PnLPage({ data, setData, toast }) {
       if (resp && resp.error) { toast('นำเข้าไม่สำเร็จ: ' + resp.error); }
       else {
         toast('นำเข้าเดือน ' + PL_MONTHS_TH[impMonth - 1] + ' สำเร็จ — กำลังรีเฟรช');
-        setNewAccts(null); setFile(null);
+        setNewAccts(null); setFile(null); setUploadOpen(false);
         setTimeout(loadData, 1200);   // re-read ฐาน DATA after backend aggregates
       }
     } catch (err) { toast('นำเข้าไม่สำเร็จ: ' + err.message); }
@@ -648,12 +650,25 @@ function PnLPage({ data, setData, toast }) {
               {PL_MONTHS_TH_FULL[Math.max(0, lastMonth - 1)]} {PL_BUDGET_2569.year}
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             <button onClick={saveImage} style={pnlHeroBtn}>
               <Icon name="download" size={13} /> บันทึกเป็นรูป
             </button>
             <button onClick={() => window.print()} style={pnlHeroBtn}>
               <Icon name="print" size={13} /> พิมพ์ / PDF
+            </button>
+            {userCanEdit && (
+              <button onClick={() => setUploadOpen(true)} style={{
+                ...pnlHeroBtn,
+                background: 'rgba(255,255,255,0.95)', color: '#1e3a8a',
+                border: '1px solid rgba(255,255,255,0.5)',
+                fontWeight: 600,
+              }} title="นำเข้า DATA INPUT ของเดือน">
+                <Icon name="upload" size={13} /> อัปโหลดข้อมูล
+              </button>
+            )}
+            <button onClick={() => setMapOpen(true)} style={pnlHeroBtn}>
+              <Icon name="filter" size={13} /> ผังการจัดกลุ่ม
             </button>
           </div>
         </div>
@@ -726,52 +741,6 @@ function PnLPage({ data, setData, toast }) {
           </div>
         ))}
       </div>
-
-      {/* UPLOAD SECTION — heading + compact upload (สำหรับพนักงานบัญชี) */}
-      {userCanEdit && (<>
-        <div className="pnl-section-head">
-          <h2>อัปโหลดข้อมูลรายเดือน</h2>
-          <span className="pnl-tag">นำเข้าไฟล์ DATA INPUT เพื่ออัปเดตงบประจำเดือน</span>
-        </div>
-        <div className="card pnl-card" style={{ marginBottom: 18 }}>
-          <div className="pnl-upload-row">
-            <div className={'pnl-dropzone' + (drag ? ' drag' : '') + (file ? ' has-file' : '')}
-              onClick={() => fileInputRef.current && fileInputRef.current.click()}
-              onDragEnter={(e) => { e.preventDefault(); setDrag(true); }}
-              onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
-              onDragLeave={(e) => { e.preventDefault(); setDrag(false); }}
-              onDrop={onDrop}>
-              <div className="pnl-dz-ic"><Icon name="upload" size={22} /></div>
-              <div className="pnl-dz-main">{file ? <>เลือกไฟล์แล้ว: <u>{file.name}</u></> : <>ลากไฟล์มาวางที่นี่ หรือ <u>เลือกไฟล์</u></>}</div>
-              <div className="pnl-dz-sub">{file ? (file.size / 1024 / 1024).toFixed(2) + ' MB · พร้อมนำเข้า' : 'รองรับ .xlsx, .csv (ชีต DATA INPUT) ขนาดไม่เกิน 10 MB'}</div>
-              <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" hidden
-                onChange={(e) => pickFile(e.target.files[0])} />
-            </div>
-            <div className="pnl-upload-side">
-              <label className="pnl-field"><span>เลือกเดือนที่นำเข้า</span>
-                <select value={impMonth} onChange={(e) => setImpMonth(Number(e.target.value))}>
-                  {PL_MONTHS_TH.map((m, i) => <option key={i} value={i + 1}>{(i + 1)} · {m} {PL_BUDGET_2569.year}</option>)}
-                </select>
-              </label>
-              <label className="pnl-field"><span>สถานะข้อมูล</span>
-                <select value={impAudit} onChange={(e) => setImpAudit(e.target.value)}>
-                  <option value="PRE-CLOSING">PRE-CLOSING · ยังไม่ผ่านการตรวจสอบ</option>
-                  <option value="AUDITED">AUDITED · ตรวจสอบแล้ว</option>
-                </select>
-              </label>
-              <button className="btn btn-primary" disabled={busy || !file} onClick={handleVerify}>
-                <Icon name="check" size={14} /> {busy ? 'กำลังประมวลผล…' : 'ตรวจสอบและนำเข้า'}
-              </button>
-              <div className="pnl-hint"><Icon name="search" size={13} /> ระบบจะเทียบผังบัญชีกับฐานข้อมูล หากพบบัญชีใหม่จะให้จัดประเภทก่อนบันทึก · บัญชีที่ไม่อยู่ในไฟล์จะถูก reset เป็น 0</div>
-              <div style={{ marginTop: 6 }}>
-                <button className="btn btn-ghost" onClick={() => setMapOpen(true)} style={{ fontSize: 11, padding: '4px 10px' }}>
-                  <Icon name="filter" size={12} /> ผังการจัดกลุ่ม
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </>)}
 
       {/* NEW ACCOUNTS ALERT */}
       {newAccts && (
@@ -1062,6 +1031,47 @@ function PnLPage({ data, setData, toast }) {
           </>
         );
       })()}
+
+      {/* UPLOAD MODAL — เปิดจากปุ่ม "อัปโหลดข้อมูล" บน hero banner */}
+      <Modal open={uploadOpen} onClose={() => { setUploadOpen(false); setFile(null); }} wide
+        title="อัปโหลดข้อมูลรายเดือน (DATA INPUT)">
+        <div style={{ padding: '8px 20px 18px' }}>
+          <div style={{ fontSize: 12.5, color: 'var(--ink-500)', marginBottom: 12 }}>
+            นำเข้าไฟล์ TB ของบัญชี (.xlsx) เพื่ออัปเดตงบประจำเดือนเข้าฐานข้อมูล
+          </div>
+          <div className="pnl-upload-row">
+            <div className={'pnl-dropzone' + (drag ? ' drag' : '') + (file ? ' has-file' : '')}
+              onClick={() => fileInputRef.current && fileInputRef.current.click()}
+              onDragEnter={(e) => { e.preventDefault(); setDrag(true); }}
+              onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+              onDragLeave={(e) => { e.preventDefault(); setDrag(false); }}
+              onDrop={onDrop}>
+              <div className="pnl-dz-ic"><Icon name="upload" size={22} /></div>
+              <div className="pnl-dz-main">{file ? <>เลือกไฟล์แล้ว: <u>{file.name}</u></> : <>ลากไฟล์มาวางที่นี่ หรือ <u>เลือกไฟล์</u></>}</div>
+              <div className="pnl-dz-sub">{file ? (file.size / 1024 / 1024).toFixed(2) + ' MB · พร้อมนำเข้า' : 'รองรับ .xlsx, .csv (ชีต DATA INPUT) ขนาดไม่เกิน 10 MB'}</div>
+              <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" hidden
+                onChange={(e) => pickFile(e.target.files[0])} />
+            </div>
+            <div className="pnl-upload-side">
+              <label className="pnl-field"><span>เลือกเดือนที่นำเข้า</span>
+                <select value={impMonth} onChange={(e) => setImpMonth(Number(e.target.value))}>
+                  {PL_MONTHS_TH.map((m, i) => <option key={i} value={i + 1}>{(i + 1)} · {m} {PL_BUDGET_2569.year}</option>)}
+                </select>
+              </label>
+              <label className="pnl-field"><span>สถานะข้อมูล</span>
+                <select value={impAudit} onChange={(e) => setImpAudit(e.target.value)}>
+                  <option value="PRE-CLOSING">PRE-CLOSING · ยังไม่ผ่านการตรวจสอบ</option>
+                  <option value="AUDITED">AUDITED · ตรวจสอบแล้ว</option>
+                </select>
+              </label>
+              <button className="btn btn-primary" disabled={busy || !file} onClick={handleVerify}>
+                <Icon name="check" size={14} /> {busy ? 'กำลังประมวลผล…' : 'ตรวจสอบและนำเข้า'}
+              </button>
+              <div className="pnl-hint"><Icon name="search" size={13} /> ระบบจะเทียบผังบัญชีกับฐานข้อมูล หากพบบัญชีใหม่จะให้จัดประเภทก่อนบันทึก · บัญชีที่ไม่อยู่ในไฟล์จะถูก reset เป็น 0</div>
+            </div>
+          </div>
+        </div>
+      </Modal>
 
       {/* DETAIL MODAL (single group) */}
       <Modal open={!!detailKey} onClose={() => setDetailKey(null)} wide
