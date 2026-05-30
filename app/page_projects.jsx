@@ -435,12 +435,18 @@ function ProjectsPage({ data, setData, toast }) {
 
   const cellValue = (p, key) => {
     switch (key) {
-      case 'code': return (
-        <div>
-          <div style={{ fontWeight: 700, fontFamily: 'ui-monospace', fontSize: 12, color: '#1e40af' }}>{p._code}</div>
-          <div style={{ marginTop: 3 }}><StatusPill status={p._status} /></div>
-        </div>
-      );
+      case 'code': {
+        // ถ้าเป็น synthetic code (XL-...) แสดงเป็น "—" สวยกว่า
+        const isSynth = /^XL-/.test(p._code);
+        return (
+          <div>
+            <div style={{ fontWeight: 700, fontFamily: 'ui-monospace', fontSize: 12, color: isSynth ? '#94a3b8' : '#1e40af' }}>
+              {isSynth ? <span title={p._code}>(ไม่มีเลขสัญญา)</span> : p._code}
+            </div>
+            <div style={{ marginTop: 3 }}><StatusPill status={p._status} /></div>
+          </div>
+        );
+      }
       case 'name': return <div style={{ fontSize: 12, lineHeight: 1.35 }}>{p._name}</div>;
       case 'province': return p._province || <span style={{ color: '#94a3b8' }}>—</span>;
       case 'type': return p._type ? <span style={{ fontSize: 10.5, fontWeight: 700, background: '#e0f2fe', color: '#075985', padding: '1px 6px', borderRadius: 4 }}>{p._type}</span> : '—';
@@ -582,7 +588,8 @@ function UploadModal({ existingProjects, onClose, onParsed, diff, onConfirm }) {
     setBusy(true); setError('');
     try {
       const buf = await f.arrayBuffer();
-      const wb = window.XLSX.read(buf, { type: 'array', cellDates: true });
+      // cellStyles: true → อ่านสีพื้น cell ได้ (ใช้ detect โครงการยกเลิก = พื้นสีม่วง)
+      const wb = window.XLSX.read(buf, { type: 'array', cellDates: true, cellStyles: true });
       // ── Auto-detect mode: assignee-only file vs full Project Control ──
       // assignee-only = single sheet มี "ผู้รับโอนสิทธิ์" column (3-col format)
       const firstSheet = wb.SheetNames[0];
@@ -681,12 +688,27 @@ function UploadModal({ existingProjects, onClose, onParsed, diff, onConfirm }) {
       };
       const newRows = [], updated = [], unchanged = [];
       const seenCodes = new Set();
+      // helper: สร้าง synthetic code จากชื่อโครงการ (สำหรับยกเลิกที่ไม่มี Contract No.)
+      const syntheticCode = (name) => {
+        const s = String(name || '').trim();
+        if (!s) return '';
+        // ย่อชื่อ + ตัด whitespace + จำกัด 40 chars เพื่อกัน collision
+        return 'XL-' + s.replace(/\s+/g, '_').slice(0, 40);
+      };
       allRows.forEach(r => {
-        const code = String(r['Contract No.'] || '').trim();
-        if (!code) return;
+        let code = String(r['Contract No.'] || '').trim();
+        const isCancelled = Number(r['ยกเลิกโครงการ']) === 1;
+        const name = String(r['พื้นที่'] || '').trim();
+        // ถ้าไม่มี Contract No. แต่เป็นโครงการยกเลิกและมีชื่อ → ใช้ชื่อสร้าง synthetic code
+        if (!code) {
+          if (isCancelled && name) code = syntheticCode(name);
+          else return; // skip rows without code + not cancelled
+        }
         if (seenCodes.has(code)) return; // กัน duplicate ข้าม sheet
         seenCodes.add(code);
         const norm = normalize(r);
+        // บังคับให้ Contract No. ของ row มีค่า (ใช้ synthetic เมื่อจำเป็น)
+        if (!norm['Contract No.']) norm['Contract No.'] = code;
         const ex = existingByCode[code];
         if (!ex) {
           newRows.push(norm);
