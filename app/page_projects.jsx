@@ -38,6 +38,25 @@ const getCancelFlag = (p) => {
   for (const k in p) { if (/ยกเลิก/.test(k) && isCancelledFlag(p[k])) return true; }
   return false;
 };
+// "Ghost row" = แถวที่คนพิมพ์เล่นใน Excel — มีแต่ชื่อ/code มั่ว ๆ ไม่มีข้อมูลโครงการจริงเลย
+// เช่น "RGB", "โครงการไม่ได้จิ้ม" — ไม่มี Tender / มูลค่าสัญญา / Start / payment
+// (ยกเว้น: ถ้ายกเลิก=1 ถือว่าโครงการจริง — กรณีแพ้ประมูล/ยกเลิกก่อนเซ็น)
+const isGhostRow = (p) => {
+  if (!p) return true;
+  if (getCancelFlag(p)) return false;
+  const hasStr = (k) => !!String(p[k] != null ? p[k] : '').trim();
+  const hasNum = (k) => toNum(p[k]) > 0;
+  return !(
+    hasNum('มูลค่าสัญญาที่เซ็น') || hasNum('มูลค่าสัญญาที่เซ็น (รวมVAT)') ||
+    hasNum('มูลค่าสัญญาที่เซ็น (รวม VAT)') || hasNum('signedValue') ||
+    hasNum('งบประมาณ') ||
+    hasStr('Start') || hasStr('startDate') ||
+    hasStr('Tender No.') || hasStr('Project No.') || hasStr('Ref.code') ||
+    hasStr('เซ็นสัญญา') || hasStr('เลขที่สัญญา WTP-SUB') ||
+    hasStr('Payment 1 Status') || hasStr('Payment 2 Status') ||
+    hasStr('Receive Date') || hasStr('แจ้งเข้าดำเนินการ')
+  );
+};
 
 // strip product-type suffix: "PP064-STIIS" → "PP064"
 const normalizeCode = (code) => {
@@ -323,7 +342,11 @@ function ProjectsPage({ data, setData, toast }) {
   });
 
   const enriched = pjMemo(
-    () => enrichProjects(baseProjects, data.invoices || [], data.receipts || []),
+    () => {
+      // กรอง ghost rows (แถวที่พิมพ์เล่นใน Excel — มีแต่ชื่อ ไม่มีข้อมูลจริง)
+      const real = (baseProjects || []).filter(p => !isGhostRow(p));
+      return enrichProjects(real, data.invoices || [], data.receipts || []);
+    },
     [baseProjects, data.invoices, data.receipts]
   );
 
@@ -742,6 +765,7 @@ function UploadModal({ existingProjects, onClose, onParsed, diff, onConfirm }) {
       const newRows = [], updated = [], unchanged = [];
       const seenCodes = new Set();
       let cancelledCount = 0;
+      let ghostCount = 0;
       // helper: สร้าง synthetic code จากชื่อโครงการ (สำหรับยกเลิกที่ไม่มี Contract No.)
       const syntheticCode = (name) => {
         const s = String(name || '').trim();
@@ -759,6 +783,8 @@ function UploadModal({ existingProjects, onClose, onParsed, diff, onConfirm }) {
           else return; // skip rows without code + not cancelled
         }
         if (seenCodes.has(code)) return; // กัน duplicate ข้าม sheet
+        // ตัด ghost row ทิ้ง (พิมพ์เล่น — ไม่มีข้อมูลโครงการจริงเลย)
+        if (isGhostRow(r)) { ghostCount++; return; }
         seenCodes.add(code);
         if (isCancelled) cancelledCount++;
         const norm = normalize(r);
@@ -785,7 +811,7 @@ function UploadModal({ existingProjects, onClose, onParsed, diff, onConfirm }) {
           else unchanged.push({ code });
         }
       });
-      onParsed({ newRows, updated, unchanged, totalRead: seenCodes.size, cancelledCount });
+      onParsed({ newRows, updated, unchanged, totalRead: seenCodes.size, cancelledCount, ghostCount });
     } catch (err) {
       console.error(err); setError('อ่านไฟล์ไม่สำเร็จ: ' + (err.message || err));
     } finally { setBusy(false); }
@@ -881,6 +907,7 @@ function DiffPreview({ diff, onConfirm, onReset }) {
           { label: 'ไม่เปลี่ยน',     value: diff.unchanged.length, color: '#475569', bg: '#f1f5f9' },
           ...(diff.notFound ? [{ label: 'ไม่พบรหัส', value: diff.notFound.length, color: '#7f1d1d', bg: '#fee2e2' }] : []),
           ...(!isAssigneeMode && diff.cancelledCount ? [{ label: 'ยกเลิกโครงการ', value: diff.cancelledCount, color: '#7f1d1d', bg: '#fee2e2' }] : []),
+          ...(!isAssigneeMode && diff.ghostCount ? [{ label: 'ข้ามแถวมั่ว', value: diff.ghostCount, color: '#475569', bg: '#f1f5f9' }] : []),
         ];
         return (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(' + cards.length + ',1fr)', gap: 10, marginBottom: 16 }}>
