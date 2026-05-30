@@ -25,6 +25,12 @@ const ASSIGNEE_OPTIONS = ['ไม่โอนสิทธิ', 'KTB', 'WCI+STS',
 const isStatusDone = (s) => /done|paid|รับชำระ|ปิด/i.test(String(s || ''));
 const isTruthy = (v) => v != null && v !== '' && v !== 0 && v !== '0';
 const toNum = (v) => { const n = Number(String(v ?? '').toString().replace(/[, ]/g, '')); return isNaN(n) ? 0 : n; };
+// "ยกเลิกโครงการ" = 1 (ปกติ) แต่กันไว้เผื่อ export อื่นใส่ ❌/✗/x แทนตัวเลข
+const isCancelledFlag = (v) => {
+  if (v == null || v === '') return false;
+  if (toNum(v) === 1) return true;
+  return /^(❌|❎|✗|✘|x|true|yes)$/i.test(String(v).trim());
+};
 
 // strip product-type suffix: "PP064-STIIS" → "PP064"
 const normalizeCode = (code) => {
@@ -34,9 +40,26 @@ const normalizeCode = (code) => {
   return m ? m[1] : s;
 };
 
+// ── Persistent project snapshot ──────────────────────────────────────────────
+// ข้อมูล Project Control (รวม column "ยกเลิกโครงการ" + โครงการยกเลิกที่ไม่มี
+// Contract No.) มีอยู่เฉพาะในไฟล์ Excel ที่อัปโหลด — ไม่มีใน Google Sheet
+// ดังนั้นต้องเก็บลง localStorage เอง ไม่งั้น cloud sync จะ "ทับ" data.projects
+// ทุกครั้งจนโครงการยกเลิกหายหมด
+const PROJ_LS_KEY = 'wtp-proj-control-v2';
+function loadLocalProjects() {
+  try {
+    const s = localStorage.getItem(PROJ_LS_KEY);
+    if (s) { const a = JSON.parse(s); if (Array.isArray(a) && a.length) return a; }
+  } catch (_) {}
+  return null;
+}
+function saveLocalProjects(arr) {
+  try { localStorage.setItem(PROJ_LS_KEY, JSON.stringify(arr || [])); } catch (_) {}
+}
+
 function computeProjectStatus(p, projInvoices, projReceipts) {
   // ยกเลิกโครงการ — column Z "ยกเลิกโครงการ" = 1 (มาก่อนทุกสถานะ)
-  if (toNum(p['ยกเลิกโครงการ']) === 1) return 'cancelled';
+  if (isCancelledFlag(p['ยกเลิกโครงการ'])) return 'cancelled';
 
   // รอลงนาม — Sign Date IS NULL (ใช้ Start date เป็นเกณฑ์: ถ้ายังไม่มีวันเริ่มงาน
   // = ยังไม่ลงนามจริง). `เซ็นสัญญา` flag อย่างเดียวเชื่อไม่ได้ — ในข้อมูลจริง
@@ -272,6 +295,10 @@ function ProjectsPage({ data, setData, toast }) {
   const [filterOpen, setFilterOpen] = pjState(true);
   const [uploadOpen, setUploadOpen] = pjState(false);
   const [uploadDiff, setUploadDiff] = pjState(null); // { new:[], updated:[], unchanged:[] }
+  // snapshot โครงการจากไฟล์ที่อัปโหลด (อยู่ใน localStorage — รอด cloud sync)
+  const [localProjects, setLocalProjects] = pjState(loadLocalProjects);
+  // ใช้ snapshot ที่อัปโหลดเป็น "ฐานโครงการ" ถ้ามี — ไม่งั้น fall back ไป cloud data
+  const baseProjects = (localProjects && localProjects.length) ? localProjects : (data.projects || []);
   const userCanEdit = window.WTPAuth ? window.WTPAuth.can('canEdit') : true;
   // multi-select filters
   const [filters, setFilters] = pjState({
@@ -289,8 +316,8 @@ function ProjectsPage({ data, setData, toast }) {
   });
 
   const enriched = pjMemo(
-    () => enrichProjects(data.projects || [], data.invoices || [], data.receipts || []),
-    [data.projects, data.invoices, data.receipts]
+    () => enrichProjects(baseProjects, data.invoices || [], data.receipts || []),
+    [baseProjects, data.invoices, data.receipts]
   );
 
   // ── Apply filters + search ─────────────────────────────────────────────
@@ -534,6 +561,11 @@ function ProjectsPage({ data, setData, toast }) {
           />
         )}
         <div style={{ minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '0 0 6px 2px',
+            fontSize: 11.5, color: '#64748b' }}>
+            <span style={{ fontSize: 13 }}>👆</span>
+            คลิกที่แถวโครงการเพื่อดูรายละเอียดทั้งหมด (สัญญา · ความคืบหน้า · การเงิน · Invoice)
+          </div>
           <ProjectsTable
             rows={filtered}
             cols={activeCols}
@@ -552,7 +584,16 @@ function ProjectsPage({ data, setData, toast }) {
           allEnriched={enriched}
           onClose={() => setDrawerProj(null)}
           onSave={(patch) => {
-            setData(d => ({ ...d, projects: d.projects.map(p => p.id === drawerProj._id ? { ...p, ...patch } : p) }));
+            const matchP = (p) => (p.id != null && p.id === drawerProj._id)
+              || String(p['Contract No.'] || p.code || '').trim() === drawerProj._code;
+            setData(d => ({ ...d, projects: (d.projects || []).map(p => matchP(p) ? { ...p, ...patch } : p) }));
+            // patch + persist local snapshot ด้วย ไม่งั้นแก้แล้วหายตอน sync
+            setLocalProjects(prev => {
+              const arr = (prev && prev.length) ? prev : (data.projects || []);
+              const next = arr.map(p => matchP(p) ? { ...p, ...patch } : p);
+              saveLocalProjects(next);
+              return next;
+            });
             toast('บันทึกแล้ว');
           }}
         />
@@ -560,13 +601,19 @@ function ProjectsPage({ data, setData, toast }) {
 
       {uploadOpen && (
         <UploadModal
-          existingProjects={data.projects || []}
+          existingProjects={baseProjects}
           onClose={() => { setUploadOpen(false); setUploadDiff(null); }}
           onParsed={setUploadDiff}
           diff={uploadDiff}
           onConfirm={(merged) => {
+            // persist ลง localStorage ก่อน เพื่อให้รอด cloud sync (ข้อมูลยกเลิก
+            // มีเฉพาะในไฟล์ที่อัปโหลด ไม่มีใน Google Sheet)
+            saveLocalProjects(merged);
+            setLocalProjects(merged);
             setData(d => ({ ...d, projects: merged }));
-            toast('อัปเดตข้อมูลโครงการแล้ว · ' + merged.length + ' รายการ');
+            const nCancel = merged.filter(p => isCancelledFlag(p['ยกเลิกโครงการ'])).length;
+            toast('อัปเดตข้อมูลโครงการแล้ว · ' + merged.length + ' รายการ'
+              + (nCancel ? ' · ยกเลิก ' + nCancel : ''));
             setUploadOpen(false); setUploadDiff(null);
           }}
         />
@@ -697,7 +744,7 @@ function UploadModal({ existingProjects, onClose, onParsed, diff, onConfirm }) {
       };
       allRows.forEach(r => {
         let code = String(r['Contract No.'] || '').trim();
-        const isCancelled = Number(r['ยกเลิกโครงการ']) === 1;
+        const isCancelled = isCancelledFlag(r['ยกเลิกโครงการ']);
         const name = String(r['พื้นที่'] || '').trim();
         // ถ้าไม่มี Contract No. แต่เป็นโครงการยกเลิกและมีชื่อ → ใช้ชื่อสร้าง synthetic code
         if (!code) {
