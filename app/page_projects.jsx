@@ -616,14 +616,15 @@ function ProjectsPage({ data, setData, toast }) {
           onSave={(patch) => {
             const matchP = (p) => (p.id != null && p.id === drawerProj._id)
               || String(p['Contract No.'] || p.code || '').trim() === drawerProj._code;
-            // แก้ + persist เฉพาะ local snapshot (ไม่ push เข้า cloud sheet)
+            // sync เข้า cloud sheet + cache local
+            setData(d => ({ ...d, projects: (d.projects || []).map(p => matchP(p) ? { ...p, ...patch } : p) }));
             setLocalProjects(prev => {
               const arr = (prev && prev.length) ? prev : (data.projects || []);
               const next = arr.map(p => matchP(p) ? { ...p, ...patch } : p);
               saveLocalProjects(next);
               return next;
             });
-            toast('บันทึกแล้ว');
+            toast('บันทึกแล้ว · กำลัง sync เข้า Google Sheet');
           }}
         />
       )}
@@ -635,14 +636,17 @@ function ProjectsPage({ data, setData, toast }) {
           onParsed={setUploadDiff}
           diff={uploadDiff}
           onConfirm={(merged) => {
-            // เก็บใน localStorage เท่านั้น — ไม่ push เข้า cloud sheet
-            // (ข้อมูล "ยกเลิกโครงการ" + โครงการยกเลิกที่ไม่มี Contract No.
-            //  มีเฉพาะในไฟล์ Excel · ถ้า setData จะถูก sync เข้าชีตจน data เพี้ยน)
+            // เก็บ 2 ที่:
+            //   1) Google Sheet (cloud master — ทีมเห็นข้อมูลเดียวกัน)
+            //   2) localStorage (instant cache + ฟิลด์ที่ชีตยังไม่มีคอลัมน์
+            //      เช่น "ยกเลิกโครงการ" จะถูก preserve ผ่าน app-only fields)
             saveLocalProjects(merged);
             setLocalProjects(merged);
-            const nCancel = merged.filter(p => isCancelledFlag(p['ยกเลิกโครงการ'])).length;
+            setData(d => ({ ...d, projects: merged }));  // → trigger cloud sync push
+            const nCancel = merged.filter(p => getCancelFlag(p)).length;
             toast('อัปเดตข้อมูลโครงการแล้ว · ' + merged.length + ' รายการ'
-              + (nCancel ? ' · ยกเลิก ' + nCancel + ' โครงการ' : ''));
+              + (nCancel ? ' · ยกเลิก ' + nCancel + ' โครงการ' : '')
+              + ' · กำลัง sync เข้า Google Sheet…');
             setUploadOpen(false); setUploadDiff(null);
           }}
         />
