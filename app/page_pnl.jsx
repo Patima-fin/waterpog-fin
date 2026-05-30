@@ -52,6 +52,27 @@ const PL_GROUP_META = {
 const PL_TYPE_TO_GROUP = {};
 PL_GROUP_ORDER.forEach(k => { PL_TYPE_TO_GROUP[PL_TYPES[PL_GROUP_META[k].type]] = k; });
 
+// ── งบประมาณประจำปี 2569 (จาก DATA Budget.xlsx — Sheet "ประมาณการกำไร ขาดทุน") ──
+// ใช้เปรียบเทียบ "รวมทั้งปี" YTD กับเป้าหมาย (ไม่เทียบรายเดือน)
+const PL_BUDGET_2569 = {
+  year: 2569,
+  // — Revenue —
+  salesRevenue:   1474020000.00,   // รายได้จากการขาย (รวม saleGoods + service ใน actual)
+  otherIncome:       1285251.00,   // รายได้อื่นๆ
+  revenue:        1475305251.00,   // รวมรายได้
+  // — Cost of Construction —
+  constructCost:  1091566895.37,   // ต้นทุนงานก่อสร้าง (cogs + costService)
+  commission:       94632084.00,   // ค่าคอมมิชชั่น
+  totalCost:      1186198979.37,   // รวมต้นทุนงานก่อสร้าง
+  grossProfit:     287821020.63,   // กำไรขั้นต้น
+  // — SG&A —
+  selling:          12751002.62,   // ค่าใช้จ่ายในการขาย
+  admin:           151791445.58,   // ค่าใช้จ่ายในการบริหาร
+  finance:          63857611.83,   // ต้นทุนทางการเงิน
+  totalSGA:        228400060.03,   // รวมค่าใช้จ่ายขายและบริหาร (เป้า แนน)
+  netProfit:        59420960.61,   // กำไร(ขาดทุน)สุทธิ
+};
+
 // ── Ground-truth account → group lookup (เรียนรู้จาก TYP.xlsx — 168 บัญชี) ──
 // เพื่อให้การ classify หลัง upload เป็น deterministic + auto-fill new-account UI
 // 2 type พิเศษจาก TYP ('Income tax payable' + 'Income tax') ถูก route ไป admin
@@ -531,17 +552,18 @@ function PnLPage({ data, setData, toast }) {
     return <td key={Math.random()} className={'pnl-num' + PL_negCls(v)}>{has ? txt : '—'}</td>;
   };
 
-  // budget — annualized actual as a transparent placeholder target (flagged)
+  // budget 2569 — จากไฟล์ DATA Budget.xlsx (sheet "ประมาณการกำไร ขาดทุน")
+  // เปรียบเทียบ "รวมทั้งปี" (YTD actual) กับงบประมาณประจำปี
   const budgetRows = [
-    { name: 'รายได้รวม', actual: k.revenue },
-    { name: 'ต้นทุนรวม', actual: k.cost },
-    { name: 'กำไรขั้นต้น', actual: k.gp },
-    { name: 'ค่าใช้จ่ายขายและบริหาร', actual: PL_sum(c.totalSGA, lastMonth) },
-    { name: 'กำไร(ขาดทุน)สุทธิ', actual: k.net },
+    { name: 'รายได้รวม',                actual: k.revenue,                       target: PL_BUDGET_2569.revenue,     dir: 'higher' },
+    { name: 'ต้นทุนรวม',                actual: k.cost,                          target: PL_BUDGET_2569.totalCost,   dir: 'lower'  },
+    { name: 'กำไรขั้นต้น',              actual: k.gp,                            target: PL_BUDGET_2569.grossProfit, dir: 'higher' },
+    { name: 'ค่าใช้จ่ายขายและบริหาร',   actual: PL_sum(c.totalSGA, lastMonth),   target: PL_BUDGET_2569.totalSGA,    dir: 'lower'  },
+    { name: 'กำไร(ขาดทุน)สุทธิ',        actual: k.net,                           target: PL_BUDGET_2569.netProfit,   dir: 'higher' },
   ].map(r => {
-    const target = lastMonth ? r.actual / lastMonth * 12 : r.actual; // annualize YTD
-    const pct = target ? r.actual / target * 100 : 0;
-    return { ...r, target, pct };
+    const pct = r.target ? r.actual / r.target * 100 : 0;
+    const variance = r.actual - r.target;
+    return { ...r, pct, variance };
   });
 
   return (
@@ -696,19 +718,29 @@ function PnLPage({ data, setData, toast }) {
       </div>
 
       {/* BUDGET vs ACTUAL */}
-      <div className="pnl-section-head" style={{ marginTop: 22 }}><h2>เทียบเป้าหมาย (Budget vs Actual)</h2><span className="pnl-tag">* เป้าประมาณการจากค่าเฉลี่ย YTD × 12 (ปรับได้ภายหลัง)</span></div>
+      <div className="pnl-section-head" style={{ marginTop: 22 }}>
+        <h2>เทียบงบประมาณประจำปี {PL_BUDGET_2569.year} (Budget vs Actual)</h2>
+        <span className="pnl-tag">YTD สะสมถึงเดือน {PL_MONTHS_TH[Math.max(0, lastMonth - 1)]} เทียบกับเป้ารวมทั้งปี</span>
+      </div>
       <div className="card pnl-card">
         <table className="pnl-budget">
-          <thead><tr><th>รายการ</th><th className="r">เป้าหมาย (Target)</th><th className="r">ผลจริง (Actual)</th><th className="pnl-bar-cell">% สำเร็จ</th></tr></thead>
+          <thead><tr><th>รายการ</th><th className="r">งบประมาณ (รวมทั้งปี)</th><th className="r">ผลจริง (YTD)</th><th className="r">ส่วนต่าง</th><th className="pnl-bar-cell">% สะสมเทียบเป้า</th></tr></thead>
           <tbody>
             {budgetRows.map((r, i) => {
-              const color = r.pct < 0 ? 'red' : (r.pct >= 60 ? 'green' : 'amber');
-              const w = Math.max(0, Math.min(100, r.pct));
+              // "ดี" = revenue/gp/net → สูงกว่าเป้า, cost/sga → ต่ำกว่าเป้า
+              const onTrack = (r.dir === 'higher') ? r.pct >= 60 : r.pct <= 100;
+              const color = r.actual < 0 && r.dir === 'higher' ? 'red' : (onTrack ? 'green' : 'amber');
+              const w = Math.max(0, Math.min(100, Math.abs(r.pct)));
+              // ส่วนต่าง: revenue/gp/net → +good, cost/sga → -good
+              const varSign = (r.dir === 'lower' ? -1 : 1) * r.variance;
               return (
                 <tr key={i}>
                   <td className="pnl-b-label">{r.name}</td>
                   <td className="r pnl-num">{PL_fmt(r.target)}</td>
                   <td className={'r pnl-num' + PL_negCls(r.actual)}>{PL_fmt(r.actual)}</td>
+                  <td className={'r pnl-num' + (varSign < 0 ? ' pnl-neg' : '')} title={r.dir === 'lower' ? '+ = สูงกว่างบ (เกิน), − = ต่ำกว่างบ (ประหยัด)' : '+ = สูงกว่าเป้า, − = ต่ำกว่าเป้า'}>
+                    {(r.variance >= 0 ? '+' : '') + PL_fmt(r.variance)}
+                  </td>
                   <td className="pnl-bar-cell"><div className="pnl-bar-row"><div className="pnl-bar-track"><div className={'pnl-bar-fill ' + color} style={{ width: w + '%' }} /></div><div className={'pnl-bar-pct' + (r.pct < 0 ? ' pnl-neg' : '')}>{PL_fmtPct(r.pct)}</div></div></td>
                 </tr>
               );
@@ -716,8 +748,8 @@ function PnLPage({ data, setData, toast }) {
           </tbody>
         </table>
         <div className="pnl-legend">
-          <span><i className="pnl-dot" style={{ background: 'var(--good)' }} /> ≥ 60% เป็นไปตามเป้า</span>
-          <span><i className="pnl-dot" style={{ background: 'var(--warn)' }} /> 0–60% ต่ำกว่าเป้า</span>
+          <span><i className="pnl-dot" style={{ background: 'var(--good)' }} /> เป็นไปตามเป้า (รายได้/กำไร ≥60%, ต้นทุน/SGA ≤100%)</span>
+          <span><i className="pnl-dot" style={{ background: 'var(--warn)' }} /> เบี่ยงเบนจากเป้า</span>
           <span><i className="pnl-dot" style={{ background: 'var(--bad)' }} /> ขาดทุน / ติดลบ</span>
         </div>
       </div>
