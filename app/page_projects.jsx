@@ -31,10 +31,14 @@ const normalizeCode = (code) => {
 };
 
 function computeProjectStatus(p, projInvoices, projReceipts) {
-  const signed = !!(p['เซ็นสัญญา'] || p.signedAt) ||
-                 isStatusDone(p['Payment 1 Status']) ||
-                 !!p['Receive Date'];
-  if (!signed) return 'waiting_sign';
+  // รอลงนาม — Sign Date IS NULL (ใช้ Start date เป็นเกณฑ์: ถ้ายังไม่มีวันเริ่มงาน
+  // = ยังไม่ลงนามจริง). `เซ็นสัญญา` flag อย่างเดียวเชื่อไม่ได้ — ในข้อมูลจริง
+  // หลายโครงการตั้งเป็น "1" ค้างไว้ทั้งที่ยังไม่ได้ลงนาม
+  const startDate = p['Start'] || p.startDate || '';
+  const signedDate = p['เซ็นสัญญา'];
+  // ถือว่ายังไม่ลงนามถ้า: Start ว่าง AND (ไม่มี signed flag หรือไม่มี receive date เลย)
+  const hasAnyActivity = !!p['Receive Date'] || isStatusDone(p['Payment 1 Status']) || !!p['แจ้งเข้าดำเนินการ'];
+  if (!startDate && !hasAnyActivity) return 'waiting_sign';
 
   const contractValue = toNum(p['มูลค่าสัญญาที่เซ็น'] || p.signedValue);
   const totalReceived = projReceipts.reduce((s, r) => s + toNum(r.netReceived || r.grossAmount), 0)
