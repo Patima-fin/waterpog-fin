@@ -210,11 +210,18 @@ function PL_parseRows(rows) {
   if (!hasAnyMonth) return null;
 
   // locate group/code/name columns (tolerant to header naming)
-  const findKey = (names) => keys.find(k => names.indexOf(String(k).trim().toLowerCase()) >= 0);
+  // ลำดับใน list สำคัญ — ตัวแรกที่เจอชนะ (เพื่อให้ ac_code ชนะ maincode เป็นต้น)
+  const findKey = (names) => {
+    for (const n of names) {
+      const f = keys.find(k => String(k).trim().toLowerCase() === n);
+      if (f) return f;
+    }
+    return undefined;
+  };
   const gKey = findKey(['group', 'กลุ่ม']);
   const tKey = findKey(['type', 'ประเภท', 'ชนิด']);
-  const cKey = findKey(['code', 'ac_code', 'รหัส', 'รหัสบัญชี', 'maincode']);
-  const nKey = findKey(['name', 'ชื่อบัญชี', 'desc', 'description', 'รายการ']);
+  const cKey = findKey(['ac_code', 'code', 'รหัสบัญชี', 'รหัส', 'maincode']);
+  const nKey = findKey(['ac_des', 'ชื่อบัญชี', 'name', 'description', 'desc', 'รายการ']);
 
   let used = 0;
   rows.forEach(r => {
@@ -346,12 +353,16 @@ function PnLPage({ data, setData, toast }) {
           const joined = aoa[i].map(c => String(c || '').toLowerCase()).join('|');
           if (/code|รหัส|ชื่อบัญชี|name|amount|ยอด|จำนวน/.test(joined)) { hdrIdx = i; break; }
         }
-        const hdr = aoa[hdrIdx].map(c => String(c || '').trim().toLowerCase());
+        // normalize header row: บังคับให้ทุกช่องเป็น string (ป้องกัน sparse slot จาก XLSX
+        // เช่น col L ใน TB01 ที่ไม่มี header — findCol second-pass เคยพังตรงนี้)
+        const hdrRaw = aoa[hdrIdx] || [];
+        const hdr = [];
+        for (let i = 0; i < hdrRaw.length; i++) hdr[i] = String(hdrRaw[i] == null ? '' : hdrRaw[i]).trim().toLowerCase();
         // findCol: 2-pass — ตรงตัวก่อน (exact match) แล้วจึง substring
         // เพื่อให้ 'ac_code' ชนะ 'maincode' (ทั้งคู่มี 'code' เป็น substring)
         const findCol = (names) => {
-          for (const n of names) { const i = hdr.indexOf(n); if (i >= 0) return i; }
-          for (const n of names) { const i = hdr.findIndex(h => h.indexOf(n) >= 0); if (i >= 0) return i; }
+          for (const n of names) { for (let i = 0; i < hdr.length; i++) { if (hdr[i] === n) return i; } }
+          for (const n of names) { for (let i = 0; i < hdr.length; i++) { if (hdr[i] && hdr[i].indexOf(n) >= 0) return i; } }
           return -1;
         };
         const cCol = findCol(['ac_code', 'code', 'รหัสบัญชี', 'รหัส', 'maincode']);
