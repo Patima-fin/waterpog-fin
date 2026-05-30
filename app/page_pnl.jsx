@@ -52,6 +52,50 @@ const PL_GROUP_META = {
 const PL_TYPE_TO_GROUP = {};
 PL_GROUP_ORDER.forEach(k => { PL_TYPE_TO_GROUP[PL_TYPES[PL_GROUP_META[k].type]] = k; });
 
+// ── Ground-truth account → group lookup (เรียนรู้จาก TYP.xlsx — 168 บัญชี) ──
+// เพื่อให้การ classify หลัง upload เป็น deterministic + auto-fill new-account UI
+// 2 type พิเศษจาก TYP ('Income tax payable' + 'Income tax') ถูก route ไป admin
+// ก่อน (ยังไม่มี group เฉพาะสำหรับภาษี — รออัปเดต report layout)
+const PL_KNOWN_ACCOUNTS = {
+  '4100001':'saleGoods','4100002':'service','4100003':'saleGoods','4100004':'service',
+  '4200001':'saleGoods',
+  '4300002':'otherIncome','4300003':'otherIncome','4300004':'otherIncome','4300005':'otherIncome','4300006':'otherIncome','4300007':'otherIncome',
+  '4400001':'otherIncome','4400002':'otherIncome','4400003':'otherIncome',
+  '5110001':'cogs','5110002':'cogs','5110003':'cogs',
+  '5120000':'costService','5121001':'cogs','5130001':'cogs','5140001':'cogs',
+  '5200000':'cogs','5200001':'cogs','5200002':'commission','5200003':'cogs','5200004':'cogs','5200005':'costService','5200006':'cogs','5200007':'cogs','5200008':'cogs',
+  '5211001':'admin','5212001':'admin','5213001':'admin','5221000':'costService','5223000':'admin',
+  '5311001':'selling','5311002':'selling','5311003':'selling','5311004':'admin','5311005':'selling',
+  '5312002':'selling','5312003':'selling','5312004':'selling','5312005':'selling','5312006':'selling','5312008':'selling','5312009':'selling','5312010':'selling','5312011':'selling','5312012':'selling','5312013':'selling',
+  '5320001':'selling','5320002':'selling','5330002':'selling',
+  '5340002':'selling','5340004':'selling','5340005':'selling','5340007':'selling','5340008':'selling','5340009':'selling','5340010':'selling','5340012':'selling','5340013':'selling','5340014':'selling','5340015':'selling',
+  '5350001':'selling','5350002':'selling','5350003':'selling',
+  '5361002':'admin','5361003':'admin','5362001':'admin','5362002':'admin','5362003':'admin','5363005':'admin','5363006':'admin',
+  '5380001':'admin','5380002':'admin','5380003':'admin',
+  '6100001':'selling',
+  '6201003':'admin','6201004':'admin',
+  '6211001':'admin','6211002':'admin','6211003':'admin','6211004':'admin',
+  '6212001':'admin','6212002':'admin','6212003':'admin','6212004':'admin','6212005':'admin','6212006':'admin','6212007':'admin','6212008':'admin','6212009':'admin','6212010':'admin','6212011':'admin','6212012':'admin',
+  '6220001':'admin','6220002':'admin','6220003':'admin','6220004':'admin',
+  '6230001':'admin','6230002':'admin','6230003':'admin',
+  '6241001':'admin','6241002':'admin','6241003':'admin',
+  '6242001':'admin','6242002':'admin',
+  '6243001':'admin','6243002':'admin','6243003':'admin','6243004':'admin',
+  '6244001':'admin','6244002':'admin','6244003':'admin',
+  '6245001':'admin','6245002':'admin','6245003':'admin','6245004':'admin',
+  '6246001':'admin','6246003':'admin','6246004':'admin','6246007':'admin','6246008':'admin','6246009':'admin',
+  '6251001':'admin','6251002':'admin','6251003':'admin','6251004':'admin','6251005':'finance','6251006':'admin','6251007':'admin',
+  '6252001':'admin','6252002':'admin','6252003':'admin',
+  '6253002':'admin','6253003':'admin','6253006':'admin',
+  '6261002':'admin','6261003':'admin','6261004':'admin','6261005':'admin','6261006':'admin','6261007':'admin','6261008':'admin',
+  '6262002':'admin','6262003':'admin',
+  '6270001':'admin','6270002':'admin','6270003':'admin','6270004':'admin','6270005':'admin','6270006':'admin',
+  '7100001':'finance','7200001':'finance','7200002':'finance','7200003':'finance','7200004':'finance',
+  '7300001':'admin',
+  '7400001':'admin','7400002':'admin','7400003':'otherIncome','7401001':'admin','7401002':'otherIncome',
+  '7500001':'admin','7500002':'admin','7500003':'admin',
+};
+
 const PL_REVENUE_KEYS = { saleGoods: 1, service: 1, otherIncome: 1 };
 const PL_isRevenue = (key) => !!PL_REVENUE_KEYS[key];
 
@@ -96,13 +140,8 @@ function PL_inferGroup(code, name) {
   const c = String(code || '').replace(/[^0-9]/g, '');
   const n = String(name || '');
   if (!c) return null;
-  // exact-code overrides (TB01 chart of accounts)
-  const exact = {
-    '4100001': 'saleGoods', '4100002': 'service', '4100003': 'saleGoods', '4100004': 'service',
-    '4200001': 'otherIncome',
-    '5120000': 'costService', '5200002': 'commission', '5200005': 'costService',
-  };
-  if (exact[c]) return exact[c];
+  // 1) ground-truth จาก TYP.xlsx ก่อน — แม่นยำ 100% สำหรับ 168 บัญชีที่บัญชีระบุไว้
+  if (PL_KNOWN_ACCOUNTS[c]) return PL_KNOWN_ACCOUNTS[c];
   // prefix rules
   const p2 = c.slice(0, 2), p3 = c.slice(0, 3), p4 = c.slice(0, 4);
   const first = c[0];
@@ -308,9 +347,15 @@ function PnLPage({ data, setData, toast }) {
           if (/code|รหัส|ชื่อบัญชี|name|amount|ยอด|จำนวน/.test(joined)) { hdrIdx = i; break; }
         }
         const hdr = aoa[hdrIdx].map(c => String(c || '').trim().toLowerCase());
-        const findCol = (names) => hdr.findIndex(h => names.some(n => h === n || h.indexOf(n) >= 0));
-        const cCol = findCol(['code', 'ac_code', 'รหัส', 'maincode']);
-        const nCol = findCol(['name', 'ชื่อบัญชี', 'desc', 'รายการ', 'ac_des']);
+        // findCol: 2-pass — ตรงตัวก่อน (exact match) แล้วจึง substring
+        // เพื่อให้ 'ac_code' ชนะ 'maincode' (ทั้งคู่มี 'code' เป็น substring)
+        const findCol = (names) => {
+          for (const n of names) { const i = hdr.indexOf(n); if (i >= 0) return i; }
+          for (const n of names) { const i = hdr.findIndex(h => h.indexOf(n) >= 0); if (i >= 0) return i; }
+          return -1;
+        };
+        const cCol = findCol(['ac_code', 'code', 'รหัสบัญชี', 'รหัส', 'maincode']);
+        const nCol = findCol(['ac_des', 'ชื่อบัญชี', 'name', 'description', 'desc', 'รายการ']);
         const aCol = findCol(['amount', 'ยอด', 'จำนวน', 'net', 'total']);
         // TB-style fallback: ไม่มี amount column แต่มี end_dr/end_cr → คำนวณ signed net เอง
         // (revenue 4xxx = end_cr − end_dr, expense 5xxx = end_dr − end_cr — ให้ผลเป็นค่าบวก "normal balance")
@@ -354,12 +399,18 @@ function PnLPage({ data, setData, toast }) {
     try {
       const accts = await parseWorkbook(file);
       if (!accts.length) { toast('ไม่พบรายการบัญชีในไฟล์ — ตรวจหัวคอลัมน์ (code/name/amount)'); setBusy(false); return; }
-      const unknown = accts.filter(a => !knownCodes.has(String(a.code).trim()));
+      // "ใหม่" = ไม่อยู่ใน ฐาน DATA cloud + ไม่อยู่ใน TYP ground-truth (PL_KNOWN_ACCOUNTS)
+      // → บัญชีที่ TYP รู้จักอยู่แล้วจะถูก pre-classify เงียบๆ ไม่ต้อง popup ให้พี่จัดกลุ่มเอง
+      const unknown = accts.filter(a => {
+        const code = String(a.code).trim();
+        return !knownCodes.has(code) && !PL_KNOWN_ACCOUNTS[code.replace(/[^0-9]/g, '')];
+      });
       if (unknown.length) {
         setNewAccts(unknown.map(a => ({ ...a, group: PL_inferGroup(a.code, a.name) || '' })));
-        toast('พบผังบัญชีใหม่ ' + unknown.length + ' รายการ โปรดจัดประเภท');
+        toast('พบผังบัญชีใหม่ ' + unknown.length + ' รายการ — โปรดจัดประเภท (อีก ' + (accts.length - unknown.length) + ' รายการ ระบบจัดให้แล้ว)');
         setBusy(false);
       } else {
+        toast('จัดกลุ่มจาก TYP ครบ ' + accts.length + ' รายการ · กำลังบันทึก…');
         await postImport(accts, []);
       }
     } catch (err) { toast('ผิดพลาด: ' + err.message); setBusy(false); }
