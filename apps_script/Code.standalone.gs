@@ -85,6 +85,7 @@ function doPost(e) {
       case 'delete':     result = deleteRow(entity, id);           break;
       case 'replaceAll': result = replaceAll(entity, payload);     break;
       case 'setKV':      result = setKV(entity, payload);          break;
+      case 'plImportMonth': result = plImportMonth(body);          break;  // P&L add-on (ดู PnL.additions.gs)
       default: result = { error: 'unknown action: ' + action };
     }
     // Append audit log entry for mutating actions (skip on error result)

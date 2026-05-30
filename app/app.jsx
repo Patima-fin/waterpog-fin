@@ -254,7 +254,7 @@ function App() {
       // Pull routes object below — at this point it's not defined yet, fallback inline
       const order = ['daily','warroom1','warroom2','cashflow','debt','debt_ledger',
                      'iv_report','receipts','bank_diary','interest_calc','sts_calc','sts_workflow',
-                     'projects','invoices','checks','data_forecast','data_bank','data_pv','data_payable'];
+                     'projects','invoices','checks','data_forecast','data_bank','data_pv','data_payable','pnl'];
       const allowed = window.WTPAuth.firstAllowedPage(order);
       if (allowed !== route) {
         window.location.hash = '#' + allowed;
@@ -322,6 +322,7 @@ function App() {
     audit_log:     { label: 'Audit Log',           title: 'Audit Log — ประวัติแก้ไข', icon: 'settings' },
     users:         { label: 'จัดการผู้ใช้',         title: 'Users · จัดการผู้ใช้ระบบ', icon: 'settings' },
     daily_balance: { label: 'บันทึกยอดธนาคาร',     title: 'บันทึกยอดธนาคารรายวัน', icon: 'bank' },
+    pnl:           { label: 'งบกำไรขาดทุน (P&L)',   title: 'Profit & Loss Statement', icon: 'forecast' },
   };
 
   let page;
@@ -347,6 +348,7 @@ function App() {
     case 'audit_log':      page = <AuditLogPage data={data} toast={pushToast} />; break;
     case 'users':          page = <UsersPage data={data} setData={setData} toast={pushToast} />; break;
     case 'daily_balance':  page = <DailyBalancePage data={data} setData={setData} toast={pushToast} />; break;
+    case 'pnl':            page = <PnLPage data={data} setData={setData} toast={pushToast} />; break;
     case 'daily':
     default:               page = <DailyRevenueDashboard data={data} setData={setData} toast={pushToast} />;
   }
@@ -567,6 +569,7 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
             ['interest_calc', 'คำนวณดอกเบี้ย',         'money'],
             ['sts_calc',      'STS Calculator',         'money'],
             ['sts_workflow',  'STS Workflow',           'invoice'],
+            ['pnl',           'งบกำไรขาดทุน (P&L)',     'forecast'],
           ])}
         </div>
 
