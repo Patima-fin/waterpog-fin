@@ -665,17 +665,54 @@ function PnLPage({ data, setData, toast }) {
         </div>
       </div>
 
-      {/* KPI */}
-      <div className="kpi-row" style={{ marginBottom: 18 }}>
-        <KpiTile label="รายได้รวม" value={k.revenue} icon="forecast" accent="var(--brand-500)"
-          delta={'ยอดสะสม ' + lastMonth + ' เดือน'} deltaKind="neu" />
-        <KpiTile label="ต้นทุนรวม" value={k.cost} icon="projects" accent="var(--brand-400)"
-          delta={PL_fmtPct(k.costM) + ' ของรายได้'} deltaKind="neu" />
-        <KpiTile label="กำไรขั้นต้น (Gross Profit)" value={k.gp} icon="money" accent="var(--good)"
-          delta={'Margin ' + PL_fmtPct(k.gpM)} deltaKind={k.gpM >= 0 ? 'up' : 'dn'} />
-        <KpiTile label="กำไร(ขาดทุน)สุทธิ" value={k.net} icon={k.net < 0 ? 'arrow_down' : 'arrow_up'}
-          accent={k.net < 0 ? 'var(--bad)' : 'var(--warn)'}
-          delta={(k.net < 0 ? 'ขาดทุน ' : 'กำไร ') + PL_fmtPct(k.netM)} deltaKind={k.net >= 0 ? 'up' : 'dn'} />
+      {/* KPI — 4 horizontal cards */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+        gap: 14, marginBottom: 18,
+      }}>
+        {[
+          { label: 'รายได้รวม', value: k.revenue, icon: '📈', accent: '#2563eb',
+            badge: 'ยอดสะสม ' + lastMonth + ' เดือน', badgeBg: '#eff6ff', badgeColor: '#1e40af' },
+          { label: 'ต้นทุนรวม', value: k.cost, icon: '📦', accent: '#475569',
+            badge: PL_fmtPct(k.costM) + ' ของรายได้', badgeBg: '#f1f5f9', badgeColor: '#475569' },
+          { label: 'กำไรขั้นต้น (Gross Profit)', value: k.gp, icon: '💰', accent: '#16a34a',
+            badge: 'Margin ' + PL_fmtPct(k.gpM), badgeBg: k.gpM >= 0 ? '#dcfce7' : '#fef2f2', badgeColor: k.gpM >= 0 ? '#15803d' : '#b91c1c',
+            badgeArrow: k.gpM >= 0 ? '↑' : '↓' },
+          { label: 'กำไร(ขาดทุน)สุทธิ', value: k.net, icon: k.net < 0 ? '📉' : '📊',
+            accent: k.net < 0 ? '#dc2626' : '#16a34a',
+            badge: (k.net < 0 ? 'ขาดทุน ' : 'กำไร ') + PL_fmtPct(k.netM),
+            badgeBg: k.net < 0 ? '#fef2f2' : '#dcfce7',
+            badgeColor: k.net < 0 ? '#b91c1c' : '#15803d',
+            badgeArrow: k.net < 0 ? '↓' : '↑',
+            valueColor: k.net < 0 ? '#dc2626' : 'inherit' },
+        ].map((tile, i) => (
+          <div key={i} style={{
+            background: 'white', borderRadius: 12, padding: 16,
+            borderLeft: '4px solid ' + tile.accent,
+            boxShadow: '0 1px 3px rgba(15,23,42,0.06)',
+            display: 'flex', flexDirection: 'column', gap: 8,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{
+                width: 28, height: 28, borderRadius: 8, background: '#f1f5f9',
+                display: 'grid', placeItems: 'center', fontSize: 14,
+              }}>{tile.icon}</div>
+              <div style={{ fontSize: 12, color: '#64748b', fontWeight: 500 }}>{tile.label}</div>
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: tile.valueColor || '#0f172a', letterSpacing: '-0.5px' }}>
+              {PL_fmt(tile.value)} <span style={{ fontSize: 12, color: '#64748b', fontWeight: 400 }}>บาท</span>
+            </div>
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', gap: 4, alignSelf: 'flex-start',
+              background: tile.badgeBg, color: tile.badgeColor,
+              fontSize: 10.5, padding: '2px 8px', borderRadius: 10, fontWeight: 600,
+            }}>
+              {tile.badgeArrow && <span>{tile.badgeArrow}</span>}
+              {tile.badge}
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* NEW ACCOUNTS ALERT */}
@@ -827,6 +864,146 @@ function PnLPage({ data, setData, toast }) {
           <span><i className="pnl-dot" style={{ background: 'var(--bad)' }} /> ขาดทุน / ติดลบ</span>
         </div>
       </div>
+
+      {/* ── AI INSIGHTS ─────────────────────────────────────────────────── */}
+      {(() => {
+        const insights = [];
+        const elapsed = lastMonth;
+        const elapsedPct = elapsed / 12;
+        const remaining = 12 - elapsed;
+        const B = PL_BUDGET_2569;
+        // 1) Critical: ภาวะขาดทุน vs เป้ากำไร
+        if (k.net < 0 && B.netProfit > 0) {
+          const catchup = B.netProfit - k.net;
+          const perMonth = remaining > 0 ? catchup / remaining : catchup;
+          insights.push({
+            kind: 'critical', icon: '🚨', title: 'อยู่ในภาวะขาดทุน — ต้องเพิ่มกำไรเพื่อชดเชย',
+            body: 'YTD ขาดทุน ' + PL_fmt(-k.net) + ' บาท · เป้าทั้งปีกำไร ' + PL_fmt(B.netProfit) + ' บาท · ' +
+                  (remaining > 0
+                    ? remaining + ' เดือนที่เหลือต้องทำกำไรรวม ' + PL_fmt(catchup) + ' บาท (เฉลี่ย ' + PL_fmt(perMonth) + ' บาท/เดือน)'
+                    : 'หมดปีแล้ว — ห่างเป้า ' + PL_fmt(catchup) + ' บาท'),
+          });
+        }
+        // 2) Revenue gap
+        const revRatio = k.revenue / B.revenue;
+        if (revRatio < elapsedPct * 0.85) {
+          const gap = B.revenue * elapsedPct - k.revenue;
+          insights.push({
+            kind: 'risk', icon: '📉', title: 'รายได้ต่ำกว่าจังหวะที่ควรจะเป็น',
+            body: 'YTD ' + PL_fmtPct(revRatio * 100) + ' ของงบทั้งปี · ควรอยู่ที่ ' + PL_fmtPct(elapsedPct * 100) + ' (' + elapsed + '/12) · ' +
+                  'ขาดจากจังหวะประมาณ ' + PL_fmt(gap) + ' บาท · ต้องเร่งหา deal ก่อสร้างให้ทันเป้า',
+          });
+        } else if (revRatio >= elapsedPct) {
+          insights.push({
+            kind: 'good', icon: '✅', title: 'รายได้เป็นไปตามเป้า / นำเป้า',
+            body: 'YTD ' + PL_fmtPct(revRatio * 100) + ' ของงบทั้งปี · จังหวะที่ควรอยู่ ' + PL_fmtPct(elapsedPct * 100),
+          });
+        }
+        // 3) Cost ratio (margin)
+        const actualCostPct = k.revenue ? k.cost / k.revenue * 100 : 0;
+        const budgetCostPct = B.totalCost / B.revenue * 100;
+        if (actualCostPct > budgetCostPct + 2) {
+          insights.push({
+            kind: 'risk', icon: '⚠️', title: 'ต้นทุนงานก่อสร้างสูงกว่าเป้า — gross margin หาย',
+            body: 'ต้นทุน YTD = ' + PL_fmtPct(actualCostPct) + ' ของรายได้ · เป้า ' + PL_fmtPct(budgetCostPct) + ' · ' +
+                  'เกินมา ' + PL_fmtPct(actualCostPct - budgetCostPct) + ' · ' +
+                  'ตรวจสอบ Cost of goods sold + Commission รายโครงการ',
+          });
+        }
+        // 4) GP margin
+        const actualGpM = k.gpM;
+        const budgetGpM = B.grossProfit / B.revenue * 100;
+        if (actualGpM < budgetGpM - 2) {
+          insights.push({
+            kind: 'risk', icon: '📊', title: 'อัตรากำไรขั้นต้นต่ำกว่าเป้า',
+            body: 'GP margin YTD = ' + PL_fmtPct(actualGpM) + ' · เป้า ' + PL_fmtPct(budgetGpM) + ' · ห่างเป้า ' + PL_fmtPct(budgetGpM - actualGpM) +
+                  ' · ทบทวนการตั้งราคา / negotiate วัสดุ',
+          });
+        }
+        // 5) SGA pace (annualized)
+        const sgaYtd = PL_sum(c.totalSGA, lastMonth);
+        const sgaAnnualized = elapsed > 0 ? sgaYtd / elapsed * 12 : 0;
+        if (sgaAnnualized > B.totalSGA * 1.05) {
+          insights.push({
+            kind: 'risk', icon: '🔴', title: 'ค่าใช้จ่ายขายและบริหารเกินงบ (อัตราปัจจุบัน)',
+            body: 'YTD ใช้ไป ' + PL_fmt(sgaYtd) + ' บาท (' + elapsed + ' เดือน) · อัตรา annualized = ' + PL_fmt(sgaAnnualized) + ' บาท · ' +
+                  'งบทั้งปี ' + PL_fmt(B.totalSGA) + ' บาท · เกินงบ ' + PL_fmt(sgaAnnualized - B.totalSGA) +
+                  ' · ตัด admin/selling ที่ไม่จำเป็น',
+          });
+        } else if (sgaAnnualized < B.totalSGA * 0.9) {
+          insights.push({
+            kind: 'good', icon: '💚', title: 'ค่าใช้จ่ายขายและบริหารต่ำกว่างบ',
+            body: 'อัตรา annualized = ' + PL_fmt(sgaAnnualized) + ' บาท · งบ ' + PL_fmt(B.totalSGA) + ' บาท · ประหยัด ' + PL_fmt(B.totalSGA - sgaAnnualized),
+          });
+        }
+        // 6) Trend — quarter-over-quarter Net
+        if (lastMonth >= 6) {
+          const q1Net = PL_sum(c.netProfit.slice(0, 3), 3);
+          const q2Net = PL_sum(c.netProfit.slice(3, 6), 3);
+          if (q2Net < q1Net && q1Net !== 0) {
+            insights.push({
+              kind: 'info', icon: '📉', title: 'แนวโน้มกำไรลดลง Q1 → Q2',
+              body: 'Q1: ' + PL_fmt(q1Net) + ' บาท · Q2: ' + PL_fmt(q2Net) + ' บาท · ลดลง ' + PL_fmt(q1Net - q2Net) +
+                    ' · ตรวจสอบสาเหตุ (รายได้ลด / cost เพิ่ม)',
+            });
+          }
+        }
+        // 7) Other income tiny vs budget
+        if (PL_sum(c.totalRevenue, lastMonth) > 0) {
+          const otherRatio = PL_sum(groups.otherIncome, lastMonth) / PL_sum(c.totalRevenue, lastMonth);
+          if (otherRatio < 0) {
+            insights.push({
+              kind: 'info', icon: 'ℹ️', title: 'รายได้อื่นติดลบ YTD',
+              body: 'รวม Other income = ' + PL_fmt(PL_sum(groups.otherIncome, lastMonth)) +
+                    ' (มี contra entry บางเดือน เช่น POC adj) · ตรวจสอบรายการ adjustment',
+            });
+          }
+        }
+        // ถ้าไม่มีอะไรน่ากังวล
+        if (insights.length === 0) {
+          insights.push({
+            kind: 'good', icon: '🎉', title: 'ทุกตัวอยู่ในเป้า — รักษาทิศทาง',
+            body: 'ไม่พบประเด็นเสี่ยงสำคัญ',
+          });
+        }
+
+        return (
+          <>
+            <div className="pnl-section-head" style={{ marginTop: 22 }}>
+              <h2>🤖 AI วิเคราะห์จุดเสี่ยง / โฟกัส</h2>
+              <span className="pnl-tag">วิเคราะห์ YTD เทียบงบประมาณ + อัตรากำไร + แนวโน้ม</span>
+            </div>
+            <div className="card pnl-card" style={{ padding: 14 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {insights.map((ins, i) => {
+                  const palette = {
+                    critical: { bg: '#fef2f2', border: '#fca5a5', accent: '#dc2626' },
+                    risk:     { bg: '#fffbeb', border: '#fcd34d', accent: '#d97706' },
+                    good:     { bg: '#f0fdf4', border: '#86efac', accent: '#16a34a' },
+                    info:     { bg: '#eff6ff', border: '#93c5fd', accent: '#2563eb' },
+                  }[ins.kind] || { bg: '#f8fafc', border: '#cbd5e1', accent: '#475569' };
+                  return (
+                    <div key={i} style={{
+                      background: palette.bg, border: '1px solid ' + palette.border,
+                      borderLeft: '4px solid ' + palette.accent,
+                      borderRadius: 8, padding: '12px 14px',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                        <span style={{ fontSize: 16 }}>{ins.icon}</span>
+                        <strong style={{ fontSize: 13, color: palette.accent }}>{ins.title}</strong>
+                      </div>
+                      <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.6, paddingLeft: 24 }}>{ins.body}</div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ marginTop: 12, fontSize: 10.5, color: '#94a3b8', textAlign: 'center' }}>
+                * วิเคราะห์อัตโนมัติจากข้อมูล YTD เทียบงบประมาณ — เป็น guideline ไม่ใช่คำแนะนำการลงทุน
+              </div>
+            </div>
+          </>
+        );
+      })()}
 
       {/* UPLOAD MODAL — เปิดจากปุ่ม "อัปโหลดข้อมูล" บน hero banner */}
       <Modal open={uploadOpen} onClose={() => { setUploadOpen(false); setFile(null); }} wide
