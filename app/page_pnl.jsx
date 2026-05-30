@@ -52,6 +52,14 @@ const PL_GROUP_META = {
 const PL_TYPE_TO_GROUP = {};
 PL_GROUP_ORDER.forEach(k => { PL_TYPE_TO_GROUP[PL_TYPES[PL_GROUP_META[k].type]] = k; });
 
+// inline style ของปุ่มใน hero banner (สำหรับ "ผังการจัดกลุ่ม / บันทึกรูป / พิมพ์")
+const pnlHeroBtn = {
+  background: 'rgba(255,255,255,0.15)', color: 'white',
+  border: '1px solid rgba(255,255,255,0.25)', borderRadius: 8,
+  padding: '6px 12px', fontSize: 12, fontWeight: 500, cursor: 'pointer',
+  display: 'inline-flex', alignItems: 'center', gap: 5,
+};
+
 // ── งบประมาณประจำปี 2569 (จาก DATA Budget.xlsx — Sheet "ประมาณการกำไร ขาดทุน") ──
 // ใช้เปรียบเทียบ "รวมทั้งปี" YTD กับเป้าหมาย (ไม่เทียบรายเดือน)
 const PL_BUDGET_2569 = {
@@ -309,6 +317,8 @@ function PnLPage({ data, setData, toast }) {
   const [drag, setDrag]       = plState(false);
   const [busy, setBusy]       = plState(false);
   const [newAccts, setNewAccts] = plState(null);   // [{code,name,amount,group}]
+  const [uploadOpen, setUploadOpen] = plState(false);  // upload modal
+  const [viewMode, setViewMode]     = plState('month'); // 'month' | 'quarter'
   const fileInputRef = plRef(null);
 
   const userCanEdit = window.WTPAuth ? window.WTPAuth.can('canEdit') : true;
@@ -425,6 +435,16 @@ function PnLPage({ data, setData, toast }) {
           }
           out.push({ code, name: nCol >= 0 ? String(row[nCol] || '').trim() : '', amount });
         }
+        // ── Clean-missing feature ──────────────────────────────────────────────
+        // เพิ่มบัญชีที่อยู่ใน TYP ground-truth แต่ "ไม่อยู่ในไฟล์เดือนนั้น" ด้วย amount=0
+        // เพื่อให้ Apps Script ทับ m{month} เป็น 0 → ลบยอดค้างจาก upload เก่าที่ผิด
+        // (เช่น upload TB02 ตอนเลือกเดือน 1 → m1 ของ 6220002 ค้างอยู่ 14,360 → reset เป็น 0)
+        const seenCodes = new Set(out.map(a => String(a.code).replace(/[^0-9]/g, '')));
+        for (const knownCode of Object.keys(PL_KNOWN_ACCOUNTS)) {
+          if (!seenCodes.has(knownCode)) {
+            out.push({ code: knownCode, name: '', amount: 0 });
+          }
+        }
         resolve(out);
       } catch (err) { reject(err); }
     };
@@ -447,6 +467,7 @@ function PnLPage({ data, setData, toast }) {
       if (unknown.length) {
         setNewAccts(unknown.map(a => ({ ...a, group: PL_inferGroup(a.code, a.name) || '' })));
         toast('พบผังบัญชีใหม่ ' + unknown.length + ' รายการ — โปรดจัดประเภท (อีก ' + (accts.length - unknown.length) + ' รายการ ระบบจัดให้แล้ว)');
+        setUploadOpen(false);
         setBusy(false);
       } else {
         toast('จัดกลุ่มจาก TYP ครบ ' + accts.length + ' รายการ · กำลังบันทึก…');
@@ -479,7 +500,7 @@ function PnLPage({ data, setData, toast }) {
       if (resp && resp.error) { toast('นำเข้าไม่สำเร็จ: ' + resp.error); }
       else {
         toast('นำเข้าเดือน ' + PL_MONTHS_TH[impMonth - 1] + ' สำเร็จ — กำลังรีเฟรช');
-        setNewAccts(null); setFile(null);
+        setNewAccts(null); setFile(null); setUploadOpen(false);
         setTimeout(loadData, 1200);   // re-read ฐาน DATA after backend aggregates
       }
     } catch (err) { toast('นำเข้าไม่สำเร็จ: ' + err.message); }
@@ -566,19 +587,81 @@ function PnLPage({ data, setData, toast }) {
     return { ...r, pct, variance };
   });
 
+  // ── PERIOD ABSTRACTION (month vs quarter view) ─────────────────────────
+  const lastQuarter = Math.ceil(lastMonth / 3);
+  const periods = viewMode === 'quarter'
+    ? { names: ['ไตรมาส 1', 'ไตรมาส 2', 'ไตรมาส 3', 'ไตรมาส 4'], count: 4, lastIdx: lastQuarter,
+        sum: (arr, p) => [0,1,2].reduce((s, i) => s + (arr[p*3+i] || 0), 0) }
+    : { names: PL_MONTHS_TH, count: 12, lastIdx: lastMonth,
+        sum: (arr, p) => arr[p] || 0 };
+  // ค่าใน cell — pct rows ต้อง re-compute จาก revenue/gp/net (sum ไม่ได้)
+  const cellValue = (row, p) => {
+    if (row.label === '% margin') {
+      const rev = periods.sum(c.totalRevenue, p);
+      const gp  = periods.sum(c.grossProfit, p);
+      return rev ? gp / rev * 100 : NaN;
+    }
+    if (row.label === 'Trend %') {
+      if (p === 0) return NaN;
+      const prev = periods.sum(c.netProfit, p - 1);
+      const curr = periods.sum(c.netProfit, p);
+      return prev ? (curr - prev) / Math.abs(prev) * 100 : NaN;
+    }
+    return periods.sum(row.arr, p);
+  };
+
   return (
     <div className="page pnl-page">
-      <div className="page-head anim-in">
-        <div>
-          <h1 className="page-title">งบกำไรขาดทุน (P&amp;L)
-            {isSample && <span className="pnl-badge-sample" title="อ่าน ฐาน DATA ไม่ได้ — แสดงข้อมูลตัวอย่าง">ข้อมูลตัวอย่าง</span>}
+      {/* ── HERO BANNER ────────────────────────────────────────────────── */}
+      <div className="anim-in" style={{
+        background: 'linear-gradient(135deg, #2563eb 0%, #1e3a8a 100%)',
+        borderRadius: 16, padding: '24px 28px', color: 'white',
+        marginBottom: 18, boxShadow: '0 10px 28px rgba(30, 58, 138, 0.18)',
+        display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap',
+      }}>
+        <div style={{
+          width: 56, height: 56, borderRadius: 14, background: 'rgba(255,255,255,0.18)',
+          display: 'grid', placeItems: 'center', fontSize: 24, fontWeight: 800,
+          border: '1px solid rgba(255,255,255,0.3)', flexShrink: 0,
+        }}>W</div>
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <div style={{ fontSize: 10.5, letterSpacing: 1.2, opacity: 0.78, textTransform: 'uppercase', fontWeight: 600 }}>
+            Water POG · Financial Console
+          </div>
+          <h1 style={{ fontSize: 26, margin: '3px 0 4px', fontWeight: 700, color: 'white', lineHeight: 1.15 }}>
+            งบกำไรขาดทุนทางบัญชี
+            {isSample && <span style={{ marginLeft: 10, fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'rgba(252,211,77,0.3)', verticalAlign: 'middle', fontWeight: 600 }}>ข้อมูลตัวอย่าง</span>}
           </h1>
-          <div className="page-sub">Profit &amp; Loss Statement · สะสมตั้งแต่ต้นปี · ข้อมูลถึงเดือน {PL_MONTHS_TH[Math.max(0, lastMonth - 1)]}</div>
+          <div style={{ fontSize: 12.5, opacity: 0.88 }}>
+            Profit &amp; Loss Statement · ปีบัญชี {PL_BUDGET_2569.year} (สะสมตั้งแต่ต้นปี)
+          </div>
         </div>
-        <div className="page-head-r">
-          <button className="btn btn-ghost" onClick={() => { setMapOpen(true); }}><Icon name="filter" size={14} /> ผังการจัดกลุ่ม</button>
-          <button className="btn btn-ghost" onClick={saveImage}><Icon name="download" size={14} /> บันทึกรูป</button>
-          <button className="btn btn-ghost" onClick={() => window.print()}><Icon name="print" size={14} /> พิมพ์ / PDF</button>
+        <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
+          <div style={{ fontSize: 10.5, opacity: 0.8, letterSpacing: 0.4 }}>ข้อมูลล่าสุดถึงเดือน</div>
+          <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: 0.3 }}>
+            {PL_MONTHS_TH[Math.max(0, lastMonth - 1)]} {PL_BUDGET_2569.year}
+          </div>
+          <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            {userCanEdit && (
+              <button onClick={() => setUploadOpen(true)} style={{
+                background: 'rgba(255,255,255,0.95)', color: '#1e3a8a',
+                border: 0, borderRadius: 8, padding: '6px 12px',
+                fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+              }} title="นำเข้า DATA INPUT ของเดือน">
+                <Icon name="upload" size={13} /> อัปโหลดข้อมูล
+              </button>
+            )}
+            <button onClick={() => setMapOpen(true)} style={pnlHeroBtn}>
+              <Icon name="filter" size={13} /> ผังการจัดกลุ่ม
+            </button>
+            <button onClick={saveImage} style={pnlHeroBtn}>
+              <Icon name="download" size={13} /> บันทึกเป็นรูป
+            </button>
+            <button onClick={() => window.print()} style={pnlHeroBtn}>
+              <Icon name="print" size={13} /> พิมพ์ / PDF
+            </button>
+          </div>
         </div>
       </div>
 
@@ -594,44 +677,6 @@ function PnLPage({ data, setData, toast }) {
           accent={k.net < 0 ? 'var(--bad)' : 'var(--warn)'}
           delta={(k.net < 0 ? 'ขาดทุน ' : 'กำไร ') + PL_fmtPct(k.netM)} deltaKind={k.net >= 0 ? 'up' : 'dn'} />
       </div>
-
-      {/* UPLOAD */}
-      {userCanEdit && (
-        <div className="card pnl-card" style={{ marginBottom: 18 }}>
-          <div className="pnl-card-hd"><h3>อัปโหลดข้อมูลรายเดือน</h3><span className="pnl-tag">นำเข้าไฟล์ DATA INPUT เพื่ออัปเดตงบประจำเดือน</span></div>
-          <div className="pnl-upload-row">
-            <div className={'pnl-dropzone' + (drag ? ' drag' : '') + (file ? ' has-file' : '')}
-              onClick={() => fileInputRef.current && fileInputRef.current.click()}
-              onDragEnter={(e) => { e.preventDefault(); setDrag(true); }}
-              onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
-              onDragLeave={(e) => { e.preventDefault(); setDrag(false); }}
-              onDrop={onDrop}>
-              <div className="pnl-dz-ic"><Icon name="upload" size={22} /></div>
-              <div className="pnl-dz-main">{file ? <>เลือกไฟล์แล้ว: <u>{file.name}</u></> : <>ลากไฟล์มาวางที่นี่ หรือ <u>เลือกไฟล์</u></>}</div>
-              <div className="pnl-dz-sub">{file ? (file.size / 1024 / 1024).toFixed(2) + ' MB · พร้อมนำเข้า' : 'รองรับ .xlsx, .csv (ชีต DATA INPUT)'}</div>
-              <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" hidden
-                onChange={(e) => pickFile(e.target.files[0])} />
-            </div>
-            <div className="pnl-upload-side">
-              <label className="pnl-field"><span>เลือกเดือนที่นำเข้า</span>
-                <select value={impMonth} onChange={(e) => setImpMonth(Number(e.target.value))}>
-                  {PL_MONTHS_TH.map((m, i) => <option key={i} value={i + 1}>{(i + 1)} · {m}</option>)}
-                </select>
-              </label>
-              <label className="pnl-field"><span>สถานะข้อมูล</span>
-                <select value={impAudit} onChange={(e) => setImpAudit(e.target.value)}>
-                  <option value="PRE-CLOSING">PRE-CLOSING · ยังไม่ตรวจสอบ</option>
-                  <option value="AUDITED">AUDITED · ตรวจสอบแล้ว</option>
-                </select>
-              </label>
-              <button className="btn btn-primary" disabled={busy || !file} onClick={handleVerify}>
-                <Icon name="check" size={14} /> {busy ? 'กำลังประมวลผล…' : 'ตรวจสอบและนำเข้า'}
-              </button>
-              <div className="pnl-hint"><Icon name="search" size={13} /> ระบบจะเทียบผังบัญชีกับฐานข้อมูล หากพบบัญชีใหม่จะให้จัดประเภทก่อนบันทึก</div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* NEW ACCOUNTS ALERT */}
       {newAccts && (
@@ -677,22 +722,51 @@ function PnLPage({ data, setData, toast }) {
         </div>
       )}
 
-      {/* MONTHLY P&L TABLE */}
-      <div className="pnl-section-head"><h2>งบกำไรขาดทุนรายเดือน</h2><span className="pnl-tag">หน่วย: บาท</span></div>
+      {/* MONTHLY / QUARTERLY P&L TABLE */}
+      <div className="pnl-section-head">
+        <h2>งบกำไรขาดทุน{viewMode === 'quarter' ? 'รายไตรมาส' : 'รายเดือน'}</h2>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <span className="pnl-tag">หน่วย: บาท</span>
+          {/* View mode toggle */}
+          <div style={{ display: 'inline-flex', background: '#eef2ff', borderRadius: 8, padding: 3, border: '1px solid #c7d2fe' }}>
+            {[['month', 'รายเดือน'], ['quarter', 'รายไตรมาส']].map(([k, label]) => (
+              <button key={k} onClick={() => setViewMode(k)} style={{
+                padding: '5px 14px', fontSize: 12, fontWeight: 600,
+                background: viewMode === k ? 'white' : 'transparent',
+                color: viewMode === k ? '#1e3a8a' : '#64748b',
+                border: 0, borderRadius: 6, cursor: 'pointer',
+                boxShadow: viewMode === k ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+                transition: 'all 120ms ease',
+              }}>{label}</button>
+            ))}
+          </div>
+        </div>
+      </div>
       <div className="card pnl-report-card" ref={reportRef}>
         <div className="pnl-report-wrap">
           <table className="pnl-report">
             <thead>
               <tr>
-                <th className="label">เดือน</th>
-                {PL_MONTHS_TH.map((m, i) => <th key={i} className={i >= lastMonth ? 'pnl-dim' : ''}>{m}</th>)}
+                <th className="label">{viewMode === 'quarter' ? 'ไตรมาส' : 'เดือน'}</th>
+                {periods.names.map((m, i) => <th key={i} className={i >= periods.lastIdx ? 'pnl-dim' : ''}>{m}</th>)}
                 <th className="total">รวมทั้งปี</th>
               </tr>
             </thead>
             <tbody>
               {reportRows.map((row, ri) => {
                 const clickable = !!row.key;
-                const totVal = row.totalVal !== undefined ? row.totalVal : PL_sum(row.arr, lastMonth);
+                // ยอดรวมทั้งปี (sum ของทุกเดือนที่มีข้อมูล) — pct rows ต้องคำนวณจาก totals
+                let totVal;
+                if (row.totalVal !== undefined) {
+                  totVal = row.totalVal;
+                } else if (row.label === '% margin') {
+                  const tr = PL_sum(c.totalRevenue, lastMonth);
+                  totVal = tr ? PL_sum(c.grossProfit, lastMonth) / tr * 100 : NaN;
+                } else if (row.label === 'Trend %') {
+                  totVal = NaN;
+                } else {
+                  totVal = PL_sum(row.arr, lastMonth);
+                }
                 const totTxt = row.pct ? PL_fmtPct(totVal) : PL_fmt(totVal);
                 return (
                   <tr key={ri} className={(row.cls || '') + (clickable ? ' pnl-clickable' : '')}
@@ -702,11 +776,11 @@ function PnLPage({ data, setData, toast }) {
                       {row.label}
                       {clickable && <svg className="pnl-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M9 6l6 6-6 6" /></svg>}
                     </td>
-                    {PL_MONTHS_TH.map((_, m) => {
-                      const v = row.arr[m];
-                      const has = m < lastMonth;
+                    {periods.names.map((_, p) => {
+                      const v = cellValue(row, p);
+                      const has = p < periods.lastIdx;
                       const txt = !has ? '—' : (row.pct ? PL_fmtPct(v) : PL_fmt(v, { blankZero: true }));
-                      return <td key={m} className={'pnl-num' + (has ? PL_negCls(v) : '') + (has ? '' : ' pnl-dim')}>{txt}</td>;
+                      return <td key={p} className={'pnl-num' + (has ? PL_negCls(v) : '') + (has ? '' : ' pnl-dim')}>{txt}</td>;
                     })}
                     <td className={'pnl-num total' + PL_negCls(totVal)}>{totTxt}</td>
                   </tr>
@@ -753,6 +827,47 @@ function PnLPage({ data, setData, toast }) {
           <span><i className="pnl-dot" style={{ background: 'var(--bad)' }} /> ขาดทุน / ติดลบ</span>
         </div>
       </div>
+
+      {/* UPLOAD MODAL — เปิดจากปุ่ม "อัปโหลดข้อมูล" บน hero banner */}
+      <Modal open={uploadOpen} onClose={() => { setUploadOpen(false); setFile(null); }} wide
+        title="อัปโหลดข้อมูลรายเดือน (DATA INPUT)">
+        <div style={{ padding: '8px 20px 18px' }}>
+          <div style={{ fontSize: 12.5, color: 'var(--ink-500)', marginBottom: 12 }}>
+            นำเข้าไฟล์ TB ของบัญชี (.xlsx) เพื่ออัปเดตงบประจำเดือนเข้าฐานข้อมูล
+          </div>
+          <div className="pnl-upload-row">
+            <div className={'pnl-dropzone' + (drag ? ' drag' : '') + (file ? ' has-file' : '')}
+              onClick={() => fileInputRef.current && fileInputRef.current.click()}
+              onDragEnter={(e) => { e.preventDefault(); setDrag(true); }}
+              onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+              onDragLeave={(e) => { e.preventDefault(); setDrag(false); }}
+              onDrop={onDrop}>
+              <div className="pnl-dz-ic"><Icon name="upload" size={22} /></div>
+              <div className="pnl-dz-main">{file ? <>เลือกไฟล์แล้ว: <u>{file.name}</u></> : <>ลากไฟล์มาวางที่นี่ หรือ <u>เลือกไฟล์</u></>}</div>
+              <div className="pnl-dz-sub">{file ? (file.size / 1024 / 1024).toFixed(2) + ' MB · พร้อมนำเข้า' : 'รองรับ .xlsx, .csv (ชีต DATA INPUT)'}</div>
+              <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" hidden
+                onChange={(e) => pickFile(e.target.files[0])} />
+            </div>
+            <div className="pnl-upload-side">
+              <label className="pnl-field"><span>เลือกเดือนที่นำเข้า</span>
+                <select value={impMonth} onChange={(e) => setImpMonth(Number(e.target.value))}>
+                  {PL_MONTHS_TH.map((m, i) => <option key={i} value={i + 1}>{(i + 1)} · {m}</option>)}
+                </select>
+              </label>
+              <label className="pnl-field"><span>สถานะข้อมูล</span>
+                <select value={impAudit} onChange={(e) => setImpAudit(e.target.value)}>
+                  <option value="PRE-CLOSING">PRE-CLOSING · ยังไม่ตรวจสอบ</option>
+                  <option value="AUDITED">AUDITED · ตรวจสอบแล้ว</option>
+                </select>
+              </label>
+              <button className="btn btn-primary" disabled={busy || !file} onClick={handleVerify}>
+                <Icon name="check" size={14} /> {busy ? 'กำลังประมวลผล…' : 'ตรวจสอบและนำเข้า'}
+              </button>
+              <div className="pnl-hint"><Icon name="search" size={13} /> ระบบจะเทียบผังบัญชีกับฐานข้อมูล หากพบบัญชีใหม่จะให้จัดประเภทก่อนบันทึก · บัญชีที่ไม่อยู่ในไฟล์จะถูก reset เป็น 0</div>
+            </div>
+          </div>
+        </div>
+      </Modal>
 
       {/* DETAIL MODAL (single group) */}
       <Modal open={!!detailKey} onClose={() => setDetailKey(null)} wide
