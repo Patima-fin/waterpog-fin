@@ -77,18 +77,61 @@ function PL_fmtPct(v, opt) {
 const PL_negCls = (v) => (typeof v === 'number' && v < 0) ? ' pnl-neg' : '';
 
 // ── infer group from chart-of-accounts code prefix (fallback only) ──
-function PL_inferGroup(code) {
-  const s = String(code || '').replace(/[^0-9]/g, '');
-  if (!s) return null;
-  const p2 = s.slice(0, 2);
-  const map = {
-    '41': 'saleGoods', '42': 'service', '43': 'service', '49': 'otherIncome',
-    '51': 'cogs', '52': 'costService', '53': 'commission',
-    '54': 'selling', '55': 'admin', '56': 'finance',
+// ปรับให้แม่นกับผังบัญชี BIOAXEL / WaterPOG (ตรวจกับ TB01.xlsx ม.ค. 2569)
+//   4100001  รายได้ค่าบริการก่อสร้าง         → saleGoods
+//   4100002  PM CM                            → service
+//   4100003  POC adjustment                   → saleGoods (contra)
+//   4100004  หลังการขาย                       → service
+//   4200001  ขายสินค้า                        → otherIncome (per legacy report bucket)
+//   4300xxx / 4400xxx                          → otherIncome
+//   5110xxx / 5121xxx / 5130xxx / 5140xxx     → cogs
+//   5200000 / 5200008                          → cogs
+//   5200002                                    → commission
+//   5120000 / 5200005 / 5221xxx               → costService
+//   5200001/3/4/6/7 / 5211xxx / 5213xxx / 5223xxx → costService
+//   53xxxxx                                    → selling
+//   54xxxxx / 55xxxxx / 6xxxxxx               → admin
+//   56xxxxx (& รายการมีคำว่า "ดอกเบี้ย")     → finance
+function PL_inferGroup(code, name) {
+  const c = String(code || '').replace(/[^0-9]/g, '');
+  const n = String(name || '');
+  if (!c) return null;
+  // exact-code overrides (TB01 chart of accounts)
+  const exact = {
+    '4100001': 'saleGoods', '4100002': 'service', '4100003': 'saleGoods', '4100004': 'service',
+    '4200001': 'otherIncome',
+    '5120000': 'costService', '5200002': 'commission', '5200005': 'costService',
   };
-  if (map[p2]) return map[p2];
-  if (s[0] === '4') return 'otherIncome';
-  if (s[0] === '5') return 'admin';
+  if (exact[c]) return exact[c];
+  // prefix rules
+  const p2 = c.slice(0, 2), p3 = c.slice(0, 3), p4 = c.slice(0, 4);
+  const first = c[0];
+  // revenue
+  if (p2 === '41') return 'saleGoods';
+  if (p2 === '42' || p2 === '43' || p2 === '44' || p2 === '49') return 'otherIncome';
+  // expense: finance-keyword (ดอกเบี้ย/ค่าธรรมเนียมธนาคาร) — applies only to 5xxx/6xxx/7xxx, not 4xxx (interest income)
+  if (first !== '4' && /ดอกเบี้ย|ค่าธรรมเนียมธนาคาร|interest|bank\s*fee/i.test(n)) return 'finance';
+  // cogs (construction materials / direct labor / POC cost / extra work)
+  if (p3 === '511' || (p3 === '512' && p4 !== '5120') || p3 === '513' || p3 === '514') return 'cogs';
+  if (c === '5200000' || c === '5200008') return 'cogs';
+  // costService (rest of 52xxxxx + 521xxx-523xxx)
+  if (p2 === '52') return 'costService';
+  // selling (marketing dept)
+  if (p2 === '53') return 'selling';
+  // admin (back-office + 6xxxxx general overhead)
+  if (p2 === '54' || p2 === '55' || first === '6') return 'admin';
+  // finance prefix
+  if (p2 === '56') return 'finance';
+  // 7xxx: tax / dividend / financing-service / suspense
+  if (first === '7') {
+    if (p2 === '74') return 'admin';            // ภาษีเงินได้
+    if (p2 === '75') return 'finance';          // ค่าบริการทางการเงิน (STS/factoring)
+    if (p2 === '73') return 'admin';            // เงินปันผลจ่าย (treated as admin appropriation)
+    return 'admin';                              // 79xx suspense etc.
+  }
+  // last-resort
+  if (first === '4') return 'otherIncome';
+  if (first === '5' || first === '6') return 'admin';
   return null;
 }
 
@@ -140,7 +183,8 @@ function PL_parseRows(rows) {
     let g = gKey ? String(r[gKey] || '').trim() : '';
     if (!PL_GROUP_META[g]) g = '';
     if (!g && tKey) { const lbl = String(r[tKey] || '').trim(); g = PL_TYPE_TO_GROUP[lbl] || ''; }
-    if (!g) g = PL_inferGroup(code);
+    const nameLkp = nKey ? r[nKey] : '';
+    if (!g) g = PL_inferGroup(code, nameLkp);
     if (!g || !PL_GROUP_META[g]) return; // unclassifiable → skip
 
     const arr = monthCol.map(col => {
@@ -266,15 +310,36 @@ function PnLPage({ data, setData, toast }) {
         const hdr = aoa[hdrIdx].map(c => String(c || '').trim().toLowerCase());
         const findCol = (names) => hdr.findIndex(h => names.some(n => h === n || h.indexOf(n) >= 0));
         const cCol = findCol(['code', 'ac_code', 'รหัส', 'maincode']);
-        const nCol = findCol(['name', 'ชื่อบัญชี', 'desc', 'รายการ']);
+        const nCol = findCol(['name', 'ชื่อบัญชี', 'desc', 'รายการ', 'ac_des']);
         const aCol = findCol(['amount', 'ยอด', 'จำนวน', 'net', 'total']);
+        // TB-style fallback: ไม่มี amount column แต่มี end_dr/end_cr → คำนวณ signed net เอง
+        // (revenue 4xxx = end_cr − end_dr, expense 5xxx = end_dr − end_cr — ให้ผลเป็นค่าบวก "normal balance")
+        const edrCol = findCol(['end_dr', 'end dr', 'enddr']);
+        const ecrCol = findCol(['end_cr', 'end cr', 'endcr']);
+        // ถ้าทั้ง amount และ end_dr/cr หาไม่เจอ → fallback ไป "ช่อง L" (คอลัมน์ที่ 12, index 11)
+        // ตาม spec ของพี่บัญชี (TB01.xlsx มียอด signed-net ที่คอลัมน์ L โดยไม่มี header)
+        const lCol = 11;
+        const num = (v) => {
+          const n = Number(String(v == null ? '' : v).replace(/[^0-9.\-]/g, ''));
+          return isNaN(n) ? 0 : n;
+        };
         const out = [];
         for (let i = hdrIdx + 1; i < aoa.length; i++) {
           const row = aoa[i];
           const code = cCol >= 0 ? String(row[cCol] || '').trim() : '';
           if (!code) continue;
-          const amount = aCol >= 0 ? Number(String(row[aCol] || '').replace(/[^0-9.\-]/g, '')) : 0;
-          out.push({ code, name: nCol >= 0 ? String(row[nCol] || '').trim() : '', amount: isNaN(amount) ? 0 : amount });
+          let amount = 0;
+          if (aCol >= 0) {
+            amount = num(row[aCol]);
+          } else if (edrCol >= 0 && ecrCol >= 0) {
+            // signed by account-type convention: 4xxx → cr−dr, 5xxx → dr−cr
+            const dr = num(row[edrCol]), cr = num(row[ecrCol]);
+            const first = String(code).trim().charAt(0);
+            amount = first === '4' ? (cr - dr) : (dr - cr);
+          } else if (row[lCol] != null && row[lCol] !== '') {
+            amount = num(row[lCol]);
+          }
+          out.push({ code, name: nCol >= 0 ? String(row[nCol] || '').trim() : '', amount });
         }
         resolve(out);
       } catch (err) { reject(err); }
@@ -291,7 +356,7 @@ function PnLPage({ data, setData, toast }) {
       if (!accts.length) { toast('ไม่พบรายการบัญชีในไฟล์ — ตรวจหัวคอลัมน์ (code/name/amount)'); setBusy(false); return; }
       const unknown = accts.filter(a => !knownCodes.has(String(a.code).trim()));
       if (unknown.length) {
-        setNewAccts(unknown.map(a => ({ ...a, group: PL_inferGroup(a.code) || '' })));
+        setNewAccts(unknown.map(a => ({ ...a, group: PL_inferGroup(a.code, a.name) || '' })));
         toast('พบผังบัญชีใหม่ ' + unknown.length + ' รายการ โปรดจัดประเภท');
         setBusy(false);
       } else {
@@ -313,7 +378,7 @@ function PnLPage({ data, setData, toast }) {
         code: String(a.code).trim(),
         name: a.name || '',
         amount: Number(a.amount) || 0,
-        group: a.group || PL_inferGroup(a.code) || '',
+        group: a.group || PL_inferGroup(a.code, a.name) || '',
       })),
       newAccounts: (newClassified || []).map(a => ({ code: String(a.code).trim(), name: a.name || '', group: a.group })),
       meta: { user: (sess && sess.username) || 'unknown', displayName: (sess && sess.displayName) || '', role: (sess && sess.role) || '' },
