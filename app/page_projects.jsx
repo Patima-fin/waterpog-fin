@@ -6,8 +6,9 @@
 const { useState: pjState, useMemo: pjMemo, useEffect: pjEffect, useRef: pjRef } = React;
 
 // ── Status engine ───────────────────────────────────────────────────────────
-// 8 สถานะ — ไม่ให้ user เลือกเอง, คำนวณจาก contract/delivery/invoice/receipt
+// 9 สถานะ — ไม่ให้ user เลือกเอง, คำนวณจาก contract/delivery/invoice/receipt
 const PROJ_STATUS = {
+  cancelled:        { label: 'ยกเลิกโครงการ',     color: '#7f1d1d', bg: '#fee2e2', dot: '#ef4444', order: 0 },
   waiting_sign:     { label: 'รอลงนาม',          color: '#9a3412', bg: '#ffedd5', dot: '#f97316', order: 1 },
   construction_m1:  { label: 'ก่อสร้าง งวด 1',    color: '#7c2d12', bg: '#fef3c7', dot: '#d97706', order: 2 },
   construction_m2:  { label: 'ก่อสร้าง งวด 2',    color: '#7c2d12', bg: '#fef3c7', dot: '#d97706', order: 3 },
@@ -31,11 +32,13 @@ const normalizeCode = (code) => {
 };
 
 function computeProjectStatus(p, projInvoices, projReceipts) {
+  // ยกเลิกโครงการ — column Z "ยกเลิกโครงการ" = 1 (มาก่อนทุกสถานะ)
+  if (toNum(p['ยกเลิกโครงการ']) === 1) return 'cancelled';
+
   // รอลงนาม — Sign Date IS NULL (ใช้ Start date เป็นเกณฑ์: ถ้ายังไม่มีวันเริ่มงาน
   // = ยังไม่ลงนามจริง). `เซ็นสัญญา` flag อย่างเดียวเชื่อไม่ได้ — ในข้อมูลจริง
   // หลายโครงการตั้งเป็น "1" ค้างไว้ทั้งที่ยังไม่ได้ลงนาม
   const startDate = p['Start'] || p.startDate || '';
-  const signedDate = p['เซ็นสัญญา'];
   // ถือว่ายังไม่ลงนามถ้า: Start ว่าง AND (ไม่มี signed flag หรือไม่มี receive date เลย)
   const hasAnyActivity = !!p['Receive Date'] || isStatusDone(p['Payment 1 Status']) || !!p['แจ้งเข้าดำเนินการ'];
   if (!startDate && !hasAnyActivity) return 'waiting_sign';
@@ -250,6 +253,9 @@ function ProjectsPage({ data, setData, toast }) {
   const [drawerProj, setDrawerProj] = pjState(null);
   const [fullscreen, setFullscreen] = pjState(false);
   const [filterOpen, setFilterOpen] = pjState(true);
+  const [uploadOpen, setUploadOpen] = pjState(false);
+  const [uploadDiff, setUploadDiff] = pjState(null); // { new:[], updated:[], unchanged:[] }
+  const userCanEdit = window.WTPAuth ? window.WTPAuth.can('canEdit') : true;
   // multi-select filters
   const [filters, setFilters] = pjState({
     status: new Set(),
@@ -461,7 +467,9 @@ function ProjectsPage({ data, setData, toast }) {
   return (
     <div className={'page' + (fullscreen ? ' pcc-fullscreen' : '')} style={fullscreen ? { padding: 12, maxWidth: 'none' } : {}}>
       {!fullscreen && (
-        <ProjectsHero kpi={kpi} totalCount={enriched.length} filteredCount={filtered.length} onFullscreen={() => setFullscreen(true)} />
+        <ProjectsHero kpi={kpi} totalCount={enriched.length} filteredCount={filtered.length}
+          onFullscreen={() => setFullscreen(true)}
+          onUpload={userCanEdit ? () => setUploadOpen(true) : null} />
       )}
 
       {/* Toolbar: search + filter toggle + column groups + fullscreen */}
@@ -506,12 +514,281 @@ function ProjectsPage({ data, setData, toast }) {
           }}
         />
       )}
+
+      {uploadOpen && (
+        <UploadModal
+          existingProjects={data.projects || []}
+          onClose={() => { setUploadOpen(false); setUploadDiff(null); }}
+          onParsed={setUploadDiff}
+          diff={uploadDiff}
+          onConfirm={(merged) => {
+            setData(d => ({ ...d, projects: merged }));
+            toast('อัปเดตข้อมูลโครงการแล้ว · ' + merged.length + ' รายการ');
+            setUploadOpen(false); setUploadDiff(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Upload Modal — รับไฟล์ Project Control xlsx ──────────────────────────
+function UploadModal({ existingProjects, onClose, onParsed, diff, onConfirm }) {
+  const [file, setFile] = pjState(null);
+  const [drag, setDrag] = pjState(false);
+  const [busy, setBusy] = pjState(false);
+  const [error, setError] = pjState('');
+  const fileInputRef = pjRef(null);
+
+  const parseFile = async (f) => {
+    if (!window.XLSX) { setError('ไม่พบ SheetJS — รีเฟรชหน้า'); return; }
+    setBusy(true); setError('');
+    try {
+      const buf = await f.arrayBuffer();
+      const wb = window.XLSX.read(buf, { type: 'array', cellDates: true });
+      // หา sheet ที่ชื่อขึ้นต้นด้วย "Main all" (รองรับทุกปี: 67/68/69/...)
+      const mainSheets = wb.SheetNames.filter(n => /^Main\s*all/i.test(n));
+      if (mainSheets.length === 0) {
+        setError('ไม่พบ sheet ที่ชื่อขึ้นต้นด้วย "Main all" ในไฟล์'); setBusy(false); return;
+      }
+      // รวมข้อมูลจากทุก Main all sheets
+      const allRows = [];
+      mainSheets.forEach(sn => {
+        const ws = wb.Sheets[sn];
+        const rows = window.XLSX.utils.sheet_to_json(ws, { defval: null, raw: false });
+        rows.forEach(r => allRows.push({ _sheet: sn, ...r }));
+      });
+      // คำนวณ diff vs existing data
+      const existingByCode = {};
+      existingProjects.forEach(p => {
+        const code = String(p['Contract No.'] || p.code || '').trim();
+        if (code) existingByCode[code] = p;
+      });
+      const isoDate = (v) => {
+        if (!v) return '';
+        if (v instanceof Date) return v.toISOString().slice(0, 10);
+        const s = String(v).trim();
+        // dd/mm/yyyy → yyyy-mm-dd
+        const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+        if (m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+        if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+        return s;
+      };
+      // mapping จาก Excel row → project shape ของระบบ
+      // เก็บเฉพาะคอลัมน์สำคัญ — คอลัมน์ที่เหลือเก็บไว้ใน p เผื่อใช้ภายหลัง
+      const normalize = (r) => {
+        const out = { ...r };
+        // normalize date fields
+        ['Start','Finish','เซ็นสัญญา','แจ้งเข้าดำเนินการ',
+         'Receive Date','Receive Date2','Receive Date3',
+         'วันที่ส่งมอบงาน งวด 1','วันที่ส่งมอบงาน งวด 2','วันที่ส่งมอบงานงวด 3',
+         'วันที่ส่ง นส.มอบงาน งวด 1','วันที่ส่ง นส.มอบงาน งวด 2','วันที่ส่ง นส.มอบงานงวด 3',
+         'วันที่เซ็น/รับ ใบตรวจรับ งวดที่ 1','วันที่เซ็น/รับ ใบตรวจรับ งวด 2'
+        ].forEach(k => { if (out[k]) out[k] = isoDate(out[k]); });
+        // เซ็นสัญญา ใน excel อาจเป็น 1 (flag) หรือ date — เก็บเป็น 1/null ถ้าเป็น flag
+        if (typeof out['เซ็นสัญญา'] === 'number') out['เซ็นสัญญา'] = String(out['เซ็นสัญญา']);
+        return out;
+      };
+      const newRows = [], updated = [], unchanged = [];
+      const seenCodes = new Set();
+      allRows.forEach(r => {
+        const code = String(r['Contract No.'] || '').trim();
+        if (!code) return;
+        if (seenCodes.has(code)) return; // กัน duplicate ข้าม sheet
+        seenCodes.add(code);
+        const norm = normalize(r);
+        const ex = existingByCode[code];
+        if (!ex) {
+          newRows.push(norm);
+        } else {
+          // เปรียบเทียบ key fields — ถ้าต่างถือว่า updated
+          const watchFields = [
+            'Start','Finish','พื้นที่','มูลค่าสัญญาที่เซ็น','เซ็นสัญญา','ยกเลิกโครงการ',
+            'Receive Date','Receive Date2','Receive Date3',
+            'วันที่ส่งมอบงาน งวด 1','วันที่ส่งมอบงาน งวด 2','วันที่ส่งมอบงานงวด 3',
+            'Payment 1 Status','Payment 2 Status','Payment 3 Status',
+          ];
+          const changes = [];
+          watchFields.forEach(f => {
+            const oldV = ex[f] != null ? String(ex[f]).trim() : '';
+            const newV = norm[f] != null ? String(norm[f]).trim() : '';
+            if (oldV !== newV) changes.push({ field: f, oldV, newV });
+          });
+          if (changes.length > 0) updated.push({ code, name: norm['พื้นที่'] || '', changes, row: norm });
+          else unchanged.push({ code });
+        }
+      });
+      onParsed({ newRows, updated, unchanged, totalRead: seenCodes.size });
+    } catch (err) {
+      console.error(err); setError('อ่านไฟล์ไม่สำเร็จ: ' + (err.message || err));
+    } finally { setBusy(false); }
+  };
+
+  const onPick = (f) => { setFile(f); parseFile(f); };
+  const onDrop = (e) => { e.preventDefault(); setDrag(false); if (e.dataTransfer.files[0]) onPick(e.dataTransfer.files[0]); };
+
+  const confirm = () => {
+    if (!diff) return;
+    // build merged projects array: existing + new (เก็บข้อมูลโครงการเดิมไว้ + ปรับ updated)
+    const updatedById = {};
+    diff.updated.forEach(u => { updatedById[u.code] = u.row; });
+    const merged = existingProjects.map(p => {
+      const code = String(p['Contract No.'] || p.code || '').trim();
+      if (code && updatedById[code]) return { ...p, ...updatedById[code] };
+      return p;
+    });
+    diff.newRows.forEach(r => {
+      merged.push({ id: WTPData.newId(), ...r });
+    });
+    onConfirm(merged);
+  };
+
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0, zIndex: 50,
+      background: 'rgba(15,23,42,0.45)', display: 'grid', placeItems: 'center',
+      padding: 20,
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: 'white', borderRadius: 12, padding: 22,
+        maxWidth: 860, width: '100%', maxHeight: '90vh', overflow: 'auto',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 16 }}>อัปโหลดข้อมูลโครงการ (Project Control)</h3>
+            <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 3 }}>
+              ระบบจะรวมข้อมูลจาก sheet ที่ขึ้นต้นด้วย <code>Main all</code> ทุกปี · เปรียบเทียบกับ ฐาน DATA · แสดงโครงการใหม่ + ที่อัปเดต
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 0, fontSize: 18, cursor: 'pointer', color: '#64748b' }}>✕</button>
+        </div>
+
+        {!diff ? (
+          <div className={'pnl-dropzone' + (drag ? ' drag' : '') + (file ? ' has-file' : '')}
+            onClick={() => fileInputRef.current && fileInputRef.current.click()}
+            onDragEnter={(e) => { e.preventDefault(); setDrag(true); }}
+            onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+            onDragLeave={(e) => { e.preventDefault(); setDrag(false); }}
+            onDrop={onDrop}
+            style={{
+              border: '2px dashed ' + (drag ? '#2563eb' : '#cbd5e1'),
+              borderRadius: 12, padding: 30, textAlign: 'center', cursor: 'pointer',
+              background: drag ? '#eff6ff' : '#f8fafc',
+            }}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>📁</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>
+              {busy ? 'กำลังประมวลผล…' : file ? `เลือกไฟล์: ${file.name}` : <>ลากไฟล์มาวางที่นี่ หรือ <u>เลือกไฟล์</u></>}
+            </div>
+            <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 4 }}>
+              รองรับ .xlsx (Project Control 67-68-69)
+            </div>
+            <input ref={fileInputRef} type="file" accept=".xlsx,.xls" hidden
+              onChange={(e) => e.target.files[0] && onPick(e.target.files[0])} />
+            {error && <div style={{ marginTop: 10, color: '#dc2626', fontSize: 12 }}>{error}</div>}
+          </div>
+        ) : (
+          <DiffPreview diff={diff} onConfirm={confirm} onReset={() => { onParsed(null); setFile(null); }} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DiffPreview({ diff, onConfirm, onReset }) {
+  return (
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 16 }}>
+        {[
+          { label: 'อ่านได้รวม',    value: diff.totalRead, color: '#1e40af', bg: '#dbeafe' },
+          { label: 'เพิ่มใหม่',      value: diff.newRows.length, color: '#15803d', bg: '#dcfce7' },
+          { label: 'อัปเดต',         value: diff.updated.length, color: '#9a3412', bg: '#fef3c7' },
+          { label: 'ไม่เปลี่ยน',     value: diff.unchanged.length, color: '#475569', bg: '#f1f5f9' },
+        ].map((c, i) => (
+          <div key={i} style={{ padding: '10px 14px', background: c.bg, borderRadius: 8 }}>
+            <div style={{ fontSize: 10.5, color: c.color, fontWeight: 600 }}>{c.label}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: c.color }}>{c.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {diff.newRows.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <h4 style={{ margin: '0 0 8px', fontSize: 13, color: '#15803d' }}>
+            🆕 โครงการใหม่ ({diff.newRows.length})
+          </h4>
+          <div style={{ maxHeight: 180, overflowY: 'auto', border: '1px solid #bbf7d0', borderRadius: 8 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead style={{ background: '#f0fdf4', position: 'sticky', top: 0 }}>
+                <tr>
+                  <th style={{ padding: '6px 10px', textAlign: 'left', borderBottom: '1px solid #bbf7d0' }}>Contract No.</th>
+                  <th style={{ padding: '6px 10px', textAlign: 'left', borderBottom: '1px solid #bbf7d0' }}>พื้นที่</th>
+                  <th style={{ padding: '6px 10px', textAlign: 'left', borderBottom: '1px solid #bbf7d0' }}>จังหวัด</th>
+                  <th style={{ padding: '6px 10px', textAlign: 'left', borderBottom: '1px solid #bbf7d0' }}>Start</th>
+                </tr>
+              </thead>
+              <tbody>
+                {diff.newRows.map((r, i) => (
+                  <tr key={i} style={{ borderBottom: '1px solid #f0fdf4' }}>
+                    <td style={{ padding: '6px 10px', fontFamily: 'ui-monospace', fontWeight: 600 }}>{r['Contract No.']}</td>
+                    <td style={{ padding: '6px 10px' }}>{r['พื้นที่']}</td>
+                    <td style={{ padding: '6px 10px' }}>{r['Province']}</td>
+                    <td style={{ padding: '6px 10px' }}>{r['Start'] || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {diff.updated.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <h4 style={{ margin: '0 0 8px', fontSize: 13, color: '#9a3412' }}>
+            🔄 โครงการที่อัปเดต ({diff.updated.length})
+          </h4>
+          <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid #fde68a', borderRadius: 8 }}>
+            {diff.updated.map((u, i) => (
+              <div key={i} style={{ padding: 10, borderBottom: '1px solid #fef3c7' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                  <strong style={{ fontSize: 12, fontFamily: 'ui-monospace' }}>{u.code}</strong>
+                  <span style={{ fontSize: 11, color: '#475569' }}>{u.changes.length} field</span>
+                </div>
+                <div style={{ fontSize: 11, color: '#475569', marginBottom: 6 }}>{u.name}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  {u.changes.slice(0, 5).map((c, j) => (
+                    <div key={j} style={{ fontSize: 11 }}>
+                      <span style={{ color: '#475569', fontWeight: 600 }}>{c.field}:</span>
+                      <span style={{ color: '#94a3b8', textDecoration: 'line-through', marginLeft: 6 }}>{c.oldV || '—'}</span>
+                      <span style={{ color: '#16a34a', marginLeft: 6 }}>→ {c.newV || '—'}</span>
+                    </div>
+                  ))}
+                  {u.changes.length > 5 && <div style={{ fontSize: 10.5, color: '#94a3b8' }}>... และอีก {u.changes.length - 5} field</div>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
+        <button onClick={onReset} style={{
+          background: 'white', border: '1px solid #cbd5e1', color: '#475569',
+          borderRadius: 8, padding: '8px 14px', fontSize: 12, cursor: 'pointer', fontWeight: 600,
+        }}>ยกเลิก / เลือกไฟล์ใหม่</button>
+        <button onClick={onConfirm} disabled={diff.newRows.length === 0 && diff.updated.length === 0} style={{
+          background: '#2563eb', border: 0, color: 'white',
+          borderRadius: 8, padding: '8px 16px', fontSize: 12, cursor: 'pointer', fontWeight: 600,
+          opacity: diff.newRows.length === 0 && diff.updated.length === 0 ? 0.5 : 1,
+        }}>
+          ✓ ยืนยันการอัปเดต ({diff.newRows.length + diff.updated.length} รายการ)
+        </button>
+      </div>
     </div>
   );
 }
 
 // ─── Hero / Executive Summary ───────────────────────────────────────────────
-function ProjectsHero({ kpi, totalCount, filteredCount, onFullscreen }) {
+function ProjectsHero({ kpi, totalCount, filteredCount, onFullscreen, onUpload }) {
   return (
     <>
       {/* HERO BANNER */}
@@ -541,14 +818,26 @@ function ProjectsHero({ kpi, totalCount, filteredCount, onFullscreen }) {
             {filteredCount !== totalCount && <span> · กรองอยู่ {filteredCount}</span>}
           </div>
         </div>
-        <button onClick={onFullscreen} style={{
-          background: 'rgba(255,255,255,0.15)', color: 'white',
-          border: '1px solid rgba(255,255,255,0.25)', borderRadius: 8,
-          padding: '8px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-          display: 'inline-flex', alignItems: 'center', gap: 6,
-        }}>
-          <Icon name="expand" size={13} /> Full Screen
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {onUpload && (
+            <button onClick={onUpload} style={{
+              background: 'white', color: '#1e3a8a',
+              border: '1px solid rgba(255,255,255,0.5)', borderRadius: 8,
+              padding: '8px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+            }} title="นำเข้าไฟล์ Project Control (XLSX)">
+              <Icon name="upload" size={13} /> อัปโหลดข้อมูล
+            </button>
+          )}
+          <button onClick={onFullscreen} style={{
+            background: 'rgba(255,255,255,0.15)', color: 'white',
+            border: '1px solid rgba(255,255,255,0.25)', borderRadius: 8,
+            padding: '8px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+          }}>
+            <Icon name="expand" size={13} /> Full Screen
+          </button>
+        </div>
       </div>
 
       {/* Row 1: Status counts */}
@@ -564,6 +853,7 @@ function ProjectsHero({ kpi, totalCount, filteredCount, onFullscreen }) {
           { label: 'รอรับชำระ', value: kpi.byStatus.waiting_payment || 0, color: '#1e40af', bg: '#dbeafe' },
           { label: 'บางส่วน',   value: kpi.byStatus.partial_paid || 0,    color: '#155e75', bg: '#cffafe' },
           { label: 'ปิดแล้ว',   value: kpi.byStatus.closed || 0,          color: '#15803d', bg: '#dcfce7' },
+          { label: 'ยกเลิก',    value: kpi.byStatus.cancelled || 0,       color: '#7f1d1d', bg: '#fee2e2' },
         ].map((c, i) => (
           <div key={i} style={{
             background: c.bg, borderRadius: 10, padding: '10px 14px',
