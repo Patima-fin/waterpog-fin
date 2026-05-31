@@ -84,6 +84,11 @@ function saveLocalProjects(arr) {
 }
 
 function computeProjectStatus(p, projInvoices, projReceipts) {
+  // Manual override — ถ้าผู้ใช้เลือกสถานะเอง (จาก drawer) ใช้อันนั้นเลย
+  // ใช้สำหรับเคสที่ระบบเดาผิด เช่น auto detect ยกเลิกผิด หรือ logic จับไม่ครอบ
+  const manual = String((p && (p.manualStatus || p._manualStatus)) || '').trim();
+  if (manual && PROJ_STATUS[manual]) return manual;
+
   // ยกเลิกโครงการ — column Z "ยกเลิกโครงการ" = 1 (มาก่อนทุกสถานะ)
   if (getCancelFlag(p)) return 'cancelled';
 
@@ -1783,11 +1788,13 @@ function OverviewTab({ p, onSave }) {
 
   const [assgEdit, setAssgEdit] = pjState(false);
   const [customInput, setCustomInput] = pjState('');
+  const [statusEdit, setStatusEdit] = pjState(false);
   const currentAssg = p['ผู้รับโอนสิทธิ์'] || p.assignee || '';
   const allOptions = Array.from(new Set([...ASSIGNEE_OPTIONS, currentAssg].filter(Boolean)));
+  const manualStatus = String(p.manualStatus || p._manualStatus || '').trim();
 
   const handleSelect = (val) => {
-    if (val === '__custom__') return; // custom input shown
+    if (val === '__custom__') return;
     onSave({ 'ผู้รับโอนสิทธิ์': val });
     setAssgEdit(false);
   };
@@ -1796,9 +1803,82 @@ function OverviewTab({ p, onSave }) {
     onSave({ 'ผู้รับโอนสิทธิ์': customInput.trim() });
     setCustomInput(''); setAssgEdit(false);
   };
+  const setStatus = (s) => {
+    onSave({ manualStatus: s || '' });
+    setStatusEdit(false);
+  };
 
   return (
     <div>
+      {/* Status editor — manual override สถานะโครงการ */}
+      <div style={{
+        padding: 12, background: manualStatus ? '#dbeafe' : '#f1f5f9', borderRadius: 8, marginBottom: 10,
+        border: '1px solid ' + (manualStatus ? '#93c5fd' : '#cbd5e1'),
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <div style={{ fontSize: 11, color: manualStatus ? '#1e40af' : '#475569', fontWeight: 600 }}>
+            📌 สถานะโครงการ {manualStatus
+              ? <span style={{ fontSize: 10, fontWeight: 500, marginLeft: 4 }}>(ผู้ใช้กำหนดเอง)</span>
+              : <span style={{ fontSize: 10, fontWeight: 500, marginLeft: 4 }}>(คำนวณอัตโนมัติ)</span>}
+          </div>
+          {!statusEdit && (
+            <button onClick={() => setStatusEdit(true)} style={{
+              background: 'white', border: '1px solid ' + (manualStatus ? '#3b82f6' : '#94a3b8'),
+              color: manualStatus ? '#1e40af' : '#475569',
+              borderRadius: 6, padding: '3px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+            }}>✏️ แก้ไข</button>
+          )}
+        </div>
+        {!statusEdit ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <StatusPill status={p._status} />
+            {manualStatus && (
+              <span style={{ fontSize: 10.5, color: '#64748b' }}>
+                · auto จะเป็น "<em>{(PROJ_STATUS[(() => {
+                  // คำนวณ auto status โดยปิด manual override ชั่วคราว
+                  const tmp = { ...p, manualStatus: '', _manualStatus: '' };
+                  return computeProjectStatus(tmp, p._invoices || [], p._receipts || []);
+                })()] || {}).label}</em>"
+              </span>
+            )}
+          </div>
+        ) : (
+          <div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
+              {Object.keys(PROJ_STATUS).map(s => {
+                const meta = PROJ_STATUS[s];
+                const active = manualStatus === s;
+                return (
+                  <button key={s} onClick={() => setStatus(s)} style={{
+                    background: active ? meta.dot : meta.bg,
+                    color: active ? 'white' : meta.color,
+                    border: '1px solid ' + meta.dot + (active ? '' : '40'),
+                    borderRadius: 14, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                  }}>
+                    <span style={{
+                      width: 6, height: 6, borderRadius: 99,
+                      background: active ? 'white' : meta.dot,
+                    }} />
+                    {meta.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button onClick={() => setStatus('')} style={{
+                background: '#fef2f2', border: '1px solid #fca5a5', color: '#b91c1c',
+                borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+              }}>↺ คืนสู่ auto</button>
+              <button onClick={() => setStatusEdit(false)} style={{
+                background: 'transparent', border: 0, color: '#64748b', fontSize: 12, cursor: 'pointer',
+                marginLeft: 'auto',
+              }}>ปิด</button>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Assignee editor — เด่นที่ด้านบน */}
       <div style={{
         padding: 12, background: '#fef3c7', borderRadius: 8, marginBottom: 14,
