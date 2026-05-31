@@ -155,10 +155,14 @@ function enrichProjects(projects, allInvoices, allReceipts) {
     const projReceipts = [].concat(rcByCode[cleanCode] || [], rcByCode[code] || [])
       .filter((r, i, arr) => arr.findIndex(x => x.id === r.id) === i);
 
-    // มูลค่าสัญญา — ใช้ "รวม VAT" ก่อน (ตามที่บัญชีคิด & ที่ invoice/receipt ใช้)
-    // fall back เป็นค่า "ไม่รวม VAT" หรือ signedValue
-    const contractValue = toNum(get('มูลค่าสัญญาที่เซ็น (รวมVAT)', 'มูลค่าสัญญาที่เซ็น (รวม VAT)', 'มูลค่าสัญญาที่เซ็น', 'signedValue'));
+    // มูลค่าสัญญา — แสดงเป็น "รวม VAT" เสมอ (ตามที่บัญชีคิด & ที่ invoice/receipt ใช้)
+    //   1) ถ้ามีคอลัมน์ "มูลค่าสัญญาที่เซ็น (รวมVAT)" ใช้เลยนั้นเลย
+    //   2) ถ้า cloud sheet ไม่มีคอลัมน์นั้น (ปัจจุบันเก็บเฉพาะค่าก่อน VAT)
+    //      → คูณ 1.07 ให้อัตโนมัติ ทำให้เลขถูกแม้ไม่อัปโหลดใหม่
     const contractValueNoVAT = toNum(get('มูลค่าสัญญาที่เซ็น', 'signedValue'));
+    const _vatInclRaw = toNum(get('มูลค่าสัญญาที่เซ็น (รวมVAT)', 'มูลค่าสัญญาที่เซ็น (รวม VAT)'));
+    const contractValue = _vatInclRaw > 0 ? _vatInclRaw
+                        : (contractValueNoVAT > 0 ? Math.round(contractValueNoVAT * 1.07 * 100) / 100 : 0);
     const progressPct = (() => {
       const v = get('% Progress', '%Progress', 'percent_progress');
       if (v === '' || v == null) return null;
