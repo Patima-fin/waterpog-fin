@@ -1580,65 +1580,96 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
 
         {/* Drawdown/repayment events */}
         {myEvents.length > 0 && (
-          <div style={{ marginBottom: 14 }}>
-            <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--brand-700)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-              <Icon name="invoice" size={11} style={{ verticalAlign: 'middle' }} /> รายการรับ/คืนเงินกู้ ({myEvents.length} events)
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <Icon name="invoice" size={14} style={{ color: 'var(--brand-600)' }} />
+              <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink-800, #1e293b)' }}>รายการรับ/คืนเงินกู้</span>
+              <span style={{ background: 'var(--brand-50, #eff6ff)', color: 'var(--brand-700)', borderRadius: 20, padding: '1px 9px', fontSize: 11, fontWeight: 700 }}>
+                {myEvents.length} รายการ
+              </span>
+              <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--ink-500)' }}>
+                คืนแล้ว <strong style={{ color: 'var(--good)', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(principalOut, 0)}</strong>
+                <span style={{ color: 'var(--ink-300)', margin: '0 6px' }}>·</span>
+                คงเหลือ <strong style={{ fontVariantNumeric: 'tabular-nums', color: masterBalance(master) > 0 ? 'var(--bad)' : 'var(--good)' }}>{fmtNum(masterBalance(master), 0)}</strong>
+              </span>
             </div>
-            <div style={{ borderRadius: 8, border: '1px solid var(--ink-100)', overflow: 'hidden', maxWidth: 700 }}>
-              <div style={{ maxHeight: myEvents.length > 6 ? 196 : 'none', overflowY: 'auto' }}>
-              <table className="tbl tbl-compact" style={{ width: '100%', fontSize: 11 }}>
-                <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}><tr>
-                  <th style={{ width: 84 }}>วันที่</th>
-                  <th style={{ width: 64 }}>ประเภท</th>
-                  <th style={{ textAlign: 'right', width: 118 }}>จำนวนเงิน</th>
-                  <th style={{ textAlign: 'right', width: 122 }}>คงเหลือเงินต้น</th>
-                  <th>หมายเหตุ</th>
-                  {canEdit && <th style={{ width: 60, textAlign: 'center' }}></th>}
-                </tr></thead>
-                <tbody>
-                  {eventsWithBal.map(({ ev: e, balAfter }, ei) => {
-                    const isRepay = e.eventType === 'repayment';
-                    return (
-                    <tr key={(e.id || '') + '|' + ei}>
-                      <td style={{ whiteSpace: 'nowrap', borderLeft: `3px solid ${isRepay ? '#86efac' : '#fcd34d'}` }}>{fmtDate(e.eventDate)}</td>
-                      <td style={{ fontSize: 10.5, color: isRepay ? 'var(--good)' : '#9a3412', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                        {isRepay ? 'คืนเงิน' : 'รับเงิน'}
-                      </td>
-                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600,
-                                   color: isRepay ? 'var(--good)' : '#9a3412', whiteSpace: 'nowrap' }}>
-                        {isRepay ? '−' : '+'}{fmtNum(Number(e.amount), 0)}
-                      </td>
-                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--ink-500)', whiteSpace: 'nowrap' }}>
-                        {fmtNum(balAfter, 0)}
-                      </td>
-                      <td style={{ fontSize: 10.5, color: 'var(--ink-400)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }} title={e.note || ''}>{e.note || ''}</td>
-                      {canEdit && (
-                        <td style={{ textAlign: 'center', padding: '2px 4px' }}>
-                          <div style={{ display: 'inline-flex', gap: 4 }}>
-                            <button onClick={() => setEvtModal({ kind: e.eventType, event: e })}
-                              title="แก้ไขรายการนี้"
-                              style={{ fontSize: 10, padding: '2px 7px', borderRadius: 12, cursor: 'pointer',
-                                       border: '1px solid #fcd34d', background: '#fffbeb', color: '#92400e' }}>
-                              <Icon name="edit" size={9} />
-                            </button>
-                            <button onClick={() => {
-                                if (confirm(`ลบรายการ ${e.eventType === 'repayment' ? 'คืนเงิน' : 'รับเงินกู้'} ${fmtNum(Number(e.amount), 0)} ฿ วันที่ ${fmtDate(e.eventDate)}?\nระบบจะคำนวณยอดคงเหลือเงินต้นใหม่ให้`)) {
-                                  onDeleteEvent && onDeleteEvent(e.id, master);
-                                }
-                              }}
-                              title="ลบรายการนี้"
-                              style={{ fontSize: 10, padding: '2px 7px', borderRadius: 12, cursor: 'pointer',
-                                       border: '1px solid #fca5a5', background: '#fef2f2', color: '#991b1b' }}>
-                              🗑
-                            </button>
-                          </div>
-                        </td>
-                      )}
+            <div style={{ borderRadius: 12, border: '1px solid var(--line, #e2e8f0)', overflow: 'hidden', boxShadow: '0 1px 2px rgba(16,24,40,0.04)' }}>
+              <div style={{ maxHeight: myEvents.length > 8 ? 300 : 'none', overflowY: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: 'var(--ink-50, #f8fafc)' }}>
+                      {['วันที่', 'ประเภท', 'จำนวนเงิน', 'คงเหลือเงินต้น', 'หมายเหตุ'].map((h, hi) => (
+                        <th key={h} style={{
+                          textAlign: hi >= 2 && hi <= 3 ? 'right' : 'left',
+                          padding: '9px 16px', fontSize: 10, fontWeight: 700, color: 'var(--ink-400)',
+                          textTransform: 'uppercase', letterSpacing: 0.5, whiteSpace: 'nowrap',
+                          borderBottom: '1px solid var(--line, #e2e8f0)',
+                        }}>{h}</th>
+                      ))}
+                      {canEdit && <th style={{ width: 78, borderBottom: '1px solid var(--line, #e2e8f0)' }} />}
                     </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {eventsWithBal.map(({ ev: e, balAfter }, ei) => {
+                      const isRepay = e.eventType === 'repayment';
+                      const pct = principalIn ? Math.max(0, Math.min(100, balAfter / principalIn * 100)) : 0;
+                      const accent = isRepay ? '#10b981' : '#f59e0b';
+                      return (
+                        <tr key={(e.id || '') + '|' + ei} style={{ borderTop: ei === 0 ? 'none' : '1px solid var(--ink-50, #f1f5f9)' }}>
+                          <td style={{ padding: '10px 16px', whiteSpace: 'nowrap', color: 'var(--ink-600)', fontVariantNumeric: 'tabular-nums' }}>
+                            {fmtDate(e.eventDate)}
+                          </td>
+                          <td style={{ padding: '10px 16px' }}>
+                            <span style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 20,
+                              fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap',
+                              background: isRepay ? '#ecfdf5' : '#fffbeb', color: isRepay ? '#047857' : '#92400e',
+                              border: `1px solid ${isRepay ? '#a7f3d0' : '#fde68a'}`,
+                            }}>
+                              <span style={{ fontSize: 9 }}>{isRepay ? '▼' : '▲'}</span>
+                              {isRepay ? 'คืนเงินต้น' : 'เบิกเพิ่ม'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '10px 16px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700,
+                                       fontSize: 13, color: isRepay ? 'var(--good)' : '#b45309', whiteSpace: 'nowrap' }}>
+                            {isRepay ? '−' : '+'}{fmtNum(Number(e.amount), 0)}
+                          </td>
+                          <td style={{ padding: '10px 16px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                              <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: 'var(--ink-700)' }}>{fmtNum(balAfter, 0)}</span>
+                              <div style={{ width: 96, height: 4, borderRadius: 3, background: 'var(--ink-100, #e2e8f0)', overflow: 'hidden' }}>
+                                <div style={{ height: '100%', width: pct + '%', background: accent, borderRadius: 3, transition: 'width .2s' }} />
+                              </div>
+                            </div>
+                          </td>
+                          <td style={{ padding: '10px 16px', color: 'var(--ink-400)', fontSize: 11.5, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={e.note || ''}>
+                            {e.note || '—'}
+                          </td>
+                          {canEdit && (
+                            <td style={{ padding: '8px 12px', whiteSpace: 'nowrap', textAlign: 'right' }}>
+                              <button onClick={() => setEvtModal({ kind: e.eventType, event: e })}
+                                title="แก้ไขรายการนี้"
+                                style={{ display: 'inline-flex', padding: 6, borderRadius: 7, cursor: 'pointer', marginRight: 4,
+                                         border: '1px solid var(--line, #e2e8f0)', background: '#fff', color: 'var(--ink-500)' }}>
+                                <Icon name="edit" size={12} />
+                              </button>
+                              <button onClick={() => {
+                                  if (confirm(`ลบรายการ ${isRepay ? 'คืนเงินต้น' : 'เบิกเพิ่ม'} ${fmtNum(Number(e.amount), 0)} ฿ วันที่ ${fmtDate(e.eventDate)}?\nระบบจะคำนวณยอดคงเหลือเงินต้นใหม่ให้`)) {
+                                    onDeleteEvent && onDeleteEvent(e.id, master);
+                                  }
+                                }}
+                                title="ลบรายการนี้"
+                                style={{ display: 'inline-flex', padding: 6, borderRadius: 7, cursor: 'pointer',
+                                         border: '1px solid #fecaca', background: '#fff', color: '#dc2626' }}>
+                                <Icon name="trash" size={12} />
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
