@@ -177,6 +177,11 @@ function recalcBalance(master, events) {
   return Math.max(0, (Number(master.principalAmount) || 0) + inSum - outSum);
 }
 
+// ยอดคงเหลือเงินต้นที่ใช้แสดง — มอง balance = 0 เป็นค่าที่ใช้ได้ (อย่าเด้งไป principalAmount)
+function masterBalance(m) {
+  return (m.balance != null && m.balance !== '') ? (Number(m.balance) || 0) : (Number(m.principalAmount) || 0);
+}
+
 // ── Auto interest schedule (Phase A — read-only เทียบกับของเดิม) ─────────────
 // คำนวณตารางดอกเบี้ยรายเดือนสดจาก สัญญา + events ตาม config การคิดวันต่อสัญญา
 const _dayMs = 86400000;
@@ -513,7 +518,7 @@ function PrincipalEventModal({ open, kind, master, editEvent, onClose, onSave })
   if (!open || !master) return null;
   const isRepay  = kind === 'repayment';
   // โหมดแก้ไข: ยอดคงเหลือ "ก่อน" ต้องหักผลของรายการนี้ออกก่อน (เพราะมันถูกรวมอยู่แล้ว)
-  const curBal   = Number(master.balance || master.principalAmount) || 0;
+  const curBal   = masterBalance(master);
   const balance  = isEdit
     ? Math.max(0, curBal + (editEvent.eventType === 'repayment' ? 1 : -1) * (Number(editEvent.amount) || 0))
     : curBal;
@@ -628,7 +633,7 @@ function RolloverModal({ open, master, onClose, onSave }) {
     setCloseDate(new Date().toISOString().slice(0, 10));
     setReason('');
     // Seed from master
-    const bal = Number(master.balance || master.principalAmount) || 0;
+    const bal = masterBalance(master);
     const today = new Date().toISOString().slice(0, 10);
     setNewContracts([{
       contractNo:    (master.contractNo || '') + '-N',
@@ -652,7 +657,7 @@ function RolloverModal({ open, master, onClose, onSave }) {
   // When user changes mode, reset newContracts appropriately
   const changeMode = (newMode) => {
     if (!master) return;
-    const bal = Number(master.balance || master.principalAmount) || 0;
+    const bal = masterBalance(master);
     const today = new Date().toISOString().slice(0, 10);
     const oldFacility = master.facilityType || '';
     const base = {
@@ -706,7 +711,7 @@ function RolloverModal({ open, master, onClose, onSave }) {
   };
 
   if (!open || !master) return null;
-  const oldBalance = Number(master.balance || master.principalAmount) || 0;
+  const oldBalance = masterBalance(master);
   const sumNew = newContracts.reduce((s, c) => s + (Number(c.principalAmount) || 0), 0);
   const diff = sumNew - oldBalance;
   const tooMuch = diff > 0.01;
@@ -1074,7 +1079,18 @@ function useDebtContractActions(setData, toast) {
         }
         const mNow = (d.debtMaster || []).find(m => m.id === master.id) || master;
         const newBal = recalcBalance(mNow, events);
-        const sched = buildAutoSchedule({ ...mNow, balance: newBal }, events, today, cfg); // ไม่ใส่ endCap → ถึงปัจจุบัน
+        // วันจบ: Active → ไม่ cap (เดินถึงเดือนปัจจุบัน) · Close → maturity/closedDate/วันคืนล่าสุด/สิ้นเดือนแถวสุดท้าย
+        let cap = null;
+        if (mNow.status !== 'Active') {
+          const evDates = events
+            .filter(e => e.contractId === master.id || e.contractNo === master.contractNo)
+            .map(e => e.eventDate).filter(Boolean).sort();
+          const lastRow = (ledgerRows || []).slice().sort((a, b) =>
+            (Number(a.year) || 0) - (Number(b.year) || 0) || (Number(a.month) || 0) - (Number(b.month) || 0)).pop();
+          const lastRowEnd = lastRow ? _monthEndStr(`${lastRow.year}-${String(lastRow.month).padStart(2, '0')}-01`) : null;
+          cap = mNow.maturityDate || mNow.closedDate || (evDates.length ? evDates[evDates.length - 1] : null) || lastRowEnd;
+        }
+        const sched = buildAutoSchedule({ ...mNow, balance: newBal }, events, today, { method: cfg.method, dayCount: cfg.dayCount, endCap: cap });
         // SAFETY: ถ้าคำนวณไม่ได้/ไม่มีแถว → ยกเลิก ไม่แตะข้อมูลเดิม (กันตารางหาย)
         if (sched.error || !sched.rows.length) { msg = 'ERR:' + (sched.error || 'ไม่มีงวดที่คำนวณได้'); updated = null; return d; }
         // เก็บสถานะจ่าย/override เดิมรายเดือน (แถว interest จริง — ไม่เอา marker)
@@ -1493,8 +1509,8 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
           <div>
             <div style={{ fontSize: 10.5, color: 'var(--ink-500)', textTransform: 'uppercase', letterSpacing: 0.5 }}>คงเหลือเงินต้น</div>
             <div style={{ fontWeight: 700, fontSize: 17, fontVariantNumeric: 'tabular-nums',
-                          color: (Number(master.balance || master.principalAmount) || 0) > 0 ? 'var(--bad)' : 'var(--ink-300)' }}>
-              {fmtNum(Number(master.balance || master.principalAmount) || 0, 0)}
+                          color: (masterBalance(master)) > 0 ? 'var(--bad)' : 'var(--ink-300)' }}>
+              {fmtNum(masterBalance(master), 0)}
             </div>
           </div>
           <div>
@@ -1568,35 +1584,36 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
             <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--brand-700)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
               <Icon name="invoice" size={11} style={{ verticalAlign: 'middle' }} /> รายการรับ/คืนเงินกู้ ({myEvents.length} events)
             </div>
-            <div style={{ borderRadius: 8, border: '1px solid var(--ink-100)', overflow: 'hidden' }}>
-              <table className="tbl" style={{ width: '100%', fontSize: 11.5 }}>
-                <thead><tr>
-                  <th style={{ width: 100 }}>วันที่</th>
-                  <th style={{ width: 110 }}>ประเภท</th>
-                  <th style={{ textAlign: 'right', width: 140 }}>จำนวนเงิน</th>
-                  <th style={{ textAlign: 'right', width: 150 }}>คงเหลือเงินต้น</th>
+            <div style={{ borderRadius: 8, border: '1px solid var(--ink-100)', overflow: 'hidden', maxWidth: 700 }}>
+              <div style={{ maxHeight: myEvents.length > 6 ? 196 : 'none', overflowY: 'auto' }}>
+              <table className="tbl tbl-compact" style={{ width: '100%', fontSize: 11 }}>
+                <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}><tr>
+                  <th style={{ width: 84 }}>วันที่</th>
+                  <th style={{ width: 64 }}>ประเภท</th>
+                  <th style={{ textAlign: 'right', width: 118 }}>จำนวนเงิน</th>
+                  <th style={{ textAlign: 'right', width: 122 }}>คงเหลือเงินต้น</th>
                   <th>หมายเหตุ</th>
-                  {canEdit && <th style={{ width: 80, textAlign: 'center' }}>แก้ไข</th>}
+                  {canEdit && <th style={{ width: 60, textAlign: 'center' }}></th>}
                 </tr></thead>
                 <tbody>
-                  {eventsWithBal.map(({ ev: e, balAfter }, ei) => (
-                    <tr key={(e.id || '') + '|' + ei} style={{ background: e.eventType === 'repayment' ? '#f0fdf4' : '#fff7ed' }}>
-                      <td>{fmtDate(e.eventDate)}</td>
-                      <td>
-                        <Badge kind={e.eventType === 'repayment' ? 'b-green' : 'b-amber'} dot={false}>
-                          {e.eventType === 'repayment' ? 'คืนเงิน' : 'รับเงินกู้'}
-                        </Badge>
+                  {eventsWithBal.map(({ ev: e, balAfter }, ei) => {
+                    const isRepay = e.eventType === 'repayment';
+                    return (
+                    <tr key={(e.id || '') + '|' + ei}>
+                      <td style={{ whiteSpace: 'nowrap', borderLeft: `3px solid ${isRepay ? '#86efac' : '#fcd34d'}` }}>{fmtDate(e.eventDate)}</td>
+                      <td style={{ fontSize: 10.5, color: isRepay ? 'var(--good)' : '#9a3412', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                        {isRepay ? 'คืนเงิน' : 'รับเงิน'}
                       </td>
                       <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600,
-                                   color: e.eventType === 'repayment' ? 'var(--good)' : '#9a3412' }}>
-                        {e.eventType === 'repayment' ? '−' : '+'}{fmtNum(Number(e.amount), 0)}
+                                   color: isRepay ? 'var(--good)' : '#9a3412', whiteSpace: 'nowrap' }}>
+                        {isRepay ? '−' : '+'}{fmtNum(Number(e.amount), 0)}
                       </td>
-                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--ink-600)' }}>
+                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--ink-500)', whiteSpace: 'nowrap' }}>
                         {fmtNum(balAfter, 0)}
                       </td>
-                      <td style={{ fontSize: 11, color: 'var(--ink-500)' }}>{e.note || ''}</td>
+                      <td style={{ fontSize: 10.5, color: 'var(--ink-400)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }} title={e.note || ''}>{e.note || ''}</td>
                       {canEdit && (
-                        <td style={{ textAlign: 'center', padding: '4px 6px' }}>
+                        <td style={{ textAlign: 'center', padding: '2px 4px' }}>
                           <div style={{ display: 'inline-flex', gap: 4 }}>
                             <button onClick={() => setEvtModal({ kind: e.eventType, event: e })}
                               title="แก้ไขรายการนี้"
@@ -1618,9 +1635,11 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
                         </td>
                       )}
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
+              </div>
             </div>
           </div>
         )}
@@ -1881,27 +1900,14 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
                         </tbody>
                       </table>
                     </div>
-                    {canEdit && (
-                      <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--ink-100)', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                        <button
-                          disabled={!matched}
-                          onClick={() => {
-                            const extraMsg = extracted.length ? `\n• นำเข้าคืนเงินต้น ${extracted.length} รายการจากตารางเดิมเข้า "รายการรับ/คืนเงินกู้"` : '';
-                            if (confirm(`เปิดใช้คำนวณอัตโนมัติสำหรับสัญญานี้?\n\n• วิธีคิด: ${cmpMethod} · ${cmpDayCount === 'exclude_end' ? 'ไม่นับวันคืน' : 'นับวันคืนด้วย'}\n• แทนที่ตารางดอกเบี้ยเดิมด้วยแบบคำนวณ (เดือนใหม่จะคิดต่อให้อัตโนมัติ)\n• คงสถานะจ่าย/override เดิมไว้${extraMsg}`)) {
-                              onAdoptAuto && onAdoptAuto(master, sortedRows, { method: cmpMethod, dayCount: cmpDayCount });
-                            }
-                          }}
-                          style={{ padding: '7px 16px', borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: matched ? 'pointer' : 'not-allowed',
-                                   border: 'none', background: matched ? 'var(--good)' : 'var(--ink-200)', color: matched ? '#fff' : 'var(--ink-400)' }}>
-                          ✓ ใช้แบบอัตโนมัติจากนี้ไป
-                        </button>
-                        <span style={{ fontSize: 11, color: 'var(--ink-400)' }}>
-                          {matched
-                            ? 'เลขตรงของเดิมแล้ว — เปิด auto ได้ปลอดภัย'
-                            : 'ปรับ "วิธีคิด" จนผลต่าง = ✓ ตรงกัน ก่อนถึงจะกดได้ (ส่วนต่างเล็กน้อยใช้ปุ่มแก้ดอกเบี้ยรายเดือนปรับได้)'}
-                        </span>
+                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--ink-100)', fontSize: 11.5, color: 'var(--ink-500)', lineHeight: 1.7 }}>
+                      {matched
+                        ? <><strong style={{ color: 'var(--good)' }}>✓ วิธีคิดนี้ตรงกับข้อมูลเดิม</strong> — ตารางนี้พร้อมสลับเป็น "คำนวณอัตโนมัติ"</>
+                        : <>ปรับ "วิธีคิด" จนผลต่าง = <strong style={{ color: 'var(--good)' }}>✓ ตรงกัน</strong> (ส่วนต่างเล็กน้อยใช้ปุ่มแก้ดอกเบี้ยรายเดือนปรับได้)</>}
+                      <div style={{ marginTop: 4, color: 'var(--ink-400)' }}>
+                        🔒 ปุ่ม "ใช้แบบอัตโนมัติจริง" ปิดไว้ชั่วคราว — จะเปิดพร้อมการย้ายฐานข้อมูลออกจาก Google Sheets (ตอนนี้ตาราง = Sheets เป็นเจ้าของ เขียนทับแล้วไม่ติด)
                       </div>
-                    )}
+                    </div>
                   </>
                 )}
               </div>
