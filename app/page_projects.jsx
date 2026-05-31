@@ -783,12 +783,14 @@ function UploadModal({ existingProjects, onClose, onParsed, diff, onConfirm }) {
       const seenCodes = new Set();
       let cancelledCount = 0;
       let ghostCount = 0;
-      // helper: สร้าง synthetic code จากชื่อโครงการ (สำหรับยกเลิกที่ไม่มี Contract No.)
-      const syntheticCode = (name) => {
+      // helper: สร้าง synthetic code — รวมปีงบฯ (Main all67/68/69) กันชื่อชนข้ามปี
+      // ชื่อโครงการเดียวกันคนละงบ = คนละโครงการจริง ต้องแยก code
+      const syntheticCode = (sheet, name) => {
         const s = String(name || '').trim();
         if (!s) return '';
-        // ย่อชื่อ + ตัด whitespace + จำกัด 40 chars เพื่อกัน collision
-        return 'XL-' + s.replace(/\s+/g, '_').slice(0, 40);
+        const m = String(sheet || '').match(/Main\s*all(\d+)/i);
+        const yr = m ? m[1] : 'XX';
+        return 'XL-' + yr + '-' + s.replace(/\s+/g, '_').slice(0, 36);
       };
       allRows.forEach(r => {
         let code = String(r['Contract No.'] || '').trim();
@@ -796,7 +798,7 @@ function UploadModal({ existingProjects, onClose, onParsed, diff, onConfirm }) {
         const name = String(r['พื้นที่'] || '').trim();
         // ถ้าไม่มี Contract No. แต่เป็นโครงการยกเลิกและมีชื่อ → ใช้ชื่อสร้าง synthetic code
         if (!code) {
-          if (isCancelled && name) code = syntheticCode(name);
+          if (isCancelled && name) code = syntheticCode(r._sheet, name);
           else return; // skip rows without code + not cancelled
         }
         if (seenCodes.has(code)) return; // กัน duplicate ข้าม sheet
@@ -965,7 +967,12 @@ function MigrationModal({ existingProjects, onClose }) {
         if (m) maxIdNum = Math.max(maxIdNum, Number(m[1]));
       });
 
-      const syntheticCode = (name) => 'XL-' + String(name || '').trim().replace(/\s+/g, '_').slice(0, 40);
+      // synthetic code: รวมปีงบฯ (Main all67/68/69) — ชื่อเดียวกันคนละงบ = คนละโครงการ
+      const syntheticCode = (sheet, name) => {
+        const m = String(sheet || '').match(/Main\s*all(\d+)/i);
+        const yr = m ? m[1] : 'XX';
+        return 'XL-' + yr + '-' + String(name || '').trim().replace(/\s+/g, '_').slice(0, 36);
+      };
       const isoDate = (v) => {
         if (!v) return '';
         if (v instanceof Date) return v.toISOString().slice(0, 10);
@@ -994,7 +1001,7 @@ function MigrationModal({ existingProjects, onClose }) {
         const isCancelled = getCancelFlag(r);
         const name = String(r['พื้นที่'] || '').trim();
         if (!code) {
-          if (isCancelled && name) code = syntheticCode(name);
+          if (isCancelled && name) code = syntheticCode(r._sheet, name);
           else return;
         }
         if (isGhostRow(r)) { ghostCount++; return; }
