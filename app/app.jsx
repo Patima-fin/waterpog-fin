@@ -232,6 +232,16 @@ function App() {
   const closeSb = () => setSbOpen(false);
   const openSb  = () => setSbOpen(true);
 
+  // Desktop sidebar collapse state — true = ย่อเหลือเฉพาะไอคอน (persist ใน localStorage)
+  const [sbCollapsed, setSbCollapsed] = aState(() => {
+    try { return localStorage.getItem('wtp-sb-collapsed') === '1'; } catch (_) { return false; }
+  });
+  const toggleCollapse = () => setSbCollapsed(c => {
+    const next = !c;
+    try { localStorage.setItem('wtp-sb-collapsed', next ? '1' : '0'); } catch (_) {}
+    return next;
+  });
+
   // Auto-close drawer when route changes (after tapping a nav item)
   aEffect(() => { setSbOpen(false); }, [route]);
 
@@ -356,8 +366,8 @@ function App() {
   }
 
   return (
-    <div className="app">
-      <Sidebar route={route} go={go} routes={routes} data={data} sidebarStyle={tweaks.sidebarStyle} syncInfo={syncInfo} currentUser={currentUser} onLogout={handleLogout} isOpen={sbOpen} onClose={closeSb} />
+    <div className={`app ${sbCollapsed ? 'sb-collapsed' : ''}`}>
+      <Sidebar route={route} go={go} routes={routes} data={data} sidebarStyle={tweaks.sidebarStyle} syncInfo={syncInfo} currentUser={currentUser} onLogout={handleLogout} isOpen={sbOpen} onClose={closeSb} collapsed={sbCollapsed} onToggleCollapse={toggleCollapse} />
       <div className={`sb-scrim ${sbOpen ? 'is-open' : ''}`} onClick={closeSb} aria-hidden="true" />
       <div className="main">
         <Topbar route={route} routes={routes} data={data} onReset={resetDemo} onMenuClick={openSb} />
@@ -400,7 +410,7 @@ function App() {
   );
 }
 
-function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, currentUser, onLogout, isOpen, onClose }) {
+function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, currentUser, onLogout, isOpen, onClose, collapsed = false, onToggleCollapse }) {
   const [sec, setSec] = aState({ dash: true, reports: true, manage: true, system: true });
   const tog = k => setSec(p => ({ ...p, [k]: !p[k] }));
 
@@ -512,18 +522,33 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
   const navItems = (items) => items
     .filter(([key]) => window.WTPAuth ? window.WTPAuth.canViewPage(key) : true)
     .map(([key, label, icon]) => (
-      <button key={key} className={`sb-link ${route === key ? 'active' : ''}`} onClick={() => go(key)}>
+      <button key={key} className={`sb-link ${route === key ? 'active' : ''}`} onClick={() => go(key)} title={collapsed ? label : undefined}>
         <Icon name={icon} className="sb-icon" />
-        <span>{label}</span>
+        <span className="sb-link-label">{label}</span>
         {counts[key] != null && <span className="sb-pill">{counts[key]}</span>}
       </button>
     ));
 
   return (
-    <aside className={`sb ${isOpen ? 'is-open' : ''}`}>
+    <aside className={`sb ${isOpen ? 'is-open' : ''} ${collapsed ? 'is-collapsed' : ''}`}>
       <div className="sb-brand" style={{ position: 'relative' }}>
         <img src="waterpog_Logo-02.png" alt="Water POG" className="sb-logo-img" />
         <div className="sb-brand-sub" style={{ marginTop: 2 }}>Financial Console</div>
+
+        {/* Collapse toggle — desktop only (hidden on mobile drawer via CSS) */}
+        {onToggleCollapse && (
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            aria-label={collapsed ? 'ขยายเมนู' : 'ย่อเมนู'}
+            title={collapsed ? 'ขยายเมนู' : 'ย่อเมนู'}
+            className="sb-collapse-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
+              style={{ transform: collapsed ? 'rotate(180deg)' : 'none', transition: 'transform 200ms ease' }}>
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+          </button>
+        )}
         {/* Close button — only visible on mobile drawer */}
         {onClose && (
           <button
@@ -550,7 +575,7 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
           <div className="sb-section" style={secHdrStyle} onClick={() => tog('dash')}>
             <span>แดชบอร์ด</span>{chevron(sec.dash)}
           </div>
-          {sec.dash && navItems([
+          {(sec.dash || collapsed) && navItems([
             ['daily',    'รายงานรับเงินรายวัน',    'daily'],
             ['warroom1', 'War Room · รายรับ',       'receivables'],
             ['warroom2', 'War Room · รายปี',        'forecast'],
@@ -562,7 +587,7 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
           <div className="sb-section" style={secHdrStyle} onClick={() => tog('reports')}>
             <span>รายงาน / วิเคราะห์</span>{chevron(sec.reports)}
           </div>
-          {sec.reports && navItems([
+          {(sec.reports || collapsed) && navItems([
             ['debt',          'ภาระหนี้ทั้งหมด',       'money'],
             ['debt_ledger',   'Debt Ledger · ดอกเบี้ย','money'],
             ['iv_report',     'รายงานติดตาม IV',       'invoice'],
@@ -580,7 +605,7 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
           <div className="sb-section" style={secHdrStyle} onClick={() => tog('manage')}>
             <span>จัดการข้อมูล</span>{chevron(sec.manage)}
           </div>
-          {sec.manage && navItems([
+          {(sec.manage || collapsed) && navItems([
             ['projects',      'โครงการ',          'projects'],
             ['invoices',      'ลูกหนี้คงค้าง',    'invoice'],
             ['checks',        'เช็คจ่ายล่วงหน้า', 'money'],
@@ -598,7 +623,7 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
             <div className="sb-section" style={secHdrStyle} onClick={() => tog('system')}>
               <span>ระบบ</span>{chevron(sec.system !== false)}
             </div>
-            {(sec.system !== false) && navItems([
+            {(sec.system !== false || collapsed) && navItems([
               ['audit_log',     'Audit Log',         'settings'],
               ['users',         'จัดการผู้ใช้',     'settings'],
             ])}

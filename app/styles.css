@@ -140,6 +140,56 @@ button { font: inherit; color: inherit; }
 .sb nav::-webkit-scrollbar-track { background: transparent; }
 .sb nav::-webkit-scrollbar-thumb { background: var(--ink-200); border-radius: 2px; }
 
+/* ─── Sidebar collapse (desktop) ─── */
+.app { transition: grid-template-columns 220ms cubic-bezier(.4,0,.2,1); }
+.sb { transition: padding 200ms ease; }
+.sb-logo-img, .sb-link, .sb-brand { transition: all 200ms ease; }
+
+/* Collapse/expand toggle button (top-right of brand) */
+.sb-collapse-btn {
+  position: absolute; top: -2px; right: -2px;
+  width: 26px; height: 26px; border-radius: 7px;
+  border: 1px solid var(--line); background: #fff;
+  color: var(--ink-500); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background var(--t-fast), color var(--t-fast), border-color var(--t-fast);
+}
+.sb-collapse-btn:hover { background: var(--ink-50); color: var(--brand-600); border-color: var(--ink-300); }
+
+/* Collapsed grid width */
+.app.sb-collapsed { grid-template-columns: 72px 1fr; }
+
+/* Collapsed sidebar internals */
+.sb.is-collapsed { padding-left: 10px; padding-right: 10px; }
+.sb.is-collapsed .sb-brand { align-items: center; padding-bottom: 10px; }
+.sb.is-collapsed .sb-logo-img { height: 32px; object-position: center; }
+.sb.is-collapsed .sb-brand-sub { display: none; }
+/* toggle button moves under the logo, centered */
+.sb.is-collapsed .sb-collapse-btn { position: static; margin-top: 10px; }
+
+/* Hide link labels, center icons */
+.sb.is-collapsed .sb-link { justify-content: center; padding-left: 0; padding-right: 0; position: relative; }
+.sb.is-collapsed .sb-link-label { display: none; }
+/* Count badge → tiny notification dot */
+.sb.is-collapsed .sb-pill {
+  position: absolute; top: 4px; right: 9px; margin: 0;
+  min-width: 7px; width: 7px; height: 7px; padding: 0;
+  font-size: 0; line-height: 0; border-radius: 50%;
+  background: var(--brand-500);
+}
+.sb.is-collapsed .sb-link.active .sb-pill { background: var(--brand-600); }
+
+/* Section headers → thin divider */
+.sb.is-collapsed .sb-section {
+  height: 1px; padding: 0; margin: 9px 6px;
+  background: var(--line); overflow: hidden; cursor: default;
+}
+.sb.is-collapsed .sb-section > * { display: none; }
+
+/* User footer → just the avatar, centered */
+.sb.is-collapsed .sb-user { justify-content: center; padding-left: 0; padding-right: 0; }
+.sb.is-collapsed .sb-user > *:not(.sb-avatar) { display: none; }
+
 /* ---------------------------------- Main ---------------------------------- */
 .main { display: flex; flex-direction: column; min-width: 0; }
 .topbar {
@@ -554,7 +604,28 @@ button { font: inherit; color: inherit; }
 /* ── Tablet (≤ 900px) — sidebar becomes off-canvas drawer ──────────────── */
 @media (max-width: 900px) {
   /* App becomes single column; sidebar slides in over content */
-  .app { grid-template-columns: 1fr; }
+  .app, .app.sb-collapsed { grid-template-columns: 1fr; }
+
+  /* Collapse is a desktop-only feature — never collapse the mobile drawer */
+  .sb-collapse-btn { display: none; }
+  .sb.is-collapsed { padding: 20px 12px 16px; }
+  .sb.is-collapsed .sb-brand { align-items: flex-start; }
+  .sb.is-collapsed .sb-logo-img { height: 52px; object-position: left center; }
+  .sb.is-collapsed .sb-brand-sub,
+  .sb.is-collapsed .sb-link-label { display: revert; }
+  .sb.is-collapsed .sb-link { justify-content: flex-start; padding: 6.5px 8px; }
+  .sb.is-collapsed .sb-pill {
+    position: static; min-width: revert; width: revert; height: revert;
+    padding: 1px 5px; font-size: 10px; line-height: revert;
+    border-radius: 999px; background: var(--ink-100); margin-left: auto;
+  }
+  .sb.is-collapsed .sb-section {
+    height: revert; padding: 14px 8px 4px; margin: 0;
+    background: revert; overflow: revert; cursor: pointer;
+  }
+  .sb.is-collapsed .sb-section > * { display: revert; }
+  .sb.is-collapsed .sb-user { justify-content: flex-start; padding: 10px 8px; }
+  .sb.is-collapsed .sb-user > * { display: revert; }
 
   .sb {
     position: fixed;

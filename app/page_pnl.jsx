@@ -637,16 +637,14 @@ function PnLPage({ data, setData, toast }) {
         marginBottom: 18, boxShadow: '0 10px 28px rgba(30, 58, 138, 0.18)',
         display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap',
       }}>
-        {/* W logo */}
+        {/* Water POG logo */}
         <div style={{
           width: 56, height: 56, borderRadius: 14, background: 'white',
           display: 'grid', placeItems: 'center', flexShrink: 0,
-          boxShadow: '0 2px 6px rgba(0,0,0,0.08)',
+          boxShadow: '0 2px 6px rgba(0,0,0,0.08)', padding: 8,
         }}>
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
-            <path d="M3 5 L6 19 L9 9 L12 16 L15 9 L18 19 L21 5"
-              stroke="#2563eb" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
+          <img src="waterpog_Logo-02.png" alt="Water POG"
+            style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
         </div>
         <div style={{ flex: 1, minWidth: 220 }}>
           <div style={{ fontSize: 10.5, letterSpacing: 1.4, opacity: 0.85, textTransform: 'uppercase', fontWeight: 600 }}>
