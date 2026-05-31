@@ -789,7 +789,6 @@ function UploadModal({ existingProjects, onClose, onParsed, diff, onConfirm }) {
       let cancelledCount = 0;
       let ghostCount = 0;
       // helper: สร้าง synthetic code — รวมปีงบฯ (Main all67/68/69) กันชื่อชนข้ามปี
-      // ชื่อโครงการเดียวกันคนละงบ = คนละโครงการจริง ต้องแยก code
       const syntheticCode = (sheet, name) => {
         const s = String(name || '').trim();
         if (!s) return '';
@@ -797,14 +796,27 @@ function UploadModal({ existingProjects, onClose, onParsed, diff, onConfirm }) {
         const yr = m ? m[1] : 'XX';
         return 'XL-' + yr + '-' + s.replace(/\s+/g, '_').slice(0, 36);
       };
+      // code ปกติ (PP001, INS123-STIIS) → merge ข้าม sheet ได้
+      // code มั่ว (AW, RGB ตัวอักษรล้วน) → ติดปีงบฯ กันข้อมูลปนข้าม sheet
+      const CANONICAL_CODE_RE = /^[A-Z]{2,5}\d{2,5}(-[A-Z]{2,6})?$/;
+      const finalizeCode = (rawCode, sheet) => {
+        const c = String(rawCode || '').trim();
+        if (!c) return '';
+        if (/^XL-/.test(c)) return c;
+        if (CANONICAL_CODE_RE.test(c)) return c;
+        const m = String(sheet || '').match(/Main\s*all(\d+)/i);
+        const yr = m ? m[1] : 'XX';
+        return c + '-' + yr;
+      };
       allRows.forEach(r => {
         let code = String(r['Contract No.'] || '').trim();
         const isCancelled = getCancelFlag(r);
         const name = String(r['พื้นที่'] || '').trim();
-        // ถ้าไม่มี Contract No. แต่เป็นโครงการยกเลิกและมีชื่อ → ใช้ชื่อสร้าง synthetic code
         if (!code) {
           if (isCancelled && name) code = syntheticCode(r._sheet, name);
-          else return; // skip rows without code + not cancelled
+          else return;
+        } else {
+          code = finalizeCode(code, r._sheet);
         }
         if (seenCodes.has(code)) return; // กัน duplicate ข้าม sheet
         // ตัด ghost row ทิ้ง (พิมพ์เล่น — ไม่มีข้อมูลโครงการจริงเลย)
@@ -978,6 +990,18 @@ function MigrationModal({ existingProjects, onClose }) {
         const yr = m ? m[1] : 'XX';
         return 'XL-' + yr + '-' + String(name || '').trim().replace(/\s+/g, '_').slice(0, 36);
       };
+      // code ปกติ = PP001, INS123-STIIS, ENC045 → merge ข้าม sheet ได้ (multi-year tracking)
+      // code มั่ว = AW, RGB, ตัวอักษรล้วน → split ตามปีงบฯ (ป้องกัน Remark/data ปนกันข้าม sheet)
+      const CANONICAL_CODE_RE = /^[A-Z]{2,5}\d{2,5}(-[A-Z]{2,6})?$/;
+      const finalizeCode = (rawCode, sheet) => {
+        const c = String(rawCode || '').trim();
+        if (!c) return '';
+        if (/^XL-/.test(c)) return c; // synthetic อยู่แล้ว
+        if (CANONICAL_CODE_RE.test(c)) return c;
+        const m = String(sheet || '').match(/Main\s*all(\d+)/i);
+        const yr = m ? m[1] : 'XX';
+        return c + '-' + yr;
+      };
       const isoDate = (v) => {
         if (!v) return '';
         if (v instanceof Date) return v.toISOString().slice(0, 10);
@@ -1008,6 +1032,9 @@ function MigrationModal({ existingProjects, onClose }) {
         if (!code) {
           if (isCancelled && name) code = syntheticCode(r._sheet, name);
           else return;
+        } else {
+          // normalize: code มั่ว → ติดปีงบฯ ไม่ให้ merge ข้าม sheet กัน
+          code = finalizeCode(code, r._sheet);
         }
         if (isGhostRow(r)) { ghostCount++; return; }
         codeRowPairs.push({ code, row: r, isCancelled });
