@@ -177,6 +177,125 @@ function recalcBalance(master, events) {
   return Math.max(0, (Number(master.principalAmount) || 0) + inSum - outSum);
 }
 
+// ── Auto interest schedule (Phase A — read-only เทียบกับของเดิม) ─────────────
+// คำนวณตารางดอกเบี้ยรายเดือนสดจาก สัญญา + events ตาม config การคิดวันต่อสัญญา
+const _dayMs = 86400000;
+function _daysBetween(a, b) { return Math.max(0, Math.round((new Date(b) - new Date(a)) / _dayMs)); }
+function _daysInYear(y) { return ((y % 4 === 0 && y % 100 !== 0) || y % 400 === 0) ? 366 : 365; }
+function _monthStartStr(s) { return s.slice(0, 7) + '-01'; }
+function _addMonthStr(s, n) { const d = new Date(s.slice(0, 10)); d.setMonth(d.getMonth() + n); return d.toISOString().slice(0, 10); }
+function _monthEndStr(s) { return _addMonthStr(_monthStartStr(s), 1); } // วันที่ 1 ของเดือนถัดไป
+// 30/360 (US/NASD) day count
+function _thirty360(d1, d2) {
+  let [y1, m1, a1] = d1.split('-').map(Number);
+  let [y2, m2, a2] = d2.split('-').map(Number);
+  if (a1 === 31) a1 = 30;
+  if (a2 === 31 && a1 === 30) a2 = 30;
+  return (y2 - y1) * 360 + (m2 - m1) * 30 + (a2 - a1);
+}
+
+// คืน { rows:[{year,month,days,interest,pStart,pEnd}], total, error, missing:[] }
+function buildAutoSchedule(master, events, asOf, cfg) {
+  cfg = cfg || {};
+  const method   = cfg.method   || 'ACT/365';      // ACT/365 | ACT/360 | ACT/ACT | 30/360
+  const dayCount = cfg.dayCount || 'exclude_end';   // exclude_end | include_end
+  const rate      = Number(master.interestRate) || 0;   // เก็บเป็นทศนิยม (0.07)
+  const start     = master.startDate || master.receiveDate || master.drawdownDate || '';
+  const principal0 = Number(master.principalAmount) || 0;
+  const missing = [];
+  if (!start)      missing.push('วันเริ่ม/วันรับเงิน');
+  if (!rate)       missing.push('อัตราดอกเบี้ย');
+  if (!principal0) missing.push('เงินต้น');
+  // วันจบ: โหมดเทียบใช้ endCap · มิฉะนั้น maturityDate · Active เอาสิ้นเดือนปัจจุบัน · Close เอา closedDate
+  let end = cfg.endCap || master.maturityDate
+          || (master.status === 'Active' ? _monthEndStr(asOf) : (master.closedDate || ''));
+  if (!end) missing.push('วันครบสัญญา');
+  if (missing.length) return { rows: [], total: 0, error: 'ข้อมูลไม่ครบ', missing };
+  // Active เลยกำหนด → เดินดอกถึงเดือนปัจจุบัน (เฉพาะตอนไม่ได้อยู่โหมดเทียบ)
+  if (master.status === 'Active' && !cfg.endCap) { const me = _monthEndStr(asOf); if (me > end) end = me; }
+  if (start >= end) return { rows: [], total: 0, error: 'วันเริ่ม ≥ วันครบสัญญา', missing: [] };
+
+  // ไทม์ไลน์เงินต้นจาก events (เฉพาะที่อยู่ระหว่างสัญญา)
+  const evs = (events || [])
+    .filter(e => (e.contractId === master.id || e.contractNo === master.contractNo) && e.eventDate)
+    .map(e => ({ date: e.eventDate, delta: (e.eventType === 'repayment' ? -1 : 1) * (Number(e.amount) || 0) }))
+    .filter(e => e.date > start && e.date < end)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const principalAt = (d) => {
+    let p = principal0;
+    for (const e of evs) if (e.date <= d) p += e.delta;
+    return Math.max(0, p);
+  };
+
+  // จุดแบ่งงวด: วันเริ่ม, วันครบ, ต้นเดือนทุกเดือน, วันที่มี event
+  const bset = new Set([start, end]);
+  let cur = _monthStartStr(_addMonthStr(start, 1));
+  while (cur < end) { bset.add(cur); cur = _monthStartStr(_addMonthStr(cur, 1)); }
+  evs.forEach(e => bset.add(e.date));
+  const bounds = [...bset].filter(d => d >= start && d <= end).sort();
+
+  const monthMap = {};
+  for (let i = 0; i < bounds.length - 1; i++) {
+    const a = bounds[i], b = bounds[i + 1];
+    if (a === b) continue;
+    const p = principalAt(a);
+    let days = method === '30/360' ? _thirty360(a, b) : _daysBetween(a, b);
+    if (dayCount === 'include_end' && (b === end || evs.some(e => e.date === b))) days += 1;
+    const basis = (method === 'ACT/360' || method === '30/360') ? 360
+                : method === 'ACT/ACT' ? _daysInYear(Number(a.slice(0, 4)))
+                : 365;
+    const interest = p * rate * (days / basis);
+    const ym = a.slice(0, 7);
+    if (!monthMap[ym]) monthMap[ym] = { year: Number(a.slice(0, 4)), month: Number(a.slice(5, 7)), days: 0, interest: 0, pStart: p, pEnd: p };
+    monthMap[ym].days     += days;
+    monthMap[ym].interest += interest;
+    monthMap[ym].pEnd      = principalAt(b);
+  }
+  const rows = Object.keys(monthMap).sort().map(k => monthMap[k]);
+  return { rows, total: rows.reduce((s, r) => s + r.interest, 0), error: null, missing: [] };
+}
+
+const CALC_METHODS = [
+  { k: 'ACT/365', label: 'ACT/365 — วันจริง ÷ 365' },
+  { k: 'ACT/360', label: 'ACT/360 — วันจริง ÷ 360' },
+  { k: 'ACT/ACT', label: 'ACT/ACT — วันจริง ÷ วันจริงของปีนั้น' },
+  { k: '30/360',  label: '30/360 — นับเดือนละ 30 วัน ÷ 360' },
+];
+
+// ── Migrate: ดึงรายการคืน/เบิกเงินต้นจาก "แถว marker" ในตารางเดิม ─────────────
+// แถว marker = note มี "คืนเงินต้น"/"เบิก" + เงินต้นเปลี่ยนเทียบแถวถัดไป
+// คืน [{contractNo, contractId, eventType, eventDate, amount, note}]
+function extractEventsFromLedger(rows, master) {
+  const sorted = [...rows].sort((a, b) =>
+    (Number(a.year) || 0) - (Number(b.year) || 0) ||
+    (Number(a.month) || 0) - (Number(b.month) || 0)
+  );
+  const out = [];
+  for (let i = 0; i < sorted.length; i++) {
+    const r = sorted[i];
+    const note = String(r.note || r.paymentNote || '');
+    const isRepay = /คืนเงินต้น|คืนเงิน|ชำระต้น/.test(note);
+    const isDraw  = /เบิก(เพิ่ม|เงิน)?|รับเงินกู้|drawdown/i.test(note);
+    if (!isRepay && !isDraw) continue;
+    const before = Number(r.principal) || 0;
+    let after = before;
+    for (let j = i + 1; j < sorted.length; j++) {
+      const p = Number(sorted[j].principal);
+      if (!isNaN(p) && sorted[j].principal !== '' && sorted[j].principal != null) { after = p; break; }
+    }
+    const amt = Math.abs(before - after);
+    if (amt <= 0) continue;
+    out.push({
+      contractNo: master.contractNo, contractId: master.id,
+      eventType: (after < before || isRepay) ? 'repayment' : 'drawdown',
+      eventDate: r.paymentDate || `${r.year}-${String(r.month).padStart(2, '0')}-01`,
+      amount: amt,
+      note: 'นำเข้าจากตารางเดิม (migrate)',
+    });
+  }
+  return out;
+}
+
 // ── Main table row ──────────────────────────────────────────────────────────
 function DebtLedgerRow({ master, summary, onOpen }) {
   const cat = master.debtCategory || 'อื่นๆ';
@@ -934,6 +1053,77 @@ function useDebtContractActions(setData, toast) {
       syncAfter(updated);
       toast('ลบแถวดอกเบี้ยแล้ว');
     },
+    // เปิด/อัปเดต "คำนวณอัตโนมัติ" ให้สัญญา — migrate คืนเงินต้นจาก marker เข้า events
+    // + สร้างตารางดอกเบี้ยใหม่ (materialize) ถึงเดือนปัจจุบัน โดยคงสถานะจ่าย/override เดิมไว้
+    adoptAutoMode(master, ledgerRows, cfg) {
+      const at = new Date().toISOString();
+      const today = new Date().toISOString().slice(0, 10);
+      let updated, msg = '';
+      setData(d => {
+        const existing = (d.debtEvents || []).filter(e => e.contractId === master.id || e.contractNo === master.contractNo);
+        let events = d.debtEvents || [];
+        let migratedCount = 0;
+        if (!existing.length) {
+          const ex = extractEventsFromLedger(ledgerRows || [], master).map(e => ({
+            ...e, id: WTPData.newId(), recordedBy: username, recordedAt: at, migratedFrom: 'ledger',
+          }));
+          migratedCount = ex.length;
+          events = [...events, ...ex];
+        }
+        const mNow = (d.debtMaster || []).find(m => m.id === master.id) || master;
+        const newBal = recalcBalance(mNow, events);
+        const sched = buildAutoSchedule({ ...mNow, balance: newBal }, events, today, cfg); // ไม่ใส่ endCap → ถึงปัจจุบัน
+        // SAFETY: ถ้าคำนวณไม่ได้/ไม่มีแถว → ยกเลิก ไม่แตะข้อมูลเดิม (กันตารางหาย)
+        if (sched.error || !sched.rows.length) { msg = 'ERR:' + (sched.error || 'ไม่มีงวดที่คำนวณได้'); updated = null; return d; }
+        // เก็บสถานะจ่าย/override เดิมรายเดือน (แถว interest จริง — ไม่เอา marker)
+        const oldByMonth = {};
+        (ledgerRows || []).forEach(r => {
+          const isMarker = /คืนเงิน|เบิก|ชำระต้น/.test(String(r.note || r.paymentNote || ''));
+          if (isMarker) return;
+          const k = `${r.year}-${r.month}`;
+          if (!oldByMonth[k] || r.paymentDate) oldByMonth[k] = r;
+        });
+        const newRows = sched.rows.map(row => {
+          const old = oldByMonth[`${row.year}-${row.month}`] || {};
+          const nr = {
+            id: WTPData.newId(), contractNo: master.contractNo,
+            year: row.year, month: row.month,
+            principal: row.pStart, interestRate: Number(mNow.interestRate) || 0,
+            days: row.days, interestAmount: row.interest, outstanding: row.pEnd,
+            paymentDate: old.paymentDate || '', paidBy: old.paidBy || '', paidAt: old.paidAt || '', paymentNote: old.paymentNote || '',
+            auto: true,
+          };
+          if (old.interestOverride != null && old.interestOverride !== '') {
+            nr.interestOverride = old.interestOverride; nr.overrideBy = old.overrideBy || '';
+            nr.overrideAt = old.overrideAt || ''; nr.overrideNote = old.overrideNote || '';
+          }
+          return nr;
+        });
+        const otherRows = (d.debtLedger || []).filter(r => r.contractNo !== master.contractNo);
+        const masters = (d.debtMaster || []).map(m => m.id === master.id
+          ? { ...m, balance: newBal, interestCalc: { method: cfg.method, dayCount: cfg.dayCount, autoMode: true, adoptedBy: username, adoptedAt: at } }
+          : m);
+        msg = `เปิดคำนวณอัตโนมัติ · ${newRows.length} เดือน` + (migratedCount ? ` · นำเข้าคืนเงินต้น ${migratedCount} รายการ` : '');
+        updated = { ...d, debtEvents: events, debtLedger: [...otherRows, ...newRows], debtMaster: masters };
+        return updated;
+      });
+      if (msg.startsWith('ERR:')) { toast('เปิด auto ไม่ได้: ' + msg.slice(4)); return; }
+      syncAfter(updated);
+      toast(msg);
+    },
+    // ปิดโหมดอัตโนมัติ (กลับเป็นแก้มือ) — คงตารางที่คำนวณไว้ แค่หยุด auto
+    setAutoMode(master, on) {
+      let updated;
+      setData(d => {
+        const masters = (d.debtMaster || []).map(m => m.id === master.id
+          ? { ...m, interestCalc: { ...(m.interestCalc || {}), autoMode: !!on } }
+          : m);
+        updated = { ...d, debtMaster: masters };
+        return updated;
+      });
+      syncAfter(updated);
+      toast(on ? 'เปิดคำนวณอัตโนมัติ' : 'ปิดคำนวณอัตโนมัติ (กลับเป็นแก้มือ)');
+    },
     doRollover(master, { mode, closeDate, reason, newContracts }) {
       const at = new Date().toISOString();
       const newRows = newContracts.map(c => ({
@@ -1124,7 +1314,7 @@ function exportPerContractSheets({ masters, ledgerByContract, eventsByContract, 
 function InterestSchedulePopup({ master, ledgerRows, events, onClose,
     onSavePayments, onClearPayment, onOverrideInterest,
     onAddPrincipalEvent, onEditEvent, onDeleteEvent, onDeleteLedgerRow,
-    onRollover, canEdit }) {
+    onAdoptAuto, onSetAutoMode, onRollover, canEdit }) {
   const [selectedIds, setSelectedIds] = React.useState(new Set());
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [overrideRow, setOverrideRow] = React.useState(null);
@@ -1132,10 +1322,15 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
   // evtModal = null | { kind:'repayment'|'drawdown', event?:<existing event to edit> }
   const [evtModal,    setEvtModal]    = React.useState(null);
   const [rolloverOpen, setRolloverOpen] = React.useState(false);
+  // Phase A — แผงเทียบ "คำนวณอัตโนมัติ" (อ่านอย่างเดียว)
+  const [cmpOpen,     setCmpOpen]     = React.useState(false);
+  const [cmpMethod,   setCmpMethod]   = React.useState('ACT/365');
+  const [cmpDayCount, setCmpDayCount] = React.useState('exclude_end');
 
   React.useEffect(() => { setSelectedIds(new Set()); }, [master]);
 
   if (!master) return null;
+  const autoOn = !!(master.interestCalc && master.interestCalc.autoMode);
 
   const myEvents = (events || []).filter(e =>
     e.contractId === master.id || e.contractNo === master.contractNo
@@ -1513,6 +1708,147 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
             </table>
           </div>
         </div>
+
+        {/* คำนวณอัตโนมัติ — แบนเนอร์เมื่อเปิดใช้แล้ว */}
+        {autoOn && canEdit && (
+          <div style={{ marginTop: 14, padding: '9px 12px', borderRadius: 10, background: '#ecfdf5', border: '1px solid #6ee7b7',
+                        display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 12, color: '#065f46' }}>
+            <span style={{ fontWeight: 700 }}>⚙️ คำนวณอัตโนมัติ: เปิดอยู่</span>
+            <span style={{ background: '#d1fae5', borderRadius: 5, padding: '1px 7px', fontWeight: 600 }}>
+              {(master.interestCalc.method || 'ACT/365')} · {master.interestCalc.dayCount === 'include_end' ? 'นับวันคืน' : 'ไม่นับวันคืน'}
+            </span>
+            <button onClick={() => onAdoptAuto && onAdoptAuto(master, sortedRows, { method: master.interestCalc.method, dayCount: master.interestCalc.dayCount })}
+              style={{ marginLeft: 'auto', padding: '4px 11px', borderRadius: 7, fontSize: 11.5, fontWeight: 600, cursor: 'pointer',
+                       border: '1px solid #34d399', background: '#fff', color: '#047857' }}>
+              🔄 อัปเดตถึงเดือนล่าสุด
+            </button>
+            <button onClick={() => { if (confirm('ปิดคำนวณอัตโนมัติ กลับเป็นแก้มือ? (ตารางที่คำนวณไว้ยังอยู่)')) onSetAutoMode && onSetAutoMode(master, false); }}
+              style={{ padding: '4px 11px', borderRadius: 7, fontSize: 11.5, fontWeight: 600, cursor: 'pointer',
+                       border: '1px solid #fca5a5', background: '#fff', color: '#991b1b' }}>
+              ↩ กลับเป็นแก้มือ
+            </button>
+          </div>
+        )}
+
+        {/* Phase A — แผงเทียบ "คำนวณอัตโนมัติ" (อ่านอย่างเดียว ยังไม่บันทึก) */}
+        {!autoOn && (
+        <div style={{ marginTop: 14, borderRadius: 10, border: '1px dashed var(--brand-300)', overflow: 'hidden' }}>
+          <button onClick={() => setCmpOpen(o => !o)}
+            style={{ width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8,
+                     padding: '9px 12px', cursor: 'pointer', border: 'none',
+                     background: 'var(--brand-50, #f0f6ff)', color: 'var(--brand-700)', fontSize: 12.5, fontWeight: 700 }}>
+            🔬 เทียบกับแบบคำนวณอัตโนมัติ (ทดลอง · ยังไม่บันทึก)
+            <span style={{ marginLeft: 'auto', fontSize: 11 }}>{cmpOpen ? '▲ ซ่อน' : '▼ แสดง'}</span>
+          </button>
+          {cmpOpen && (() => {
+            const todayStr = new Date().toISOString().slice(0, 10);
+            // เทียบช่วงเวลาเดียวกับข้อมูลเดิม: หยุดที่ "วันสุดท้ายจริง" ของข้อมูลเดิม
+            // ถ้าแถวสุดท้ายเป็น marker คืนเงินต้น → หยุดที่วันจ่ายนั้น มิฉะนั้นสิ้นเดือนของแถวสุดท้าย
+            const lastStored = sortedRows.length ? sortedRows[sortedRows.length - 1] : null;
+            const lastIsMarker = lastStored && /คืนเงิน|เบิก|ชำระต้น/.test(String(lastStored.note || lastStored.paymentNote || ''));
+            const endCap = !lastStored ? null
+              : (lastIsMarker && lastStored.paymentDate) ? lastStored.paymentDate
+              : _monthEndStr(`${lastStored.year}-${String(lastStored.month).padStart(2, '0')}-01`);
+            // ถ้าสัญญายังไม่มี events → ดึงคืนเงินต้นจากแถว marker เดิมมาใช้เทียบ (ยังไม่บันทึก)
+            const myExisting = (events || []).filter(e => e.contractId === master.id || e.contractNo === master.contractNo);
+            const extracted  = myExisting.length ? [] : extractEventsFromLedger(sortedRows, master);
+            const effEvents  = myExisting.length ? events : extracted;
+            const cmp = buildAutoSchedule(master, effEvents, todayStr, { method: cmpMethod, dayCount: cmpDayCount, endCap });
+            const diff = cmp.error ? 0 : cmp.total - totalInterest;
+            const matched = !cmp.error && Math.abs(diff) < 1;
+            return (
+              <div style={{ padding: 12 }}>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+                  <label style={{ fontSize: 11, color: 'var(--ink-500)', fontWeight: 600 }}>วิธีคิด:</label>
+                  <select value={cmpMethod} onChange={e => setCmpMethod(e.target.value)}
+                    style={{ padding: '5px 9px', borderRadius: 7, border: '1.5px solid var(--ink-200)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                    {CALC_METHODS.map(m => <option key={m.k} value={m.k}>{m.label}</option>)}
+                  </select>
+                  <div className="tabnav" style={{ flex: 'none' }}>
+                    <button className={cmpDayCount === 'exclude_end' ? 'active' : ''} onClick={() => setCmpDayCount('exclude_end')}>ไม่นับวันคืน</button>
+                    <button className={cmpDayCount === 'include_end' ? 'active' : ''} onClick={() => setCmpDayCount('include_end')}>นับวันคืนด้วย</button>
+                  </div>
+                </div>
+                {cmp.error ? (
+                  <div style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', padding: '10px 12px', borderRadius: 8, fontSize: 12.5 }}>
+                    ⚠️ <strong>{cmp.error}</strong> — ขาด: <strong>{cmp.missing.join(', ')}</strong><br />
+                    เติมข้อมูลสัญญาให้ครบก่อน ระบบถึงจะคำนวณอัตโนมัติได้ (ไม่คำนวณเดาให้)
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
+                      <div>
+                        <div style={{ fontSize: 10.5, color: 'var(--ink-500)' }}>ของเดิม (คีย์มือ)</div>
+                        <div style={{ fontWeight: 700, fontSize: 15, fontVariantNumeric: 'tabular-nums' }}>{fmtNum(totalInterest, 2)}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10.5, color: 'var(--brand-700)' }}>คำนวณอัตโนมัติ</div>
+                        <div style={{ fontWeight: 700, fontSize: 15, fontVariantNumeric: 'tabular-nums', color: 'var(--brand-700)' }}>{fmtNum(cmp.total, 2)}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 10.5, color: 'var(--ink-500)' }}>ผลต่าง</div>
+                        <div style={{ fontWeight: 700, fontSize: 15, color: matched ? 'var(--good)' : 'var(--bad)' }}>
+                          {matched ? '✓ ตรงกัน' : (diff > 0 ? '+' : '') + fmtNum(diff, 2)}
+                        </div>
+                      </div>
+                    </div>
+                    {extracted.length > 0 && (
+                      <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af', padding: '6px 10px', borderRadius: 7, fontSize: 11.5, marginBottom: 10 }}>
+                        ℹ️ ดึงคืนเงินต้น <strong>{extracted.length}</strong> รายการจากตารางเดิมมาใช้คำนวณ (สัญญานี้ยังไม่มีใน "รายการรับ/คืนเงินกู้") — จะถูกบันทึกเมื่อกด "ใช้แบบอัตโนมัติ"
+                      </div>
+                    )}
+                    <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid var(--ink-100)', borderRadius: 8 }}>
+                      <table className="tbl tbl-compact" style={{ width: '100%', fontSize: 11.5 }}>
+                        <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}><tr>
+                          <th>เดือน</th>
+                          <th style={{ textAlign: 'right' }}>เงินต้น</th>
+                          <th style={{ textAlign: 'right' }}>วัน</th>
+                          <th style={{ textAlign: 'right' }}>ดอกเบี้ย</th>
+                          <th style={{ textAlign: 'right' }}>คงเหลือ</th>
+                        </tr></thead>
+                        <tbody>
+                          {cmp.rows.map((r, i) => (
+                            <tr key={i}>
+                              <td style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>{TH_MONTH[r.month]} {r.year}</td>
+                              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                                {r.pStart !== r.pEnd ? `${fmtNum(r.pStart, 0)} → ${fmtNum(r.pEnd, 0)}` : fmtNum(r.pStart, 0)}
+                              </td>
+                              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{r.days}</td>
+                              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmtNum(r.interest, 2)}</td>
+                              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(r.pEnd, 0)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {canEdit && (
+                      <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--ink-100)', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <button
+                          disabled={!matched}
+                          onClick={() => {
+                            const extraMsg = extracted.length ? `\n• นำเข้าคืนเงินต้น ${extracted.length} รายการจากตารางเดิมเข้า "รายการรับ/คืนเงินกู้"` : '';
+                            if (confirm(`เปิดใช้คำนวณอัตโนมัติสำหรับสัญญานี้?\n\n• วิธีคิด: ${cmpMethod} · ${cmpDayCount === 'exclude_end' ? 'ไม่นับวันคืน' : 'นับวันคืนด้วย'}\n• แทนที่ตารางดอกเบี้ยเดิมด้วยแบบคำนวณ (เดือนใหม่จะคิดต่อให้อัตโนมัติ)\n• คงสถานะจ่าย/override เดิมไว้${extraMsg}`)) {
+                              onAdoptAuto && onAdoptAuto(master, sortedRows, { method: cmpMethod, dayCount: cmpDayCount });
+                            }
+                          }}
+                          style={{ padding: '7px 16px', borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: matched ? 'pointer' : 'not-allowed',
+                                   border: 'none', background: matched ? 'var(--good)' : 'var(--ink-200)', color: matched ? '#fff' : 'var(--ink-400)' }}>
+                          ✓ ใช้แบบอัตโนมัติจากนี้ไป
+                        </button>
+                        <span style={{ fontSize: 11, color: 'var(--ink-400)' }}>
+                          {matched
+                            ? 'เลขตรงของเดิมแล้ว — เปิด auto ได้ปลอดภัย'
+                            : 'ปรับ "วิธีคิด" จนผลต่าง = ✓ ตรงกัน ก่อนถึงจะกดได้ (ส่วนต่างเล็กน้อยใช้ปุ่มแก้ดอกเบี้ยรายเดือนปรับได้)'}
+                        </span>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+        )}
       </Modal>
 
       {/* nested popups */}
@@ -1852,7 +2188,8 @@ function DebtLedgerPage({ data, setData, toast }) {
   // ── Mutations (shared hook) ─────────────────────────────────────────────
   const actions = useDebtContractActions(setData, toast);
   const { savePayments, clearPayment, overrideInterest, addPrincipalEvent,
-          editPrincipalEvent, deletePrincipalEvent, deleteLedgerRow, doRollover } = actions;
+          editPrincipalEvent, deletePrincipalEvent, deleteLedgerRow,
+          adoptAutoMode, setAutoMode, doRollover } = actions;
 
   // Refresh selectedMaster from store (so popup reflects latest state)
   React.useEffect(() => {
@@ -2009,6 +2346,8 @@ function DebtLedgerPage({ data, setData, toast }) {
         onEditEvent={editPrincipalEvent}
         onDeleteEvent={deletePrincipalEvent}
         onDeleteLedgerRow={deleteLedgerRow}
+        onAdoptAuto={adoptAutoMode}
+        onSetAutoMode={setAutoMode}
         onRollover={doRollover}
         canEdit={canEdit}
       />
