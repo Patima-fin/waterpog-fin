@@ -1110,6 +1110,13 @@ function MigrationModal({ existingProjects, onClose }) {
             </button>
 
             <div style={{
+              background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8,
+              padding: '12px 14px', marginBottom: 12, fontSize: 12, color: '#991b1b', lineHeight: 1.65,
+            }}>
+              🚨 <strong>สำคัญมาก — ห้ามลบ tab "projects" ทั้งอัน!</strong> ถ้าลบ tab ทั้งหมด Apps Script จะหาชีตไม่เจอ → ระบบ sync พังทั้งระบบ · ให้ <strong>คงชื่อ tab ไว้</strong> แล้วลบเฉพาะข้อมูลข้างในเท่านั้น
+            </div>
+
+            <div style={{
               background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8,
               padding: '12px 14px', marginBottom: 12,
             }}>
@@ -1119,18 +1126,22 @@ function MigrationModal({ existingProjects, onClose }) {
               <ol style={{ margin: 0, paddingLeft: 22, fontSize: 12.5, color: '#166534', lineHeight: 1.8 }}>
                 <li>กดปุ่ม <strong>Download</strong> ด้านบน — ได้ไฟล์ <code>{result.filename}</code></li>
                 <li>เปิด <strong>Google Sheet → Water POG Financial DB</strong></li>
-                <li>ไปที่ tab <strong><code>projects</code></strong> · เลือกเซลล์ A1 · กด <code>Ctrl+A</code> · กด <code>Delete</code> (ลบข้อมูลเก่าทั้งหมด)</li>
-                <li>เมนู <strong>ไฟล์ → นำเข้า → อัปโหลด</strong> → เลือกไฟล์ที่ดาวน์โหลด</li>
-                <li>เลือก <strong>"แทนที่แผ่นงานปัจจุบัน"</strong> (Replace current sheet) → กด <strong>นำเข้าข้อมูล</strong></li>
-                <li>กลับมาที่เว็บแอป กด <code>Ctrl+Shift+R</code> → ข้อมูลครบ {result.stats.totalRows} โครงการ {result.stats.totalCols} คอลัมน์</li>
+                <li><strong>คลิกที่ tab <code>projects</code></strong> ด้านล่าง (อย่าลบ tab! ห้ามคลิกขวา → ลบแผ่นงาน) · ให้ tab นั้น active อยู่</li>
+                <li>เมนู <strong>ไฟล์ → นำเข้า → อัปโหลด</strong> → ลากไฟล์ <code>{result.filename}</code> เข้าไป</li>
+                <li>หน้าต่าง "นำเข้าไฟล์" จะขึ้น เลือก <strong>"แทนที่แผ่นงานปัจจุบัน"</strong> <em>(Replace current sheet)</em> → กดปุ่ม <strong>นำเข้าข้อมูล</strong>
+                  <div style={{ fontSize: 11, color: '#15803d', marginTop: 2, fontStyle: 'italic' }}>
+                    ↳ Google Sheets จะลบข้อมูลข้างใน tab <code>projects</code> ให้อัตโนมัติ แล้วใส่ข้อมูลใหม่แทน · <strong>ชื่อ tab ยังเป็น <code>projects</code> เหมือนเดิม</strong>
+                  </div>
+                </li>
+                <li>กลับมาที่เว็บแอป กด <code>Ctrl+Shift+R</code> → ข้อมูลครบ {result.stats.totalRows} โครงการ · {result.stats.totalCols} คอลัมน์</li>
               </ol>
             </div>
 
             <div style={{
-              background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8,
-              padding: '10px 14px', fontSize: 11.5, color: '#991b1b', lineHeight: 1.6,
+              background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8,
+              padding: '10px 14px', fontSize: 11.5, color: '#78350f', lineHeight: 1.6,
             }}>
-              ⚠️ <strong>คำเตือน:</strong> ขั้น 3 จะลบข้อมูลเดิมใน Google Sheet ทับด้วยไฟล์ใหม่ — ระบบ preserve ID เดิม {result.stats.preservedCount} โครงการ (ที่จับคู่กับ Contract No.) ดังนั้น invoice/receipt ที่อ้างอิงไม่หาย · ID ใหม่จะออกให้ {result.stats.newCount} โครงการ
+              💡 <strong>หมายเหตุ:</strong> ระบบ preserve ID เดิม {result.stats.preservedCount} โครงการ (จับคู่ Contract No.) → invoice/receipt ที่อ้างอิงไม่หาย · ID ใหม่ออกให้ {result.stats.newCount} โครงการ (ส่วนใหญ่คือยกเลิก)
             </div>
 
             <button onClick={() => setResult(null)} style={{
