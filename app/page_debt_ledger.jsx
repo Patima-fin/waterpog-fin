@@ -1601,7 +1601,7 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
                       {['วันที่', 'ประเภท', 'จำนวนเงิน', 'คงเหลือเงินต้น', 'หมายเหตุ'].map((h, hi) => (
                         <th key={h} style={{
                           textAlign: hi >= 2 && hi <= 3 ? 'right' : 'left',
-                          padding: '9px 16px', fontSize: 10, fontWeight: 700, color: 'var(--ink-400)',
+                          padding: '6px 14px', fontSize: 10, fontWeight: 700, color: 'var(--ink-400)',
                           textTransform: 'uppercase', letterSpacing: 0.5, whiteSpace: 'nowrap',
                           borderBottom: '1px solid var(--line, #e2e8f0)',
                         }}>{h}</th>
@@ -1616,10 +1616,10 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
                       const accent = isRepay ? '#10b981' : '#f59e0b';
                       return (
                         <tr key={(e.id || '') + '|' + ei} style={{ borderTop: ei === 0 ? 'none' : '1px solid var(--ink-50, #f1f5f9)' }}>
-                          <td style={{ padding: '10px 16px', whiteSpace: 'nowrap', color: 'var(--ink-600)', fontVariantNumeric: 'tabular-nums' }}>
+                          <td style={{ padding: '6px 14px', whiteSpace: 'nowrap', color: 'var(--ink-600)', fontVariantNumeric: 'tabular-nums' }}>
                             {fmtDate(e.eventDate)}
                           </td>
-                          <td style={{ padding: '10px 16px' }}>
+                          <td style={{ padding: '6px 14px' }}>
                             <span style={{
                               display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 20,
                               fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap',
@@ -1630,23 +1630,23 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
                               {isRepay ? 'คืนเงินต้น' : 'เบิกเพิ่ม'}
                             </span>
                           </td>
-                          <td style={{ padding: '10px 16px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700,
+                          <td style={{ padding: '6px 14px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700,
                                        fontSize: 13, color: isRepay ? 'var(--good)' : '#b45309', whiteSpace: 'nowrap' }}>
                             {isRepay ? '−' : '+'}{fmtNum(Number(e.amount), 0)}
                           </td>
-                          <td style={{ padding: '10px 16px' }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-                              <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: 'var(--ink-700)' }}>{fmtNum(balAfter, 0)}</span>
-                              <div style={{ width: 96, height: 4, borderRadius: 3, background: 'var(--ink-100, #e2e8f0)', overflow: 'hidden' }}>
+                          <td style={{ padding: '6px 14px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
+                              <div style={{ width: 70, height: 4, borderRadius: 3, background: 'var(--ink-100, #e2e8f0)', overflow: 'hidden' }}>
                                 <div style={{ height: '100%', width: pct + '%', background: accent, borderRadius: 3, transition: 'width .2s' }} />
                               </div>
+                              <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: 'var(--ink-700)', minWidth: 78, textAlign: 'right' }}>{fmtNum(balAfter, 0)}</span>
                             </div>
                           </td>
-                          <td style={{ padding: '10px 16px', color: 'var(--ink-400)', fontSize: 11.5, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={e.note || ''}>
+                          <td style={{ padding: '6px 14px', color: 'var(--ink-400)', fontSize: 11.5, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={e.note || ''}>
                             {e.note || '—'}
                           </td>
                           {canEdit && (
-                            <td style={{ padding: '8px 12px', whiteSpace: 'nowrap', textAlign: 'right' }}>
+                            <td style={{ padding: '4px 12px', whiteSpace: 'nowrap', textAlign: 'right' }}>
                               <button onClick={() => setEvtModal({ kind: e.eventType, event: e })}
                                 title="แก้ไขรายการนี้"
                                 style={{ display: 'inline-flex', padding: 6, borderRadius: 7, cursor: 'pointer', marginRight: 4,
