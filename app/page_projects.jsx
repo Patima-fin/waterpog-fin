@@ -926,7 +926,7 @@ function MigrationModal({ existingProjects, onClose }) {
         setBusy(false); return;
       }
 
-      // เก็บคอลัมน์ทั้งหมด (เรียงตามลำดับที่เจอครั้งแรก)
+      // เก็บคอลัมน์ทั้งหมด (เรียงตามลำดับที่เจอครั้งแรก) — trim trailing space
       const colSet = new Set(); const colOrder = [];
       mainSheets.forEach(sn => {
         const headerRow = window.XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: null })[0] || [];
@@ -935,12 +935,21 @@ function MigrationModal({ existingProjects, onClose }) {
           if (k && !colSet.has(k)) { colSet.add(k); colOrder.push(k); }
         });
       });
+      // บังคับคอลัมน์สำคัญติดมาเสมอ แม้ header จะมี space ค้างหรืออื่น ๆ
+      ['ยกเลิกโครงการ', 'มูลค่าสัญญาที่เซ็น (รวมVAT)', '% Progress',
+       'Tender No.', 'Project No.', 'Customer'
+      ].forEach(c => { if (!colSet.has(c)) { colSet.add(c); colOrder.push(c); } });
 
-      // อ่าน rows ทุก sheet
+      // อ่าน rows ทุก sheet + normalize key (trim trailing space)
       const allRows = [];
       mainSheets.forEach(sn => {
         const rows = window.XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: null, raw: false });
-        rows.forEach(r => allRows.push({ _sheet: sn, ...r }));
+        rows.forEach(r => {
+          // normalize keys → กันกรณี header เป็น "ยกเลิกโครงการ " (มี space)
+          const norm = { _sheet: sn };
+          for (const k of Object.keys(r)) { norm[String(k).trim()] = r[k]; }
+          allRows.push(norm);
+        });
       });
 
       // จับ id เดิมจาก existingProjects ตาม Contract No. → preserve ID
@@ -982,7 +991,8 @@ function MigrationModal({ existingProjects, onClose }) {
       let cancelledCount = 0, ghostCount = 0, newCount = 0, preservedCount = 0;
       allRows.forEach(r => {
         let code = String(r['Contract No.'] || '').trim();
-        const isCancelled = isCancelledFlag(r['ยกเลิกโครงการ']);
+        // ใช้ getCancelFlag → ค้น key /ยกเลิก/ แบบ fuzzy กันเผื่อมี space
+        const isCancelled = getCancelFlag(r);
         const name = String(r['พื้นที่'] || '').trim();
         if (!code) {
           if (isCancelled && name) code = syntheticCode(name);
@@ -1008,6 +1018,8 @@ function MigrationModal({ existingProjects, onClose }) {
           out[col] = val;
         });
         out['Contract No.'] = code; // บังคับใส่ synthetic ถ้ามี
+        // บังคับ flag ยกเลิก = 1 ถ้าตรวจเจอ (ทำให้ column AA มีค่าเสมอ)
+        if (isCancelled) out['ยกเลิกโครงการ'] = 1;
         outRows.push(out);
       });
 
