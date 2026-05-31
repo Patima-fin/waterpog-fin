@@ -234,24 +234,26 @@ function buildAutoSchedule(master, events, asOf, cfg) {
   evs.forEach(e => bset.add(e.date));
   const bounds = [...bset].filter(d => d >= start && d <= end).sort();
 
-  const monthMap = {};
+  // แยกเป็น 1 แถว/ช่วงเงินต้น (เดือนปกติ = 1 แถว · เดือนที่คืน/เบิกกลางเดือน = หลายแถว)
+  // → เงินต้นแต่ละแถวเป็นค่าเดียว ตรวจที่มาของดอกเบี้ยได้ชัด ไม่มีแถวยอด 0
+  const rows = [];
   for (let i = 0; i < bounds.length - 1; i++) {
     const a = bounds[i], b = bounds[i + 1];
     if (a === b) continue;
     const p = principalAt(a);
     let days = method === '30/360' ? _thirty360(a, b) : _daysBetween(a, b);
+    if (days <= 0) continue;
     if (dayCount === 'include_end' && (b === end || evs.some(e => e.date === b))) days += 1;
     const basis = (method === 'ACT/360' || method === '30/360') ? 360
                 : method === 'ACT/ACT' ? _daysInYear(Number(a.slice(0, 4)))
                 : 365;
-    const interest = p * rate * (days / basis);
-    const ym = a.slice(0, 7);
-    if (!monthMap[ym]) monthMap[ym] = { year: Number(a.slice(0, 4)), month: Number(a.slice(5, 7)), days: 0, interest: 0, pStart: p, pEnd: p };
-    monthMap[ym].days     += days;
-    monthMap[ym].interest += interest;
-    monthMap[ym].pEnd      = principalAt(b);
+    rows.push({
+      year: Number(a.slice(0, 4)), month: Number(a.slice(5, 7)),
+      periodStart: a, periodEnd: b,
+      principal: p, days, interest: p * rate * (days / basis),
+      balanceAfter: principalAt(b),
+    });
   }
-  const rows = Object.keys(monthMap).sort().map(k => monthMap[k]);
   return { rows, total: rows.reduce((s, r) => s + r.interest, 0), error: null, missing: [] };
 }
 
@@ -1088,8 +1090,8 @@ function useDebtContractActions(setData, toast) {
           const nr = {
             id: WTPData.newId(), contractNo: master.contractNo,
             year: row.year, month: row.month,
-            principal: row.pStart, interestRate: Number(mNow.interestRate) || 0,
-            days: row.days, interestAmount: row.interest, outstanding: row.pEnd,
+            principal: row.principal, interestRate: Number(mNow.interestRate) || 0,
+            days: row.days, interestAmount: row.interest, outstanding: row.balanceAfter,
             paymentDate: old.paymentDate || '', paidBy: old.paidBy || '', paidAt: old.paidAt || '', paymentNote: old.paymentNote || '',
             auto: true,
           };
@@ -1110,6 +1112,19 @@ function useDebtContractActions(setData, toast) {
       if (msg.startsWith('ERR:')) { toast('เปิด auto ไม่ได้: ' + msg.slice(4)); return; }
       syncAfter(updated);
       toast(msg);
+    },
+    // บันทึกฟิลด์ข้อมูลสัญญา (เช่น วันเริ่ม/วันครบ/อัตรา/เงินต้น ที่ขาด)
+    saveMasterFields(master, patch) {
+      const at = new Date().toISOString();
+      let updated;
+      setData(d => {
+        const masters = (d.debtMaster || []).map(m => m.id === master.id
+          ? { ...m, ...patch, editedBy: username, editedAt: at } : m);
+        updated = { ...d, debtMaster: masters };
+        return updated;
+      });
+      syncAfter(updated);
+      toast('บันทึกข้อมูลสัญญาแล้ว');
     },
     // ปิดโหมดอัตโนมัติ (กลับเป็นแก้มือ) — คงตารางที่คำนวณไว้ แค่หยุด auto
     setAutoMode(master, on) {
@@ -1310,11 +1325,53 @@ function exportPerContractSheets({ masters, ledgerByContract, eventsByContract, 
   XLSX.writeFile(wb, filename);
 }
 
+// ── ฟอร์มเติมข้อมูลสัญญาที่ขาด (โผล่ในแบนเนอร์เตือนของแผงคำนวณอัตโนมัติ) ──────
+function MissingFieldsEditor({ master, onSave }) {
+  const [start,     setStart]     = React.useState('');
+  const [maturity,  setMaturity]  = React.useState('');
+  const [rate,      setRate]      = React.useState(0);
+  const [principal, setPrincipal] = React.useState(0);
+  React.useEffect(() => {
+    setStart(master.startDate || master.receiveDate || master.drawdownDate || '');
+    setMaturity(master.maturityDate || '');
+    setRate(Number(master.interestRate) || 0);
+    setPrincipal(Number(master.principalAmount) || 0);
+  }, [master]);
+  const Lbl = ({ children }) => <label style={{ fontSize: 10, color: 'var(--ink-500)', display: 'block', marginBottom: 2 }}>{children}</label>;
+  return (
+    <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+      <div style={{ flex: '1 1 120px' }}>
+        <Lbl>วันเริ่ม/รับเงิน</Lbl>
+        <input className="input" type="date" value={start} onChange={e => setStart(e.target.value)} style={{ fontSize: 12 }} />
+      </div>
+      <div style={{ flex: '1 1 120px' }}>
+        <Lbl>วันครบสัญญา</Lbl>
+        <input className="input" type="date" value={maturity} onChange={e => setMaturity(e.target.value)} style={{ fontSize: 12 }} />
+      </div>
+      <div style={{ flex: '1 1 90px' }}>
+        <Lbl>อัตรา %/ปี</Lbl>
+        <PercentInput className="input" value={rate} onChange={setRate} style={{ fontSize: 12 }} />
+      </div>
+      <div style={{ flex: '1 1 120px' }}>
+        <Lbl>เงินต้น (บาท)</Lbl>
+        <NumberInput className="input" value={principal} digits={0} onChange={setPrincipal} style={{ fontSize: 12 }} />
+      </div>
+      <button className="btn btn-primary" style={{ fontSize: 12 }}
+        onClick={() => onSave && onSave(master, {
+          startDate: start, maturityDate: maturity,
+          interestRate: Number(rate) || 0, principalAmount: Number(principal) || 0,
+        })}>
+        <Icon name="check" size={13} /> บันทึกข้อมูล
+      </button>
+    </div>
+  );
+}
+
 // ── Monthly schedule popup ──────────────────────────────────────────────────
 function InterestSchedulePopup({ master, ledgerRows, events, onClose,
     onSavePayments, onClearPayment, onOverrideInterest,
     onAddPrincipalEvent, onEditEvent, onDeleteEvent, onDeleteLedgerRow,
-    onAdoptAuto, onSetAutoMode, onRollover, canEdit }) {
+    onAdoptAuto, onSetAutoMode, onSaveMasterFields, onRollover, canEdit }) {
   const [selectedIds, setSelectedIds] = React.useState(new Set());
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [overrideRow, setOverrideRow] = React.useState(null);
@@ -1522,8 +1579,8 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
                   {canEdit && <th style={{ width: 80, textAlign: 'center' }}>แก้ไข</th>}
                 </tr></thead>
                 <tbody>
-                  {eventsWithBal.map(({ ev: e, balAfter }) => (
-                    <tr key={e.id} style={{ background: e.eventType === 'repayment' ? '#f0fdf4' : '#fff7ed' }}>
+                  {eventsWithBal.map(({ ev: e, balAfter }, ei) => (
+                    <tr key={(e.id || '') + '|' + ei} style={{ background: e.eventType === 'repayment' ? '#f0fdf4' : '#fff7ed' }}>
                       <td>{fmtDate(e.eventDate)}</td>
                       <td>
                         <Badge kind={e.eventType === 'repayment' ? 'b-green' : 'b-amber'} dot={false}>
@@ -1615,14 +1672,14 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
                 {visibleRows.length === 0 && (
                   <tr><td colSpan={canEdit ? 10 : 9} style={{ textAlign: 'center', padding: 36, color: 'var(--ink-400)' }}>ไม่มีข้อมูล</td></tr>
                 )}
-                {visibleRows.map(r => {
+                {visibleRows.map((r, ri) => {
                   const isPaid = !!r.paymentDate;
                   const isOverridden = r.interestOverride != null && r.interestOverride !== '';
                   const eff = effectiveInterest(r);
                   const computed = Number(r.interestAmount) || 0;
                   const isSelected = selectedIds.has(r.id);
                   return (
-                    <tr key={r.id} style={{
+                    <tr key={(r.id || '') + '|' + ri} style={{
                       background: isSelected ? 'color-mix(in oklch, var(--brand-500) 8%, transparent)' :
                                   isPaid ? '#f0fdf4' : undefined,
                     }}>
@@ -1771,8 +1828,8 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
                 </div>
                 {cmp.error ? (
                   <div style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', padding: '10px 12px', borderRadius: 8, fontSize: 12.5 }}>
-                    ⚠️ <strong>{cmp.error}</strong> — ขาด: <strong>{cmp.missing.join(', ')}</strong><br />
-                    เติมข้อมูลสัญญาให้ครบก่อน ระบบถึงจะคำนวณอัตโนมัติได้ (ไม่คำนวณเดาให้)
+                    ⚠️ <strong>{cmp.error}</strong> — ขาด: <strong>{cmp.missing.join(', ')}</strong> · เติมข้อมูลด้านล่างแล้วกดบันทึก
+                    {canEdit && <MissingFieldsEditor master={master} onSave={onSaveMasterFields} />}
                   </div>
                 ) : (
                   <>
@@ -1807,17 +1864,20 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
                           <th style={{ textAlign: 'right' }}>คงเหลือ</th>
                         </tr></thead>
                         <tbody>
-                          {cmp.rows.map((r, i) => (
-                            <tr key={i}>
-                              <td style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>{TH_MONTH[r.month]} {r.year}</td>
-                              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-                                {r.pStart !== r.pEnd ? `${fmtNum(r.pStart, 0)} → ${fmtNum(r.pEnd, 0)}` : fmtNum(r.pStart, 0)}
+                          {cmp.rows.map((r, i) => {
+                            const split = i > 0 && cmp.rows[i - 1].year === r.year && cmp.rows[i - 1].month === r.month;
+                            return (
+                            <tr key={i} style={split ? { background: 'color-mix(in oklch, var(--brand-500) 4%, transparent)' } : undefined}>
+                              <td style={{ whiteSpace: 'nowrap', fontWeight: 600, color: split ? 'var(--ink-400)' : undefined }}>
+                                {split ? '↳ ' : ''}{TH_MONTH[r.month]} {r.year}
                               </td>
+                              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{fmtNum(r.principal, 0)}</td>
                               <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{r.days}</td>
                               <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmtNum(r.interest, 2)}</td>
-                              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(r.pEnd, 0)}</td>
+                              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(r.balanceAfter, 0)}</td>
                             </tr>
-                          ))}
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -2189,7 +2249,7 @@ function DebtLedgerPage({ data, setData, toast }) {
   const actions = useDebtContractActions(setData, toast);
   const { savePayments, clearPayment, overrideInterest, addPrincipalEvent,
           editPrincipalEvent, deletePrincipalEvent, deleteLedgerRow,
-          adoptAutoMode, setAutoMode, doRollover } = actions;
+          adoptAutoMode, setAutoMode, saveMasterFields, doRollover } = actions;
 
   // Refresh selectedMaster from store (so popup reflects latest state)
   React.useEffect(() => {
@@ -2348,6 +2408,7 @@ function DebtLedgerPage({ data, setData, toast }) {
         onDeleteLedgerRow={deleteLedgerRow}
         onAdoptAuto={adoptAutoMode}
         onSetAutoMode={setAutoMode}
+        onSaveMasterFields={saveMasterFields}
         onRollover={doRollover}
         canEdit={canEdit}
       />
