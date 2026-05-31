@@ -325,6 +325,7 @@ function ProjectsPage({ data, setData, toast }) {
   const [filterOpen, setFilterOpen] = pjState(true);
   const [uploadOpen, setUploadOpen] = pjState(false);
   const [uploadDiff, setUploadDiff] = pjState(null); // { new:[], updated:[], unchanged:[] }
+  const [migrationOpen, setMigrationOpen] = pjState(false);
   // snapshot โครงการจากไฟล์ที่อัปโหลด (อยู่ใน localStorage — รอด cloud sync)
   const [localProjects, setLocalProjects] = pjState(loadLocalProjects);
   // ใช้ snapshot ที่อัปโหลดเป็น "ฐานโครงการ" ถ้ามี — ไม่งั้น fall back ไป cloud data
@@ -573,7 +574,8 @@ function ProjectsPage({ data, setData, toast }) {
       {!fullscreen && (
         <ProjectsHero kpi={kpi} totalCount={enriched.length} filteredCount={filtered.length}
           onFullscreen={() => setFullscreen(true)}
-          onUpload={userCanEdit ? () => setUploadOpen(true) : null} />
+          onUpload={userCanEdit ? () => setUploadOpen(true) : null}
+          onMigrate={userCanEdit ? () => setMigrationOpen(true) : null} />
       )}
 
       {/* Toolbar: search + filter toggle + column groups + fullscreen */}
@@ -653,6 +655,13 @@ function ProjectsPage({ data, setData, toast }) {
               + ' · กำลัง sync เข้า Google Sheet…');
             setUploadOpen(false); setUploadDiff(null);
           }}
+        />
+      )}
+
+      {migrationOpen && (
+        <MigrationModal
+          existingProjects={data.projects || []}
+          onClose={() => setMigrationOpen(false)}
         />
       )}
     </div>
@@ -895,6 +904,247 @@ function UploadModal({ existingProjects, onClose, onParsed, diff, onConfirm }) {
   );
 }
 
+// ─── Schema Migration Modal ──────────────────────────────────────────────
+// One-time tool: อ่านไฟล์ Excel ดิบ → สร้างไฟล์ master ที่มีคอลัมน์ครบ 117 ช่อง
+//   (รวม "ยกเลิกโครงการ" + "รวมVAT") → user import เข้า Google Sheet ทับ tab projects
+// หลัง migrate เสร็จ: เว็บแอป read/write ครบทุก field ทีมเห็นข้อมูลเดียวกัน
+function MigrationModal({ existingProjects, onClose }) {
+  const [busy, setBusy] = pjState(false);
+  const [error, setError] = pjState('');
+  const [result, setResult] = pjState(null);
+  const fileInputRef = pjRef(null);
+
+  const parseAndBuild = async (f) => {
+    if (!window.XLSX) { setError('ไม่พบ SheetJS — รีเฟรชหน้า'); return; }
+    setBusy(true); setError(''); setResult(null);
+    try {
+      const buf = await f.arrayBuffer();
+      const wb = window.XLSX.read(buf, { type: 'array', cellDates: true, cellStyles: true });
+      const mainSheets = wb.SheetNames.filter(n => /^Main\s*all/i.test(n));
+      if (mainSheets.length === 0) {
+        setError('ไม่พบ sheet ที่ขึ้นต้นด้วย "Main all" — ต้องเป็นไฟล์ Project Control ดิบ');
+        setBusy(false); return;
+      }
+
+      // เก็บคอลัมน์ทั้งหมด (เรียงตามลำดับที่เจอครั้งแรก)
+      const colSet = new Set(); const colOrder = [];
+      mainSheets.forEach(sn => {
+        const headerRow = window.XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: null })[0] || [];
+        headerRow.forEach(h => {
+          const k = String(h || '').trim();
+          if (k && !colSet.has(k)) { colSet.add(k); colOrder.push(k); }
+        });
+      });
+
+      // อ่าน rows ทุก sheet
+      const allRows = [];
+      mainSheets.forEach(sn => {
+        const rows = window.XLSX.utils.sheet_to_json(wb.Sheets[sn], { defval: null, raw: false });
+        rows.forEach(r => allRows.push({ _sheet: sn, ...r }));
+      });
+
+      // จับ id เดิมจาก existingProjects ตาม Contract No. → preserve ID
+      const existingIdByCode = {};
+      (existingProjects || []).forEach(p => {
+        const code = String(p['Contract No.'] || p.code || '').trim();
+        if (code && p.id) existingIdByCode[code] = p.id;
+      });
+      // หา max id number จาก existing เพื่อต่อลำดับ
+      let maxIdNum = 0;
+      (existingProjects || []).forEach(p => {
+        const m = String(p.id || '').match(/proj[_-]?0*(\d+)/i);
+        if (m) maxIdNum = Math.max(maxIdNum, Number(m[1]));
+      });
+
+      const syntheticCode = (name) => 'XL-' + String(name || '').trim().replace(/\s+/g, '_').slice(0, 40);
+      const isoDate = (v) => {
+        if (!v) return '';
+        if (v instanceof Date) return v.toISOString().slice(0, 10);
+        const s = String(v).trim();
+        const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+        if (m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+        if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+        return s;
+      };
+      const DATE_COLS = new Set([
+        'Start','Finish','เซ็นสัญญา','แจ้งเข้าดำเนินการ','ประกาศผู้ชนะ',
+        'Receive Date','Receive Date2','Receive Date3',
+        'วันที่ส่งมอบงาน งวด 1','วันที่ส่งมอบงาน งวด 2','วันที่ส่งมอบงานงวด 3',
+        'วันที่ส่ง นส.มอบงาน งวด 1','วันที่ส่ง นส.มอบงาน งวด 2','วันที่ส่ง นส.มอบงานงวด 3',
+        'วันที่เซ็น/รับ ใบตรวจรับ งวดที่ 1','วันที่เซ็น/รับ ใบตรวจรับ งวด 2',
+        'ขั้น 1 วันที่แล้วเสร็จ','ขั้น 2 วันที่แล้วเสร็จ','ขั้น 3 วันที่แล้วเสร็จ',
+        'ขั้น 4 วันที่แล้วเสร็จ','ขั้น 5 วันที่แล้วเสร็จ',
+        'กำหนดส่งมอบงานงวด 1',
+      ]);
+
+      const seenCodes = new Set();
+      const outRows = [];
+      let cancelledCount = 0, ghostCount = 0, newCount = 0, preservedCount = 0;
+      allRows.forEach(r => {
+        let code = String(r['Contract No.'] || '').trim();
+        const isCancelled = isCancelledFlag(r['ยกเลิกโครงการ']);
+        const name = String(r['พื้นที่'] || '').trim();
+        if (!code) {
+          if (isCancelled && name) code = syntheticCode(name);
+          else return;
+        }
+        if (seenCodes.has(code)) return;
+        if (isGhostRow(r)) { ghostCount++; return; }
+        seenCodes.add(code);
+        if (isCancelled) cancelledCount++;
+
+        // เลือก id: คงเดิมถ้ามี / สร้างใหม่ต่อลำดับ
+        let id = existingIdByCode[code];
+        if (id) preservedCount++;
+        else { maxIdNum++; id = 'proj_' + String(maxIdNum).padStart(4, '0'); newCount++; }
+
+        // สร้าง row output ตามลำดับ colOrder
+        const out = { id };
+        colOrder.forEach(col => {
+          let val = r[col];
+          if (val == null) val = '';
+          else if (DATE_COLS.has(col)) val = isoDate(val);
+          else if (val instanceof Date) val = val.toISOString().slice(0, 10);
+          out[col] = val;
+        });
+        out['Contract No.'] = code; // บังคับใส่ synthetic ถ้ามี
+        outRows.push(out);
+      });
+
+      // เรียงตาม id เพื่อให้อ่านง่าย
+      outRows.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+
+      // สร้าง workbook ใหม่
+      const headers = ['id', ...colOrder];
+      const sheet = window.XLSX.utils.json_to_sheet(outRows, { header: headers });
+      const outWb = window.XLSX.utils.book_new();
+      window.XLSX.utils.book_append_sheet(outWb, sheet, 'projects');
+      const wbBuf = window.XLSX.write(outWb, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([wbBuf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const filename = 'projects-master-' + new Date().toISOString().slice(0, 10) + '.xlsx';
+
+      setResult({ blob, filename, stats: {
+        totalCols: headers.length, totalRows: outRows.length,
+        cancelledCount, ghostCount, newCount, preservedCount,
+      }});
+    } catch (err) {
+      console.error(err);
+      setError('ผิดพลาด: ' + (err.message || err));
+    } finally { setBusy(false); }
+  };
+
+  const download = () => {
+    if (!result) return;
+    const url = URL.createObjectURL(result.blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = result.filename;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const statCard = (label, value, color, bg) => (
+    <div style={{ background: bg, border: '1px solid ' + color + '30', borderRadius: 8, padding: '8px 12px' }}>
+      <div style={{ fontSize: 10.5, color, fontWeight: 600, marginBottom: 2 }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color }}>{value}</div>
+    </div>
+  );
+
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)',
+      display: 'grid', placeItems: 'center', zIndex: 9000, padding: 20,
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: 'white', borderRadius: 14, padding: 24,
+        width: 'min(720px, 95vw)', maxHeight: '90vh', overflow: 'auto',
+        boxShadow: '0 24px 60px rgba(15,23,42,0.35)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>🛠️ Schema Migration — เซ็ตอัพ Google Sheet ครั้งแรก</h2>
+          <button onClick={onClose} style={{ border: 'none', background: 'none', fontSize: 24, cursor: 'pointer', color: '#94a3b8', lineHeight: 1 }}>×</button>
+        </div>
+
+        <div style={{
+          background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 8,
+          padding: '10px 12px', marginBottom: 16, fontSize: 12, color: '#78350f', lineHeight: 1.55,
+        }}>
+          <strong>เครื่องมือ one-time setup</strong> · อ่านไฟล์ Excel ดิบของพี่ → สร้างไฟล์ master ใหม่ที่มี <strong>คอลัมน์ครบทั้งหมดตามต้นฉบับ</strong> (รวม "ยกเลิกโครงการ", "รวมVAT", "% Progress" ฯลฯ) · นำเข้า Google Sheet ทับ tab <code>projects</code> ครั้งเดียว → ทีมทุกคนเห็นข้อมูลเดียวกันถาวร
+        </div>
+
+        {!result && (
+          <>
+            <div onClick={() => fileInputRef.current && fileInputRef.current.click()} style={{
+              border: '2px dashed #cbd5e1', borderRadius: 10, padding: 36, textAlign: 'center',
+              cursor: 'pointer', background: '#f8fafc',
+            }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>📂</div>
+              <div style={{ fontSize: 14, color: '#475569', fontWeight: 500 }}>คลิกเพื่อเลือกไฟล์ Project Control xlsx</div>
+              <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 4 }}>(ไฟล์ที่มี sheet Main all67/68/69)</div>
+              <input type="file" ref={fileInputRef} accept=".xlsx" style={{ display: 'none' }}
+                onChange={e => e.target.files[0] && parseAndBuild(e.target.files[0])} />
+            </div>
+            {busy && <div style={{ marginTop: 12, color: '#2563eb', fontSize: 13, textAlign: 'center' }}>⏳ กำลังประมวลผล…</div>}
+            {error && <div style={{ marginTop: 12, padding: 10, background: '#fef2f2', color: '#b91c1c', fontSize: 13, borderRadius: 6, border: '1px solid #fca5a5' }}>❌ {error}</div>}
+          </>
+        )}
+
+        {result && (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 8, marginBottom: 14 }}>
+              {statCard('คอลัมน์', result.stats.totalCols, '#1e40af', '#dbeafe')}
+              {statCard('โครงการ', result.stats.totalRows, '#0891b2', '#cffafe')}
+              {statCard('ยกเลิก', result.stats.cancelledCount, '#7f1d1d', '#fee2e2')}
+              {statCard('คง ID เดิม', result.stats.preservedCount, '#7c3aed', '#ede9fe')}
+              {statCard('ใหม่', result.stats.newCount, '#16a34a', '#dcfce7')}
+              {statCard('ข้ามแถวมั่ว', result.stats.ghostCount, '#64748b', '#f1f5f9')}
+            </div>
+
+            <button onClick={download} style={{
+              background: '#2563eb', color: 'white', border: 'none', borderRadius: 8,
+              padding: '12px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+              width: '100%', marginBottom: 16,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+            }}>
+              📥 Download {result.filename}
+            </button>
+
+            <div style={{
+              background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8,
+              padding: '12px 14px', marginBottom: 12,
+            }}>
+              <div style={{ fontWeight: 700, marginBottom: 8, color: '#15803d', fontSize: 13 }}>
+                ✅ ขั้นตอน Import เข้า Google Sheet (ทำครั้งเดียว):
+              </div>
+              <ol style={{ margin: 0, paddingLeft: 22, fontSize: 12.5, color: '#166534', lineHeight: 1.8 }}>
+                <li>กดปุ่ม <strong>Download</strong> ด้านบน — ได้ไฟล์ <code>{result.filename}</code></li>
+                <li>เปิด <strong>Google Sheet → Water POG Financial DB</strong></li>
+                <li>ไปที่ tab <strong><code>projects</code></strong> · เลือกเซลล์ A1 · กด <code>Ctrl+A</code> · กด <code>Delete</code> (ลบข้อมูลเก่าทั้งหมด)</li>
+                <li>เมนู <strong>ไฟล์ → นำเข้า → อัปโหลด</strong> → เลือกไฟล์ที่ดาวน์โหลด</li>
+                <li>เลือก <strong>"แทนที่แผ่นงานปัจจุบัน"</strong> (Replace current sheet) → กด <strong>นำเข้าข้อมูล</strong></li>
+                <li>กลับมาที่เว็บแอป กด <code>Ctrl+Shift+R</code> → ข้อมูลครบ {result.stats.totalRows} โครงการ {result.stats.totalCols} คอลัมน์</li>
+              </ol>
+            </div>
+
+            <div style={{
+              background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8,
+              padding: '10px 14px', fontSize: 11.5, color: '#991b1b', lineHeight: 1.6,
+            }}>
+              ⚠️ <strong>คำเตือน:</strong> ขั้น 3 จะลบข้อมูลเดิมใน Google Sheet ทับด้วยไฟล์ใหม่ — ระบบ preserve ID เดิม {result.stats.preservedCount} โครงการ (ที่จับคู่กับ Contract No.) ดังนั้น invoice/receipt ที่อ้างอิงไม่หาย · ID ใหม่จะออกให้ {result.stats.newCount} โครงการ
+            </div>
+
+            <button onClick={() => setResult(null)} style={{
+              marginTop: 12, background: 'transparent', color: '#64748b',
+              border: '1px solid #cbd5e1', borderRadius: 6,
+              padding: '6px 14px', fontSize: 12, cursor: 'pointer',
+            }}>← เลือกไฟล์ใหม่</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function DiffPreview({ diff, onConfirm, onReset }) {
   const isAssigneeMode = diff.mode === 'assignee';
   return (
@@ -1024,7 +1274,7 @@ function DiffPreview({ diff, onConfirm, onReset }) {
 }
 
 // ─── Hero / Executive Summary ───────────────────────────────────────────────
-function ProjectsHero({ kpi, totalCount, filteredCount, onFullscreen, onUpload }) {
+function ProjectsHero({ kpi, totalCount, filteredCount, onFullscreen, onUpload, onMigrate }) {
   return (
     <>
       {/* HERO BANNER */}
@@ -1063,6 +1313,16 @@ function ProjectsHero({ kpi, totalCount, filteredCount, onFullscreen, onUpload }
               display: 'inline-flex', alignItems: 'center', gap: 6,
             }} title="นำเข้าไฟล์ Project Control (XLSX)">
               <Icon name="upload" size={13} /> อัปโหลดข้อมูล
+            </button>
+          )}
+          {onMigrate && (
+            <button onClick={onMigrate} style={{
+              background: 'rgba(254,243,199,0.95)', color: '#78350f',
+              border: '1px solid rgba(252,211,77,0.6)', borderRadius: 8,
+              padding: '8px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+            }} title="เซ็ตอัพคอลัมน์ Google Sheet ครั้งแรก (One-time Schema Migration)">
+              🛠️ Migration
             </button>
           )}
           <button onClick={onFullscreen} style={{
