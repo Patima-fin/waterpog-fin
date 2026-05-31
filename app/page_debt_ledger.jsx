@@ -165,6 +165,18 @@ function effectiveInterest(r) {
   return Number(r.interestAmount) || 0;
 }
 
+// คงเหลือเงินต้น = เงินต้นตั้งต้น + Σเบิกเพิ่ม − Σคืนเงินต้น (คำนวณสดจาก events เสมอ
+// → แก้/ลบ event แล้วยอดคงเหลือ + ตารางดอกเบี้ย + การ์ดสรุป อัปเดตพร้อมกันไม่มีเพี้ยน)
+function recalcBalance(master, events) {
+  const mine = (events || []).filter(e =>
+    e.contractId === master.id || e.contractNo === master.contractNo);
+  const inSum  = mine.filter(e => e.eventType === 'drawdown')
+    .reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const outSum = mine.filter(e => e.eventType === 'repayment')
+    .reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  return Math.max(0, (Number(master.principalAmount) || 0) + inSum - outSum);
+}
+
 // ── Main table row ──────────────────────────────────────────────────────────
 function DebtLedgerRow({ master, summary, onOpen }) {
   const cat = master.debtCategory || 'อื่นๆ';
@@ -363,30 +375,35 @@ function InterestOverridePopup({ open, row, onClose, onSave }) {
 
 // ── Principal repayment / drawdown modal ────────────────────────────────────
 // kind = 'repayment' (คืนเงินต้น — partial OK) | 'drawdown' (เบิกเพิ่ม)
-function PrincipalEventModal({ open, kind, master, onClose, onSave }) {
+function PrincipalEventModal({ open, kind, master, editEvent, onClose, onSave }) {
+  const isEdit = !!editEvent;
   const [date,   setDate]   = React.useState(new Date().toISOString().slice(0, 10));
   const [amount, setAmount] = React.useState('');
   const [note,   setNote]   = React.useState('');
   const [closeContract, setCloseContract] = React.useState(false);
   React.useEffect(() => {
     if (open) {
-      setDate(new Date().toISOString().slice(0, 10));
-      setAmount('');
-      setNote('');
+      setDate(editEvent ? editEvent.eventDate : new Date().toISOString().slice(0, 10));
+      setAmount(editEvent ? String(editEvent.amount) : '');
+      setNote(editEvent ? (editEvent.note || '') : '');
       setCloseContract(false);
     }
-  }, [open, master, kind]);
+  }, [open, master, kind, editEvent]);
   if (!open || !master) return null;
   const isRepay  = kind === 'repayment';
-  const balance  = Number(master.balance || master.principalAmount) || 0;
+  // โหมดแก้ไข: ยอดคงเหลือ "ก่อน" ต้องหักผลของรายการนี้ออกก่อน (เพราะมันถูกรวมอยู่แล้ว)
+  const curBal   = Number(master.balance || master.principalAmount) || 0;
+  const balance  = isEdit
+    ? Math.max(0, curBal + (editEvent.eventType === 'repayment' ? 1 : -1) * (Number(editEvent.amount) || 0))
+    : curBal;
   const num      = Number(amount) || 0;
   const newBal   = isRepay ? Math.max(0, balance - num) : balance + num;
   const tooMuch  = isRepay && num > balance + 0.01;
-  const wouldClose = isRepay && newBal === 0 && num > 0;
+  const wouldClose = !isEdit && isRepay && newBal === 0 && num > 0;
 
   const c = isRepay
-    ? { color: '#15803d', bg: '#f0fdf4', border: '#86efac', label: 'คืนเงินต้น', icon: '💵', title: 'บันทึกการคืนเงินต้น' }
-    : { color: '#b45309', bg: '#fffbeb', border: '#fde68a', label: 'เบิกเงินกู้เพิ่ม', icon: '↑', title: 'บันทึกการเบิกเงินกู้เพิ่ม (drawdown)' };
+    ? { color: '#15803d', bg: '#f0fdf4', border: '#86efac', label: 'คืนเงินต้น', icon: '💵', title: (isEdit ? 'แก้ไขการคืนเงินต้น' : 'บันทึกการคืนเงินต้น') }
+    : { color: '#b45309', bg: '#fffbeb', border: '#fde68a', label: 'เบิกเงินกู้เพิ่ม', icon: '↑', title: (isEdit ? 'แก้ไขการเบิกเงินกู้เพิ่ม' : 'บันทึกการเบิกเงินกู้เพิ่ม (drawdown)') };
 
   return (
     <Modal
@@ -397,7 +414,7 @@ function PrincipalEventModal({ open, kind, master, onClose, onSave }) {
       footer={<>
         <button className="btn btn-ghost" onClick={onClose}>ยกเลิก</button>
         <button className="btn btn-primary" disabled={!num || tooMuch} onClick={() => onSave({ date, amount: num, note, kind, closeContract: closeContract || wouldClose })}>
-          <Icon name="check" size={14} /> บันทึก {c.label} {fmtNum(num, 2)} ฿
+          <Icon name="check" size={14} /> {isEdit ? 'บันทึกการแก้ไข' : 'บันทึก'} {c.label} {fmtNum(num, 2)} ฿
         </button>
       </>}
     >
@@ -458,11 +475,16 @@ function PrincipalEventModal({ open, kind, master, onClose, onSave }) {
           ℹ️ คืนทั้งหมดแล้ว — ระบบจะ <strong>ปิดสัญญาให้อัตโนมัติ</strong> (status = Close)
         </div>
       )}
-      {isRepay && !wouldClose && num > 0 && (
+      {!isEdit && isRepay && !wouldClose && num > 0 && (
         <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, color: 'var(--ink-600)' }}>
           <input type="checkbox" checked={closeContract} onChange={e => setCloseContract(e.target.checked)} />
           ปิดสัญญาตอนนี้ด้วย (เช่น ตกลงปิดที่ยอดต่ำกว่าวงเงิน — ส่วนต่างถือเป็นการลดวงเงิน)
         </label>
+      )}
+      {isEdit && (
+        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af', padding: '8px 12px', borderRadius: 7, fontSize: 12 }}>
+          ℹ️ แก้ไขรายการที่คีย์ผิด — ระบบจะ <strong>คำนวณยอดคงเหลือเงินต้นใหม่</strong> จากทุกรายการให้อัตโนมัติ
+        </div>
       )}
     </Modal>
   );
@@ -828,17 +850,17 @@ function useDebtContractActions(setData, toast) {
       const at = new Date().toISOString();
       const evRow = {
         id: WTPData.newId(), contractId: master.id, contractNo: master.contractNo,
-        eventType: kind, eventDate: date, amount, note: note || '',
+        eventType: kind, eventDate: date, amount: Number(amount) || 0, note: note || '',
         recordedBy: username, recordedAt: at,
       };
-      const currentBal = Number(master.balance || master.principalAmount) || 0;
-      const newBal = kind === 'repayment' ? Math.max(0, currentBal - amount) : currentBal + amount;
-      const shouldClose = closeContract || (kind === 'repayment' && newBal === 0 && amount > 0);
-      let updated;
+      let updated, closedFlag = false;
       setData(d => {
         const events = [...(d.debtEvents || []), evRow];
         const masters = (d.debtMaster || []).map(m => {
           if (m.id !== master.id) return m;
+          const newBal = recalcBalance(m, events);
+          const shouldClose = closeContract || (kind === 'repayment' && newBal === 0 && Number(amount) > 0);
+          closedFlag = shouldClose;
           const patch = { ...m, balance: newBal };
           if (shouldClose) {
             patch.status = 'Close';
@@ -852,7 +874,65 @@ function useDebtContractActions(setData, toast) {
       });
       syncAfter(updated);
       const action = kind === 'repayment' ? 'คืนเงินต้น' : 'เบิกเงินกู้เพิ่ม';
-      toast(shouldClose ? `${action} ${fmtNum(amount, 0)} ฿ + ปิดสัญญาแล้ว` : `${action} ${fmtNum(amount, 0)} ฿ แล้ว`);
+      toast(closedFlag ? `${action} ${fmtNum(amount, 0)} ฿ + ปิดสัญญาแล้ว` : `${action} ${fmtNum(amount, 0)} ฿ แล้ว`);
+    },
+    // แก้ไขรายการรับ/คืนเงินกู้ที่คีย์ผิด — คำนวณยอดคงเหลือใหม่จาก events ทั้งหมด
+    editPrincipalEvent(eventId, master, { date, amount, note, kind }) {
+      const at = new Date().toISOString();
+      let updated;
+      setData(d => {
+        const events = (d.debtEvents || []).map(e =>
+          e.id === eventId
+            ? { ...e, eventType: kind, eventDate: date, amount: Number(amount) || 0,
+                note: note || '', editedBy: username, editedAt: at }
+            : e
+        );
+        const masters = (d.debtMaster || []).map(m => {
+          if (m.id !== master.id && m.contractNo !== master.contractNo) return m;
+          const newBal = recalcBalance(m, events);
+          const patch = { ...m, balance: newBal };
+          // เปิดสัญญากลับถ้าเคยปิดเพราะคืนครบ แต่ตอนนี้ยังมียอดคงเหลือ
+          if (newBal > 0 && m.status === 'Close' && m.closedReason === 'คืนเงินต้นครบ') {
+            patch.status = 'Active'; patch.closedDate = ''; patch.closedReason = '';
+          }
+          return patch;
+        });
+        updated = { ...d, debtEvents: events, debtMaster: masters };
+        return updated;
+      });
+      syncAfter(updated);
+      toast('แก้ไขรายการแล้ว — คำนวณยอดคงเหลือใหม่ให้อัตโนมัติ');
+    },
+    // ลบรายการรับ/คืนเงินกู้ — คำนวณยอดคงเหลือใหม่
+    deletePrincipalEvent(eventId, master) {
+      let updated;
+      setData(d => {
+        const events = (d.debtEvents || []).filter(e => e.id !== eventId);
+        const masters = (d.debtMaster || []).map(m => {
+          if (m.id !== master.id && m.contractNo !== master.contractNo) return m;
+          const newBal = recalcBalance(m, events);
+          const patch = { ...m, balance: newBal };
+          if (newBal > 0 && m.status === 'Close' && m.closedReason === 'คืนเงินต้นครบ') {
+            patch.status = 'Active'; patch.closedDate = ''; patch.closedReason = '';
+          }
+          return patch;
+        });
+        updated = { ...d, debtEvents: events, debtMaster: masters };
+        return updated;
+      });
+      syncAfter(updated);
+      toast('ลบรายการแล้ว — คำนวณยอดคงเหลือใหม่ให้อัตโนมัติ');
+    },
+    // ลบแถวดอกเบี้ยรายเดือน (เช่น แถวยอด 0 / คืนเงินต้น ที่ไม่ควรมี)
+    deleteLedgerRow(row) {
+      let updated;
+      setData(d => {
+        const next = (d.debtLedger || []).filter(r => r.id !== row.id);
+        updated = { ...d, debtLedger: next };
+        return updated;
+      });
+      syncAfter(updated);
+      toast('ลบแถวดอกเบี้ยแล้ว');
     },
     doRollover(master, { mode, closeDate, reason, newContracts }) {
       const at = new Date().toISOString();
@@ -897,29 +977,53 @@ function useDebtContractActions(setData, toast) {
   };
 }
 
+// ── Excel number-format helper — apply a format string to columns in a row range
+const FMT_MONEY = '#,##0.00';   // ดอกเบี้ย (ทศนิยม 2)
+const FMT_BAHT  = '#,##0';      // เงินต้น (ไม่มีทศนิยม)
+const FMT_PCT   = '0.0000';     // อัตรา %/ปี
+function applyColFmt(ws, cols /* {idx:fmt} */, r0, r1) {
+  for (let r = r0; r <= r1; r++) {
+    for (const idx in cols) {
+      const addr = XLSX.utils.encode_cell({ r, c: Number(idx) });
+      const cell = ws[addr];
+      if (cell && cell.t === 'n') cell.z = cols[idx];
+    }
+  }
+}
+function principalInOut(events) {
+  const evs = events || [];
+  const inSum  = evs.filter(e => e.eventType === 'drawdown').reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const outSum = evs.filter(e => e.eventType === 'repayment').reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  return { inSum, outSum };
+}
+
 // ── Per-contract Excel export (one sheet per contract) ──────────────────────
-function exportPerContractSheets({ masters, ledgerByContract, mode /* 'detail' | 'summary' */ }) {
+function exportPerContractSheets({ masters, ledgerByContract, eventsByContract, mode /* 'detail' | 'summary' */ }) {
   if (typeof XLSX === 'undefined') { alert('SheetJS ยังไม่โหลด'); return; }
+  eventsByContract = eventsByContract || {};
   const wb = XLSX.utils.book_new();
-  // Sheet 1: สรุป
+  // Sheet 1: สรุป — เพิ่มคอลัมน์ เบิกเพิ่ม / คืนเงินต้นแล้ว / คงเหลือเงินต้น
   const summary = [
-    ['สรุปดอกเบี้ยทุกสัญญา', '', '', '', '', '', '', ''],
-    ['หมวด', 'เลขที่สัญญา', 'ผู้กู้/เจ้าหนี้', 'วงเงิน', 'อัตรา %/ปี', 'ดอกเบี้ยรวม', 'จ่ายแล้ว', 'ค้างชำระ'],
+    ['สรุปดอกเบี้ยทุกสัญญา', '', '', '', '', '', '', '', '', '', ''],
+    ['หมวด', 'เลขที่สัญญา', 'ผู้กู้/เจ้าหนี้', 'วงเงิน', 'เบิกเพิ่มรวม', 'คืนเงินต้นแล้ว', 'คงเหลือเงินต้น', 'อัตรา %/ปี', 'ดอกเบี้ยรวม', 'จ่ายแล้ว', 'ค้างชำระ'],
   ];
   masters.forEach(m => {
     const rows = ledgerByContract[m.contractNo] || [];
     const total = rows.reduce((s, r) => s + effectiveInterest(r), 0);
     const paid  = rows.filter(r => r.paymentDate).reduce((s, r) => s + effectiveInterest(r), 0);
+    const { inSum, outSum } = principalInOut(eventsByContract[m.contractNo]);
+    const principal = Number(m.principalAmount) || 0;
     summary.push([
       m.debtCategory || '', m.contractNo || '', m.borrowerName || '',
-      Number(m.principalAmount) || 0,
-      ((Number(m.interestRate) || 0) * 100).toFixed(4),
+      principal, inSum, outSum, Math.max(0, principal + inSum - outSum),
+      (Number(m.interestRate) || 0) * 100,
       total, paid, total - paid,
     ]);
   });
   const wsS = XLSX.utils.aoa_to_sheet(summary);
-  wsS['!cols'] = [10,18,28,14,10,14,14,14].map(w => ({ wch: w }));
-  wsS['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 7 } }];
+  wsS['!cols'] = [10,18,28,14,13,14,14,10,14,14,14].map(w => ({ wch: w }));
+  wsS['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 10 } }];
+  applyColFmt(wsS, { 3: FMT_BAHT, 4: FMT_BAHT, 5: FMT_BAHT, 6: FMT_BAHT, 7: FMT_PCT, 8: FMT_MONEY, 9: FMT_MONEY, 10: FMT_MONEY }, 2, summary.length - 1);
   XLSX.utils.book_append_sheet(wb, wsS, 'สรุปทั้งหมด');
 
   if (mode === 'detail') {
@@ -928,44 +1032,82 @@ function exportPerContractSheets({ masters, ledgerByContract, mode /* 'detail' |
         (Number(a.year) || 0) - (Number(b.year) || 0) ||
         (Number(a.month) || 0) - (Number(b.month) || 0)
       );
-      const headerRow = [
-        m.borrowerName + ' · ' + m.contractNo + ' · วงเงิน ' + fmtNum(m.principalAmount, 0) + ' ' + (m.currency || 'THB') +
-        ' · อัตรา ' + ((Number(m.interestRate) || 0) * 100).toFixed(2) + '%/ปี',
-      ];
-      const aoa = [
-        headerRow,
-        ['เดือน', 'ปี', 'เงินต้น', 'อัตรา %/ปี', 'จำนวนวัน', 'ดอกเบี้ย (ระบบคำนวณ)', 'ดอกเบี้ย (Override)', 'ดอกเบี้ยจริง', 'คงเหลือ', 'วันจ่าย', 'หมายเหตุ Override', 'หมายเหตุ'],
-      ];
+      const myEvents = (eventsByContract[m.contractNo] || []).slice()
+        .sort((a, b) => (a.eventDate || '').localeCompare(b.eventDate || ''));
+      const { inSum, outSum } = principalInOut(myEvents);
+      const principal = Number(m.principalAmount) || 0;
+      const balance   = Math.max(0, principal + inSum - outSum);
+      const totEff  = rows.reduce((s, r) => s + effectiveInterest(r), 0);
+      const totPaid = rows.filter(r => r.paymentDate).reduce((s, r) => s + effectiveInterest(r), 0);
+
+      const aoa = [];
+      // ── หัวเรื่อง ──
+      aoa.push([m.borrowerName + ' · ' + m.contractNo + ' · ' + (m.debtCategory || '') +
+        ' · อัตรา ' + ((Number(m.interestRate) || 0) * 100).toFixed(2) + '%/ปี']);
+      aoa.push([]);
+      // ── บล็อกสรุปเงินต้น/ดอกเบี้ย ──
+      aoa.push(['วงเงิน', 'เบิกเพิ่มรวม', 'คืนเงินต้นแล้ว', 'คงเหลือเงินต้น', 'ดอกเบี้ยรวม', 'จ่ายแล้ว', 'ค้างชำระ']);
+      const sumValRow = aoa.length;
+      aoa.push([principal, inSum, outSum, balance, totEff, totPaid, totEff - totPaid]);
+      aoa.push([]);
+      // ── ตารางดอกเบี้ยรายเดือน ──
+      aoa.push(['ตารางดอกเบี้ยรายเดือน']);
+      aoa.push(['เดือน', 'ปี', 'เงินต้น', 'อัตรา %/ปี', 'จำนวนวัน', 'ดอกเบี้ย (ระบบคำนวณ)', 'ดอกเบี้ย (Override)', 'ดอกเบี้ยจริง', 'คงเหลือ', 'วันจ่าย', 'หมายเหตุ Override', 'หมายเหตุ']);
+      const schedStart = aoa.length;
       rows.forEach(r => {
         const computed = Number(r.interestAmount) || 0;
         const override = r.interestOverride != null && r.interestOverride !== '' ? Number(r.interestOverride) : '';
-        const eff      = effectiveInterest(r);
         aoa.push([
-          TH_MONTH[Number(r.month)] || r.month, r.year,
+          TH_MONTH[Number(r.month)] || r.month, Number(r.year) || r.year,
           Number(r.principal) || 0,
-          ((Number(r.interestRate) || 0) * 100).toFixed(4),
-          r.days || '',
-          computed, override, eff,
+          (Number(r.interestRate) || 0) * 100,
+          Number(r.days) || '',
+          computed, override, effectiveInterest(r),
           Number(r.outstanding) || 0,
           r.paymentDate ? fmtDate(r.paymentDate) : 'ค้าง',
           r.overrideNote || '',
           r.note || '',
         ]);
       });
-      // total row
-      const totEff = rows.reduce((s, r) => s + effectiveInterest(r), 0);
-      const totPaid = rows.filter(r => r.paymentDate).reduce((s, r) => s + effectiveInterest(r), 0);
-      aoa.push([]);
-      aoa.push(['', '', '', '', 'รวม', '', '', totEff]);
-      aoa.push(['', '', '', '', 'จ่ายแล้ว', '', '', totPaid]);
-      aoa.push(['', '', '', '', 'ค้างชำระ', '', '', totEff - totPaid]);
+      const schedEnd = aoa.length - 1;
+      aoa.push(['', '', '', '', '', '', 'รวม', totEff]);
+      aoa.push(['', '', '', '', '', '', 'จ่ายแล้ว', totPaid]);
+      aoa.push(['', '', '', '', '', '', 'ค้างชำระ', totEff - totPaid]);
+      const totRowStart = schedEnd + 1;
+
+      // ── รายการคืน/เบิกเงินต้น ──
+      let evStart = -1, evEnd = -1;
+      if (myEvents.length) {
+        aoa.push([]);
+        aoa.push(['รายการรับ/คืนเงินต้น']);
+        aoa.push(['วันที่', 'ประเภท', 'จำนวนเงิน', 'คงเหลือเงินต้น (หลังรายการ)', 'หมายเหตุ']);
+        evStart = aoa.length;
+        let run = principal;
+        myEvents.forEach(e => {
+          const amt = Number(e.amount) || 0;
+          run += (e.eventType === 'repayment' ? -1 : 1) * amt;
+          aoa.push([
+            fmtDate(e.eventDate),
+            e.eventType === 'repayment' ? 'คืนเงินต้น' : 'รับเงินกู้/เบิกเพิ่ม',
+            (e.eventType === 'repayment' ? -1 : 1) * amt,
+            Math.max(0, run),
+            e.note || '',
+          ]);
+        });
+        evEnd = aoa.length - 1;
+      }
 
       const ws = XLSX.utils.aoa_to_sheet(aoa);
-      ws['!cols'] = [8,7,13,10,9,16,15,13,13,12,18,16].map(w => ({ wch: w }));
+      ws['!cols'] = [13,9,14,11,9,17,16,14,14,12,18,16].map(w => ({ wch: w }));
       ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 11 } }];
+      // จัด number format ให้ทุกส่วน
+      applyColFmt(ws, { 0: FMT_BAHT, 1: FMT_BAHT, 2: FMT_BAHT, 3: FMT_BAHT, 4: FMT_MONEY, 5: FMT_MONEY, 6: FMT_MONEY }, sumValRow, sumValRow);
+      applyColFmt(ws, { 2: FMT_BAHT, 3: FMT_PCT, 5: FMT_MONEY, 6: FMT_MONEY, 7: FMT_MONEY, 8: FMT_BAHT }, schedStart, schedEnd);
+      applyColFmt(ws, { 7: FMT_MONEY }, totRowStart, totRowStart + 2);
+      if (evStart >= 0) applyColFmt(ws, { 2: FMT_BAHT, 3: FMT_BAHT }, evStart, evEnd);
+
       // sanitize sheet name (max 31 chars, no special chars)
       let name = (m.contractNo || m.borrowerName || 'sheet').replace(/[\\\/\?\*\[\]\:]/g, '_').slice(0, 31);
-      // avoid duplicate
       let n = 1, base = name;
       while (wb.SheetNames.includes(name)) { n++; name = (base.slice(0, 28) + '_' + n).slice(0, 31); }
       XLSX.utils.book_append_sheet(wb, ws, name);
@@ -981,12 +1123,14 @@ function exportPerContractSheets({ masters, ledgerByContract, mode /* 'detail' |
 // ── Monthly schedule popup ──────────────────────────────────────────────────
 function InterestSchedulePopup({ master, ledgerRows, events, onClose,
     onSavePayments, onClearPayment, onOverrideInterest,
-    onAddPrincipalEvent, onRollover, canEdit }) {
+    onAddPrincipalEvent, onEditEvent, onDeleteEvent, onDeleteLedgerRow,
+    onRollover, canEdit }) {
   const [selectedIds, setSelectedIds] = React.useState(new Set());
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [overrideRow, setOverrideRow] = React.useState(null);
   const [filter,      setFilter]      = React.useState('all'); // all | unpaid | paid
-  const [principalEvt, setPrincipalEvt] = React.useState(null); // null | 'repayment' | 'drawdown'
+  // evtModal = null | { kind:'repayment'|'drawdown', event?:<existing event to edit> }
+  const [evtModal,    setEvtModal]    = React.useState(null);
   const [rolloverOpen, setRolloverOpen] = React.useState(false);
 
   React.useEffect(() => { setSelectedIds(new Set()); }, [master]);
@@ -1000,6 +1144,12 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
   const repaymentsAll  = myEvents.filter(e => e.eventType === 'repayment');
   const principalIn  = (Number(master.principalAmount) || 0) + drawdownsExtra.reduce((s, e) => s + (Number(e.amount) || 0), 0);
   const principalOut = repaymentsAll.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  // ยอดคงเหลือเงินต้นไหลตามลำดับวันที่ของแต่ละรายการ (เริ่มจากเงินต้นตั้งต้น)
+  let _run = Number(master.principalAmount) || 0;
+  const eventsWithBal = myEvents.map(e => {
+    _run += (e.eventType === 'repayment' ? -1 : 1) * (Number(e.amount) || 0);
+    return { ev: e, balAfter: Math.max(0, _run) };
+  });
 
   const sortedRows = [...ledgerRows].sort((a, b) =>
     (Number(a.year) || 0) - (Number(b.year) || 0) ||
@@ -1119,13 +1269,13 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
             <span style={{ fontSize: 11, color: 'var(--ink-500)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4, alignSelf: 'center' }}>
               จัดการเงินต้น:
             </span>
-            <button onClick={() => onAddPrincipalEvent && setPrincipalEvt('repayment')}
+            <button onClick={() => onAddPrincipalEvent && setEvtModal({ kind: 'repayment' })}
               title="คืนเงินต้น (ทั้งหมด หรือบางส่วน)"
               style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 16, cursor: 'pointer',
                        border: '1.5px solid #86efac', background: '#f0fdf4', color: '#166534', fontSize: 12, fontWeight: 600 }}>
               💵 คืนเงินต้น
             </button>
-            <button onClick={() => onAddPrincipalEvent && setPrincipalEvt('drawdown')}
+            <button onClick={() => onAddPrincipalEvent && setEvtModal({ kind: 'drawdown' })}
               title="เบิกเงินกู้เพิ่ม (drawdown)"
               style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 16, cursor: 'pointer',
                        border: '1.5px solid #fde68a', background: '#fffbeb', color: '#92400e', fontSize: 12, fontWeight: 600 }}>
@@ -1172,10 +1322,12 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
                   <th style={{ width: 100 }}>วันที่</th>
                   <th style={{ width: 110 }}>ประเภท</th>
                   <th style={{ textAlign: 'right', width: 140 }}>จำนวนเงิน</th>
+                  <th style={{ textAlign: 'right', width: 150 }}>คงเหลือเงินต้น</th>
                   <th>หมายเหตุ</th>
+                  {canEdit && <th style={{ width: 80, textAlign: 'center' }}>แก้ไข</th>}
                 </tr></thead>
                 <tbody>
-                  {myEvents.map(e => (
+                  {eventsWithBal.map(({ ev: e, balAfter }) => (
                     <tr key={e.id} style={{ background: e.eventType === 'repayment' ? '#f0fdf4' : '#fff7ed' }}>
                       <td>{fmtDate(e.eventDate)}</td>
                       <td>
@@ -1187,7 +1339,32 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
                                    color: e.eventType === 'repayment' ? 'var(--good)' : '#9a3412' }}>
                         {e.eventType === 'repayment' ? '−' : '+'}{fmtNum(Number(e.amount), 0)}
                       </td>
+                      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--ink-600)' }}>
+                        {fmtNum(balAfter, 0)}
+                      </td>
                       <td style={{ fontSize: 11, color: 'var(--ink-500)' }}>{e.note || ''}</td>
+                      {canEdit && (
+                        <td style={{ textAlign: 'center', padding: '4px 6px' }}>
+                          <div style={{ display: 'inline-flex', gap: 4 }}>
+                            <button onClick={() => setEvtModal({ kind: e.eventType, event: e })}
+                              title="แก้ไขรายการนี้"
+                              style={{ fontSize: 10, padding: '2px 7px', borderRadius: 12, cursor: 'pointer',
+                                       border: '1px solid #fcd34d', background: '#fffbeb', color: '#92400e' }}>
+                              <Icon name="edit" size={9} />
+                            </button>
+                            <button onClick={() => {
+                                if (confirm(`ลบรายการ ${e.eventType === 'repayment' ? 'คืนเงิน' : 'รับเงินกู้'} ${fmtNum(Number(e.amount), 0)} ฿ วันที่ ${fmtDate(e.eventDate)}?\nระบบจะคำนวณยอดคงเหลือเงินต้นใหม่ให้`)) {
+                                  onDeleteEvent && onDeleteEvent(e.id, master);
+                                }
+                              }}
+                              title="ลบรายการนี้"
+                              style={{ fontSize: 10, padding: '2px 7px', borderRadius: 12, cursor: 'pointer',
+                                       border: '1px solid #fca5a5', background: '#fef2f2', color: '#991b1b' }}>
+                              🗑
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -1236,7 +1413,7 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
                   <th style={{ textAlign: 'right', width: 110 }}>คงเหลือ</th>
                   <th style={{ width: 110 }}>วันจ่าย</th>
                   <th>หมายเหตุ</th>
-                  {canEdit && <th style={{ width: 110, textAlign: 'center' }}>การกระทำ</th>}
+                  {canEdit && <th style={{ width: 140, textAlign: 'center' }}>การกระทำ</th>}
                 </tr>
               </thead>
               <tbody>
@@ -1316,6 +1493,16 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
                                        border: '1px solid #fcd34d', background: '#fffbeb', color: '#92400e' }}>
                               <Icon name="edit" size={9} />
                             </button>
+                            <button onClick={() => {
+                                if (confirm(`ลบแถวดอกเบี้ย ${TH_MONTH[Number(r.month)] || r.month} ${r.year}?\n(ใช้เมื่อแถวนี้ไม่ควรมี เช่น แถวยอด 0 / คืนเงินต้น)`)) {
+                                  onDeleteLedgerRow && onDeleteLedgerRow(r);
+                                }
+                              }}
+                              title="ลบแถวดอกเบี้ยนี้ทิ้ง"
+                              style={{ fontSize: 10, padding: '2px 7px', borderRadius: 12, cursor: 'pointer',
+                                       border: '1px solid #fca5a5', background: '#fef2f2', color: '#991b1b' }}>
+                              🗑
+                            </button>
                           </div>
                         </td>
                       )}
@@ -1350,13 +1537,18 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
         }}
       />
       <PrincipalEventModal
-        open={!!principalEvt}
-        kind={principalEvt}
+        open={!!evtModal}
+        kind={evtModal && evtModal.kind}
+        editEvent={evtModal && evtModal.event}
         master={master}
-        onClose={() => setPrincipalEvt(null)}
+        onClose={() => setEvtModal(null)}
         onSave={(payload) => {
-          onAddPrincipalEvent && onAddPrincipalEvent(master, payload);
-          setPrincipalEvt(null);
+          if (evtModal && evtModal.event) {
+            onEditEvent && onEditEvent(evtModal.event.id, master, payload);
+          } else {
+            onAddPrincipalEvent && onAddPrincipalEvent(master, payload);
+          }
+          setEvtModal(null);
         }}
       />
       <RolloverModal
@@ -1374,17 +1566,46 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
 }
 
 // ── Export options popup ────────────────────────────────────────────────────
-function ExportOptionsModal({ open, masters, summaryByContract, ledgerByContract, onClose }) {
+function ExportOptionsModal({ open, masters, summaryByContract, ledgerByContract, eventsByContract, onClose }) {
   const [mode,     setMode]     = React.useState('summary'); // summary | detail
   const [scope,    setScope]    = React.useState('active');  // all | active | selected
   const [selected, setSelected] = React.useState(new Set());
+  const [search,   setSearch]   = React.useState('');
+  const [catSet,   setCatSet]   = React.useState(new Set()); // หมวดหนี้ (เลือกได้หลายหมวด · ว่าง = ทุกหมวด)
+  const [statusF,  setStatusF]  = React.useState('all');     // all | Active | Close
   if (!open) return null;
   const scoped = scope === 'all' ? masters
     : scope === 'active' ? masters.filter(m => m.status === 'Active')
     : masters.filter(m => selected.has(m.contractNo));
+  // หมวดที่มีอยู่จริง (เรียงตามจำนวนสัญญา)
+  const cats = [...new Set(masters.map(m => m.debtCategory).filter(Boolean))]
+    .sort((a, b) => masters.filter(m => m.debtCategory === b).length - masters.filter(m => m.debtCategory === a).length);
+  const toggleCat = (c) => setCatSet(s => {
+    const n = new Set(s);
+    if (n.has(c)) n.delete(c); else n.add(c);
+    return n;
+  });
+  // รายการที่ตรงกับหมวด(หลายหมวด) + สถานะ + คำค้น (ใช้ในโหมด "เลือกเอง")
+  const q = search.trim().toLowerCase();
+  const filteredList = masters.filter(m => {
+    if (catSet.size > 0 && !catSet.has(m.debtCategory)) return false;
+    if (statusF !== 'all' && (m.status === 'Active' ? 'Active' : 'Close') !== statusF) return false;
+    if (!q) return true;
+    return (m.contractNo || '').toLowerCase().includes(q) ||
+           (m.borrowerName || '').toLowerCase().includes(q);
+  });
+  const allFilteredSelected = filteredList.length > 0 && filteredList.every(m => selected.has(m.contractNo));
+  const toggleAllFiltered = () => {
+    setSelected(s => {
+      const n = new Set(s);
+      if (allFilteredSelected) filteredList.forEach(m => n.delete(m.contractNo));
+      else filteredList.forEach(m => n.add(m.contractNo));
+      return n;
+    });
+  };
   const handleExport = () => {
     if (!scoped.length) { alert('ไม่มีสัญญาที่จะ export'); return; }
-    exportPerContractSheets({ masters: scoped, ledgerByContract, mode });
+    exportPerContractSheets({ masters: scoped, ledgerByContract, eventsByContract, mode });
     onClose();
   };
   return (
@@ -1445,11 +1666,67 @@ function ExportOptionsModal({ open, masters, summaryByContract, ledgerByContract
           })}
         </div>
         {scope === 'selected' && (
+          <>
+          {/* สถานะ */}
+          <div style={{ display: 'flex', gap: 6, marginBottom: 8, alignItems: 'center' }}>
+            <span style={{ fontSize: 10.5, color: 'var(--ink-400)', fontWeight: 600, minWidth: 42 }}>สถานะ:</span>
+            {[
+              { k: 'all',    label: `ทั้งหมด (${masters.length})` },
+              { k: 'Active', label: `Active (${masters.filter(m => m.status === 'Active').length})` },
+              { k: 'Close',  label: `Close (${masters.filter(m => m.status !== 'Active').length})` },
+            ].map(o => {
+              const on = statusF === o.k;
+              return (
+                <button key={o.k} onClick={() => setStatusF(o.k)}
+                  style={{ padding: '3px 11px', borderRadius: 16, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                           border: `1.5px solid ${on ? 'var(--brand-500)' : 'var(--ink-200)'}`,
+                           background: on ? 'var(--brand-50, #f0f6ff)' : '#fff',
+                           color: on ? 'var(--brand-700)' : 'var(--ink-600)' }}>{o.label}</button>
+              );
+            })}
+          </div>
+          {/* หมวด (เลือกได้หลายหมวด) */}
+          <div style={{ display: 'flex', gap: 6, marginBottom: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 10.5, color: 'var(--ink-400)', fontWeight: 600, minWidth: 42 }}>หมวด:</span>
+            <button onClick={() => setCatSet(new Set())}
+              style={{ padding: '3px 11px', borderRadius: 16, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                       border: `1.5px solid ${catSet.size === 0 ? 'var(--brand-500)' : 'var(--ink-200)'}`,
+                       background: catSet.size === 0 ? 'var(--brand-50, #f0f6ff)' : '#fff',
+                       color: catSet.size === 0 ? 'var(--brand-700)' : 'var(--ink-500)' }}>ทุกหมวด</button>
+            {cats.map(c => {
+              const on = catSet.has(c);
+              const color = DL_CATEGORY_COLOR[c] || '#525252';
+              const bg    = DL_CATEGORY_BG[c]    || '#f5f5f5';
+              return (
+                <button key={c} onClick={() => toggleCat(c)}
+                  style={{ padding: '3px 11px', borderRadius: 16, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                           border: `1.5px solid ${on ? color : 'var(--line)'}`,
+                           background: on ? bg : '#fff', color: on ? color : 'var(--ink-500)' }}>
+                  {c} ({masters.filter(m => m.debtCategory === c).length})
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+            <div className="tb-search" style={{ flex: 1 }}>
+              <Icon name="search" size={14} />
+              <input autoFocus value={search} onChange={e => setSearch(e.target.value)}
+                placeholder="ค้นหา เลขสัญญา / ชื่อผู้กู้…" />
+            </div>
+            <button onClick={toggleAllFiltered}
+              style={{ padding: '5px 12px', borderRadius: 8, fontSize: 11.5, fontWeight: 600, cursor: 'pointer',
+                       border: '1.5px solid var(--brand-300)', background: 'var(--brand-50, #f0f6ff)', color: 'var(--brand-700)', whiteSpace: 'nowrap' }}>
+              {allFilteredSelected ? 'เอาออกทั้งหมด' : `เลือกทั้งหมด (${filteredList.length})`}
+            </button>
+          </div>
           <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid var(--ink-100)', borderRadius: 8 }}>
-            {masters.map(m => {
+            {filteredList.length === 0 && (
+              <div style={{ padding: 20, textAlign: 'center', color: 'var(--ink-400)', fontSize: 12 }}>ไม่พบสัญญาที่ตรงกับเงื่อนไข</div>
+            )}
+            {filteredList.map((m, i) => {
               const checked = selected.has(m.contractNo);
               return (
-                <label key={m.contractNo} style={{
+                <label key={(m.contractNo || '') + '|' + (m.id || i)} style={{
                   display: 'flex', gap: 8, padding: '6px 10px', cursor: 'pointer',
                   borderBottom: '1px solid var(--ink-50)',
                   background: checked ? 'color-mix(in oklch, var(--brand-500) 5%, transparent)' : '',
@@ -1468,6 +1745,7 @@ function ExportOptionsModal({ open, masters, summaryByContract, ledgerByContract
               );
             })}
           </div>
+          </>
         )}
       </div>
     </Modal>
@@ -1488,6 +1766,11 @@ function DebtLedgerPage({ data, setData, toast }) {
     allLedger.forEach(r => { (m[r.contractNo] = m[r.contractNo] || []).push(r); });
     return m;
   }, [allLedger]);
+  const eventsByContract  = React.useMemo(() => {
+    const m = {};
+    allEvents.forEach(e => { if (e.contractNo) (m[e.contractNo] = m[e.contractNo] || []).push(e); });
+    return m;
+  }, [allEvents]);
 
   const [tab, setTab]                       = React.useState('Active');  // all | Active | Close
   const [categoryFilter, setCategoryFilter] = React.useState('all');
@@ -1568,7 +1851,8 @@ function DebtLedgerPage({ data, setData, toast }) {
 
   // ── Mutations (shared hook) ─────────────────────────────────────────────
   const actions = useDebtContractActions(setData, toast);
-  const { savePayments, clearPayment, overrideInterest, addPrincipalEvent, doRollover } = actions;
+  const { savePayments, clearPayment, overrideInterest, addPrincipalEvent,
+          editPrincipalEvent, deletePrincipalEvent, deleteLedgerRow, doRollover } = actions;
 
   // Refresh selectedMaster from store (so popup reflects latest state)
   React.useEffect(() => {
@@ -1722,6 +2006,9 @@ function DebtLedgerPage({ data, setData, toast }) {
         onClearPayment={clearPayment}
         onOverrideInterest={overrideInterest}
         onAddPrincipalEvent={addPrincipalEvent}
+        onEditEvent={editPrincipalEvent}
+        onDeleteEvent={deletePrincipalEvent}
+        onDeleteLedgerRow={deleteLedgerRow}
         onRollover={doRollover}
         canEdit={canEdit}
       />
@@ -1731,6 +2018,7 @@ function DebtLedgerPage({ data, setData, toast }) {
         masters={masters}
         summaryByContract={summaryByContract}
         ledgerByContract={ledgerByContract}
+        eventsByContract={eventsByContract}
         onClose={() => setExportOpen(false)}
       />
     </div>
