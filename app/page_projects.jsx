@@ -986,29 +986,47 @@ function MigrationModal({ existingProjects, onClose }) {
         'กำหนดส่งมอบงานงวด 1',
       ]);
 
-      const seenCodes = new Set();
-      const outRows = [];
-      let cancelledCount = 0, ghostCount = 0, newCount = 0, preservedCount = 0;
+      // Phase 1: เก็บคู่ (code, row) ทุกแถว — assign synthetic code ให้ยกเลิกที่ไม่มี code
+      let ghostCount = 0;
+      const codeRowPairs = [];
       allRows.forEach(r => {
         let code = String(r['Contract No.'] || '').trim();
-        // ใช้ getCancelFlag → ค้น key /ยกเลิก/ แบบ fuzzy กันเผื่อมี space
         const isCancelled = getCancelFlag(r);
         const name = String(r['พื้นที่'] || '').trim();
         if (!code) {
           if (isCancelled && name) code = syntheticCode(name);
           else return;
         }
-        if (seenCodes.has(code)) return;
         if (isGhostRow(r)) { ghostCount++; return; }
-        seenCodes.add(code);
+        codeRowPairs.push({ code, row: r, isCancelled });
+      });
+
+      // Phase 2: group by code → merge ทุก row ที่มี code เดียวกัน (อาจอยู่หลาย sheet)
+      //   - merge field: ค่าที่มาทีหลังและไม่ว่าง ทับค่าก่อนหน้า
+      //   - cancellation: OR กัน — ถ้า sheet ไหนทำเครื่องหมายยกเลิก ถือว่ายกเลิก
+      const byCode = {};
+      codeRowPairs.forEach(({ code, row, isCancelled }) => {
+        if (!byCode[code]) {
+          byCode[code] = { row: { ...row }, isCancelled };
+        } else {
+          for (const k of Object.keys(row)) {
+            if (row[k] != null && row[k] !== '') byCode[code].row[k] = row[k];
+          }
+          if (isCancelled) byCode[code].isCancelled = true;
+        }
+      });
+
+      // Phase 3: สร้าง output rows
+      const outRows = [];
+      let cancelledCount = 0, newCount = 0, preservedCount = 0;
+      Object.keys(byCode).forEach(code => {
+        const { row: r, isCancelled } = byCode[code];
         if (isCancelled) cancelledCount++;
 
-        // เลือก id: คงเดิมถ้ามี / สร้างใหม่ต่อลำดับ
         let id = existingIdByCode[code];
         if (id) preservedCount++;
         else { maxIdNum++; id = 'proj_' + String(maxIdNum).padStart(4, '0'); newCount++; }
 
-        // สร้าง row output ตามลำดับ colOrder
         const out = { id };
         colOrder.forEach(col => {
           let val = r[col];
@@ -1017,8 +1035,7 @@ function MigrationModal({ existingProjects, onClose }) {
           else if (val instanceof Date) val = val.toISOString().slice(0, 10);
           out[col] = val;
         });
-        out['Contract No.'] = code; // บังคับใส่ synthetic ถ้ามี
-        // บังคับ flag ยกเลิก = 1 ถ้าตรวจเจอ (ทำให้ column AA มีค่าเสมอ)
+        out['Contract No.'] = code;
         if (isCancelled) out['ยกเลิกโครงการ'] = 1;
         outRows.push(out);
       });
