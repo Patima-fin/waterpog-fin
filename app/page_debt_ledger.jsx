@@ -1221,6 +1221,7 @@ const XL = {
   thSum:      { font: { bold: true, sz: 11, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: '2E7D6B' } }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true }, border: XL_BORDER },
   sumVal:     { font: { bold: true, sz: 12 },                           fill: { fgColor: { rgb: 'E4F2EE' } }, alignment: { horizontal: 'right',  vertical: 'center' }, border: XL_BORDER },
   sumValDue:  { font: { bold: true, sz: 12, color: { rgb: 'C0392B' } }, fill: { fgColor: { rgb: 'FDECEA' } }, alignment: { horizontal: 'right',  vertical: 'center' }, border: XL_BORDER },
+  ctr:        { alignment: { horizontal: 'center', vertical: 'center' } },
   cell:       { alignment: { vertical: 'center' }, border: XL_BORDER },
   cellAlt:    { fill: { fgColor: { rgb: 'F5F8FC' } }, alignment: { vertical: 'center' }, border: XL_BORDER },
   totLabel:   { font: { bold: true }, fill: { fgColor: { rgb: 'FFF3D6' } }, alignment: { horizontal: 'right', vertical: 'center' }, border: XL_BORDER },
@@ -1356,7 +1357,8 @@ function exportPerContractSheets({ masters, ledgerByContract, eventsByContract, 
       }
 
       const ws = XLSX.utils.aoa_to_sheet(aoa);
-      ws['!cols'] = [13,9,14,11,9,17,16,14,14,12,18,16].map(w => ({ wch: w }));
+      // A–I กว้างคงที่ 14.5, J–L (วันจ่าย/หมายเหตุ) ตามเนื้อหา
+      ws['!cols'] = [14.5,14.5,14.5,14.5,14.5,14.5,14.5,14.5,14.5,12,18,16].map(w => ({ wch: w }));
       const merges = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 11 } }];        // หัวเรื่อง
       merges.push({ s: { r: schedStart - 2, c: 0 }, e: { r: schedStart - 2, c: 11 } }); // แถบ "ตารางดอกเบี้ยรายเดือน"
       if (evStart >= 0) merges.push({ s: { r: evStart - 2, c: 0 }, e: { r: evStart - 2, c: 4 } }); // แถบ "รายการรับ/คืนเงินต้น"
@@ -1382,6 +1384,8 @@ function exportPerContractSheets({ masters, ledgerByContract, eventsByContract, 
       // ข้อมูลตารางดอกเบี้ย — zebra + เน้นสถานะวันจ่าย
       xlBody(ws, schedStart, schedEnd, 0, 11);
       for (let r = schedStart; r <= schedEnd; r++) {
+        // เดือน / ปี / จำนวนวัน — จัดกึ่งกลาง
+        for (const c of [0, 1, 4]) xlSet(ws, r, c, XL.ctr);
         const cell = ws[XLSX.utils.encode_cell({ r, c: 9 })];
         xlSet(ws, r, 9, (cell && cell.v === 'ค้าง') ? XL.due : XL.paid);
       }
@@ -1394,6 +1398,8 @@ function exportPerContractSheets({ masters, ledgerByContract, eventsByContract, 
         xlRow(ws, evStart - 1, 0, 4, XL.th);
         xlBody(ws, evStart, evEnd, 0, 4);
         for (let r = evStart; r <= evEnd; r++) {
+          // วันที่ / ประเภท — จัดกึ่งกลาง
+          for (const c of [0, 1]) xlSet(ws, r, c, XL.ctr);
           const cell = ws[XLSX.utils.encode_cell({ r, c: 2 })];
           if (cell && (Number(cell.v) || 0) < 0) xlSet(ws, r, 2, { font: { color: { rgb: 'C0392B' } } });
         }
@@ -2324,6 +2330,24 @@ function DebtLedgerPage({ data, setData, toast }) {
     }
   };
 
+  // ── Sort (คลิกหัวคอลัมน์ได้ทุกคอลัมน์) ──────────────────────────────────────
+  const [sort, setSort] = React.useState({ key: 'outstandingInterest', dir: 'desc' });
+  const toggleSort = (key) =>
+    setSort(s => s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
+  const sortVal = (m, key) => {
+    const s = summaryByContract[m.contractNo] || {};
+    switch (key) {
+      case 'principalAmount':     return Number(m.principalAmount) || 0;
+      case 'interestRate':        return Number(m.interestRate) || 0;
+      case 'totalInterest':       return s.totalInterest || 0;
+      case 'paidInterest':        return s.paidInterest || 0;
+      case 'outstandingInterest': return s.outstandingInterest || 0;
+      case 'status':              return m.status === 'Active' ? 'Active' : 'Close';
+      case 'receiveDate':         return m.receiveDate || m.startDate || '';
+      default:                    return m[key] != null ? m[key] : '';
+    }
+  };
+
   const filtered = React.useMemo(() => {
     let rows = masters;
     if (tab !== 'all')             rows = rows.filter(m => m.status === tab);
@@ -2341,14 +2365,20 @@ function DebtLedgerPage({ data, setData, toast }) {
     return rows;
   }, [masters, tab, categoryFilter, query, colFilters]);
 
-  // Sort by outstanding interest desc by default
+  // เรียงตามคอลัมน์ที่เลือก (ดีฟอลต์ = ดอกเบี้ยค้างชำระมาก→น้อย)
   const sortedRows = React.useMemo(() => {
+    const { key, dir } = sort;
     return [...filtered].sort((a, b) => {
-      const sa = (summaryByContract[a.contractNo] || {}).outstandingInterest || 0;
-      const sb = (summaryByContract[b.contractNo] || {}).outstandingInterest || 0;
-      return sb - sa;
+      const av = sortVal(a, key), bv = sortVal(b, key);
+      if ((av === '' || av == null) && (bv === '' || bv == null)) return 0;
+      if (av === '' || av == null) return 1;
+      if (bv === '' || bv == null) return -1;
+      const cmp = (typeof av === 'number' && typeof bv === 'number')
+        ? av - bv
+        : String(av).localeCompare(String(bv), 'th');
+      return dir === 'asc' ? cmp : -cmp;
     });
-  }, [filtered, summaryByContract]);
+  }, [filtered, sort, summaryByContract]);
 
   const selectedLedger = React.useMemo(() => {
     if (!selectedMaster) return [];
@@ -2474,16 +2504,16 @@ function DebtLedgerPage({ data, setData, toast }) {
             <table className="tbl tbl-compact" style={{ minWidth: 1200, tableLayout: 'fixed', width: '100%' }}>
               <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--surface)' }}>
                 <tr>
-                  <FilterableColHeader label="หมวดหนี้" sortKey="debtCategory" colKey="debtCategory" sort={{ key:null, dir:'asc' }} sortToggle={() => {}} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={masters} getValue={colDisplayVal} width={100} align="center" />
-                  <FilterableColHeader label="เลขที่สัญญา" sortKey="contractNo" colKey="contractNo" sort={{ key:null, dir:'asc' }} sortToggle={() => {}} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={masters} getValue={colDisplayVal} width={150} align="center" />
-                  <FilterableColHeader label="ผู้กู้ / ผู้รับสินเชื่อ" sortKey="borrowerName" colKey="borrowerName" sort={{ key:null, dir:'asc' }} sortToggle={() => {}} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={masters} getValue={colDisplayVal} align="center" />
-                  <FilterableColHeader label="สถานะ" sortKey="status" colKey="status" sort={{ key:null, dir:'asc' }} sortToggle={() => {}} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={masters} getValue={colDisplayVal} width={80} align="center" />
-                  <th style={{ textAlign: 'right', width: 120 }}>วงเงิน (฿)</th>
-                  <th style={{ textAlign: 'right', width: 80 }}>อัตรา</th>
-                  <th style={{ textAlign: 'right', width: 120 }}>ดอกเบี้ยรวม</th>
-                  <th style={{ textAlign: 'right', width: 120 }}>ชำระแล้ว</th>
-                  <th style={{ textAlign: 'right', width: 120 }}>ค้างชำระ</th>
-                  <th style={{ width: 110, textAlign: 'center' }}>วันเริ่มสัญญา</th>
+                  <FilterableColHeader label="หมวดหนี้" sortKey="debtCategory" colKey="debtCategory" sort={sort} sortToggle={toggleSort} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={masters} getValue={colDisplayVal} width={100} align="center" />
+                  <FilterableColHeader label="เลขที่สัญญา" sortKey="contractNo" colKey="contractNo" sort={sort} sortToggle={toggleSort} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={masters} getValue={colDisplayVal} width={150} align="center" />
+                  <FilterableColHeader label="ผู้กู้ / ผู้รับสินเชื่อ" sortKey="borrowerName" colKey="borrowerName" sort={sort} sortToggle={toggleSort} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={masters} getValue={colDisplayVal} align="center" />
+                  <FilterableColHeader label="สถานะ" sortKey="status" colKey="status" sort={sort} sortToggle={toggleSort} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={masters} getValue={colDisplayVal} width={80} align="center" />
+                  <SortHeader label="วงเงิน (฿)" sortKey="principalAmount"     sort={sort} toggle={toggleSort} align="right" width={120} />
+                  <SortHeader label="อัตรา"       sortKey="interestRate"        sort={sort} toggle={toggleSort} align="right" width={80} />
+                  <SortHeader label="ดอกเบี้ยรวม" sortKey="totalInterest"       sort={sort} toggle={toggleSort} align="right" width={120} />
+                  <SortHeader label="ชำระแล้ว"    sortKey="paidInterest"        sort={sort} toggle={toggleSort} align="right" width={120} />
+                  <SortHeader label="ค้างชำระ"    sortKey="outstandingInterest" sort={sort} toggle={toggleSort} align="right" width={120} />
+                  <SortHeader label="วันเริ่มสัญญา" sortKey="receiveDate"        sort={sort} toggle={toggleSort} align="center" width={110} />
                 </tr>
               </thead>
               <tbody>
