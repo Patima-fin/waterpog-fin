@@ -4,6 +4,21 @@
 
 const { useMemo: wr2Memo, useState: wr2State } = React;
 
+// ── Persistent WS/XL synthetic projects ─────────────────────────────────────
+// Cloud sync ไม่รับประกันว่าจะเก็บ WS-/XL- rows ได้ครบ (Apps Script schema
+// อาจ strip, race condition, etc.) → เก็บแยกใน localStorage แล้ว merge ทับ
+// data.projects ทุกครั้งที่ render → ไม่ "หาย" หลัง sync เด็ดขาด
+const WR2_LOCAL_PROJECTS_KEY = 'wtp-wr2-supplemental-projects-v1';
+function wr2LoadLocalProjects() {
+  try {
+    const a = JSON.parse(localStorage.getItem(WR2_LOCAL_PROJECTS_KEY) || '[]');
+    return Array.isArray(a) ? a : [];
+  } catch (_) { return []; }
+}
+function wr2SaveLocalProjects(arr) {
+  try { localStorage.setItem(WR2_LOCAL_PROJECTS_KEY, JSON.stringify(arr || [])); } catch (_) {}
+}
+
 function WarRoomPage2({ data, setData, toast }) {
   const { monthlyForecast, warroomP2, meta } = data;
   const [editMode, setEditMode] = wr2State(false);
@@ -57,11 +72,38 @@ function WarRoomPage2({ data, setData, toast }) {
     return pre > 0 ? Math.round(pre * 1.07 * 100) / 100 : 0;
   };
 
+  // ── Subscribe to localStorage changes (WS upload triggers re-render) ──
+  const [wsLocalVer, setWsLocalVer] = wr2State(0);
+  React.useEffect(() => {
+    const h = () => setWsLocalVer(v => v + 1);
+    window.addEventListener('wr2-ws-local-change', h);
+    window.addEventListener('storage', h);
+    return () => {
+      window.removeEventListener('wr2-ws-local-change', h);
+      window.removeEventListener('storage', h);
+    };
+  }, []);
+
   // ── Live calculation — ดึงทุกยอดจาก data.projects + data.invoices + data.receipts
+  //   + merge localStorage supplemental projects (WS- / XL- ที่ cloud sync อาจทำหาย)
   const liveCalc = wr2Memo(() => {
-    const projects = data.projects || [];
+    const cloudProjects = data.projects || [];
     const invoices = data.invoices || [];
     const receipts = data.receipts || [];
+
+    // ✦ Merge: cloud projects + localStorage WS/XL ที่ยังไม่อยู่ใน cloud
+    //   ป้องกัน "หายหลัง refresh" — local layer คงทนกว่า cloud sync
+    const localExtra = wr2LoadLocalProjects();
+    const cloudCodes = new Set();
+    cloudProjects.forEach(p => {
+      const c = String(p['Contract No.'] || p.code || '').trim();
+      if (c) cloudCodes.add(c);
+    });
+    const supplemental = localExtra.filter(p => {
+      const c = String(p['Contract No.'] || p.code || '').trim();
+      return c && !cloudCodes.has(c);
+    });
+    const projects = supplemental.length ? [...cloudProjects, ...supplemental] : cloudProjects;
     // ตัดโครงการยกเลิกออกจาก dashboard ทั้งหมด
     const active = projects.filter(p => !wr2IsCancelled(p));
 
@@ -196,7 +238,7 @@ function WarRoomPage2({ data, setData, toast }) {
       wip:        { value: wipValue,        count: wipList.length,        list: wipList },
       signedTotal, grandTotal,
     };
-  }, [data.projects, data.invoices]);
+  }, [data.projects, data.invoices, data.receipts, wsLocalVer]);
 
   // ── Drill-down builders ─────────────────────────────────────────────────
   const fmtT0 = (v) => Number(v || 0).toLocaleString('en-US', { maximumFractionDigits: 0 });
@@ -331,9 +373,16 @@ function WarRoomPage2({ data, setData, toast }) {
         toast('ไม่พบโครงการรอลงนามใหม่ในไฟล์นี้ · มี Contract No.='+skipped.hasContract+' / ยกเลิก='+skipped.cancelled+' / ไม่มีชื่อ='+skipped.noName+' / ซ้ำ='+skipped.duplicate);
         return;
       }
-      // append + persist
+      // ✦ Persist 2 ชั้น:
+      //   1) localStorage — กันหายแม้ cloud sync ลบ → liveCalc merge กลับเสมอ
+      //   2) setData → push cloud sheet (best effort) ให้ทีมเห็นด้วย
+      const addedCodes = new Set(added.map(p => p['Contract No.']));
+      const existingLocal = wr2LoadLocalProjects().filter(p => !addedCodes.has(p['Contract No.']));
+      wr2SaveLocalProjects([...existingLocal, ...added]);
+      window.dispatchEvent(new CustomEvent('wr2-ws-local-change'));  // trigger re-render
+
       setData(d => ({ ...d, projects: [...(d.projects || []), ...added] }));
-      toast('✅ เพิ่มโครงการรอลงนาม ' + added.length + ' รายการ · sync เข้า Google Sheet…');
+      toast('✅ เพิ่มโครงการรอลงนาม ' + added.length + ' รายการ · ผูกไว้ใน local + sync เข้า Google Sheet…');
       setWsUploadOpen(false);
     } catch (err) {
       console.error(err);
