@@ -218,7 +218,7 @@ function buildAutoSchedule(master, events, asOf, cfg) {
   if (missing.length) return { rows: [], total: 0, error: 'ข้อมูลไม่ครบ', missing };
   // Active เลยกำหนด → เดินดอกถึงเดือนปัจจุบัน (เฉพาะตอนไม่ได้อยู่โหมดเทียบ)
   if (master.status === 'Active' && !cfg.endCap) { const me = _monthEndStr(asOf); if (me > end) end = me; }
-  if (start >= end) return { rows: [], total: 0, error: 'วันเริ่ม ≥ วันครบสัญญา', missing: [] };
+  if (start >= end) return { rows: [], total: 0, error: 'วันเริ่ม ≥ วันสิ้นสุดงวด', missing: [], start, end };
 
   // ไทม์ไลน์เงินต้นจาก events (เฉพาะที่อยู่ระหว่างสัญญา)
   const evs = (events || [])
@@ -1957,7 +1957,16 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
                 </div>
                 {cmp.error ? (
                   <div style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', padding: '10px 12px', borderRadius: 8, fontSize: 12.5 }}>
-                    ⚠️ <strong>{cmp.error}</strong> — ขาด: <strong>{cmp.missing.join(', ')}</strong> · เติมข้อมูลด้านล่างแล้วกดบันทึก
+                    {cmp.missing && cmp.missing.length ? (
+                      <>⚠️ <strong>ข้อมูลไม่ครบ</strong> — ขาด: <strong>{cmp.missing.join(', ')}</strong> · เติมข้อมูลด้านล่างแล้วกดบันทึก</>
+                    ) : (
+                      <>
+                        ⚠️ <strong>คำนวณอัตโนมัติไม่ได้: วันที่ขัดกัน</strong><br />
+                        วันเริ่ม/รับเงิน (<strong>{fmtDate(cmp.start)}</strong>) อยู่หลังหรือเท่ากับวันสิ้นสุดงวดที่ใช้เทียบ (<strong>{fmtDate(cmp.end)}</strong>)
+                        {' '}— วันสิ้นสุดมาจาก<strong>วันคืนเงินต้น/กิจกรรมล่าสุด</strong> แปลว่ามีการคืนเงินกู้ "ก่อน" วันเริ่มสัญญา ซึ่งเป็นไปไม่ได้
+                        <br />👉 ตรวจว่าคีย์ <strong>วันเริ่ม/รับเงิน</strong> ผิด (แก้ด้านล่าง) หรือ <strong>วันที่คืนเงินต้น</strong> ผิด (กดดินสอแก้ที่ตาราง "รายการรับ/คืนเงินกู้")
+                      </>
+                    )}
                     {canEdit && <MissingFieldsEditor master={master} onSave={onSaveMasterFields} />}
                   </div>
                 ) : (
