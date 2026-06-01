@@ -456,6 +456,7 @@ const Icon = ({ name, size = 16, stroke = 1.6, ...rest }) => {
     bank:        <><path d="M3 10 12 4l9 6"/><path d="M5 10v8M19 10v8M9 10v8M15 10v8"/><path d="M3 20h18"/></>,
     coin:        <><circle cx="12" cy="12" r="9"/><path d="M9 12h6"/></>,
     copy:        <><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></>,
+    info:        <><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></>,
   };
   const p = paths[name] || <circle cx="12" cy="12" r="9"/>;
   return (

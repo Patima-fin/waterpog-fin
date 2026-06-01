@@ -843,6 +843,14 @@ function DataCrudPage({ data, setData, toast, config }) {
               background: '#fefce8', border: '1px solid #fde68a', borderLeft: '3px solid #f6ad55',
               borderRadius: 7, color: 'var(--ink-700)', lineHeight: 1.65,
             }}>
+              {config.importSourceNote && (
+                <div style={{
+                  marginBottom: 8, paddingBottom: 8, borderBottom: '1px dashed #fde68a',
+                  fontWeight: 700, color: 'var(--ink-800)', display: 'flex', alignItems: 'center', gap: 6,
+                }}>
+                  <Icon name="info" size={14} /> <span>{config.importSourceNote}</span>
+                </div>
+              )}
               <div>📥 <strong>อัปโหลดไฟล์ .xlsx/.csv</strong> หรือ <strong>วาง Excel</strong>. แถวแรกต้องเป็นชื่อคอลัมน์ (ตาม Template)</div>
               <div>📋 <strong>คอลัมน์ที่ระบบรองรับ ({importFields.length})</strong>:&nbsp;
                 <span style={{ fontFamily: 'ui-monospace', fontSize: 11.5, color: 'var(--ink-600)' }}>
@@ -1667,6 +1675,7 @@ function DataPVPage({ data, setData, toast }) {
       title: 'DATA PV · Payment Voucher',
       sub: 'RAW_PV_PAYMENT · รายการจ่ายเงินจริงทั้งหมด · วาง RAW ได้เลย',
       dataKey: 'pvVouchers',
+      importSourceNote: 'เอาข้อมูลจาก AP รายงาน 4.3 มาวาง/อัปโหลด',
       dedupKey: ['PL_PV_No', 'AP_No'],   // compound key — PV เดียวมีหลาย AP ได้
       scopeDateField: 'Pmt_Date',         // เทียบ missing เฉพาะ row ที่อยู่ในช่วงวันที่ของไฟล์ import
       previewSubFields: ['Payee', 'cc_remark'],   // subtitle ใน preview
