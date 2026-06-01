@@ -150,6 +150,27 @@ const CATEGORY_LABELS_SHORT = {
   4: 'เบ็ดเตล็ด',
 };
 
+// ─── Flexible vendors ("จ่ายตามสภาพคล่อง") ────────────────────────────────
+//   เจ้าหนี้กลุ่มที่ "ไม่จ่ายตามดิว" — เลือกจ่ายตามเงินที่มี
+//   AP ของกลุ่มนี้จะถูกตัดออกจากการจัดตามวันครบกำหนด (หมวด 1-4)
+//   แล้วไปรวมเป็น "pool" ก้อนเดียว ให้ผู้ใช้คีย์เองว่างวดนี้จะจ่ายเท่าไหร่
+//   เก็บรายชื่อ (เศษชื่อ — match แบบ contains) ใน localStorage แก้ได้
+const CF_FLEX_LS_KEY = 'wtp-cf-flexible-vendors';
+const CF_FLEX_DEFAULTS = [
+  'เอเซีย วอเตอร์', 'เวลโกร', 'อินโนวาเทค', 'พินพอยท์', 'เอสทีอาร์', 'ธารา วอเตอร์',
+  'เอ็นคอนเนค', 'เคพีเอส', 'โทเทิล',   // เผื่อสะกดต่าง/ยังไม่มี AP — แก้ทีหลังได้
+];
+function cfLoadFlexVendors() {
+  try { const v = JSON.parse(localStorage.getItem(CF_FLEX_LS_KEY) || 'null'); return Array.isArray(v) ? v : CF_FLEX_DEFAULTS.slice(); }
+  catch (_) { return CF_FLEX_DEFAULTS.slice(); }
+}
+function cfSaveFlexVendors(list) { try { localStorage.setItem(CF_FLEX_LS_KEY, JSON.stringify(list)); } catch (_) {} }
+function cfIsFlexibleVendor(name, fragments) {
+  const n = String(name || '').toLowerCase();
+  if (!n) return false;
+  return (fragments || []).some(f => f && n.includes(String(f).toLowerCase()));
+}
+
 // ─── Inflow helpers ────────────────────────────────────────────────────────
 // "คาดรับสุทธิ" = ยอดที่คาดว่าจะรับเข้ามาจริง หลังหัก WHT และภาระหนี้
 //
@@ -234,6 +255,9 @@ function CashFlowDashboard({ data, setData, toast }) {
   const [drillDown, setDrillDown] = cfState(null);
   // Per-item detail popup (ซ้อนบน drill-down) — เก็บ item ที่กด "ดู"
   const [detailItem, setDetailItem] = cfState(null);
+  // Flexible-vendor group ("จ่ายตามสภาพคล่อง")
+  const [flexVendors, setFlexVendors] = cfState(cfLoadFlexVendors());
+  const [flexEditOpen, setFlexEditOpen] = cfState(false);  // modal แก้รายชื่อ
 
   // Footer notes — พับเก็บไว้ (ผู้บริหารเห็นแค่เนื้อหาหลัก) กดเปิดเองถ้าอยากดู
   const [showNotes, setShowNotes] = cfState(false);
@@ -294,6 +318,29 @@ function CashFlowDashboard({ data, setData, toast }) {
   // ── AP-PV match: exclude AP that has a matching PV ────────────────────
   const paidVchnoSet = cfMemo(() => buildPaidVchnoSet(pvVouchers), [pvVouchers]);
 
+  // ── Flexible vendors — AP กลุ่มที่จ่ายตามสภาพคล่อง (ไม่ตามดิว) ──────────
+  const isFlexAp = (ap) => cfIsFlexibleVendor(ap.cust_name || ap.vendor, flexVendors);
+  //   pool = ยอดค้างรวมของกลุ่มนี้ (เฉพาะที่ยังไม่จ่าย) + แยกรายเจ้าหนี้
+  const flexPool = cfMemo(() => {
+    const byVendor = {};
+    let total = 0, count = 0;
+    payables.forEach(ap => {
+      if (!isFlexAp(ap)) return;
+      if (paidVchnoSet.has(ap.vchno)) return;      // จ่ายแล้วไม่นับ
+      const amt = Number(ap.netpayment || ap.Amount || 0);
+      if (!amt) return;
+      total += amt; count++;
+      const v = ap.cust_name || ap.vendor || '—';
+      byVendor[v] = (byVendor[v] || 0) + amt;
+    });
+    const rows = Object.entries(byVendor).map(([name, sum]) => ({ name, sum })).sort((a, b) => b.sum - a.sum);
+    return { total, count, rows };
+  }, [payables, paidVchnoSet, flexVendors]);
+
+  // ยอดที่ "เลือกจ่าย" งวดนี้ (คีย์เอง, sync ผ่าน override, แยกตามเดือน)
+  const flexPayCurrent = Math.abs(WTPOverride.resolve(`${ovPrefix}.s01.flex.current`, 0));
+  const flexPayRest    = Math.abs(WTPOverride.resolve(`${ovPrefix}.s01.flex.rest`, 0));
+
   // ── Bucket AP forecast outflow by week × category ─────────────────────
   //   Plan baseline — รวม AP ทุกใบ (จ่ายแล้ว/ยังไม่จ่าย) ที่ due ในเดือนนี้
   //   เพราะ AP ที่จ่ายแล้วก็เคยเป็นส่วนหนึ่งของแผน — ต้องนับเพื่อให้ Plan vs Actual = 100%
@@ -302,6 +349,7 @@ function CashFlowDashboard({ data, setData, toast }) {
   const apForecastByWeekCat = cfMemo(() => {
     const grid = weeks.map(() => ({ 1: 0, 2: 0, 3: 0, 4: 0 }));
     payables.forEach(ap => {
+      if (isFlexAp(ap)) return;   // กลุ่มจ่ายตามสภาพคล่อง — ไม่จัดตามดิว (แยก pool)
       const due = ap.due2 || ap.due || ap.vchdate;
       if (!inMonth(due, year, month)) return;
       const wIdx = findWeekIdx(due, weeks);
@@ -326,7 +374,7 @@ function CashFlowDashboard({ data, setData, toast }) {
       grid[wIdx][cat] += Math.abs(amt);
     });
     return grid;
-  }, [payables, forecastEntries, paidVchnoSet, weeks, year, month]);
+  }, [payables, forecastEntries, paidVchnoSet, weeks, year, month, flexVendors]);
 
   // ── PV actual outflow by week × category ──────────────────────────────
   const pvActualByWeekCat = cfMemo(() => {
@@ -437,7 +485,8 @@ function CashFlowDashboard({ data, setData, toast }) {
 
   // Strategic Management = end-of-month projected net
   //   ใช้ Available (B/F หลังหัก HOLD) เพื่อสะท้อนเงินที่ "วางแผนใช้ได้จริง"
-  const strategicNet = monthBFAvailable + loanForecast + ivForecast - outflowForecast;
+  //   หัก: รายจ่ายตามดิว (4 หมวด) + ยอดที่เลือกจ่ายกลุ่มสภาพคล่อง
+  const strategicNet = monthBFAvailable + loanForecast + ivForecast - outflowForecast - (flexPayCurrent + flexPayRest);
 
   // ── Plan section: current week vs rest-of-month ───────────────────────
   // Rule from M_Forecast Excel:
@@ -513,9 +562,10 @@ function CashFlowDashboard({ data, setData, toast }) {
     rest:    Math.abs(WTPOverride.resolve(`${ovPrefix}.s01.out${cat}.rest`,    planOut[cat].rest)),
     total:   Math.abs(WTPOverride.resolve(`${ovPrefix}.s01.out${cat}.total`,   planOut[cat].total)),
   });
-  const totalOutCurrent = [1,2,3,4].reduce((s, c) => s + _resolvedOut(c).current, 0);
-  const totalOutRest    = [1,2,3,4].reduce((s, c) => s + _resolvedOut(c).rest,    0);
-  const totalOutAll     = [1,2,3,4].reduce((s, c) => s + _resolvedOut(c).total,   0);
+  //   รวมรายจ่าย = หมวด 1-4 (ตามดิว) + ยอดที่เลือกจ่ายกลุ่มสภาพคล่อง
+  const totalOutCurrent = [1,2,3,4].reduce((s, c) => s + _resolvedOut(c).current, 0) + flexPayCurrent;
+  const totalOutRest    = [1,2,3,4].reduce((s, c) => s + _resolvedOut(c).rest,    0) + flexPayRest;
+  const totalOutAll     = [1,2,3,4].reduce((s, c) => s + _resolvedOut(c).total,   0) + flexPayCurrent + flexPayRest;
 
   // ── Week-start balance (net of HOLD): snapshot at start of current week
   //   ใช้ในตาราง Plan แถว "เงินสดคงเหลือยกมา" ของ current-week column
@@ -645,6 +695,7 @@ function CashFlowDashboard({ data, setData, toast }) {
     if (row && row.startsWith('out')) {
       const targetCat = Number(row.slice(3));
       payables.forEach(ap => {
+        if (isFlexAp(ap)) return;   // กลุ่มสภาพคล่อง — ไม่อยู่ในหมวดตามดิว (แยก pool)
         // Plan baseline includes paid AP — show all (mark paid ones in note)
         const d = ap.due2 || ap.due || ap.vchdate;
         if (!d || !inPeriod(d)) return;
@@ -832,7 +883,7 @@ function CashFlowDashboard({ data, setData, toast }) {
           ovKey={`${ovPrefix}.strategic`}
           hint={
             (strategicNet < 0 ? '⚠️ ติดลบ · ' : '') +
-            'B/F ใช้ได้ + IV คาดรับ + เงินกู้ − รายจ่ายแผน'
+            'B/F + IV คาดรับ + เงินกู้ − รายจ่ายตามดิว − จ่ายสภาพคล่อง'
           }
           icon={strategicNet < 0 ? 'arrow_down' : 'arrow_up'}
         />
@@ -929,21 +980,38 @@ function CashFlowDashboard({ data, setData, toast }) {
             {/* ── OUTFLOW section ─────────────────────────────────────── */}
             <tr style={{ background: 'color-mix(in oklch, var(--bad) 8%, transparent)' }}>
               <td colSpan={4} style={{ fontWeight: 700, color: 'var(--bad)', fontSize: 13, padding: '8px 14px' }}>
-                2: กระแสเงินสดออก (Outflow Details) · 4 หมวด
+                2: กระแสเงินสดออก (Outflow Details) · 4 หมวด · 💧 โครงการรวมกลุ่มจ่ายตามสภาพคล่อง (คลิกดู)
               </td>
             </tr>
-            {[1, 2, 3, 4].map(cat => (
-              <PlanRow key={cat}
-                label={`${cat}. ${CATEGORY_LABELS[cat]}`}
-                current={planOut[cat].current}
-                rest={planOut[cat].rest}
-                total={planOut[cat].total}
-                negative
-                editMode={editMode}
-                ovKey={`${ovPrefix}.s01.out${cat}`}
-                onCellClick={(p) => openDrillDown(`out${cat}`, p, `${CATEGORY_LABELS[cat]} · ${p === 'current' ? weeks[nowWeek]?.label : p === 'rest' ? 'สัปดาห์ที่เหลือ' : 'TOTAL'}`)}
-              />
-            ))}
+            {[1, 2, 3, 4].map(cat => {
+              const drill = (p) => openDrillDown(`out${cat}`, p, `${CATEGORY_LABELS[cat]} · ${p === 'current' ? weeks[nowWeek]?.label : p === 'rest' ? 'สัปดาห์ที่เหลือ' : 'TOTAL'}`);
+              // หมวด 2 (โครงการ) = รายจ่ายตามดิว(ที่ไม่ใช่กลุ่มยืดหยุ่น) + ยอดที่เลือกจ่ายกลุ่มสภาพคล่อง
+              //   จัดการกลุ่มสภาพคล่องทั้งหมดอยู่ใน popup ของหมวดนี้
+              if (cat === 2) {
+                const cur = _resolvedOut(2).current + flexPayCurrent;
+                const rst = _resolvedOut(2).rest + flexPayRest;
+                return (
+                  <PlanRow key={cat}
+                    label={`2. ${CATEGORY_LABELS[2]} 💧`}
+                    current={cur} rest={rst} total={cur + rst}
+                    negative
+                    onCellClick={drill}
+                  />
+                );
+              }
+              return (
+                <PlanRow key={cat}
+                  label={`${cat}. ${CATEGORY_LABELS[cat]}`}
+                  current={planOut[cat].current}
+                  rest={planOut[cat].rest}
+                  total={planOut[cat].total}
+                  negative
+                  editMode={editMode}
+                  ovKey={`${ovPrefix}.s01.out${cat}`}
+                  onCellClick={drill}
+                />
+              );
+            })}
             <tr style={{ background: 'var(--bad-bg)', fontWeight: 700 }}>
               <td style={{ textAlign: 'right', paddingRight: 14, fontSize: 12 }}>รวมรายจ่าย</td>
               <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--bad)' }}>({fmtNum(totalOutCurrent, 0)})</td>
@@ -1215,9 +1283,19 @@ function CashFlowDashboard({ data, setData, toast }) {
         <Modal open={!!drillDown} title={'รายละเอียด · ' + drillDown.title} maxWidth={920}
           onClose={() => setDrillDown(null)}
           footer={<button className="btn btn-primary" onClick={() => setDrillDown(null)}>ปิด</button>}>
+          {drillDown.row === 'out2' && (
+            <FlexPoolPanel
+              pool={flexPool}
+              vendorCount={flexVendors.filter(Boolean).length}
+              ovPrefix={ovPrefix}
+              chosenCurrent={flexPayCurrent}
+              chosenRest={flexPayRest}
+              onEditVendors={() => setFlexEditOpen(true)}
+            />
+          )}
           {drillDown.items.length === 0 ? (
-            <div style={{ padding: 30, textAlign: 'center', color: 'var(--ink-500)' }}>
-              ไม่มีรายการในช่วงนี้
+            <div style={{ padding: drillDown.row === 'out2' ? '12px 0 0' : 30, textAlign: 'center', color: 'var(--ink-500)', fontSize: 12.5 }}>
+              {drillDown.row === 'out2' ? '— ไม่มีรายการตามดิว (นอกกลุ่มสภาพคล่อง) ในช่วงนี้ —' : 'ไม่มีรายการในช่วงนี้'}
             </div>
           ) : (
             <>
@@ -1304,6 +1382,16 @@ function CashFlowDashboard({ data, setData, toast }) {
             </tbody>
           </table>
         </Modal>
+      )}
+
+      {/* ═════ แก้รายชื่อเจ้าหนี้กลุ่มสภาพคล่อง ═══════════════════════════ */}
+      {flexEditOpen && (
+        <FlexVendorEditor
+          vendors={flexVendors}
+          allVendorNames={[...new Set((payables || []).map(p => (p.cust_name || p.vendor || '').trim()).filter(Boolean))]}
+          onClose={() => setFlexEditOpen(false)}
+          onSave={(list) => { cfSaveFlexVendors(list); setFlexVendors(list); setFlexEditOpen(false); }}
+        />
       )}
     </div>
   );
@@ -1611,6 +1699,148 @@ function DrillRow({ item, onCommit, onView }) {
         )}
       </td>
     </tr>
+  );
+}
+
+// ─── Flexible-pool payment cell — always-editable inline (comma, no spinner) ─
+//   เขียนค่าเข้า WTPOverride (sync + per-month) — ยอดที่ "เลือกจ่าย" งวดนั้น
+function FlexPayCell({ ovKey }) {
+  useOverrideSub(ovKey);
+  const readOnly = typeof _wtpRoleIsReadOnly === 'function' && _wtpRoleIsReadOnly();
+  const cur = Math.abs(Number(WTPOverride.resolve(ovKey, 0)) || 0);
+  const [val, setVal] = cfState(cur ? cur.toLocaleString('en-US') : '');
+  cfEffect(() => { setVal(cur ? cur.toLocaleString('en-US') : ''); }, [cur]);
+  if (readOnly) {
+    return <span style={{ color: 'var(--bad)', fontVariantNumeric: 'tabular-nums' }}>{cur ? `(${fmtNum(cur, 0)})` : '—'}</span>;
+  }
+  const commit = (e) => {
+    const raw = e && e.target ? e.target.value : val;
+    const n = parseFloat(String(raw).replace(/,/g, ''));
+    if (isNaN(n) || n === 0) WTPOverride.clear(ovKey); else WTPOverride.set(ovKey, Math.abs(n));
+  };
+  return (
+    <input
+      type="text" inputMode="numeric" value={val} placeholder="0"
+      onChange={e => { const d = e.target.value.replace(/[^\d]/g, ''); setVal(d ? Number(d).toLocaleString('en-US') : ''); }}
+      onBlur={commit}
+      onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') { setVal(cur ? cur.toLocaleString('en-US') : ''); e.target.blur(); } }}
+      title="ยอดที่เลือกจ่ายกลุ่มสภาพคล่องงวดนี้"
+      style={{ width: 110, padding: '3px 8px', borderWidth: '1.5px', borderStyle: 'solid', borderColor: 'var(--brand-300)',
+        borderRadius: 6, background: 'color-mix(in oklch, var(--brand-500) 5%, white)', textAlign: 'right',
+        fontFamily: 'ui-monospace', fontVariantNumeric: 'tabular-nums', fontWeight: 600, fontSize: 'inherit', color: 'var(--bad)' }}
+    />
+  );
+}
+
+// ─── Vendor-list editor for the flexible group ─────────────────────────────
+function FlexVendorEditor({ vendors, allVendorNames, onClose, onSave }) {
+  const readOnly = typeof _wtpRoleIsReadOnly === 'function' && _wtpRoleIsReadOnly();
+  const [list, setList] = cfState((vendors || []).slice());
+  const [input, setInput] = cfState('');
+  const add = (v) => {
+    const s = String(v || '').trim();
+    if (!s || list.some(x => x.toLowerCase() === s.toLowerCase())) { setInput(''); return; }
+    setList([...list, s]); setInput('');
+  };
+  const remove = (i) => setList(list.filter((_, j) => j !== i));
+  const matchCount = (frag) => (allVendorNames || []).filter(n => n.toLowerCase().includes(String(frag).toLowerCase())).length;
+  const unmatched = (allVendorNames || []).filter(n => !cfIsFlexibleVendor(n, list)).sort((a, b) => a.localeCompare(b, 'th'));
+  return (
+    <Modal open title="แก้รายชื่อเจ้าหนี้กลุ่มจ่ายตามสภาพคล่อง" maxWidth={640}
+      onClose={onClose}
+      footer={<>
+        <button className="btn btn-ghost" onClick={onClose}>ยกเลิก</button>
+        <button className="btn btn-primary" disabled={readOnly} onClick={() => onSave(list.filter(Boolean))}>บันทึก</button>
+      </>}>
+      <div style={{ fontSize: 12.5, color: 'var(--ink-500)', marginBottom: 10, lineHeight: 1.6 }}>
+        จับคู่ด้วย "เศษชื่อ" แบบ contains (เช่น "เวลโกร" จะจับ "บริษัท เวลโกร แมนูแฟคเจอริ่ง จำกัด") · เลขในวงเล็บ = จำนวนเจ้าหนี้ในระบบที่ตรง
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+        {list.length === 0 && <span style={{ color: 'var(--ink-400)', fontSize: 12 }}>ยังไม่มีรายชื่อ</span>}
+        {list.map((f, i) => (
+          <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 14,
+            background: matchCount(f) ? 'color-mix(in oklch, oklch(60% 0.13 245) 12%, transparent)' : 'color-mix(in oklch, var(--bad) 10%, transparent)',
+            color: matchCount(f) ? 'oklch(40% 0.16 255)' : 'var(--bad)', fontSize: 12.5, fontWeight: 600 }}>
+            {f} <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--ink-500)' }}>({matchCount(f)})</span>
+            {!readOnly && <button onClick={() => remove(i)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--bad)', fontSize: 15, padding: 0, lineHeight: 1 }}>×</button>}
+          </span>
+        ))}
+      </div>
+      {!readOnly && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+          <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') add(input); }}
+            placeholder="พิมพ์ชื่อ/เศษชื่อบริษัท…"
+            style={{ flex: 1, padding: '6px 10px', borderWidth: 1, borderStyle: 'solid', borderColor: 'var(--ink-200)', borderRadius: 6, fontSize: 13 }} />
+          <button className="btn btn-primary" onClick={() => add(input)}>เพิ่ม</button>
+        </div>
+      )}
+      {!readOnly && unmatched.length > 0 && (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-600)', marginBottom: 6 }}>เจ้าหนี้ในระบบที่ยังไม่อยู่ในกลุ่ม (คลิกเพื่อเพิ่ม)</div>
+          <div style={{ maxHeight: 200, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 1 }}>
+            {unmatched.map((n, i) => (
+              <button key={i} onClick={() => add(n)}
+                style={{ textAlign: 'left', padding: '4px 8px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 12.5, color: 'var(--ink-700)', borderRadius: 4 }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--ink-50)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                + {n}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+// ─── Flexible-pool panel — แสดงใน popup หมวดโครงการ (out2) ─────────────────
+//   ยอดค้างกลุ่ม + เลือกจ่าย + คงค้าง + ช่องคีย์ยอดจ่าย + breakdown รายเจ้าหนี้
+function FlexPoolPanel({ pool, vendorCount, ovPrefix, chosenCurrent, chosenRest, onEditVendors }) {
+  const chosen = chosenCurrent + chosenRest;
+  const remaining = Math.max(0, pool.total - chosen);
+  return (
+    <div style={{ borderWidth: '1.5px', borderStyle: 'solid', borderColor: 'color-mix(in oklch, oklch(55% 0.15 250) 35%, var(--line))', borderRadius: 10, overflow: 'hidden', marginBottom: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, padding: '8px 14px', background: 'color-mix(in oklch, oklch(60% 0.13 245) 10%, transparent)' }}>
+        <div style={{ fontWeight: 700, fontSize: 13, color: 'oklch(40% 0.16 255)' }}>
+          💧 เจ้าหนี้จ่ายตามสภาพคล่อง <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--ink-500)' }}>({vendorCount} ราย · ไม่จัดตามดิว เลือกจ่ายเอง)</span>
+        </div>
+        <button type="button" className="btn btn-ghost" style={{ fontSize: 12, padding: '3px 10px' }} onClick={onEditVendors}><Icon name="edit" size={12} /> แก้รายชื่อ</button>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 1, background: 'var(--line)' }}>
+        <div style={{ padding: '10px 14px', background: 'var(--surface)' }}>
+          <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>ยอดค้างทั้งกลุ่ม</div>
+          <div style={{ fontSize: 18, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: 'var(--ink-700)' }}>{fmtNum(pool.total, 0)}</div>
+          <div style={{ fontSize: 10.5, color: 'var(--ink-400)' }}>{pool.count} ใบ · {pool.rows.length} เจ้าหนี้</div>
+        </div>
+        <div style={{ padding: '10px 14px', background: 'var(--surface)' }}>
+          <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>เลือกจ่ายเดือนนี้</div>
+          <div style={{ fontSize: 18, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: 'var(--bad)' }}>{fmtNum(chosen, 0)}</div>
+        </div>
+        <div style={{ padding: '10px 14px', background: 'var(--surface)' }}>
+          <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>คงค้างหลังจ่าย</div>
+          <div style={{ fontSize: 18, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: remaining > 0 ? 'var(--warn)' : 'var(--good)' }}>{fmtNum(remaining, 0)}</div>
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', padding: '10px 14px', background: 'var(--surface)', borderTopWidth: 1, borderTopStyle: 'solid', borderTopColor: 'var(--line)', alignItems: 'center' }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-600)' }}>วางแผนจ่าย:</span>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--ink-600)' }}>สัปดาห์นี้ <FlexPayCell ovKey={`${ovPrefix}.s01.flex.current`} /></label>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--ink-600)' }}>ช่วงที่เหลือ <FlexPayCell ovKey={`${ovPrefix}.s01.flex.rest`} /></label>
+      </div>
+      {pool.rows.length > 0 && (
+        <div style={{ maxHeight: 220, overflow: 'auto', borderTopWidth: 1, borderTopStyle: 'solid', borderTopColor: 'var(--line)' }}>
+          <table className="tbl" style={{ width: '100%', fontSize: 12.5 }}>
+            <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
+              <tr><th style={{ textAlign: 'left' }}>เจ้าหนี้ (ยอดค้างทั้งหมด)</th><th style={{ width: 150, textAlign: 'right' }}>ยอดค้าง (฿)</th></tr>
+            </thead>
+            <tbody>
+              {pool.rows.map((r, i) => (
+                <tr key={i}><td>{r.name}</td><td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: 'var(--bad)' }}>{fmtNum(r.sum, 0)}</td></tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
 
