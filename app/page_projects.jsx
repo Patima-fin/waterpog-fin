@@ -789,12 +789,18 @@ function UploadModal({ existingProjects, onClose, onParsed, diff, onConfirm }) {
       let cancelledCount = 0;
       let ghostCount = 0;
       // helper: สร้าง synthetic code — รวมปีงบฯ (Main all67/68/69) กันชื่อชนข้ามปี
+      //   XL- = cancelled · WS- = waiting sign (no Contract No. yet)
+      const _ulYr = (sheet) => { const m = String(sheet || '').match(/Main\s*all(\d+)/i); return m ? m[1] : 'XX'; };
+      const _ulClean = (name) => String(name || '').trim().replace(/\s+/g, '_').slice(0, 36);
       const syntheticCode = (sheet, name) => {
         const s = String(name || '').trim();
         if (!s) return '';
-        const m = String(sheet || '').match(/Main\s*all(\d+)/i);
-        const yr = m ? m[1] : 'XX';
-        return 'XL-' + yr + '-' + s.replace(/\s+/g, '_').slice(0, 36);
+        return 'XL-' + _ulYr(sheet) + '-' + _ulClean(s);
+      };
+      const syntheticCodeWS = (sheet, name) => {
+        const s = String(name || '').trim();
+        if (!s) return '';
+        return 'WS-' + _ulYr(sheet) + '-' + _ulClean(s);
       };
       // code ปกติ (PP001, INS123-STIIS) → merge ข้าม sheet ได้
       // code มั่ว (AW, RGB ตัวอักษรล้วน) → ติดปีงบฯ กันข้อมูลปนข้าม sheet
@@ -813,8 +819,14 @@ function UploadModal({ existingProjects, onClose, onParsed, diff, onConfirm }) {
         const isCancelled = getCancelFlag(r);
         const name = String(r['พื้นที่'] || '').trim();
         if (!code) {
-          if (isCancelled && name) code = syntheticCode(r._sheet, name);
-          else return;
+          if (isCancelled && name) {
+            code = syntheticCode(r._sheet, name);  // XL- ยกเลิก
+          } else if (name) {
+            // ไม่มี Contract No. + ไม่ยกเลิก + มีชื่อ → รอลงนาม (WS-)
+            code = syntheticCodeWS(r._sheet, name);
+          } else {
+            return;
+          }
         } else {
           code = finalizeCode(code, r._sheet);
         }
@@ -985,11 +997,12 @@ function MigrationModal({ existingProjects, onClose }) {
       });
 
       // synthetic code: รวมปีงบฯ (Main all67/68/69) — ชื่อเดียวกันคนละงบ = คนละโครงการ
-      const syntheticCode = (sheet, name) => {
-        const m = String(sheet || '').match(/Main\s*all(\d+)/i);
-        const yr = m ? m[1] : 'XX';
-        return 'XL-' + yr + '-' + String(name || '').trim().replace(/\s+/g, '_').slice(0, 36);
-      };
+      //   XL- = cancelled (ยกเลิก)
+      //   WS- = waiting sign (รอลงนาม — ยังไม่มี Contract No.)
+      const _ssYr = (sheet) => { const m = String(sheet || '').match(/Main\s*all(\d+)/i); return m ? m[1] : 'XX'; };
+      const _ssClean = (name) => String(name || '').trim().replace(/\s+/g, '_').slice(0, 36);
+      const syntheticCode   = (sheet, name) => 'XL-' + _ssYr(sheet) + '-' + _ssClean(name);
+      const syntheticCodeWS = (sheet, name) => 'WS-' + _ssYr(sheet) + '-' + _ssClean(name);
       // code ปกติ = PP001, INS123-STIIS, ENC045 → merge ข้าม sheet ได้ (multi-year tracking)
       // code มั่ว = AW, RGB, ตัวอักษรล้วน → split ตามปีงบฯ (ป้องกัน Remark/data ปนกันข้าม sheet)
       const CANONICAL_CODE_RE = /^[A-Z]{2,5}\d{2,5}(-[A-Z]{2,6})?$/;
@@ -1030,10 +1043,16 @@ function MigrationModal({ existingProjects, onClose }) {
         const isCancelled = getCancelFlag(r);
         const name = String(r['พื้นที่'] || '').trim();
         if (!code) {
-          if (isCancelled && name) code = syntheticCode(r._sheet, name);
-          else return;
+          if (isCancelled && name) {
+            code = syntheticCode(r._sheet, name);  // XL- ยกเลิก
+          } else if (name) {
+            // ไม่มี Contract No. + ไม่ยกเลิก + มีชื่อ → รอลงนาม (WS-)
+            // เคสนี้สำคัญ: โครงการที่ได้ใบจัดสรรแล้ว แต่ยังไม่ลงนามสัญญา
+            code = syntheticCodeWS(r._sheet, name);
+          } else {
+            return;  // ไม่มีอะไรเลย ข้ามไป
+          }
         } else {
-          // normalize: code มั่ว → ติดปีงบฯ ไม่ให้ merge ข้าม sheet กัน
           code = finalizeCode(code, r._sheet);
         }
         if (isGhostRow(r)) { ghostCount++; return; }
