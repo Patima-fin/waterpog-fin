@@ -471,7 +471,7 @@ function DebtPage({ data, setData, toast }) {
   const categoriesPresent = [...new Set(rawRows.map(r => r.debtCategory).filter(Boolean))];
 
   // Display value for each column filter
-  const colDisplayVal = (key, r) => {
+  const colDisplayVal = (r, key) => {
     switch (key) {
       case 'debtCategory': return r.debtCategory || '—';
       case 'status':       return r.status === 'Active' ? 'Active' : (r.status || 'Close');
@@ -504,7 +504,7 @@ function DebtPage({ data, setData, toast }) {
       );
     }
     for (const [key, vals] of Object.entries(colFilters)) {
-      if (vals && vals.size > 0) rows = rows.filter(r => vals.has(colDisplayVal(key, r)));
+      if (vals && vals.size > 0) rows = rows.filter(r => vals.has(colDisplayVal(r, key)));
     }
     return rows;
   }, [rawRows, tab, categoryFilter, query, colFilters]);

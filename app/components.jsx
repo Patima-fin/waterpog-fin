@@ -154,8 +154,36 @@ function exportRowsToExcel(rows, columns, opts = {}) {
 function ColFilterDropdown({ btnRef, colKey, allRows, active, getValue, onApply, onClose }) {
   const [search, setSearch] = useState('');
   const [pos, setPos] = useState(null);
+  const [hoverVal, setHoverVal] = useState(null);
   const selfRef = useRef(null);
   const _val = getValue || ((r, k) => { const v = r[k]; return v == null || v === '' ? '—' : String(v); });
+
+  const allVals = useMemo(() => {
+    const map = new Map();
+    allRows.forEach(r => {
+      const v = _val(r, colKey);
+      map.set(v, (map.get(v) || 0) + 1);
+    });
+    return [...map.entries()].sort((a, b) => {
+      if (a[0] === '—') return 1; if (b[0] === '—') return -1;
+      return String(a[0]).localeCompare(String(b[0]), 'th');
+    });
+  }, [allRows, colKey]);
+  const allKeys = useMemo(() => allVals.map(([v]) => v), [allVals]);
+
+  // draft selection: null = ทั้งหมด, Set = เฉพาะที่เลือก (รองรับ Set ว่าง = ยังไม่เลือก)
+  const [draft, setDraft] = useState(() => (active && active.size ? new Set(active) : null));
+  const draftSet = draft == null ? new Set(allKeys) : draft;
+  const isAll = draft == null || draft.size >= allKeys.length;
+
+  // commit draft → parent (null = ไม่กรอง). อ่านค่าล่าสุดผ่าน ref กัน stale closure
+  const latest = useRef({});
+  latest.current = { draft, allKeys, onApply, onClose };
+  const commit = () => {
+    const { draft, allKeys, onApply, onClose } = latest.current;
+    onApply(!draft || draft.size === 0 || draft.size >= allKeys.length ? null : draft);
+    onClose();
+  };
 
   useEffect(() => {
     const calc = () => {
@@ -172,43 +200,40 @@ function ColFilterDropdown({ btnRef, colKey, allRows, active, getValue, onApply,
   useEffect(() => {
     const h = (e) => {
       if (selfRef.current && !selfRef.current.contains(e.target) &&
-          btnRef.current  && !btnRef.current.contains(e.target)) onClose();
+          btnRef.current  && !btnRef.current.contains(e.target)) commit();
     };
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
   }, []);
 
-  const allVals = useMemo(() => {
-    const map = new Map();
-    allRows.forEach(r => {
-      const v = _val(r, colKey);
-      map.set(v, (map.get(v) || 0) + 1);
-    });
-    return [...map.entries()].sort((a, b) => {
-      if (a[0] === '—') return 1; if (b[0] === '—') return -1;
-      return String(a[0]).localeCompare(String(b[0]), 'th');
-    });
-  }, [allRows, colKey]);
+  const q = search.trim().toLowerCase();
+  const visibleVals = q ? allVals.filter(([v]) => String(v).toLowerCase().includes(q)) : allVals;
+  const visKeys = visibleVals.map(([v]) => v);
+  const isChecked = (v) => draftSet.has(v);
 
-  const visibleVals = search.trim()
-    ? allVals.filter(([v]) => String(v).toLowerCase().includes(search.trim().toLowerCase()))
-    : allVals;
-
-  const isAllSelected = !active || active.size === 0;
-  const isChecked = (v) => isAllSelected || (active && active.has(v));
-  const toggle = (val) => {
-    let next;
-    if (isAllSelected) {
-      next = new Set(allVals.map(([v]) => v));
-      next.delete(val);
-    } else {
-      next = new Set(active);
-      if (next.has(val)) next.delete(val); else next.add(val);
-    }
-    onApply(next.size === 0 || next.size === allVals.length ? null : next);
+  const toggleVal = (val) => {
+    const next = new Set(draftSet);
+    if (next.has(val)) next.delete(val); else next.add(val);
+    setDraft(next);
   };
+  const onlyVal = (val) => { onApply(allKeys.length <= 1 ? null : new Set([val])); onClose(); };
+
+  const allVisChecked = visKeys.length > 0 && visKeys.every(v => draftSet.has(v));
+  const toggleSelectAll = () => {
+    if (q) {
+      const next = new Set(draftSet);
+      if (allVisChecked) visKeys.forEach(v => next.delete(v));
+      else visKeys.forEach(v => next.add(v));
+      setDraft(next);
+    } else {
+      setDraft(isAll ? new Set() : null);
+    }
+  };
+  const clear = () => { setDraft(null); onApply(null); onClose(); };
 
   if (!pos) return null;
+  const headChecked = q ? allVisChecked : isAll;
+  const headLabel = q ? '(เลือกผลค้นหาทั้งหมด)' : '(เลือกทั้งหมด)';
   const dropdown = (
     <div ref={selfRef} onClick={e => e.stopPropagation()} style={{
       position: 'fixed', top: pos.top, left: pos.left, zIndex: 99999,
@@ -221,18 +246,18 @@ function ColFilterDropdown({ btnRef, colKey, allRows, active, getValue, onApply,
           style={{ fontSize: 12, padding: '4px 8px', width: '100%', boxSizing: 'border-box' }}
           placeholder="ค้นหาใน dropdown..." value={search}
           onChange={e => setSearch(e.target.value)}
-          onKeyDown={e => e.key === 'Escape' && onClose()} />
+          onKeyDown={e => e.key === 'Escape' && commit()} />
       </div>
       <div style={{ borderTop: '1px solid var(--ink-100)', borderBottom: '1px solid var(--ink-100)' }}>
-        <label style={{
+        <div onClick={toggleSelectAll} style={{
           display: 'flex', alignItems: 'center', gap: 8, padding: '5px 12px', cursor: 'pointer',
-          background: isAllSelected ? 'color-mix(in oklch,var(--brand-500) 8%,transparent)' : '',
+          background: headChecked ? 'color-mix(in oklch,var(--brand-500) 8%,transparent)' : '',
         }}>
-          <input type="checkbox" checked={isAllSelected} onChange={() => onApply(null)}
-            style={{ width: 14, height: 14, cursor: 'pointer', flexShrink: 0 }} />
-          <span style={{ fontWeight: 600, color: 'var(--ink-700)', flex: 1 }}>(เลือกทั้งหมด)</span>
-          <span style={{ color: 'var(--ink-400)', fontSize: 11 }}>{allRows.length}</span>
-        </label>
+          <input type="checkbox" checked={headChecked} readOnly tabIndex={-1}
+            style={{ width: 14, height: 14, pointerEvents: 'none', flexShrink: 0 }} />
+          <span style={{ fontWeight: 600, color: 'var(--ink-700)', flex: 1 }}>{headLabel}</span>
+          <span style={{ color: 'var(--ink-400)', fontSize: 11 }}>{q ? visibleVals.length : allRows.length}</span>
+        </div>
       </div>
       <div style={{ maxHeight: 260, overflowY: 'auto' }}>
         {visibleVals.length === 0 && (
@@ -240,28 +265,43 @@ function ColFilterDropdown({ btnRef, colKey, allRows, active, getValue, onApply,
         )}
         {visibleVals.map(([val, count]) => {
           const checked = isChecked(val);
+          const hovered = hoverVal === val;
           return (
-            <label key={val} style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              padding: '5px 12px', cursor: 'pointer',
-              borderBottom: '1px solid var(--ink-50)',
-              background: checked && !isAllSelected ? 'color-mix(in oklch,var(--brand-500) 5%,transparent)' : '',
-            }}>
-              <input type="checkbox" checked={checked} onChange={() => toggle(val)}
-                style={{ width: 14, height: 14, cursor: 'pointer', flexShrink: 0 }} />
+            <div key={val}
+              onClick={() => toggleVal(val)}
+              onMouseEnter={() => setHoverVal(val)}
+              onMouseLeave={() => setHoverVal(h => h === val ? null : h)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '5px 12px', cursor: 'pointer',
+                borderBottom: '1px solid var(--ink-50)',
+                background: hovered ? 'var(--ink-50)' : (checked && !isAll ? 'color-mix(in oklch,var(--brand-500) 5%,transparent)' : ''),
+              }}>
+              <input type="checkbox" checked={checked} readOnly tabIndex={-1}
+                style={{ width: 14, height: 14, pointerEvents: 'none', flexShrink: 0 }} />
               <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{val}</span>
-              <span style={{ flexShrink: 0, color: 'var(--ink-400)', fontSize: 11 }}>{count}</span>
-            </label>
+              {hovered ? (
+                <button onClick={(e) => { e.stopPropagation(); onlyVal(val); }}
+                  title="กรองเฉพาะค่านี้ค่าเดียว"
+                  style={{
+                    flexShrink: 0, fontSize: 10, fontWeight: 700, color: 'var(--brand-700)',
+                    background: 'color-mix(in oklch,var(--brand-500) 14%,transparent)',
+                    border: 'none', borderRadius: 4, padding: '1px 7px', cursor: 'pointer',
+                  }}>เฉพาะนี้</button>
+              ) : (
+                <span style={{ flexShrink: 0, color: 'var(--ink-400)', fontSize: 11 }}>{count}</span>
+              )}
+            </div>
           );
         })}
       </div>
       <div style={{ borderTop: '1px solid var(--ink-100)', padding: '6px 10px', display: 'flex', justifyContent: 'space-between', gap: 6 }}>
         <button className="btn btn-ghost btn-sm"
           style={{ fontSize: 11, color: 'var(--bad)', padding: '2px 8px' }}
-          onClick={() => { onApply(null); onClose(); }}>ล้างตัวกรอง</button>
+          onClick={clear}>ล้างตัวกรอง</button>
         <button className="btn btn-sm"
           style={{ fontSize: 11, padding: '2px 10px', background: 'var(--brand-500)', color: '#fff', border: 'none', borderRadius: 5 }}
-          onClick={onClose}>✓ ตกลง</button>
+          onClick={commit}>✓ ตกลง</button>
       </div>
     </div>
   );
