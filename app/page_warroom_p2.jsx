@@ -153,7 +153,11 @@ function WarRoomPage2({ data, setData, toast }) {
       })
       // เก็บเฉพาะที่ยังมี work รออยู่ (wip > 1 บาท — กัน floating point)
       // AND มีร่องรอย IV/receipt (ถ้าไม่มีเลย = น่าจะปิดไปแล้ว)
-      .filter(x => x.wip > 1 && (x.ivCount > 0 || x.rcCount > 0))
+      // ✦ AND ไม่มี IV ค้างติดตาม — ถ้ามี IV ออกแล้วยังไม่จ่าย = อยู่ใน "ลูกหนี้คงค้าง" บัคเก็ต
+      //   นับเป็น WIP จะซ้ำกับยอด "ใบแจ้งหนี้คงค้าง" (75.30M)
+      //   เคสที่นับเป็น WIP: ลงนามแล้ว + ไม่มี IV ค้าง + มี receipt/IV paid (รับเงินมาบ้าง)
+      //   ส่วนงานที่เหลือยังไม่ออก IV = WIP จริง
+      .filter(x => x.wip > 1 && (x.ivCount > 0 || x.rcCount > 0) && !x.hasOutstandingIV)
       .sort((a, b) => b.wip - a.wip);
     const wipValue = wipList.reduce((s, x) => s + x.wip, 0);
 
@@ -223,7 +227,7 @@ function WarRoomPage2({ data, setData, toast }) {
   });
   const openWipDrill = () => setDrill({
     title: '🚧 มูลค่างานระหว่างก่อสร้าง (WIP)',
-    subtitle: liveCalc.wip.count + ' โครงการ · รวม ' + fmtT0(liveCalc.wip.value) + ' บาท · (ลงนามแล้ว · contract − max(IV billed, รับเงิน) · ตัดที่ไม่มี IV/receipt)',
+    subtitle: liveCalc.wip.count + ' โครงการ · รวม ' + fmtT0(liveCalc.wip.value) + ' บาท · (ลงนามแล้ว · ไม่มี IV ค้าง · ส่วนยังไม่ออก IV = contract − รับเงิน · ไม่ซ้ำกับใบแจ้งหนี้คงค้าง)',
     items: liveCalc.wip.list,
     total: liveCalc.wip.value,
     columns: [
