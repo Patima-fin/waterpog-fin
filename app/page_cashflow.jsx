@@ -197,6 +197,16 @@ function getBalanceAtDate(snapshots, dateISO) {
   });
   return Object.values(latestPerAc).reduce((sum, s) => sum + (Number(s.balance) || 0), 0);
 }
+// ยอดเงินสด "ต้นงวด" ที่ cutoff — ปกติใช้ snapshot ล่าสุด ≤ cutoff
+//   แต่ถ้าไม่มี snapshot ในเดือนเดียวกับ cutoff เลย (ข้อมูลขาด → ยอดค้างเก่า)
+//   ให้ fallback มาใช้ "ยอดสดปัจจุบัน" แทน เพื่อไม่ให้หยิบยอดเดือนเก่ามาแสดงผิด
+function openingBalanceAt(snapshots, cutoffISO, liveBalance) {
+  if (!cutoffISO) return liveBalance;
+  const ym = String(cutoffISO).slice(0, 7);  // 'YYYY-MM' ของ cutoff
+  const hasInMonth = (snapshots || []).some(s =>
+    s.date && String(s.date).slice(0, 7) === ym && s.date <= cutoffISO);
+  return hasInMonth ? getBalanceAtDate(snapshots, cutoffISO) : liveBalance;
+}
 
 // ─── Main page ─────────────────────────────────────────────────────────────
 function CashFlowDashboard({ data, setData, toast }) {
@@ -208,6 +218,11 @@ function CashFlowDashboard({ data, setData, toast }) {
 
   // Drill-down popup: { title, rows, kind } where kind ∈ {iv, loan, ap, fe, mixed}
   const [drillDown, setDrillDown] = cfState(null);
+  // Per-item detail popup (ซ้อนบน drill-down) — เก็บ item ที่กด "ดู"
+  const [detailItem, setDetailItem] = cfState(null);
+
+  // Footer notes — พับเก็บไว้ (ผู้บริหารเห็นแค่เนื้อหาหลัก) กดเปิดเองถ้าอยากดู
+  const [showNotes, setShowNotes] = cfState(false);
 
   // Override key prefix per month — ค่าที่กรอกจะแยกตามเดือนที่ดู
   const ovPrefix = `cf.${year}.${String(month).padStart(2, '0')}`;
@@ -241,15 +256,6 @@ function CashFlowDashboard({ data, setData, toast }) {
   }, [data.projects, data.debtLedger]);
   const mainAccounts   = bankAccounts.filter(a => (a.accountType || 'main').toLowerCase() !== 'closed' && (a.accountType || 'main').toLowerCase() !== 'dormant');
 
-  // ── B/F: balance at last day of previous month (auto from snapshots) ──
-  const monthBF = cfMemo(() => {
-    const prevYear  = month === 1 ? year - 1 : year;
-    const prevMonth = month === 1 ? 12 : month - 1;
-    const lastDayPrev = new Date(prevYear, prevMonth, 0).getDate();
-    const cutoff = `${prevYear}-${String(prevMonth).padStart(2, '0')}-${String(lastDayPrev).padStart(2, '0')}`;
-    return getBalanceAtDate(snapshots, cutoff);
-  }, [snapshots, year, month]);
-
   // ── Live balance + HOLD (sum across main bank accounts) ──────────────
   //   liveBalance     = ยอดรวมที่อยู่ในบัญชี (gross)
   //   liveHold        = ยอดที่กันไว้ HOLD (เช่น ค้ำประกัน LG, เช็คออกแล้วยังไม่ขึ้น)
@@ -257,6 +263,17 @@ function CashFlowDashboard({ data, setData, toast }) {
   const liveBalance   = mainAccounts.reduce((s, a) => s + (Number(a.BALANCE) || 0), 0);
   const liveHold      = mainAccounts.reduce((s, a) => s + (Number(a.HOLD_AMOUNT) || 0), 0);
   const liveAvailable = liveBalance - liveHold;
+
+  // ── B/F: balance at last day of previous month (auto from snapshots) ──
+  //   ถ้าไม่มี snapshot ในเดือนก่อนเลย (ข้อมูลขาด) → fallback ใช้ยอดสดปัจจุบัน
+  //   วันที่ 1 (ยังไม่มีรายการ) ยอดยกมาจะ = ใช้ได้ปัจจุบันโดยอัตโนมัติ
+  const monthBF = cfMemo(() => {
+    const prevYear  = month === 1 ? year - 1 : year;
+    const prevMonth = month === 1 ? 12 : month - 1;
+    const lastDayPrev = new Date(prevYear, prevMonth, 0).getDate();
+    const cutoff = `${prevYear}-${String(prevMonth).padStart(2, '0')}-${String(lastDayPrev).padStart(2, '0')}`;
+    return openingBalanceAt(snapshots, cutoff, liveBalance);
+  }, [snapshots, year, month, liveBalance]);
   // B/F แสดงเป็น Available (ยอดหลังหัก HOLD) — เพื่อสะท้อนเงินที่ใช้วางแผนจริงได้
   const monthBFAvailable = Math.max(0, monthBF - liveHold);
 
@@ -497,7 +514,7 @@ function CashFlowDashboard({ data, setData, toast }) {
       const d = new Date(wStart);
       d.setDate(d.getDate() - 1);
       const prevISO = d.toISOString().slice(0, 10);
-      raw = getBalanceAtDate(snapshots, prevISO) || liveBalance;
+      raw = openingBalanceAt(snapshots, prevISO, liveBalance);
     }
     return Math.max(0, raw - liveHold);
   }, [snapshots, weeks, nowWeek, monthBF, liveBalance, liveHold]);
@@ -551,16 +568,24 @@ function CashFlowDashboard({ data, setData, toast }) {
         if (ivIsPaid(iv)) return;
         const d = iv.expectedReceive;
         if (!d || !inPeriod(d)) return;
+        const ivStatusShort = window.WTPData?.IV_STATUS_META?.[iv.status]?.short || iv.status || '—';
         items.push({
           source: 'IV',
           date: d,
           name: iv.projectName || iv.PROJECT_NAME || iv.customer || '—',
           ref: iv.ivNo || iv.IV_NO || iv.invoiceNo || '',
           amount: ivNetExpected(iv, financeByCode),
-          note: (() => {
-            const meta = window.WTPData?.IV_STATUS_META?.[iv.status];
-            return (meta?.short || iv.status || '—') + (iv.note ? ' · ' + iv.note : '');
-          })(),
+          note: ivStatusShort + (iv.note ? ' · ' + iv.note : ''),
+          detail: [
+            ['โครงการ', iv.projectName || iv.PROJECT_NAME || '—'],
+            ['ลูกค้า', iv.customer || '—'],
+            ['เลขที่ IV', iv.ivNo || iv.IV_NO || iv.invoiceNo || '—'],
+            ['วันคาดรับ', fmtDate(d) || d],
+            ['ยอดคงค้าง', fmtNum(Number(iv.balance) || 0, 0) + ' ฿'],
+            ['คาดรับสุทธิ (หัก WHT/หนี้)', fmtNum(ivNetExpected(iv, financeByCode), 0) + ' ฿'],
+            ['สถานะ', ivStatusShort],
+            ['หมายเหตุ', iv.note || '—'],
+          ],
         });
       });
       forecastEntries.forEach(fe => {
@@ -578,13 +603,27 @@ function CashFlowDashboard({ data, setData, toast }) {
         if (status === 'CANCELED') return;
         const d = fe.PAYMENT_DATE || fe.DATE;
         if (!d || !inPeriod(d)) return;
+        const isRealized = status === 'ACTUAL' || status === 'BOOKED';
         items.push({
           source: 'Forecast',
+          feId: fe.id,
+          editable: !isRealized,   // แก้ได้เฉพาะ PLANNED (ยังไม่เกิดจริง)
           date: d,
           name: fe.DESCRIPTION || '—',
           ref: fe.JOB_NO || '',
-          amount: (status === 'ACTUAL' || status === 'BOOKED') ? Number(fe.ACTUAL_AMOUNT || amt) : amt,
+          amount: isRealized ? Number(fe.ACTUAL_AMOUNT || amt) : amt,
           note: `STATUS=${status || 'PLANNED'}${fe.NOTE ? ' · ' + fe.NOTE : ''}`,
+          detail: [
+            ['รายการ', fe.DESCRIPTION || '—'],
+            ['ประเภท', 'เงินกู้ / สินเชื่อ (LOAN)'],
+            ['Job No.', fe.JOB_NO || '—'],
+            ['โครงการ', fe.PROJECT_NAME || '—'],
+            ['วันที่คาดรับ', fmtDate(fe.PAYMENT_DATE || fe.DATE) || '—'],
+            ['ยอดประมาณการ', fmtNum(Math.abs(amt), 0) + ' ฿'],
+            ['สถานะ', status || 'PLANNED'],
+            ['บัญชี', fe.Bank_AC || '—'],
+            ['หมายเหตุ', fe.NOTE || '—'],
+          ],
         });
       });
     }
@@ -609,6 +648,17 @@ function CashFlowDashboard({ data, setData, toast }) {
           ref: ap.vchno || ap.docno || '',
           amount: -Number(ap.netpayment || ap.Amount || 0),  // negative = outflow
           note: noteParts.join(' · ') || '—',
+          detail: [
+            ['ผู้ขาย', ap.cust_name || ap.vendor || '—'],
+            ['เลขที่เอกสาร', ap.vchno || ap.docno || '—'],
+            ['Job', ap.jobcode || ap.jobname || '—'],
+            ['แผนก', ap.dpt_code || '—'],
+            ['วันที่เอกสาร', fmtDate(ap.vchdate) || '—'],
+            ['วันครบกำหนด', fmtDate(ap.due2 || ap.due) || '—'],
+            ['ยอดจ่ายสุทธิ', fmtNum(Number(ap.netpayment || ap.Amount) || 0, 0) + ' ฿'],
+            ['สถานะ', isPaid ? '✅ จ่ายแล้ว (ตัดออกจากแผน)' : 'ค้างจ่าย'],
+            ['หมายเหตุ', ap.remark || '—'],
+          ],
         });
       });
       forecastEntries.forEach(fe => {
@@ -622,13 +672,27 @@ function CashFlowDashboard({ data, setData, toast }) {
         if (!d || !inPeriod(d)) return;
         const cat = categorizeForecastEntry(fe);
         if (cat !== targetCat) return;
+        const isRealized = status === 'ACTUAL' || status === 'BOOKED';
         items.push({
           source: 'Forecast',
+          feId: fe.id,
+          editable: !isRealized,   // แก้ได้เฉพาะ PLANNED (ยังไม่เกิดจริง)
           date: d,
           name: fe.DESCRIPTION || '—',
           ref: fe.JOB_NO || '',
-          amount: (status === 'ACTUAL' || status === 'BOOKED') ? -Math.abs(Number(fe.ACTUAL_AMOUNT || amt)) : amt,
+          amount: isRealized ? -Math.abs(Number(fe.ACTUAL_AMOUNT || amt)) : amt,
           note: `STATUS=${status || 'PLANNED'}${fe.NOTE ? ' · ' + fe.NOTE : ''}`,
+          detail: [
+            ['รายการ', fe.DESCRIPTION || '—'],
+            ['Job No.', fe.JOB_NO || '—'],
+            ['โครงการ', fe.PROJECT_NAME || '—'],
+            ['วันที่จ่าย', fmtDate(fe.PAYMENT_DATE || fe.DATE) || '—'],
+            ['ยอดประมาณการ', fmtNum(Math.abs(amt), 0) + ' ฿'],
+            ['หมวด', `${cat} · ${CATEGORY_LABELS_SHORT[cat] || '—'}`],
+            ['สถานะ', status || 'PLANNED'],
+            ['บัญชี', fe.Bank_AC || '—'],
+            ['หมายเหตุ', fe.NOTE || '—'],
+          ],
         });
       });
     }
@@ -636,6 +700,24 @@ function CashFlowDashboard({ data, setData, toast }) {
     // Sort by date ascending
     items.sort((a, b) => String(a.date).localeCompare(String(b.date)));
     setDrillDown({ title: label, period, row, items });
+  };
+
+  // ─── Inline-edit a FORECAST line from the drill-down ──────────────────────
+  // เขียนกลับเข้า data.forecastEntries จริง (sync ขึ้น cloud) แล้วอัปเดต popup ทันที
+  //   signedAmount = ยอดที่มีเครื่องหมายแล้ว (− = จ่ายออก, + = รับเข้า)
+  //   แก้เฉพาะ AMOUNT (ยอดประมาณการ) — รายการที่เกิดจริงแล้ว (ACTUAL/BOOKED) ล็อกไว้
+  const commitForecastEdit = (feId, signedAmount) => {
+    if (!feId) return;
+    setData(d => ({
+      ...d,
+      forecastEntries: (d.forecastEntries || []).map(fe =>
+        fe.id === feId ? { ...fe, AMOUNT: signedAmount } : fe),
+    }));
+    setDrillDown(prev => prev && {
+      ...prev,
+      items: prev.items.map(x => x.feId === feId ? { ...x, amount: signedAmount } : x),
+    });
+    if (typeof toast === 'function') toast('แก้ไขประมาณการแล้ว — กำลังซิงค์');
   };
 
   const monthNames = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
@@ -710,11 +792,11 @@ function CashFlowDashboard({ data, setData, toast }) {
       )}
 
       {/* ═════ SECTION A — Hero balance cards + PlanVsActual KPIs ═════════ */}
-      {/* Hero strip — 2 big gradient cards (B/F net-of-HOLD + Strategic Management) */}
-      <div className="grid grid-2 anim-in" style={{ marginBottom: 18 }}>
+      {/* Hero strip — 3 big gradient cards: อดีต (B/F) → ปัจจุบัน (ใช้ได้) → อนาคต (สิ้นเดือน) */}
+      <div className="grid grid-3 anim-in" style={{ marginBottom: 18 }}>
         <BalanceCard
           tone="bf"
-          label="เงินสดคงเหลือยกมา (B/F)"
+          label="เงินสดยกมาใช้ได้ (B/F)"
           value={monthBFAvailable}
           editMode={editMode}
           ovKey={`${ovPrefix}.bf`}
@@ -722,15 +804,21 @@ function CashFlowDashboard({ data, setData, toast }) {
           icon="coin"
         />
         <BalanceCard
+          tone="now"
+          label="เงินสดใช้ได้ปัจจุบัน"
+          value={liveAvailable}
+          hint={`ยอดพร้อมใช้จริง ณ วันนี้`}
+          icon="bank"
+        />
+        <BalanceCard
           tone={strategicNet < 0 ? 'bad' : 'good'}
-          label="Strategic Management — คาดการณ์สิ้นเดือน"
+          label="คาดการณ์สิ้นเดือน (Strategic)"
           value={strategicNet}
           editMode={editMode}
           ovKey={`${ovPrefix}.strategic`}
           hint={
-            strategicNet < 0
-              ? `⚠️ ติดลบ — ต้องการเงินกู้/รายรับเพิ่ม · ใช้ได้ปัจจุบัน ${fmtNum(liveAvailable, 0)} ฿`
-              : `อยู่ในเกณฑ์ปลอดภัย · ใช้ได้ปัจจุบัน ${fmtNum(liveAvailable, 0)} ฿`
+            (strategicNet < 0 ? '⚠️ ติดลบ · ' : '') +
+            'B/F ใช้ได้ + IV คาดรับ + เงินกู้ − รายจ่ายแผน'
           }
           icon={strategicNet < 0 ? 'arrow_down' : 'arrow_up'}
         />
@@ -774,7 +862,7 @@ function CashFlowDashboard({ data, setData, toast }) {
       <div className="cf-section-01">
       <SectionTitle num="01"
         title="ประมาณการรายสัปดาห์"
-        subtitle={`เน้นสัปดาห์ปัจจุบัน (${weeks[nowWeek]?.label || 'W?'} · ${weeks[nowWeek]?.from || '-'}-${weeks[nowWeek]?.to || '-'} ${monthNames[month - 1]}) · ที่เหลือยุบรวม`}
+        subtitle={`สัปดาห์นี้ ${weeks[nowWeek]?.label || 'W?'} (${weeks[nowWeek]?.from || '-'}–${weeks[nowWeek]?.to || '-'} ${monthNames[month - 1]}) และยอดรวมช่วงที่เหลือของเดือน`}
       />
 
       <div className="card anim-in" style={{ padding: 0, overflow: 'hidden', marginBottom: 22 }}>
@@ -1089,18 +1177,23 @@ function CashFlowDashboard({ data, setData, toast }) {
       })()}
       </div>{/* end data-print-page wrapper for Section 02 */}
 
-      {/* Footer hints */}
-      <div className="card no-print" style={{ marginTop: 12, padding: 14, background: '#fffbeb', borderLeft: '4px solid #f6ad55', fontSize: 12, color: 'var(--ink-700)' }}>
-        <div style={{ fontWeight: 700, marginBottom: 6 }}>💡 หมายเหตุ</div>
-        <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.7 }}>
-          <li>ยอดยกมา (B/F) — ดึงจาก <a href="#daily_balance" style={{ color: 'var(--brand-600)' }}>บันทึกยอดธนาคารรายวัน</a> วันสุดท้ายของเดือนที่แล้ว</li>
-          <li>รายรับโครงการ — <strong>ลูกหนี้คงค้างทุกใบที่ยังไม่ได้รับเงิน</strong> จากหน้า <a href="#iv_report" style={{ color: 'var(--brand-600)' }}>รายงานติดตาม IV</a> · บัคเก็ตด้วย expectedReceive · ใช้ยอด "คาดรับสุทธิ" ตรง ๆ</li>
-          <li>ถ้าตอนนี้เป็น <strong>สัปดาห์สุดท้ายของเดือน</strong> → คอลัมน์ "สัปดาห์ที่เหลือ" จะดึงยอดประมาณการของ <strong>เดือนถัดไป</strong> มาแสดงแทน</li>
-          <li>ค่าใช้จ่าย — ดึงจาก <a href="#data_payable" style={{ color: 'var(--brand-600)' }}>DATA เจ้าหนี้คงค้าง</a> + <a href="#data_pv" style={{ color: 'var(--brand-600)' }}>DATA PV</a> + <a href="#data_forecast" style={{ color: 'var(--brand-600)' }}>ประมาณการนอกระบบ</a></li>
-          <li>เงินกู้ — กรอกใน <a href="#data_forecast" style={{ color: 'var(--brand-600)' }}>ประมาณการนอกระบบ</a> โดยตั้ง EXPENSE_TYPE='LOAN' (PLANNED → ACTUAL เมื่อกู้จริง)</li>
-          <li>หมวดค่าใช้จ่าย: 1=ดำเนินงาน · 2=โครงการ (มี jobcode) · 3=ฝ่ายการเงิน (dpt_code=FIN) · 4=เงินเดือน (จาก forecastEntries CATEGORY=4)</li>
-          <li>AP ที่จ่ายแล้วจะถูกตัดออก (vchno ที่ตรงกับ PV.AP_No) — กัน double count</li>
+      {/* Footer hints — พับเก็บไว้ (default ซ่อน) กดหัวข้อเพื่อกาง */}
+      <div className="card no-print" style={{ marginTop: 12, padding: showNotes ? 14 : '10px 14px', background: '#fffbeb', borderLeft: '4px solid #f6ad55', fontSize: 12, color: 'var(--ink-700)' }}>
+        <div
+          onClick={() => setShowNotes(v => !v)}
+          style={{ fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, userSelect: 'none' }}
+          title={showNotes ? 'ซ่อนหมายเหตุ' : 'ดูหมายเหตุ — ที่มาของตัวเลข'}
+        >
+          <span style={{ fontSize: 10, transform: showNotes ? 'rotate(90deg)' : 'none', transition: 'transform 150ms' }}>▶</span>
+          💡 หมายเหตุ — ที่มาของตัวเลข
+        </div>
+        {showNotes && (
+        <ul style={{ margin: '8px 0 0', paddingLeft: 18, lineHeight: 1.7 }}>
+          <li><strong>ยอดยกมา</strong> — ยอดธนาคารสิ้นเดือนก่อน (<a href="#daily_balance" style={{ color: 'var(--brand-600)' }}>บันทึกรายวัน</a>) · ไม่มีก็ใช้ยอดสดปัจจุบัน · <strong>รายรับ</strong> — ลูกหนี้ค้างที่ยังไม่รับเงิน (<a href="#iv_report" style={{ color: 'var(--brand-600)' }}>IV</a>)</li>
+          <li><strong>ค่าใช้จ่าย</strong> — <a href="#data_payable" style={{ color: 'var(--brand-600)' }}>AP คงค้าง</a> + <a href="#data_pv" style={{ color: 'var(--brand-600)' }}>PV</a> + <a href="#data_forecast" style={{ color: 'var(--brand-600)' }}>ประมาณการ</a> (AP จ่ายแล้วตัดออก กัน double-count) · <strong>เงินกู้</strong> — ตั้ง EXPENSE_TYPE=LOAN</li>
+          <li>สัปดาห์สุดท้ายของเดือน → คอลัมน์ "สัปดาห์ที่เหลือ" = ประมาณการ<strong>เดือนถัดไป</strong></li>
         </ul>
+        )}
       </div>
 
       {/* ═════ Drill-down modal — verify which rows make up each cell ═══════ */}
@@ -1139,33 +1232,12 @@ function CashFlowDashboard({ data, setData, toast }) {
                       <th style={{ width: 130 }}>เลขที่</th>
                       <th>ชื่อ/รายการ</th>
                       <th style={{ width: 140, textAlign: 'right' }}>จำนวน (฿)</th>
-                      <th style={{ width: 220 }}>หมายเหตุ</th>
+                      <th style={{ width: 150, textAlign: 'center' }}>จัดการ</th>
                     </tr>
                   </thead>
                   <tbody>
                     {drillDown.items.map((it, i) => (
-                      <tr key={i}>
-                        <td>
-                          <span style={{
-                            display: 'inline-block',
-                            padding: '2px 8px', borderRadius: 4,
-                            background: it.source === 'AP' ? 'color-mix(in oklch, var(--bad) 14%, transparent)' :
-                                        it.source === 'IV' ? 'color-mix(in oklch, var(--good) 14%, transparent)' :
-                                        'color-mix(in oklch, var(--brand-500) 14%, transparent)',
-                            color: it.source === 'AP' ? 'var(--bad)' :
-                                   it.source === 'IV' ? 'var(--good)' : 'var(--brand-700)',
-                            fontSize: 11, fontWeight: 600,
-                          }}>{it.source}</span>
-                        </td>
-                        <td style={{ whiteSpace: 'nowrap', color: 'var(--ink-600)' }}>{fmtDate(it.date) || it.date}</td>
-                        <td style={{ fontFamily: 'ui-monospace', fontSize: 11.5, color: 'var(--brand-700)' }}>{it.ref || '—'}</td>
-                        <td>{it.name}</td>
-                        <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums',
-                            color: it.amount < 0 ? 'var(--bad)' : 'var(--good)', fontWeight: 600 }}>
-                          {fmtNum(it.amount, 0)}
-                        </td>
-                        <td style={{ fontSize: 11.5, color: 'var(--ink-500)' }}>{it.note || '—'}</td>
-                      </tr>
+                      <DrillRow key={i} item={it} onCommit={commitForecastEdit} onView={setDetailItem} />
                     ))}
                   </tbody>
                 </table>
@@ -1174,12 +1246,49 @@ function CashFlowDashboard({ data, setData, toast }) {
                 💡 <strong>AP</strong> = เจ้าหนี้คงค้างจากระบบ ·
                 <strong> IV</strong> = ใบแจ้งหนี้รับเงิน ·
                 <strong> Forecast</strong> = ประมาณการบันทึกเอง<br />
-                ✏️ ต้องการแก้ไข? ไปที่หน้า <a href="#data_payables" style={{ color: 'var(--brand-600)' }}>AP Outstanding</a>,
+                👆 <strong>คลิกที่บรรทัด</strong> เพื่อดูรายละเอียดของรายการนั้น ·
+                ✏️ แถว <strong>Forecast (PLANNED)</strong> กด <strong>แก้</strong> เพื่อแก้ยอด แล้วกด ✓ บันทึก (ซิงค์อัตโนมัติ) ·
+                AP/IV และรายการที่เกิดจริงแล้ว แก้ที่หน้า
+                <a href="#data_payables" style={{ color: 'var(--brand-600)' }}> AP Outstanding</a>,
                 <a href="#data_invoices" style={{ color: 'var(--brand-600)' }}> รายงานติดตามรับเงิน</a> หรือ
                 <a href="#data_forecast" style={{ color: 'var(--brand-600)' }}> ประมาณการรายจ่าย</a>
               </div>
             </>
           )}
+        </Modal>
+      )}
+
+      {/* ═════ Per-item detail popup (ซ้อนบน drill-down) ═══════════════════ */}
+      {detailItem && (
+        <Modal open={!!detailItem} title={'รายละเอียดรายการ · ' + (detailItem.name || '')} maxWidth={560}
+          onClose={() => setDetailItem(null)}
+          footer={<button className="btn btn-primary" onClick={() => setDetailItem(null)}>ปิด</button>}>
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12,
+            padding: '10px 14px', marginBottom: 12, borderRadius: 8, background: 'var(--brand-50)',
+          }}>
+            <span style={{
+              display: 'inline-block', padding: '3px 10px', borderRadius: 5, fontSize: 12, fontWeight: 700,
+              background: detailItem.source === 'AP' ? 'color-mix(in oklch, var(--bad) 16%, transparent)' :
+                          detailItem.source === 'IV' ? 'color-mix(in oklch, var(--good) 16%, transparent)' :
+                          'color-mix(in oklch, var(--brand-500) 16%, transparent)',
+              color: detailItem.source === 'AP' ? 'var(--bad)' : detailItem.source === 'IV' ? 'var(--good)' : 'var(--brand-700)',
+            }}>{detailItem.source}</span>
+            <span style={{ fontSize: 20, fontWeight: 800, fontVariantNumeric: 'tabular-nums',
+              color: detailItem.amount < 0 ? 'var(--bad)' : 'var(--good)' }}>
+              {fmtNum(detailItem.amount, 0)} ฿
+            </span>
+          </div>
+          <table className="tbl" style={{ width: '100%', fontSize: 13 }}>
+            <tbody>
+              {(detailItem.detail || []).map(([k, v], j) => (
+                <tr key={j}>
+                  <td style={{ width: 170, color: 'var(--ink-500)', verticalAlign: 'top', padding: '6px 12px' }}>{k}</td>
+                  <td style={{ fontWeight: 600, color: 'var(--ink-800)', padding: '6px 12px' }}>{v}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </Modal>
       )}
     </div>
@@ -1202,6 +1311,7 @@ function SectionTitle({ num, title, subtitle }) {
 function BalanceCard({ tone, label, value, hint, icon, editMode, ovKey }) {
   const tones = {
     bf:   { bg: 'linear-gradient(135deg, var(--brand-500), var(--brand-700))', text: 'white' },
+    now:  { bg: 'linear-gradient(135deg, oklch(62% 0.13 245), oklch(46% 0.16 255))', text: 'white' },
     good: { bg: 'linear-gradient(135deg, oklch(65% 0.16 152), oklch(50% 0.16 152))', text: 'white' },
     bad:  { bg: 'linear-gradient(135deg, oklch(65% 0.18 22), oklch(50% 0.18 22))',   text: 'white' },
   };
@@ -1397,6 +1507,94 @@ function PlanRow({ label, current, rest, total, subtle, negative, carrySigned, o
         title={clickable && total ? 'คลิกเพื่อดูรายการรายตัว' : ''}
         style={cellStyle(total, { fontWeight: 600, background: 'var(--ink-50)' })}>
         {renderCell(total, 'total')}
+      </td>
+    </tr>
+  );
+}
+
+// ─── Drill-down row — คลิกทั้งบรรทัด = ดูรายละเอียด · ปุ่ม "แก้" = แก้ยอด ───
+//   AP/IV/รายการที่เกิดจริง = ดูอย่างเดียว · Forecast (PLANNED) = กดแก้ยอดได้
+//   แก้ = กรอก "ขนาด" (magnitude) คงเครื่องหมายเดิม (จ่าย = ลบ, รับ = บวก)
+//   ช่องแก้เป็น text + comma (ไม่มีลูกศรเพิ่ม/ลด) พิมพ์เองได้เร็ว
+function DrillRow({ item, onCommit, onView }) {
+  const readOnly = typeof _wtpRoleIsReadOnly === 'function' && _wtpRoleIsReadOnly();
+  const editable = item.editable && !readOnly && item.feId;
+  const fmtMag = (a) => { const m = Math.abs(Number(a) || 0); return m ? Math.round(m).toLocaleString('en-US') : ''; };
+  const [editing, setEditing] = cfState(false);
+  const [hover, setHover]     = cfState(false);
+  const [val, setVal]         = cfState(fmtMag(item.amount));
+  cfEffect(() => { setVal(fmtMag(item.amount)); }, [item.amount]);
+
+  const sign = Number(item.amount) < 0 ? -1 : 1;
+  const save = () => {
+    const mag = parseFloat(String(val).replace(/,/g, ''));
+    if (isNaN(mag)) { setVal(fmtMag(item.amount)); setEditing(false); return; }
+    const signed = sign * Math.abs(mag);
+    if (signed !== Number(item.amount)) onCommit(item.feId, signed);
+    setEditing(false);
+  };
+  const cancel = () => { setVal(fmtMag(item.amount)); setEditing(false); };
+  const stop = (e) => e.stopPropagation();   // กันไม่ให้คลิกในปุ่ม/ช่องไปเปิด popup
+
+  const srcStyle = {
+    display: 'inline-block', padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600,
+    background: item.source === 'AP' ? 'color-mix(in oklch, var(--bad) 14%, transparent)' :
+                item.source === 'IV' ? 'color-mix(in oklch, var(--good) 14%, transparent)' :
+                'color-mix(in oklch, var(--brand-500) 14%, transparent)',
+    color: item.source === 'AP' ? 'var(--bad)' : item.source === 'IV' ? 'var(--good)' : 'var(--brand-700)',
+  };
+  const miniBtn = (extra) => ({
+    padding: '3px 9px', fontSize: 11, fontWeight: 600, borderRadius: 6,
+    borderWidth: 1, borderStyle: 'solid', borderColor: 'var(--ink-200)',
+    background: 'white', cursor: 'pointer',
+    display: 'inline-flex', alignItems: 'center', gap: 4, ...extra,
+  });
+
+  return (
+    <tr
+      onClick={() => { if (!editing && onView) onView(item); }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      title={editing ? '' : 'คลิกเพื่อดูรายละเอียด'}
+      style={{ cursor: editing ? 'default' : 'pointer',
+        background: (!editing && hover) ? 'color-mix(in oklch, var(--brand-500) 7%, transparent)' : '' }}
+    >
+      <td><span style={srcStyle}>{item.source}</span></td>
+      <td style={{ whiteSpace: 'nowrap', color: 'var(--ink-600)' }}>{fmtDate(item.date) || item.date}</td>
+      <td style={{ fontFamily: 'ui-monospace', fontSize: 11.5, color: 'var(--brand-700)' }}>{item.ref || '—'}</td>
+      <td>{item.name}</td>
+      <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums',
+          color: item.amount < 0 ? 'var(--bad)' : 'var(--good)', fontWeight: 600 }}>
+        {editing ? (
+          <input
+            type="text" inputMode="numeric" autoFocus value={val}
+            onClick={stop}
+            onChange={e => {
+              const digits = e.target.value.replace(/[^\d]/g, '');
+              setVal(digits ? Number(digits).toLocaleString('en-US') : '');
+            }}
+            onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') cancel(); }}
+            style={{ width: 110, padding: '3px 8px',
+              borderWidth: '1.5px', borderStyle: 'solid', borderColor: 'var(--brand-400)', borderRadius: 6,
+              background: 'color-mix(in oklch, var(--brand-500) 6%, white)', textAlign: 'right',
+              fontFamily: 'ui-monospace', fontVariantNumeric: 'tabular-nums', fontWeight: 600, fontSize: 'inherit', color: 'inherit' }}
+          />
+        ) : fmtNum(item.amount, 0)}
+      </td>
+      <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }} onClick={editing ? stop : undefined}>
+        {editing ? (
+          <span style={{ display: 'inline-flex', gap: 4 }}>
+            <button type="button" onClick={(e) => { stop(e); save(); }} title="บันทึก"
+              style={miniBtn({ borderColor: 'var(--good)', color: 'var(--good)' })}>✓ บันทึก</button>
+            <button type="button" onClick={(e) => { stop(e); cancel(); }} title="ยกเลิก"
+              style={miniBtn({ borderColor: 'var(--ink-300)', color: 'var(--ink-500)' })}>✕</button>
+          </span>
+        ) : editable ? (
+          <button type="button" onClick={(e) => { stop(e); setEditing(true); }} title="แก้ยอดประมาณการ"
+            style={miniBtn({ borderColor: 'var(--brand-400)', color: 'var(--brand-700)' })}>✏️ แก้</button>
+        ) : (
+          <span style={{ color: 'var(--ink-300)', fontSize: 14 }}>›</span>
+        )}
       </td>
     </tr>
   );
