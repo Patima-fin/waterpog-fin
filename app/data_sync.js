@@ -50,6 +50,7 @@
   var CLEARABLE_FIELDS = {
     debtLedger: ['paymentDate', 'paidBy', 'paidAt', 'paymentNote',
                  'interestOverride', 'overrideBy', 'overrideAt', 'overrideNote'],
+    debtMaster: ['closedDate', 'closedReason', 'closedBy', 'closedAt'],
   };
 
   /* ── state ──────────────────────────────────────────────────────── */

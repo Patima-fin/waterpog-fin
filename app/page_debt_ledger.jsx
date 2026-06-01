@@ -1155,6 +1155,31 @@ function useDebtContractActions(setData, toast) {
       syncAfter(updated);
       toast(on ? 'เปิดคำนวณอัตโนมัติ' : 'ปิดคำนวณอัตโนมัติ (กลับเป็นแก้มือ)');
     },
+    // ปิด/เปิดสัญญาด้วยตนเอง — สำหรับสัญญาที่คืนครบแต่ status ค้าง Active
+    // (เช่น คืนเงินต้นถูกเก็บเป็น ledger marker เก่า ไม่มีใน events → auto-close ไม่ทำงาน)
+    setContractStatus(master, newStatus, opts) {
+      opts = opts || {};
+      const at = new Date().toISOString();
+      const today = at.slice(0, 10);
+      let updated;
+      setData(d => {
+        const masters = (d.debtMaster || []).map(m => {
+          if (m.id !== master.id) return m;
+          if (newStatus === 'Close') {
+            return { ...m, status: 'Close',
+              closedDate: opts.closedDate || m.closedDate || today,
+              closedReason: opts.reason || m.closedReason || 'ปิดด้วยตนเอง',
+              closedBy: username, closedAt: at };
+          }
+          // เปิดกลับเป็น Active — ล้างข้อมูลการปิด
+          return { ...m, status: 'Active', closedDate: '', closedReason: '', closedBy: '', closedAt: '' };
+        });
+        updated = { ...d, debtMaster: masters };
+        return updated;
+      });
+      syncAfter(updated);
+      toast(newStatus === 'Close' ? 'ปิดสัญญาแล้ว' : 'เปิดสัญญากลับเป็น Active แล้ว');
+    },
     doRollover(master, { mode, closeDate, reason, newContracts }) {
       const at = new Date().toISOString();
       const newRows = newContracts.map(c => ({
@@ -1466,7 +1491,7 @@ function MissingFieldsEditor({ master, onSave }) {
 function InterestSchedulePopup({ master, ledgerRows, events, onClose,
     onSavePayments, onClearPayment, onOverrideInterest,
     onAddPrincipalEvent, onEditEvent, onDeleteEvent, onDeleteLedgerRow,
-    onAdoptAuto, onSetAutoMode, onSaveMasterFields, onRollover, canEdit }) {
+    onAdoptAuto, onSetAutoMode, onSaveMasterFields, onRollover, onSetContractStatus, canEdit }) {
   const [selectedIds, setSelectedIds] = React.useState(new Set());
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [overrideRow, setOverrideRow] = React.useState(null);
@@ -1633,6 +1658,26 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
               style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 16, cursor: 'pointer',
                        border: '1.5px solid var(--brand-400)', background: 'var(--brand-50, #f0f6ff)', color: 'var(--brand-700)', fontSize: 12, fontWeight: 600 }}>
               🔄 ปิด/ทำสัญญาใหม่
+            </button>
+            <button onClick={() => { if (onSetContractStatus && confirm(`ปิดสัญญา ${master.contractNo} (ทำเครื่องหมายปิด ไม่ทำสัญญาใหม่)?`)) onSetContractStatus(master, 'Close'); }}
+              title="ทำเครื่องหมายปิดสัญญา — ใช้กับสัญญาที่คืนครบแล้วแต่สถานะค้าง Active"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 16, cursor: 'pointer',
+                       border: '1.5px solid #cbd5e1', background: '#f8fafc', color: '#475569', fontSize: 12, fontWeight: 600 }}>
+              🔒 ปิดสัญญา
+            </button>
+          </div>
+        )}
+
+        {/* ปิดอยู่ → ปุ่มเปิดกลับเป็น Active */}
+        {canEdit && master.status !== 'Active' && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14,
+                        padding: '8px 12px', borderRadius: 10, background: '#f8fafc', border: '1px solid var(--ink-100)' }}>
+            <span style={{ fontSize: 11.5, color: 'var(--ink-500)', fontWeight: 600 }}>🔒 สัญญานี้ปิดแล้ว</span>
+            <button onClick={() => { if (onSetContractStatus && confirm(`เปิดสัญญา ${master.contractNo} กลับเป็น Active?`)) onSetContractStatus(master, 'Active'); }}
+              title="เปิดสัญญากลับเป็น Active"
+              style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 16, cursor: 'pointer',
+                       border: '1.5px solid #86efac', background: '#f0fdf4', color: '#166534', fontSize: 12, fontWeight: 600 }}>
+              🔓 เปิดสัญญากลับ
             </button>
           </div>
         )}
@@ -2398,7 +2443,7 @@ function DebtLedgerPage({ data, setData, toast }) {
   const actions = useDebtContractActions(setData, toast);
   const { savePayments, clearPayment, overrideInterest, addPrincipalEvent,
           editPrincipalEvent, deletePrincipalEvent, deleteLedgerRow,
-          adoptAutoMode, setAutoMode, saveMasterFields, doRollover } = actions;
+          adoptAutoMode, setAutoMode, saveMasterFields, doRollover, setContractStatus } = actions;
 
   // Refresh selectedMaster from store (so popup reflects latest state)
   React.useEffect(() => {
@@ -2559,6 +2604,7 @@ function DebtLedgerPage({ data, setData, toast }) {
         onSetAutoMode={setAutoMode}
         onSaveMasterFields={saveMasterFields}
         onRollover={doRollover}
+        onSetContractStatus={setContractStatus}
         canEdit={canEdit}
       />
 
