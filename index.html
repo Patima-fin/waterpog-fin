@@ -8,6 +8,7 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <title>Water POG · Financial Console</title>
+  <link rel="icon" type="image/png" href="waterpog_Logo-02.png?v=20260601" />
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -28,24 +29,28 @@
 
   <style>
     /* Critical above-the-fold for splash */
-    html, body { background: #f4f7fb; }
-    #splash { position: fixed; inset: 0; display: grid; place-items: center; background: #f4f7fb; z-index: 9999; transition: opacity 360ms ease; }
+    html, body { background: #f4f7fb; margin: 0; }
+    #splash { position: fixed; inset: 0; display: grid; place-items: center; z-index: 9999; transition: opacity 360ms ease;
+      background: radial-gradient(1200px 600px at 50% -10%, #eaf2ff 0%, #f4f7fb 55%, #eef2f8 100%); }
     #splash.gone { opacity: 0; pointer-events: none; }
-    #splash .spin { width: 56px; height: 56px; border-radius: 14px; background: linear-gradient(135deg, #2a6fdb, #1a4490); display: grid; place-items: center; box-shadow: 0 12px 32px rgba(31, 86, 184, 0.25); animation: pulse 1.6s ease-in-out infinite; }
-    #splash .lbl { margin-top: 16px; color: #475063; font: 14px/1 "IBM Plex Sans Thai", system-ui; }
-    @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+    #splash .box { text-align: center; animation: rise 600ms cubic-bezier(.2,.7,.2,1) both; }
+    #splash .logo { width: 168px; height: auto; display: block; margin: 0 auto; animation: float 3s ease-in-out infinite; filter: drop-shadow(0 14px 30px rgba(31, 86, 184, 0.18)); }
+    #splash .lbl { margin-top: 22px; color: #5a6478; font: 500 14px/1.4 "IBM Plex Sans Thai", system-ui; letter-spacing: .2px; }
+    #splash .bar { margin: 18px auto 0; width: 200px; height: 4px; border-radius: 99px; background: #dfe7f3; overflow: hidden; position: relative; }
+    #splash .bar::before { content: ""; position: absolute; inset: 0; width: 40%; border-radius: 99px;
+      background: linear-gradient(90deg, #2a6fdb, #36a9e1); animation: slide 1.25s ease-in-out infinite; }
+    @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+    @keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes slide { 0% { left: -40%; } 100% { left: 100%; } }
     .no-anim *, .no-anim *:before, .no-anim *:after { animation-duration: 0ms !important; transition: none !important; }
   </style>
 </head>
 <body>
   <div id="splash">
-    <div style="text-align:center">
-      <div class="spin">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
-          <path d="M3 5 L6 19 L9 9 L12 16 L15 9 L18 19 L21 5" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </div>
-      <div class="lbl">กำลังโหลด Water POG Financial Console…</div>
+    <div class="box">
+      <img class="logo" src="waterpog_Logo-02.png?v=20260601" alt="Water POG" />
+      <div class="lbl">กำลังโหลด Financial Console…</div>
+      <div class="bar"></div>
     </div>
   </div>
 
@@ -61,7 +66,7 @@
   <script type="text/babel" src="app/page_daily.jsx?v=20260528d"></script>
   <script type="text/babel" src="app/page_cashflow.jsx?v=20260526zb"></script>
   <script type="text/babel" src="app/page_warroom_p1.jsx?v=20260526g"></script>
-  <script type="text/babel" src="app/page_warroom_p2.jsx?v=20260526t"></script>
+  <script type="text/babel" src="app/page_warroom_p2.jsx?v=20260601a"></script>
   <script type="text/babel" src="app/page_projects.jsx?v=20260530zj"></script>
   <script type="text/babel" src="app/page_invoices.jsx?v=20260601a"></script>
   <script type="text/babel" src="app/page_data_extras.jsx?v=20260530i"></script>

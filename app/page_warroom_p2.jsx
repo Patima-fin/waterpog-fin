@@ -6,54 +6,215 @@ const { useMemo: wr2Memo, useState: wr2State } = React;
 
 function WarRoomPage2({ data, setData, toast }) {
   const { monthlyForecast, warroomP2, meta } = data;
-  const [editMode, setEditMode] = wr2State(false);  // โหมดคีย์เลขมือ
-  useOverrideSubAny();  // re-render เมื่อ override เปลี่ยน — sum/% ใช้ค่าใหม่
+  const [editMode, setEditMode] = wr2State(false);
+  const [drill, setDrill] = wr2State(null);
+  useOverrideSubAny();
 
-  // ── Live: โครงการรอลงนาม (Start ว่าง = ยังไม่ลงนาม) ─────────────────────
-  // คำนวณตรงจาก data.projects แทน warroomP2.unsignedTotal (pre-computed) เพื่อให้
-  // sync กับหน้า "โครงการทั้งหมด" — เพิ่ม/แก้/ลบ project แล้วยอดอัปเดตทันที
-  // มูลค่า: ใช้ งบประมาณ (ใบจัดสรร) ก่อน, fall back ไป มูลค่าสัญญาที่เซ็น
-  // (กรณี user ยังไม่ได้กรอก งบประมาณ แต่มีค่ามูลค่าสัญญา)
-  // Helper: ดึงค่าจาก project — รองรับชื่อ field หลายแบบ
-  const getStart = (p) => p['Start'] || p['start'] || p['วันที่เริ่ม'] || p['startDate'] || p['_start'] || '';
-  const getBudget = (p) => Number(p['งบประมาณ']) || Number(p['budget']) || Number(p['allocBudget']) || 0;
-  const getSigned = (p) => Number(p['มูลค่าสัญญาที่เซ็น']) || Number(p['signedValue']) || Number(p['มูลค่าสัญญา']) || Number(p['signed']) || 0;
-  const isEmpty   = (v) => {
+  // ── Helpers (prefixed wr2 เพื่อกัน collision กับ page อื่น) ─────────────
+  const getStart = (p) => p['Start'] || p['start'] || p['startDate'] || p['_start'] || '';
+  const isEmpty = (v) => {
     if (v == null) return true;
     const s = String(v).trim();
     return s === '' || s === '—' || s === '-' || s === '0' || s.toLowerCase() === 'null';
   };
+  const wr2ToN = (v) => { const n = Number(String(v == null ? '' : v).replace(/[, ]/g, '')); return isNaN(n) ? 0 : n; };
+  const wr2NormCode = (code) => {
+    const s = String(code || '').trim();
+    if (!s) return '';
+    const m = s.match(/^(.+?)-[A-Z]{2,6}$/);
+    return m ? m[1] : s;
+  };
+  const wr2IsCancelled = (p) => {
+    if (!p) return false;
+    for (const k in p) {
+      if (!/ยกเลิก/.test(k)) continue;
+      const v = p[k]; if (v == null || v === '') continue;
+      if (wr2ToN(v) === 1) return true;
+      if (/^(❌|❎|✗|✘|x|true|yes)$/i.test(String(v).trim())) return true;
+    }
+    return false;
+  };
+  // มูลค่าใบจัดสรร: เงินตามใบจัดสรร → งบประมาณ → fallback
+  const wr2GetAlloc = (p) =>
+    wr2ToN(p['เงินตามใบจัดสรร']) || wr2ToN(p['งบประมาณ']) || wr2ToN(p.budget) || wr2ToN(p.allocBudget) || 0;
+  // มูลค่าสัญญารวม VAT (ตามชีต ถ้าไม่มี → คูณ 1.07 จากค่าก่อน VAT)
+  const wr2GetContract = (p) => {
+    const vat = wr2ToN(p['มูลค่าสัญญาที่เซ็น (รวมVAT)']) || wr2ToN(p['มูลค่าสัญญาที่เซ็น (รวม VAT)']);
+    if (vat > 0) return vat;
+    const pre = wr2ToN(p['มูลค่าสัญญาที่เซ็น']) || wr2ToN(p.signedValue);
+    return pre > 0 ? Math.round(pre * 1.07 * 100) / 100 : 0;
+  };
 
-  const liveUnsigned = wr2Memo(() => {
+  // ── Live calculation — ดึงทุกยอดจาก data.projects + data.invoices ────────
+  const liveCalc = wr2Memo(() => {
     const projects = data.projects || [];
-    const unsigned = projects.filter(p => isEmpty(getStart(p)));
-    const value = unsigned.reduce((sum, p) => {
-      const budget = getBudget(p);
-      const signed = getSigned(p);
-      return sum + (budget > 0 ? budget : signed);
-    }, 0);
-    // diagnostic — ดูใน Console (F12)
+    const invoices = data.invoices || [];
+    // ตัดโครงการยกเลิกออกจาก dashboard ทั้งหมด
+    const active = projects.filter(p => !wr2IsCancelled(p));
+
+    // index ใบแจ้งหนี้ตาม project code (normalize เผื่อ suffix -STIIS)
+    const invByCode = {};
+    invoices.forEach(iv => {
+      const c = wr2NormCode(iv.jobNo || iv.contractRef || iv.projectCode || '');
+      if (c) (invByCode[c] = invByCode[c] || []).push(iv);
+    });
+    const projInvoicesOf = (p) => {
+      const c = wr2NormCode(p['Contract No.'] || p.code || '');
+      return c ? (invByCode[c] || []) : [];
+    };
+
+    // 1) รอลงนาม — Start ว่าง + ไม่ยกเลิก → ใช้มูลค่าใบจัดสรร
+    const unsignedList = active
+      .filter(p => isEmpty(getStart(p)))
+      .map(p => ({
+        id: p.id,
+        code: String(p['Contract No.'] || p.code || '—').trim(),
+        name: String(p['พื้นที่'] || p.name || '—').trim(),
+        province: p['Province'] || '',
+        value: wr2GetAlloc(p),
+      }))
+      .filter(p => p.value > 0)
+      .sort((a, b) => b.value - a.value);
+    const unsignedValue = unsignedList.reduce((s, p) => s + p.value, 0);
+
+    // 2) ใบแจ้งหนี้คงค้าง — IV status != paid, balance > 0
+    const invForwardList = invoices
+      .filter(iv => iv.status !== 'paid' && wr2ToN(iv.balance) > 0)
+      .map(iv => ({
+        id: iv.id,
+        ivNo: iv.ivNo || iv.invoiceNo || '—',
+        code: iv.jobNo || iv.contractRef || '',
+        name: iv.projectName || iv.customer || iv.customerName || '',
+        invoiceDate: iv.invoiceDate || '',
+        expectedReceive: iv.expectedReceive || '',
+        value: wr2ToN(iv.balance),
+        status: iv.status || '',
+      }))
+      .sort((a, b) => b.value - a.value);
+    const invForwardValue = invForwardList.reduce((s, iv) => s + iv.value, 0);
+
+    // 3) งานระหว่างก่อสร้าง (WIP) — ลงนามแล้ว · contract - billed
+    //    billed = ผลรวม IV ทั้งหมด (รวม paid + outstanding) = งานที่ออกบิลแล้ว
+    //    WIP = ส่วนที่เหลือยังไม่ออก IV = contract - billed
+    const wipList = active
+      .filter(p => !isEmpty(getStart(p)))
+      .map(p => {
+        const contract = wr2GetContract(p);
+        const ivs = projInvoicesOf(p);
+        const billed = ivs.reduce((s, iv) => {
+          // total invoiced amount = (paid amount) + (outstanding balance)
+          const paid = wr2ToN(iv.netReceived || iv.grossAmount || 0);
+          const bal  = wr2ToN(iv.balance || 0);
+          return s + (iv.status === 'paid' ? paid : (paid + bal));
+        }, 0);
+        const wip = Math.max(0, contract - billed);
+        return {
+          id: p.id,
+          code: String(p['Contract No.'] || p.code || '—').trim(),
+          name: String(p['พื้นที่'] || p.name || '—').trim(),
+          province: p['Province'] || '',
+          contract, billed, wip,
+          ivCount: ivs.length,
+        };
+      })
+      .filter(x => x.wip > 0)
+      .sort((a, b) => b.wip - a.wip);
+    const wipValue = wipList.reduce((s, x) => s + x.wip, 0);
+
+    const signedTotal = invForwardValue + wipValue;
+    const grandTotal = signedTotal + unsignedValue;
+
     if (typeof window !== 'undefined') {
-      window.__wtpDebug_unsigned = {
-        totalProjects: projects.length,
-        unsignedCount: unsigned.length,
-        unsignedValue: value,
-        sampleProject: projects[0] && Object.keys(projects[0]).slice(0, 12),
-        sampleStart: projects[0] && getStart(projects[0]),
-        sampleSigned: projects[0] && getSigned(projects[0]),
+      window.__wtpDebug_wr2 = {
+        unsigned: { count: unsignedList.length, value: unsignedValue },
+        invForward: { count: invForwardList.length, value: invForwardValue },
+        wip: { count: wipList.length, value: wipValue },
+        signedTotal, grandTotal,
       };
     }
-    return { count: unsigned.length, value };
-  }, [data.projects]);
 
-  // มูลค่าโครงการทั้งหมด (ใช้คำนวณ %) — sum ของ มูลค่าสัญญา + งบประมาณ ทุกโครงการ
-  const liveTotalProjectValue = wr2Memo(() => {
-    return (data.projects || []).reduce((sum, p) => {
-      const budget = getBudget(p);
-      const signed = getSigned(p);
-      return sum + Math.max(budget, signed);
-    }, 0);
-  }, [data.projects]);
+    return {
+      unsigned:   { value: unsignedValue,   count: unsignedList.length,   list: unsignedList },
+      invForward: { value: invForwardValue, count: invForwardList.length, list: invForwardList },
+      wip:        { value: wipValue,        count: wipList.length,        list: wipList },
+      signedTotal, grandTotal,
+    };
+  }, [data.projects, data.invoices]);
+
+  // ── Drill-down builders ─────────────────────────────────────────────────
+  const fmtT0 = (v) => Number(v || 0).toLocaleString('en-US', { maximumFractionDigits: 0 });
+  const openUnsignedDrill = () => setDrill({
+    title: '📋 โครงการที่รอลงนามสัญญา',
+    subtitle: liveCalc.unsigned.count + ' โครงการ · รวม ' + fmtT0(liveCalc.unsigned.value) + ' บาท · (Start ว่าง · ไม่ยกเลิก · ใช้มูลค่าใบจัดสรร)',
+    items: liveCalc.unsigned.list,
+    total: liveCalc.unsigned.value,
+    columns: [
+      { key: 'code', label: 'Contract No.', width: 110 },
+      { key: 'name', label: 'ชื่อโครงการ / พื้นที่' },
+      { key: 'province', label: 'จังหวัด', width: 100 },
+      { key: 'value', label: 'มูลค่าใบจัดสรร (฿)', align: 'right', width: 150, fmt: (v) => fmtT0(v), isMoney: true },
+    ],
+  });
+  const openInvForwardDrill = () => setDrill({
+    title: '🧾 ใบแจ้งหนี้คงค้าง',
+    subtitle: liveCalc.invForward.count + ' ใบ · รวม ' + fmtT0(liveCalc.invForward.value) + ' บาท · (ออก IV แล้ว · รอรับเงิน)',
+    items: liveCalc.invForward.list,
+    total: liveCalc.invForward.value,
+    columns: [
+      { key: 'ivNo', label: 'IV No.', width: 110 },
+      { key: 'code', label: 'Job No.', width: 110 },
+      { key: 'name', label: 'โครงการ / ลูกค้า' },
+      { key: 'expectedReceive', label: 'คาดรับ', width: 100, fmt: (v) => v ? fmtDate(v) : '—' },
+      { key: 'value', label: 'ยอดคงค้าง (฿)', align: 'right', width: 140, fmt: (v) => fmtT0(v), isMoney: true },
+    ],
+  });
+  const openWipDrill = () => setDrill({
+    title: '🚧 มูลค่างานระหว่างก่อสร้าง (WIP)',
+    subtitle: liveCalc.wip.count + ' โครงการ · รวม ' + fmtT0(liveCalc.wip.value) + ' บาท · (ลงนามแล้ว · contract – billed)',
+    items: liveCalc.wip.list,
+    total: liveCalc.wip.value,
+    columns: [
+      { key: 'code', label: 'Contract No.', width: 110 },
+      { key: 'name', label: 'ชื่อโครงการ' },
+      { key: 'province', label: 'จังหวัด', width: 100 },
+      { key: 'contract', label: 'สัญญา (฿)', align: 'right', width: 120, fmt: (v) => fmtT0(v) },
+      { key: 'billed', label: 'ออก IV แล้ว (฿)', align: 'right', width: 130, fmt: (v) => fmtT0(v) },
+      { key: 'wip', label: 'WIP (฿)', align: 'right', width: 120, fmt: (v) => fmtT0(v), isMoney: true },
+    ],
+  });
+  const openSignedDrill = () => setDrill({
+    title: '✍️ โครงการที่ลงนามแล้ว',
+    subtitle: 'รวม ' + fmtT0(liveCalc.signedTotal) + ' บาท · = ใบแจ้งหนี้คงค้าง + WIP',
+    items: [
+      { label: '🧾 ใบแจ้งหนี้คงค้าง', sub: liveCalc.invForward.count + ' ใบ · รอรับเงิน', value: liveCalc.invForward.value, _click: openInvForwardDrill },
+      { label: '🚧 งานระหว่างก่อสร้าง', sub: liveCalc.wip.count + ' โครงการ · ส่วนที่เหลือยังไม่ออก IV', value: liveCalc.wip.value, _click: openWipDrill },
+    ],
+    total: liveCalc.signedTotal,
+    columns: [
+      { key: 'label', label: 'รายการ' },
+      { key: 'sub', label: 'รายละเอียด' },
+      { key: 'value', label: 'มูลค่า (฿)', align: 'right', width: 150, fmt: (v) => fmtT0(v), isMoney: true },
+    ],
+  });
+  const openGrandTotalDrill = () => setDrill({
+    title: '💰 มูลค่าโครงการที่คาดว่าจะได้รับทั้งหมด',
+    subtitle: 'ทั้งปี ' + meta.year + ' · รวม ' + fmtT0(liveCalc.grandTotal) + ' บาท',
+    items: [
+      { label: '🧾 ใบแจ้งหนี้คงค้าง', sub: liveCalc.invForward.count + ' ใบ · ออก IV แล้ว · รอรับเงิน', value: liveCalc.invForward.value, _click: openInvForwardDrill },
+      { label: '🚧 งานระหว่างก่อสร้าง', sub: liveCalc.wip.count + ' โครงการ · ลงนามแล้ว · ส่วน WIP', value: liveCalc.wip.value, _click: openWipDrill },
+      { label: '📋 โครงการที่รอลงนาม', sub: liveCalc.unsigned.count + ' โครงการ · มีใบจัดสรร · ยังไม่ลงนาม', value: liveCalc.unsigned.value, _click: openUnsignedDrill },
+    ],
+    total: liveCalc.grandTotal,
+    columns: [
+      { key: 'label', label: 'หมวด' },
+      { key: 'sub', label: 'รายละเอียด' },
+      { key: 'value', label: 'มูลค่า (฿)', align: 'right', width: 150, fmt: (v) => fmtT0(v), isMoney: true },
+    ],
+  });
+
+  // backwards-compat aliases (ใช้กับ block ด้านล่าง)
+  const liveUnsigned = { value: liveCalc.unsigned.value, count: liveCalc.unsigned.count };
+  const liveTotalProjectValue = liveCalc.grandTotal;
 
   // Compute monthly totals
   const monthTotals = wr2Memo(() => monthlyForecast.reduce((acc, m) => ({
@@ -103,17 +264,28 @@ function WarRoomPage2({ data, setData, toast }) {
       {/* Headline KPI — มูลค่าโครงการที่คาดว่าจะได้รับทั้งหมด */}
       <div className="hero-pill anim-in" style={{ marginBottom: 18 }}>
         <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
-          <div>
-            <div style={{ fontSize: 13, opacity: 0.85, fontWeight: 500 }}>มูลค่าโครงการที่คาดว่าจะได้รับทั้งหมด</div>
+          <div style={{ cursor: editMode ? 'auto' : 'pointer' }}
+            onClick={editMode ? undefined : openGrandTotalDrill}
+            title={editMode ? '' : 'คลิกเพื่อดูที่มาของยอดรวม'}>
+            <div style={{ fontSize: 13, opacity: 0.85, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
+              มูลค่าโครงการที่คาดว่าจะได้รับทั้งหมด
+              {!editMode && <span style={{ fontSize: 11, opacity: 0.7 }}>🔍</span>}
+            </div>
             <div style={{ fontSize: 44, fontWeight: 800, marginTop: 4, letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
-              <EditableNumber ovKey="wr2.heroTotal" computed={warroomP2.totalProjectValue} editMode={editMode} digits={2} /> <span style={{ fontSize: 18, opacity: 0.8, fontWeight: 500 }}>บาท</span>
+              <EditableNumber ovKey="wr2.heroTotal" computed={liveCalc.grandTotal} editMode={editMode} digits={2} /> <span style={{ fontSize: 18, opacity: 0.8, fontWeight: 500 }}>บาท</span>
             </div>
             <div style={{ fontSize: 12, opacity: 0.85, marginTop: 6 }}>Total project value forecast · ปี {meta.year}</div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, auto)', gap: 24, fontSize: 12 }}>
-            <HeroStatEditable ovKey="wr2.heroInvForward" label="ใบแจ้งหนี้คงค้าง" computed={warroomP2.invoiceForwardTotal} editMode={editMode} />
-            <HeroStatEditable ovKey="wr2.heroWip"        label="งานระหว่างก่อสร้าง" computed={warroomP2.wipValue}             editMode={editMode} />
-            <HeroStatEditable ovKey="wr2.heroUnsigned"   label="ใบจัดสรร · รอลงนาม"  computed={liveUnsigned.value} count={liveUnsigned.count} editMode={editMode} countKey="wr2.heroUnsignedCount" />
+            <div style={{ cursor: editMode ? 'auto' : 'pointer' }} onClick={editMode ? undefined : openInvForwardDrill} title={editMode ? '' : 'คลิกดูรายการ IV'}>
+              <HeroStatEditable ovKey="wr2.heroInvForward" label="ใบแจ้งหนี้คงค้าง 🔍" computed={liveCalc.invForward.value} count={liveCalc.invForward.count} countKey="wr2.heroInvForwardCount" editMode={editMode} />
+            </div>
+            <div style={{ cursor: editMode ? 'auto' : 'pointer' }} onClick={editMode ? undefined : openWipDrill} title={editMode ? '' : 'คลิกดูโครงการระหว่างก่อสร้าง'}>
+              <HeroStatEditable ovKey="wr2.heroWip" label="งานระหว่างก่อสร้าง 🔍" computed={liveCalc.wip.value} count={liveCalc.wip.count} countKey="wr2.heroWipCount" editMode={editMode} />
+            </div>
+            <div style={{ cursor: editMode ? 'auto' : 'pointer' }} onClick={editMode ? undefined : openUnsignedDrill} title={editMode ? '' : 'คลิกดูโครงการรอลงนาม'}>
+              <HeroStatEditable ovKey="wr2.heroUnsigned" label="ใบจัดสรร · รอลงนาม 🔍" computed={liveCalc.unsigned.value} count={liveCalc.unsigned.count} editMode={editMode} countKey="wr2.heroUnsignedCount" />
+            </div>
           </div>
         </div>
       </div>
@@ -125,74 +297,98 @@ function WarRoomPage2({ data, setData, toast }) {
       </div>
 
       <div className="grid grid-2 anim-stagger" style={{ marginBottom: 18 }}>
-        {/* 1.1 — Unsigned */}
-        <div className="card" style={{ padding: 22, position: 'relative', overflow: 'hidden' }}>
+        {/* 1.1 — Unsigned (clickable) */}
+        <div className="card" onClick={editMode ? undefined : openUnsignedDrill}
+          style={{ padding: 22, position: 'relative', overflow: 'hidden', cursor: editMode ? 'auto' : 'pointer' }}
+          title={editMode ? '' : 'คลิกเพื่อดูรายการโครงการที่รอลงนาม'}>
           <div style={{ position: 'absolute', right: -40, top: -40, width: 140, height: 140, borderRadius: '50%', background: 'oklch(96% 0.04 250)' }} />
           <div style={{ position: 'relative' }}>
-            <Badge kind="b-gray" dot={false}>1.1</Badge>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Badge kind="b-gray" dot={false}>1.1</Badge>
+              {!editMode && <span style={{ fontSize: 11, color: 'var(--ink-500)' }}>🔍 คลิกดูรายละเอียด</span>}
+            </div>
             <div style={{ marginTop: 10, fontSize: 14, color: 'var(--ink-600)', fontWeight: 500 }}>โครงการที่รอลงนามสัญญา</div>
-            <div style={{ fontSize: 12, color: 'var(--ink-500)', marginTop: 2 }}>ได้รับใบจัดสรรแล้ว · ยังไม่ลงนาม (Start ว่าง)</div>
+            <div style={{ fontSize: 12, color: 'var(--ink-500)', marginTop: 2 }}>ได้รับใบจัดสรรแล้ว · Start ว่าง · ไม่ยกเลิก · ใช้มูลค่าใบจัดสรร</div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginTop: 14 }}>
-              <div style={{ fontSize: 32, fontWeight: 800, color: 'var(--ink-900)', fontVariantNumeric: 'tabular-nums', letterSpacing: '-.01em' }}>
-                <EditableNumber ovKey="wr2.s11Value" computed={liveUnsigned.value} editMode={editMode} digits={2} />
+              <div style={{ fontSize: 32, fontWeight: 800, color: 'var(--ink-900)', fontVariantNumeric: 'tabular-nums', letterSpacing: '-.01em' }}
+                onClick={editMode ? (e) => e.stopPropagation() : undefined}>
+                <EditableNumber ovKey="wr2.s11Value" computed={liveCalc.unsigned.value} editMode={editMode} digits={2} />
               </div>
               <div style={{ fontSize: 14, color: 'var(--ink-500)' }}>บาท</div>
             </div>
             <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <Badge kind="b-amber" dot>
-                <EditableNumber ovKey="wr2.s11Count" computed={liveUnsigned.count} editMode={editMode} digits={0} /> โครงการ
+                <EditableNumber ovKey="wr2.s11Count" computed={liveCalc.unsigned.count} editMode={editMode} digits={0} /> โครงการ
               </Badge>
-              {liveTotalProjectValue > 0 && (
+              {liveCalc.grandTotal > 0 && (
                 <span style={{ fontSize: 11.5, color: 'var(--ink-500)' }}>
-                  {((WTPOverride.resolve('wr2.s11Value', liveUnsigned.value) / liveTotalProjectValue) * 100).toFixed(1)}% ของมูลค่าทั้งหมด
+                  {((WTPOverride.resolve('wr2.s11Value', liveCalc.unsigned.value) / liveCalc.grandTotal) * 100).toFixed(1)}% ของมูลค่าทั้งหมด
                 </span>
               )}
             </div>
           </div>
         </div>
 
-        {/* 1.2 — Signed */}
+        {/* 1.2 — Signed (clickable rows for breakdown) */}
         <div className="card" data-comment-anchor="cc-1" style={{ padding: 22, position: 'relative', overflow: 'hidden', borderColor: 'var(--brand-200)' }}>
           <div style={{ position: 'absolute', right: -40, top: -40, width: 140, height: 140, borderRadius: '50%', background: 'var(--brand-50)' }} />
           <div style={{ position: 'relative' }}>
-            <Badge kind="b-blue" dot={false}>1.2</Badge>
-            <div style={{ marginTop: 10, fontSize: 14, color: 'var(--ink-600)', fontWeight: 500 }}>ประมาณการรับเงินจากโครงการที่ลงนามแล้ว</div>
-            <div style={{ fontSize: 12, color: 'var(--ink-500)', marginTop: 2 }}>รวมใบแจ้งหนี้ยกมา + ลงนามแล้ว (รอส่งงาน)</div>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginTop: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Badge kind="b-blue" dot={false}>1.2</Badge>
+              {!editMode && <span style={{ fontSize: 11, color: 'var(--ink-500)' }}>🔍 คลิกแถวเพื่อดู</span>}
+            </div>
+            <div style={{ marginTop: 10, fontSize: 14, color: 'var(--ink-600)', fontWeight: 500, cursor: editMode ? 'auto' : 'pointer' }}
+              onClick={editMode ? undefined : openSignedDrill}>
+              ประมาณการรับเงินจากโครงการที่ลงนามแล้ว
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--ink-500)', marginTop: 2 }}>= ใบแจ้งหนี้คงค้าง + งานระหว่างก่อสร้าง</div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginTop: 14, cursor: editMode ? 'auto' : 'pointer' }}
+              onClick={editMode ? undefined : openSignedDrill}>
               <div style={{ fontSize: 32, fontWeight: 800, color: 'var(--brand-700)', fontVariantNumeric: 'tabular-nums', letterSpacing: '-.01em' }}>
-                <EditableNumber ovKey="wr2.s12Value" computed={warroomP2.signedTotal.value} editMode={editMode} digits={2} />
+                <EditableNumber ovKey="wr2.s12Value" computed={liveCalc.signedTotal} editMode={editMode} digits={2} />
               </div>
               <div style={{ fontSize: 14, color: 'var(--ink-500)' }}>บาท</div>
             </div>
 
-            {/* Breakdown — invoice vs WIP */}
+            {/* Breakdown — invoice vs WIP (each row clickable) */}
             <div style={{ marginTop: 14, padding: 14, borderRadius: 12, background: 'white', border: '1px solid var(--line)', display: 'grid', gap: 10 }}>
-              <SignedBreakdownRow
-                color="oklch(60% 0.13 245)"
-                label="มูลค่าใบแจ้งหนี้ยกมา"
-                sub="ออก IV แล้ว · รอติดตามรับเงิน"
-                value={WTPOverride.resolve('wr2.s12Inv', warroomP2.invoiceForwardTotal)}
-                total={WTPOverride.resolve('wr2.s12Value', warroomP2.signedTotal.value)}
-                editMode={editMode}
-                ovKey="wr2.s12Inv"
-              />
-              <SignedBreakdownRow
-                color="oklch(55% 0.16 215)"
-                label="มูลค่างานระหว่างก่อสร้าง"
-                sub="ลงนามแล้ว · ยังไม่ส่งมอบ · ยังไม่ออก IV"
-                value={WTPOverride.resolve('wr2.s12Wip', warroomP2.wipValue)}
-                total={WTPOverride.resolve('wr2.s12Value', warroomP2.signedTotal.value)}
-                editMode={editMode}
-                ovKey="wr2.s12Wip"
-              />
+              <div onClick={editMode ? undefined : openInvForwardDrill}
+                style={{ cursor: editMode ? 'auto' : 'pointer', borderRadius: 8, padding: 4, margin: -4 }}
+                title={editMode ? '' : 'คลิกดูใบแจ้งหนี้คงค้างทั้งหมด'}>
+                <SignedBreakdownRow
+                  color="oklch(60% 0.13 245)"
+                  label={'มูลค่าใบแจ้งหนี้คงค้าง ' + (editMode ? '' : '🔍')}
+                  sub={liveCalc.invForward.count + ' ใบ · ออก IV แล้ว · รอติดตามรับเงิน'}
+                  value={WTPOverride.resolve('wr2.s12Inv', liveCalc.invForward.value)}
+                  total={WTPOverride.resolve('wr2.s12Value', liveCalc.signedTotal)}
+                  editMode={editMode}
+                  ovKey="wr2.s12Inv"
+                />
+              </div>
+              <div onClick={editMode ? undefined : openWipDrill}
+                style={{ cursor: editMode ? 'auto' : 'pointer', borderRadius: 8, padding: 4, margin: -4 }}
+                title={editMode ? '' : 'คลิกดูโครงการระหว่างก่อสร้าง'}>
+                <SignedBreakdownRow
+                  color="oklch(55% 0.16 215)"
+                  label={'มูลค่างานระหว่างก่อสร้าง ' + (editMode ? '' : '🔍')}
+                  sub={liveCalc.wip.count + ' โครงการ · contract – billed'}
+                  value={WTPOverride.resolve('wr2.s12Wip', liveCalc.wip.value)}
+                  total={WTPOverride.resolve('wr2.s12Value', liveCalc.signedTotal)}
+                  editMode={editMode}
+                  ovKey="wr2.s12Wip"
+                />
+              </div>
             </div>
 
             <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-              <Badge kind="b-blue" dot>{((warroomP2.signedTotal.value / warroomP2.totalProjectValue) * 100).toFixed(0)}% ของมูลค่าทั้งหมด</Badge>
+              <Badge kind="b-blue" dot>{liveCalc.grandTotal > 0 ? ((liveCalc.signedTotal / liveCalc.grandTotal) * 100).toFixed(0) : 0}% ของมูลค่าทั้งหมด</Badge>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Drill-down modal */}
+      {drill && <Wr2DrillModal drill={drill} onClose={() => setDrill(null)} onPickRow={(row) => row && row._click && row._click()} />}
 
       {/* SECTION 2 — Monthly forecast table & chart */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', marginTop: 6, marginBottom: 10 }}>
@@ -358,6 +554,96 @@ function SignedBreakdownRow({ color, label, sub, value, total, editMode, ovKey }
       </div>
       <div style={{ height: 5, background: 'var(--ink-100)', borderRadius: 4, overflow: 'hidden' }}>
         <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 4, transition: 'width 800ms ease' }} />
+      </div>
+    </div>
+  );
+}
+
+// ─── Drill-down modal ──────────────────────────────────────────────────────
+function Wr2DrillModal({ drill, onClose, onPickRow }) {
+  const { title, subtitle, items, columns, total } = drill;
+  const fmtT0 = (v) => Number(v || 0).toLocaleString('en-US', { maximumFractionDigits: 0 });
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)',
+      display: 'grid', placeItems: 'center', zIndex: 9000, padding: 20,
+    }}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        background: 'white', borderRadius: 14, padding: 0,
+        width: 'min(1000px, 95vw)', maxHeight: '90vh', display: 'flex', flexDirection: 'column',
+        boxShadow: '0 24px 60px rgba(15,23,42,0.35)',
+      }}>
+        <div style={{ padding: '20px 24px 12px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+          <div style={{ minWidth: 0 }}>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#0f172a' }}>{title}</h2>
+            {subtitle && <div style={{ fontSize: 12.5, color: '#64748b', marginTop: 4, lineHeight: 1.5 }}>{subtitle}</div>}
+          </div>
+          <button onClick={onClose} style={{ border: 'none', background: 'none', fontSize: 26, cursor: 'pointer', color: '#94a3b8', lineHeight: 1, flexShrink: 0 }}>×</button>
+        </div>
+
+        <div style={{ overflow: 'auto', flex: 1 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', zIndex: 1 }}>
+              <tr>
+                {columns.map((c) => (
+                  <th key={c.key} style={{
+                    padding: '10px 12px', textAlign: c.align || 'left', width: c.width,
+                    borderBottom: '1px solid #cbd5e1', fontSize: 11, fontWeight: 700, color: '#475569',
+                    whiteSpace: 'nowrap',
+                  }}>{c.label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {items.length === 0 && (
+                <tr><td colSpan={columns.length} style={{ padding: 36, textAlign: 'center', color: '#94a3b8' }}>ไม่มีรายการ</td></tr>
+              )}
+              {items.map((row, i) => {
+                const clickable = !!row._click;
+                return (
+                  <tr key={i}
+                    onClick={() => clickable && onPickRow(row)}
+                    style={{
+                      borderBottom: '1px solid #f1f5f9',
+                      cursor: clickable ? 'pointer' : 'default',
+                      background: clickable && i % 2 === 0 ? '#fafbfc' : undefined,
+                    }}
+                    onMouseEnter={(e) => { if (clickable) e.currentTarget.style.background = '#eff6ff'; }}
+                    onMouseLeave={(e) => { if (clickable) e.currentTarget.style.background = i % 2 === 0 ? '#fafbfc' : 'white'; }}
+                  >
+                    {columns.map((c) => {
+                      const v = row[c.key];
+                      const display = c.fmt ? c.fmt(v, row) : (v != null && v !== '' ? v : '—');
+                      return (
+                        <td key={c.key} style={{
+                          padding: '8px 12px', textAlign: c.align || 'left',
+                          color: c.isMoney ? '#0f172a' : '#0f172a',
+                          fontWeight: c.isMoney ? 600 : 400,
+                          fontVariantNumeric: c.align === 'right' ? 'tabular-nums' : 'normal',
+                          maxWidth: c.width || 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        }} title={typeof display === 'string' ? display : ''}>{display}</td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+            {total != null && items.length > 0 && (
+              <tfoot>
+                <tr style={{ background: '#f1f5f9', borderTop: '2px solid #cbd5e1' }}>
+                  {columns.map((c, idx) => (
+                    <td key={c.key} style={{
+                      padding: '12px', fontWeight: 700, fontSize: 12.5, color: '#0f172a',
+                      textAlign: c.align || 'left', fontVariantNumeric: 'tabular-nums',
+                    }}>
+                      {idx === 0 ? 'รวม ' + items.length + ' รายการ' : (c.isMoney ? fmtT0(total) + ' บาท' : '')}
+                    </td>
+                  ))}
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
       </div>
     </div>
   );
