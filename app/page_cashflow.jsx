@@ -64,19 +64,33 @@ function getMonthWeeksMonday(year, month) {
   });
   return buckets;
 }
+// แปลงค่าวันที่ให้เป็น ISO 'YYYY-MM-DD' — รองรับทั้ง ISO และ DD/MM/YYYY (แบบไทย)
+//   ⚠️ สำคัญ: บาง field (เช่น payables.due2) เก็บเป็น "DD/MM/YYYY" ซึ่ง new Date()
+//   จะอ่านเป็น MM/DD/YYYY (US) ทำให้เดือนเพี้ยน — ต้อง normalize ก่อนทุกครั้ง
+function toISODate(v) {
+  if (!v) return '';
+  const s = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);   // already ISO
+  const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);  // DD/MM/YYYY (Thai)
+  if (m) {
+    let [, dd, mm, yyyy] = m;
+    if (Number(yyyy) > 2400) yyyy = String(Number(yyyy) - 543);  // พ.ศ. → ค.ศ.
+    return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+  }
+  return s;
+}
 function findWeekIdx(dateISO, weeks) {
-  if (!dateISO) return -1;
-  const d = new Date(dateISO);
-  if (isNaN(d)) return -1;
-  const day = d.getDate();
-  const idx = weeks.findIndex(w => day >= w.from && day <= w.to);
-  return idx;
+  const iso = toISODate(dateISO);
+  if (!iso) return -1;
+  const day = Number(iso.split('-')[2]);
+  if (!day) return -1;
+  return weeks.findIndex(w => day >= w.from && day <= w.to);
 }
 function inMonth(dateISO, year, month) {
-  if (!dateISO) return false;
-  const d = new Date(dateISO);
-  if (isNaN(d)) return false;
-  return d.getFullYear() === year && (d.getMonth() + 1) === month;
+  const iso = toISODate(dateISO);
+  if (!iso) return false;
+  const [y, m] = iso.split('-').map(Number);
+  return y === year && m === month;
 }
 
 // ─── Category mapping for outflow (4 categories) ──────────────────────────
