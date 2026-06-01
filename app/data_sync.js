@@ -397,7 +397,9 @@
         var localData = WTPData.load();
         CRUD_ENTITIES.forEach(function (e) {
           if (Array.isArray(data[e]) && Array.isArray(localData && localData[e])) {
-            data[e] = preserveAppOnlyFields(data[e], localData[e]);
+            var clr = {};
+            (CLEARABLE_FIELDS[e] || []).forEach(function (k) { clr[k] = true; });
+            data[e] = preserveAppOnlyFields(data[e], localData[e], clr);
           }
         });
       } catch (_) { /* if localStorage parse fails, skip — non-fatal */ }
@@ -493,8 +495,9 @@
   function rowKey(r) {
     return r.id || r.receiptNo || r.ivNo || r.invoiceNo || null;
   }
-  function preserveAppOnlyFields(sheetRows, localRows) {
+  function preserveAppOnlyFields(sheetRows, localRows, clearable) {
     if (!localRows || !localRows.length) return sheetRows;
+    var skip = clearable || {};
     var localByKey = {};
     localRows.forEach(function (r) { var k = rowKey(r); if (k) localByKey[k] = r; });
     return sheetRows.map(function (sr) {
@@ -503,6 +506,9 @@
       if (!lr) return sr;
       var merged = Object.assign({}, sr);
       Object.keys(lr).forEach(function (key) {
+        // clearable field → ชีต (server) เป็นความจริง: ค่าว่าง = ถูกล้างตั้งใจ ห้ามฟื้นจาก local
+        // (ไม่งั้น "ล้างวันจ่าย/override" จะเด้งกลับทุกครั้งที่โหลด)
+        if (skip[key]) return;
         var srVal = sr[key];
         var srHasVal = srVal != null && srVal !== '';
         var lrVal   = lr[key];
@@ -568,17 +574,24 @@
     // Prevents stale empty values in the app from overwriting fresh manual
     // edits the user made directly in the Sheet.
     Promise.all(changes.map(function (c) {
+      var jsonFields = ENTITY_JSON_FIELDS[c.entity] || null;
       return fetchSheet(c.entity).then(function (rows) {
-        var jsonFields = ENTITY_JSON_FIELDS[c.entity] || null;
         return {
           entity: c.entity,
           sheetRows: rowsToObjects(rows, jsonFields),
           currentRows: c.currentRows,
         };
+      }, function (err) {
+        // re-fetch ล้มเหลว (เช่น HTTP 429 rate-limit) — เดิม Promise.all จะ reject
+        // ทำให้ push ทั้งรอบถูกยกเลิก → การแก้/ล้างของ user หายเงียบ + เด้งกลับรอบหน้า
+        // แทนที่จะยกเลิก: push currentRows ตรงๆ (ข้าม safety-merge เฉพาะ entity นี้รอบนี้)
+        console.warn('[WTP Sync] re-fetch ' + c.entity + ' ล้มเหลว — push ตรงๆ ไม่ merge รอบนี้:', err);
+        return { entity: c.entity, sheetRows: null, currentRows: c.currentRows };
       });
     })).then(function (fetched) {
       // STEP 2: Merge — preserve Sheet's non-empty values for empty app fields
       var safeChanges = fetched.map(function (f) {
+        if (!f.sheetRows) return { entity: f.entity, rows: f.currentRows };  // re-fetch fail → push as-is
         var sheetById = {};
         f.sheetRows.forEach(function (r) { if (r.id) sheetById[r.id] = r; });
         var clearable = {};
