@@ -117,10 +117,13 @@ function WarRoomPage2({ data, setData, toast }) {
           const bal  = wr2ToN(iv.balance || 0);
           return s + (iv.status === 'paid' ? paid : (paid + bal));
         }, 0);
-        // received = ผลรวม receipts ที่ link ผ่าน IV ของโครงการนี้
+        // received = ผลรวมเงินที่ลูกค้าจ่าย (gross — ก่อนหักภาระหนี้/transferDeduction)
+        //   ใช้ gross เพราะ "งานเสร็จเท่าไหร่" ดูจากยอดที่ลูกค้าจ่าย ไม่ใช่ net หลังหักหนี้
+        //   ตัวอย่าง: สัญญา 1.1M ลูกค้าจ่าย 1.1M (gross) → โอนภาระหนี้ 550K → net เหลือ 550K
+        //   งานเสร็จครบ 1.1M → WIP = 0 (ไม่ใช่ 550K)
         const received = ivs.reduce((s, iv) => {
           const rcs = receiptsOfIv(iv);
-          return s + rcs.reduce((s2, rc) => s2 + wr2ToN(rc.netReceived || rc.grossAmount || 0), 0);
+          return s + rcs.reduce((s2, rc) => s2 + wr2ToN(rc.grossAmount || rc.netReceived || 0), 0);
         }, 0);
         const settled = Math.max(billed, received);
         const wip = Math.max(0, contract - settled);
@@ -136,9 +139,9 @@ function WarRoomPage2({ data, setData, toast }) {
           hasOutstandingIV,
         };
       })
-      // เก็บเฉพาะที่ยังมี work รออยู่ (wip > 0) AND มีร่องรอย IV/receipt
-      // (ถ้าไม่มี IV/receipt เลย = น่าจะเป็นข้อมูลเก่า ปิดไปแล้ว ไม่ใช่ WIP จริง)
-      .filter(x => x.wip > 0 && (x.ivCount > 0 || x.rcCount > 0))
+      // เก็บเฉพาะที่ยังมี work รออยู่ (wip > 1 บาท — กัน floating point)
+      // AND มีร่องรอย IV/receipt (ถ้าไม่มีเลย = น่าจะปิดไปแล้ว)
+      .filter(x => x.wip > 1 && (x.ivCount > 0 || x.rcCount > 0))
       .sort((a, b) => b.wip - a.wip);
     const wipValue = wipList.reduce((s, x) => s + x.wip, 0);
 
@@ -150,7 +153,7 @@ function WarRoomPage2({ data, setData, toast }) {
         const ivs = projInvoicesOf(p);
         const received = ivs.reduce((s, iv) => {
           const rcs = receiptsOfIv(iv);
-          return s + rcs.reduce((s2, rc) => s2 + wr2ToN(rc.netReceived || 0), 0);
+          return s + rcs.reduce((s2, rc) => s2 + wr2ToN(rc.grossAmount || rc.netReceived || 0), 0);
         }, 0);
         return {
           id: p.id, code: p['Contract No.'] || p.code, name: p['พื้นที่'] || p.name,
