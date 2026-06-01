@@ -1211,6 +1211,34 @@ function applyColFmt(ws, cols /* {idx:fmt} */, r0, r1) {
     }
   }
 }
+// ── Excel styling (รองรับโดย xlsx-js-style) ─────────────────────────────────
+const XL_BD = { style: 'thin', color: { rgb: 'D7DEE8' } };
+const XL_BORDER = { top: XL_BD, bottom: XL_BD, left: XL_BD, right: XL_BD };
+const XL = {
+  title:      { font: { bold: true, sz: 14, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: '1E3A5F' } }, alignment: { horizontal: 'left',   vertical: 'center' } },
+  band:       { font: { bold: true, sz: 12, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: '3C6E9E' } }, alignment: { horizontal: 'left',   vertical: 'center' } },
+  th:         { font: { bold: true, sz: 11, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: '5B8AB8' } }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true }, border: XL_BORDER },
+  thSum:      { font: { bold: true, sz: 11, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: '2E7D6B' } }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true }, border: XL_BORDER },
+  sumVal:     { font: { bold: true, sz: 12 },                           fill: { fgColor: { rgb: 'E4F2EE' } }, alignment: { horizontal: 'right',  vertical: 'center' }, border: XL_BORDER },
+  sumValDue:  { font: { bold: true, sz: 12, color: { rgb: 'C0392B' } }, fill: { fgColor: { rgb: 'FDECEA' } }, alignment: { horizontal: 'right',  vertical: 'center' }, border: XL_BORDER },
+  cell:       { alignment: { vertical: 'center' }, border: XL_BORDER },
+  cellAlt:    { fill: { fgColor: { rgb: 'F5F8FC' } }, alignment: { vertical: 'center' }, border: XL_BORDER },
+  totLabel:   { font: { bold: true }, fill: { fgColor: { rgb: 'FFF3D6' } }, alignment: { horizontal: 'right', vertical: 'center' }, border: XL_BORDER },
+  totVal:     { font: { bold: true }, fill: { fgColor: { rgb: 'FFF3D6' } }, alignment: { horizontal: 'right', vertical: 'center' }, border: XL_BORDER },
+  paid:       { font: { color: { rgb: '1E8E5A' } }, alignment: { horizontal: 'center', vertical: 'center' }, border: XL_BORDER },
+  due:        { font: { color: { rgb: 'C0392B' }, bold: true }, alignment: { horizontal: 'center', vertical: 'center' }, border: XL_BORDER },
+};
+function xlSet(ws, r, c, style) {
+  const addr = XLSX.utils.encode_cell({ r, c });
+  if (!ws[addr]) ws[addr] = { t: 's', v: '' };
+  ws[addr].s = Object.assign({}, ws[addr].s, style);
+  return ws[addr];
+}
+function xlRow(ws, r, c0, c1, style) { for (let c = c0; c <= c1; c++) xlSet(ws, r, c, style); }
+// ลงสไตล์ข้อมูลแบบสลับสีแถว (zebra) ทั้งบล็อก
+function xlBody(ws, r0, r1, c0, c1) {
+  for (let r = r0; r <= r1; r++) xlRow(ws, r, c0, c1, (r - r0) % 2 ? XL.cellAlt : XL.cell);
+}
 function principalInOut(events) {
   const evs = events || [];
   const inSum  = evs.filter(e => e.eventType === 'drawdown').reduce((s, e) => s + (Number(e.amount) || 0), 0);
@@ -1244,7 +1272,16 @@ function exportPerContractSheets({ masters, ledgerByContract, eventsByContract, 
   const wsS = XLSX.utils.aoa_to_sheet(summary);
   wsS['!cols'] = [10,18,28,14,13,14,14,10,14,14,14].map(w => ({ wch: w }));
   wsS['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 10 } }];
+  wsS['!rows'] = [{ hpt: 24 }, { hpt: 30 }];
   applyColFmt(wsS, { 3: FMT_BAHT, 4: FMT_BAHT, 5: FMT_BAHT, 6: FMT_BAHT, 7: FMT_PCT, 8: FMT_MONEY, 9: FMT_MONEY, 10: FMT_MONEY }, 2, summary.length - 1);
+  // ── สไตล์: หัวเรื่อง / หัวคอลัมน์ / ข้อมูล zebra + คอลัมน์เงินชิดขวา + ค้างชำระแดง ──
+  xlRow(wsS, 0, 0, 10, XL.title);
+  xlRow(wsS, 1, 0, 10, XL.th);
+  xlBody(wsS, 2, summary.length - 1, 0, 10);
+  for (let r = 2; r < summary.length; r++) {
+    for (const c of [3, 4, 5, 6, 7, 8, 9, 10]) xlSet(wsS, r, c, { alignment: { horizontal: 'right', vertical: 'center' } });
+    if ((Number(summary[r][10]) || 0) > 0) xlSet(wsS, r, 10, { font: { color: { rgb: 'C0392B' }, bold: true } });
+  }
   XLSX.utils.book_append_sheet(wb, wsS, 'สรุปทั้งหมด');
 
   if (mode === 'detail') {
@@ -1320,12 +1357,48 @@ function exportPerContractSheets({ masters, ledgerByContract, eventsByContract, 
 
       const ws = XLSX.utils.aoa_to_sheet(aoa);
       ws['!cols'] = [13,9,14,11,9,17,16,14,14,12,18,16].map(w => ({ wch: w }));
-      ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 11 } }];
+      const merges = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 11 } }];        // หัวเรื่อง
+      merges.push({ s: { r: schedStart - 2, c: 0 }, e: { r: schedStart - 2, c: 11 } }); // แถบ "ตารางดอกเบี้ยรายเดือน"
+      if (evStart >= 0) merges.push({ s: { r: evStart - 2, c: 0 }, e: { r: evStart - 2, c: 4 } }); // แถบ "รายการรับ/คืนเงินต้น"
+      ws['!merges'] = merges;
       // จัด number format ให้ทุกส่วน
       applyColFmt(ws, { 0: FMT_BAHT, 1: FMT_BAHT, 2: FMT_BAHT, 3: FMT_BAHT, 4: FMT_MONEY, 5: FMT_MONEY, 6: FMT_MONEY }, sumValRow, sumValRow);
       applyColFmt(ws, { 2: FMT_BAHT, 3: FMT_PCT, 5: FMT_MONEY, 6: FMT_MONEY, 7: FMT_MONEY, 8: FMT_BAHT }, schedStart, schedEnd);
       applyColFmt(ws, { 7: FMT_MONEY }, totRowStart, totRowStart + 2);
       if (evStart >= 0) applyColFmt(ws, { 2: FMT_BAHT, 3: FMT_BAHT }, evStart, evEnd);
+
+      // ── สไตล์ (สี/เส้น/ฟอนต์) ───────────────────────────────────────────────
+      const rowH = {};
+      rowH[0] = { hpt: 26 };                       // หัวเรื่อง
+      xlRow(ws, 0, 0, 11, XL.title);
+      // บล็อกสรุปเงินต้น/ดอกเบี้ย
+      xlRow(ws, sumValRow - 1, 0, 6, XL.thSum);
+      xlRow(ws, sumValRow, 0, 6, XL.sumVal);
+      xlSet(ws, sumValRow, 6, (totEff - totPaid) > 0 ? XL.sumValDue : XL.sumVal); // ค้างชำระ
+      // แถบ + หัวตารางดอกเบี้ยรายเดือน
+      rowH[schedStart - 2] = { hpt: 22 };
+      xlRow(ws, schedStart - 2, 0, 11, XL.band);
+      xlRow(ws, schedStart - 1, 0, 11, XL.th);
+      // ข้อมูลตารางดอกเบี้ย — zebra + เน้นสถานะวันจ่าย
+      xlBody(ws, schedStart, schedEnd, 0, 11);
+      for (let r = schedStart; r <= schedEnd; r++) {
+        const cell = ws[XLSX.utils.encode_cell({ r, c: 9 })];
+        xlSet(ws, r, 9, (cell && cell.v === 'ค้าง') ? XL.due : XL.paid);
+      }
+      // แถวรวม/จ่ายแล้ว/ค้างชำระ
+      for (let r = totRowStart; r <= totRowStart + 2; r++) { xlSet(ws, r, 6, XL.totLabel); xlSet(ws, r, 7, XL.totVal); }
+      // บล็อกรายการรับ/คืนเงินต้น
+      if (evStart >= 0) {
+        rowH[evStart - 2] = { hpt: 22 };
+        xlRow(ws, evStart - 2, 0, 4, XL.band);
+        xlRow(ws, evStart - 1, 0, 4, XL.th);
+        xlBody(ws, evStart, evEnd, 0, 4);
+        for (let r = evStart; r <= evEnd; r++) {
+          const cell = ws[XLSX.utils.encode_cell({ r, c: 2 })];
+          if (cell && (Number(cell.v) || 0) < 0) xlSet(ws, r, 2, { font: { color: { rgb: 'C0392B' } } });
+        }
+      }
+      ws['!rows'] = Object.keys(rowH).reduce((arr, k) => { arr[k] = rowH[k]; return arr; }, []);
 
       // sanitize sheet name (max 31 chars, no special chars)
       let name = (m.contractNo || m.borrowerName || 'sheet').replace(/[\\\/\?\*\[\]\:]/g, '_').slice(0, 31);
@@ -2235,7 +2308,7 @@ function DebtLedgerPage({ data, setData, toast }) {
     totalInterest    += s.totalInterest;
   });
 
-  const colDisplayVal = (key, m) => {
+  const colDisplayVal = (m, key) => {
     const s = summaryByContract[m.contractNo] || {};
     switch (key) {
       case 'debtCategory': return m.debtCategory || '—';
@@ -2263,7 +2336,7 @@ function DebtLedgerPage({ data, setData, toast }) {
       );
     }
     for (const [key, vals] of Object.entries(colFilters)) {
-      if (vals && vals.size > 0) rows = rows.filter(r => vals.has(colDisplayVal(key, r)));
+      if (vals && vals.size > 0) rows = rows.filter(r => vals.has(colDisplayVal(r, key)));
     }
     return rows;
   }, [masters, tab, categoryFilter, query, colFilters]);
