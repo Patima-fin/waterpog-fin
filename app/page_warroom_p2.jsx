@@ -45,10 +45,11 @@ function WarRoomPage2({ data, setData, toast }) {
     return pre > 0 ? Math.round(pre * 1.07 * 100) / 100 : 0;
   };
 
-  // ── Live calculation — ดึงทุกยอดจาก data.projects + data.invoices ────────
+  // ── Live calculation — ดึงทุกยอดจาก data.projects + data.invoices + data.receipts
   const liveCalc = wr2Memo(() => {
     const projects = data.projects || [];
     const invoices = data.invoices || [];
+    const receipts = data.receipts || [];
     // ตัดโครงการยกเลิกออกจาก dashboard ทั้งหมด
     const active = projects.filter(p => !wr2IsCancelled(p));
 
@@ -58,10 +59,17 @@ function WarRoomPage2({ data, setData, toast }) {
       const c = wr2NormCode(iv.jobNo || iv.contractRef || iv.projectCode || '');
       if (c) (invByCode[c] = invByCode[c] || []).push(iv);
     });
+    // index receipts ตาม invoice number (เพื่อตรวจสอบเงินรับจริงผ่าน IV)
+    const rcByIvNo = {};
+    receipts.forEach(rc => {
+      const ivNo = rc.invoiceNo || rc.ivNo;
+      if (ivNo) (rcByIvNo[ivNo] = rcByIvNo[ivNo] || []).push(rc);
+    });
     const projInvoicesOf = (p) => {
       const c = wr2NormCode(p['Contract No.'] || p.code || '');
       return c ? (invByCode[c] || []) : [];
     };
+    const receiptsOfIv = (iv) => rcByIvNo[iv.ivNo || iv.invoiceNo] || [];
 
     // 1) รอลงนาม — Start ว่าง + ไม่ยกเลิก → ใช้มูลค่าใบจัดสรร
     const unsignedList = active
@@ -93,33 +101,63 @@ function WarRoomPage2({ data, setData, toast }) {
       .sort((a, b) => b.value - a.value);
     const invForwardValue = invForwardList.reduce((s, iv) => s + iv.value, 0);
 
-    // 3) งานระหว่างก่อสร้าง (WIP) — ลงนามแล้ว · contract - billed
-    //    billed = ผลรวม IV ทั้งหมด (รวม paid + outstanding) = งานที่ออกบิลแล้ว
-    //    WIP = ส่วนที่เหลือยังไม่ออก IV = contract - billed
+    // 3) งานระหว่างก่อสร้าง (WIP) — ลงนามแล้ว + ยังไม่ออก/ไม่จ่าย IV ครบ
+    //    settled = max(billed, received) — เลือกตัวที่มากกว่า (เผื่อรับเงินไม่ผ่าน IV)
+    //    WIP = contract - settled
+    //    ตัดออก: โครงการที่ไม่มี IV link เลย AND ไม่มี receipt link เลย
+    //      → น่าจะเป็นข้อมูลเก่า/ปิดไปแล้ว ที่ไม่ track ใน IV system
     const wipList = active
       .filter(p => !isEmpty(getStart(p)))
       .map(p => {
         const contract = wr2GetContract(p);
         const ivs = projInvoicesOf(p);
+        // billed = ผลรวม IV ที่ออกแล้ว (paid + outstanding)
         const billed = ivs.reduce((s, iv) => {
-          // total invoiced amount = (paid amount) + (outstanding balance)
           const paid = wr2ToN(iv.netReceived || iv.grossAmount || 0);
           const bal  = wr2ToN(iv.balance || 0);
           return s + (iv.status === 'paid' ? paid : (paid + bal));
         }, 0);
-        const wip = Math.max(0, contract - billed);
+        // received = ผลรวม receipts ที่ link ผ่าน IV ของโครงการนี้
+        const received = ivs.reduce((s, iv) => {
+          const rcs = receiptsOfIv(iv);
+          return s + rcs.reduce((s2, rc) => s2 + wr2ToN(rc.netReceived || rc.grossAmount || 0), 0);
+        }, 0);
+        const settled = Math.max(billed, received);
+        const wip = Math.max(0, contract - settled);
+        const hasOutstandingIV = ivs.some(iv => iv.status !== 'paid' && wr2ToN(iv.balance) > 0);
         return {
           id: p.id,
           code: String(p['Contract No.'] || p.code || '—').trim(),
           name: String(p['พื้นที่'] || p.name || '—').trim(),
           province: p['Province'] || '',
-          contract, billed, wip,
+          contract, billed, received, settled, wip,
           ivCount: ivs.length,
+          rcCount: ivs.reduce((s, iv) => s + receiptsOfIv(iv).length, 0),
+          hasOutstandingIV,
         };
       })
-      .filter(x => x.wip > 0)
+      // เก็บเฉพาะที่ยังมี work รออยู่ (wip > 0) AND มีร่องรอย IV/receipt
+      // (ถ้าไม่มี IV/receipt เลย = น่าจะเป็นข้อมูลเก่า ปิดไปแล้ว ไม่ใช่ WIP จริง)
+      .filter(x => x.wip > 0 && (x.ivCount > 0 || x.rcCount > 0))
       .sort((a, b) => b.wip - a.wip);
     const wipValue = wipList.reduce((s, x) => s + x.wip, 0);
+
+    // แยกโครงการที่ "settled แล้ว" (รับเงินครบ ไม่มี IV ค้าง) ไว้สำหรับ debug/drill
+    const closedList = active
+      .filter(p => !isEmpty(getStart(p)))
+      .map(p => {
+        const contract = wr2GetContract(p);
+        const ivs = projInvoicesOf(p);
+        const received = ivs.reduce((s, iv) => {
+          const rcs = receiptsOfIv(iv);
+          return s + rcs.reduce((s2, rc) => s2 + wr2ToN(rc.netReceived || 0), 0);
+        }, 0);
+        return {
+          id: p.id, code: p['Contract No.'] || p.code, name: p['พื้นที่'] || p.name,
+          contract, received, ivCount: ivs.length, rcCount: ivs.reduce((s,iv) => s + receiptsOfIv(iv).length, 0),
+        };
+      })
+      .filter(x => x.received >= x.contract * 0.99 && x.contract > 0);
 
     const signedTotal = invForwardValue + wipValue;
     const grandTotal = signedTotal + unsignedValue;
@@ -170,15 +208,16 @@ function WarRoomPage2({ data, setData, toast }) {
   });
   const openWipDrill = () => setDrill({
     title: '🚧 มูลค่างานระหว่างก่อสร้าง (WIP)',
-    subtitle: liveCalc.wip.count + ' โครงการ · รวม ' + fmtT0(liveCalc.wip.value) + ' บาท · (ลงนามแล้ว · contract – billed)',
+    subtitle: liveCalc.wip.count + ' โครงการ · รวม ' + fmtT0(liveCalc.wip.value) + ' บาท · (ลงนามแล้ว · contract − max(IV billed, รับเงิน) · ตัดที่ไม่มี IV/receipt)',
     items: liveCalc.wip.list,
     total: liveCalc.wip.value,
     columns: [
       { key: 'code', label: 'Contract No.', width: 110 },
       { key: 'name', label: 'ชื่อโครงการ' },
-      { key: 'province', label: 'จังหวัด', width: 100 },
-      { key: 'contract', label: 'สัญญา (฿)', align: 'right', width: 120, fmt: (v) => fmtT0(v) },
-      { key: 'billed', label: 'ออก IV แล้ว (฿)', align: 'right', width: 130, fmt: (v) => fmtT0(v) },
+      { key: 'contract', label: 'สัญญา (฿)', align: 'right', width: 110, fmt: (v) => fmtT0(v) },
+      { key: 'billed', label: 'ออก IV (฿)', align: 'right', width: 110, fmt: (v) => fmtT0(v) },
+      { key: 'received', label: 'รับเงิน (฿)', align: 'right', width: 110, fmt: (v) => fmtT0(v) },
+      { key: 'ivCount', label: '#IV', align: 'center', width: 50 },
       { key: 'wip', label: 'WIP (฿)', align: 'right', width: 120, fmt: (v) => fmtT0(v), isMoney: true },
     ],
   });
