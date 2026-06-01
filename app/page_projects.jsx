@@ -85,11 +85,18 @@ function saveLocalProjects(arr) {
 
 function computeProjectStatus(p, projInvoices, projReceipts) {
   // Manual override — ถ้าผู้ใช้เลือกสถานะเอง (จาก drawer) ใช้อันนั้นเลย
-  // ใช้สำหรับเคสที่ระบบเดาผิด เช่น auto detect ยกเลิกผิด หรือ logic จับไม่ครอบ
   const manual = String((p && (p.manualStatus || p._manualStatus)) || '').trim();
   if (manual && PROJ_STATUS[manual]) return manual;
 
-  // ยกเลิกโครงการ — column Z "ยกเลิกโครงการ" = 1 (มาก่อนทุกสถานะ)
+  // ✦ Synthetic code prefix — ทนต่อ cloud sync ที่อาจ strip flag ยกเลิกออก
+  // ถ้า code ขึ้นต้น "XL-" = โครงการยกเลิก (แพ้ประมูล/ยกเลิกก่อนเซ็น) มาตั้งแต่ตอน
+  // Migration แล้ว ฟ้าผ่ายังไงก็เป็นยกเลิก
+  const code = String((p && (p['Contract No.'] || p.code)) || '').trim();
+  if (/^XL-/i.test(code)) return 'cancelled';
+  // WS- = waiting sign (ไม่มี Contract No.จริง · มีใบจัดสรร · ยังไม่ลงนาม)
+  if (/^WS-/i.test(code)) return 'waiting_sign';
+
+  // ยกเลิกโครงการ flag (column Z) — ใช้ในกรณีโครงการที่มี Contract No.จริงและยกเลิก
   if (getCancelFlag(p)) return 'cancelled';
 
   // รอลงนาม — Sign Date IS NULL (ใช้ Start date เป็นเกณฑ์: ถ้ายังไม่มีวันเริ่มงาน
@@ -580,7 +587,9 @@ function ProjectsPage({ data, setData, toast }) {
         <ProjectsHero kpi={kpi} totalCount={enriched.length} filteredCount={filtered.length}
           onFullscreen={() => setFullscreen(true)}
           onUpload={userCanEdit ? () => setUploadOpen(true) : null}
-          onMigrate={userCanEdit ? () => setMigrationOpen(true) : null} />
+          onMigrate={userCanEdit ? () => setMigrationOpen(true) : null}
+          onFilterStatus={(statuses) => setFilters(f => ({ ...f, status: new Set(statuses) }))}
+          onClearFilter={() => setFilters({ status: new Set(), province: new Set(), type: new Set(), assignee: new Set(), aging: new Set() })} />
       )}
 
       {/* Toolbar: search + filter toggle + column groups + fullscreen */}
@@ -1372,7 +1381,7 @@ function DiffPreview({ diff, onConfirm, onReset }) {
 }
 
 // ─── Hero / Executive Summary ───────────────────────────────────────────────
-function ProjectsHero({ kpi, totalCount, filteredCount, onFullscreen, onUpload, onMigrate }) {
+function ProjectsHero({ kpi, totalCount, filteredCount, onFullscreen, onUpload, onMigrate, onFilterStatus, onClearFilter }) {
   return (
     <>
       {/* HERO BANNER */}
@@ -1440,23 +1449,41 @@ function ProjectsHero({ kpi, totalCount, filteredCount, onFullscreen, onUpload, 
         gap: 10, marginBottom: 12,
       }}>
         {[
-          { label: 'ทั้งหมด', value: kpi.count, color: '#1e40af', bg: '#dbeafe' },
-          { label: 'รอลงนาม', value: kpi.byStatus.waiting_sign || 0, color: '#9a3412', bg: '#ffedd5' },
-          { label: 'กำลังก่อสร้าง', value: (kpi.byStatus.construction_m1||0) + (kpi.byStatus.construction_m2||0) + (kpi.byStatus.construction_m3||0), color: '#7c2d12', bg: '#fef3c7' },
-          { label: 'รอออก IV',  value: kpi.byStatus.waiting_invoice || 0, color: '#5b21b6', bg: '#ede9fe' },
-          { label: 'รอรับชำระ', value: kpi.byStatus.waiting_payment || 0, color: '#1e40af', bg: '#dbeafe' },
-          { label: 'บางส่วน',   value: kpi.byStatus.partial_paid || 0,    color: '#155e75', bg: '#cffafe' },
-          { label: 'ปิดแล้ว',   value: kpi.byStatus.closed || 0,          color: '#15803d', bg: '#dcfce7' },
-          { label: 'ยกเลิก',    value: kpi.byStatus.cancelled || 0,       color: '#7f1d1d', bg: '#fee2e2' },
-        ].map((c, i) => (
-          <div key={i} style={{
-            background: c.bg, borderRadius: 10, padding: '10px 14px',
-            border: '1px solid ' + c.color + '20',
-          }}>
-            <div style={{ fontSize: 10.5, color: c.color, fontWeight: 600, opacity: 0.85, marginBottom: 2 }}>{c.label}</div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: c.color }}>{c.value}</div>
-          </div>
-        ))}
+          { label: 'ทั้งหมด',    value: kpi.count,                                                                              color: '#1e40af', bg: '#dbeafe', statuses: null },
+          { label: 'รอลงนาม',    value: kpi.byStatus.waiting_sign || 0,                                                          color: '#9a3412', bg: '#ffedd5', statuses: ['waiting_sign'] },
+          { label: 'กำลังก่อสร้าง', value: (kpi.byStatus.construction_m1||0) + (kpi.byStatus.construction_m2||0) + (kpi.byStatus.construction_m3||0), color: '#7c2d12', bg: '#fef3c7', statuses: ['construction_m1','construction_m2','construction_m3'] },
+          { label: 'รอออก IV',   value: kpi.byStatus.waiting_invoice || 0,                                                       color: '#5b21b6', bg: '#ede9fe', statuses: ['waiting_invoice'] },
+          { label: 'รอรับชำระ',  value: kpi.byStatus.waiting_payment || 0,                                                       color: '#1e40af', bg: '#dbeafe', statuses: ['waiting_payment'] },
+          { label: 'บางส่วน',    value: kpi.byStatus.partial_paid || 0,                                                          color: '#155e75', bg: '#cffafe', statuses: ['partial_paid'] },
+          { label: 'ปิดแล้ว',    value: kpi.byStatus.closed || 0,                                                                color: '#15803d', bg: '#dcfce7', statuses: ['closed'] },
+          { label: 'ยกเลิก',     value: kpi.byStatus.cancelled || 0,                                                             color: '#7f1d1d', bg: '#fee2e2', statuses: ['cancelled'] },
+        ].map((c, i) => {
+          const clickable = !!onFilterStatus;
+          const handleClick = () => {
+            if (!clickable) return;
+            if (c.statuses === null) onClearFilter && onClearFilter();
+            else onFilterStatus(c.statuses);
+            // เลื่อนลงไปดูตาราง
+            setTimeout(() => { const t = document.querySelector('table'); t && t.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 80);
+          };
+          return (
+            <div key={i} onClick={handleClick} style={{
+              background: c.bg, borderRadius: 10, padding: '10px 14px',
+              border: '1px solid ' + c.color + '20',
+              cursor: clickable ? 'pointer' : 'default',
+              transition: 'transform 120ms ease, box-shadow 120ms ease',
+            }}
+            onMouseEnter={e => { if (clickable) { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(15,23,42,0.1)'; }}}
+            onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = ''; }}
+            title={clickable ? 'คลิกเพื่อกรองเฉพาะ "' + c.label + '"' : ''}>
+              <div style={{ fontSize: 10.5, color: c.color, fontWeight: 600, opacity: 0.85, marginBottom: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span>{c.label}</span>
+                {clickable && <span style={{ fontSize: 9, opacity: 0.6 }}>🔍</span>}
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: c.color }}>{c.value}</div>
+            </div>
+          );
+        })}
       </div>
 
       {/* Row 2: Value totals + cashflow forecast */}
