@@ -42,6 +42,16 @@
     stsCalcResult: ['debtIds'],
   };
 
+  // Fields the APP is allowed to intentionally CLEAR — for these, an empty app
+  // value must WIN over a non-empty Sheet value. Without this, the
+  // "keep Sheet value when app empty" guard makes "ล้าง" (clear) bounce back on
+  // the next sync: app sets paymentDate='' → merge restores the old Sheet value.
+  // Only list fields the app fully owns via UI (never hand-edited in the Sheet).
+  var CLEARABLE_FIELDS = {
+    debtLedger: ['paymentDate', 'paidBy', 'paidAt', 'paymentNote',
+                 'interestOverride', 'overrideBy', 'overrideAt', 'overrideNote'],
+  };
+
   /* ── state ──────────────────────────────────────────────────────── */
   var subscribers      = [];
   var syncStatus       = 'syncing';
@@ -453,10 +463,12 @@
    * app's in-memory row has that field empty, replaceAll would wipe it. This
    * merge keeps the Sheet's value whenever the app's value is null/empty.
    */
-  function mergeRowKeepSheetForEmpty(appRow, sheetRow) {
+  function mergeRowKeepSheetForEmpty(appRow, sheetRow, clearable) {
     if (!sheetRow) return appRow;
+    var skip = clearable || {};
     var result = Object.assign({}, appRow);
     Object.keys(sheetRow).forEach(function (k) {
+      if (skip[k]) return;  // clearable field → trust app value (allow intentional clear)
       var appVal = result[k];
       var sheetVal = sheetRow[k];
       var appEmpty = appVal == null || appVal === '';
@@ -465,6 +477,7 @@
     });
     // Also include sheet-only keys (in case app doesn't have those fields at all)
     Object.keys(sheetRow).forEach(function (k) {
+      if (skip[k]) return;  // ห้ามดึง clearable field กลับมา แม้ app ลบ key ทิ้งทั้งตัว (เช่น ล้าง override)
       if (!(k in result)) result[k] = sheetRow[k];
     });
     return result;
@@ -567,8 +580,10 @@
       var safeChanges = fetched.map(function (f) {
         var sheetById = {};
         f.sheetRows.forEach(function (r) { if (r.id) sheetById[r.id] = r; });
+        var clearable = {};
+        (CLEARABLE_FIELDS[f.entity] || []).forEach(function (k) { clearable[k] = true; });
         var merged = f.currentRows.map(function (appRow) {
-          return mergeRowKeepSheetForEmpty(appRow, sheetById[appRow.id]);
+          return mergeRowKeepSheetForEmpty(appRow, sheetById[appRow.id], clearable);
         });
         return { entity: f.entity, rows: merged };
       });
