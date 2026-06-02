@@ -458,8 +458,18 @@ function CashFlowDashboard({ data, setData, toast }) {
       const cat = categorizeForecastEntry(fe);
       grid[wIdx][cat] += Math.abs(amt);
     });
+    // Manual paid AP — เงินออกจริงแล้ว แต่ยังไม่มี PV → นับเป็น actual ตามวัน due
+    payables.forEach(ap => {
+      if (isFlexAp(ap)) return;
+      if (!manualPaidSet.has(ap.vchno)) return;
+      const due = ap.due2 || ap.due || ap.vchdate;
+      if (!inMonth(due, year, month)) return;
+      const wIdx = findWeekIdx(due, weeks);
+      if (wIdx < 0) return;
+      grid[wIdx][categorizePayable(ap)] += Number(ap.netpayment || ap.Amount || 0);
+    });
     return grid;
-  }, [pvVouchers, payables, forecastEntries, weeks, year, month]);
+  }, [pvVouchers, payables, forecastEntries, manualPaidSet, weeks, year, month, flexVendors]);
 
   // ── Inflow: IV project receipts (forecast + actual) ───────────────────
   const ivInflowByWeek = cfMemo(() => {
