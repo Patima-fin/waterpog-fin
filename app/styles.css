@@ -608,6 +608,19 @@ body.present-mode.no-anim .present-page .kpi:hover { transform: none; }
 @keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
 @media (max-width: 720px) { .present-toggle .lbl { display: none; } .present-toggle { padding: 7px 9px; } }
 
+/* ── เปิดโหมด → เต็มจอ: ซ่อน sidebar/แถบรก + ขยายเนื้อหาเต็มความกว้าง ───── */
+body.present-mode .app { grid-template-columns: 1fr; }
+body.present-mode .sb,
+body.present-mode .sb-scrim { display: none !important; }
+/* topbar บางลง เหลือแค่ breadcrumb + ปุ่มออกจากโหมด */
+body.present-mode .topbar { padding: 10px 32px; }
+body.present-mode .topbar .menu-btn,
+body.present-mode .topbar .tb-search,
+body.present-mode .topbar .tb-date { display: none !important; }
+/* เนื้อหาเต็มความกว้าง อ่านง่ายขึ้นบนจอใหญ่ */
+body.present-mode .page { max-width: none; padding: 26px 40px 56px; }
+body.present-mode .page-title { font-size: 26px; }
+
 /* Dense layout option */
 .dense .card, .dense .kpi { padding: 14px; }
 .dense .tbl tbody td { padding: 9px 12px; }

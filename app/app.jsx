@@ -677,19 +677,50 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
   );
 }
 
-// Present Mode — toggle ที่เปิด spotlight + การ์ดมน เฉพาะหน้านำเสนอ
-// จัดการ class บน <body> + จำสถานะใน localStorage เอง (ใช้ได้ข้ามหน้า)
+// Present Mode — กดแล้วเข้าเต็มจอ + ซ่อน sidebar/แถบรก + spotlight + การ์ดมน
+// จัดการ class บน <body>, fullscreen API, จำสถานะใน localStorage (ใช้ได้ข้ามหน้า)
 function PresentModeToggle() {
   const [on, setOn] = aState(() => { try { return localStorage.getItem('wtp-present-mode') === '1'; } catch (_) { return false; } });
+
+  // สไตล์ + persist ตามสถานะ on
   aEffect(() => {
     document.body.classList.toggle('present-mode', on);
     try { localStorage.setItem('wtp-present-mode', on ? '1' : '0'); } catch (_) {}
   }, [on]);
+
+  // ถ้าผู้ใช้กด Esc / ออกจากเต็มจอเอง → ปิดโหมดให้สอดคล้องกัน
+  aEffect(() => {
+    const sync = () => {
+      const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+      if (!fsEl) setOn(false);
+    };
+    document.addEventListener('fullscreenchange', sync);
+    document.addEventListener('webkitfullscreenchange', sync);
+    return () => {
+      document.removeEventListener('fullscreenchange', sync);
+      document.removeEventListener('webkitfullscreenchange', sync);
+    };
+  }, []);
+
+  const toggle = async () => {
+    const next = !on;
+    setOn(next);
+    try {
+      const el = document.documentElement;
+      const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+      if (next && !fsEl) {
+        await (el.requestFullscreen ? el.requestFullscreen() : el.webkitRequestFullscreen && el.webkitRequestFullscreen());
+      } else if (!next && fsEl) {
+        await (document.exitFullscreen ? document.exitFullscreen() : document.webkitExitFullscreen && document.webkitExitFullscreen());
+      }
+    } catch (_) { /* บาง browser/iframe บล็อก fullscreen — สไตล์โหมดนำเสนอยังทำงานปกติ */ }
+  };
+
   return (
-    <button type="button" className={`present-toggle${on ? ' is-on' : ''}`} onClick={() => setOn(v => !v)}
-      title={on ? 'โหมดนำเสนอ: เปิด — ชี้ที่การ์ด/แถวเพื่อไฮไลต์ (คลิกเพื่อปิด)' : 'เปิดโหมดนำเสนอ — ชี้ที่การ์ด/แถวแล้วเด่นขึ้น เหมาะตอนพรีเซนต์'}>
+    <button type="button" className={`present-toggle${on ? ' is-on' : ''}`} onClick={toggle}
+      title={on ? 'โหมดนำเสนอ: เปิด — เต็มจอ + ชี้การ์ด/แถวเพื่อไฮไลต์ (คลิกหรือ Esc เพื่อออก)' : 'เปิดโหมดนำเสนอ — เต็มจอ ซ่อนเมนู จัดหน้าให้สะอาด + ชี้แล้วเด่น เหมาะตอนพรีเซนต์'}>
       <span className="dot" />
-      <span className="lbl">โหมดนำเสนอ{on ? ' · เปิด' : ''}</span>
+      <span className="lbl">{on ? 'ออกจากโหมดนำเสนอ' : 'โหมดนำเสนอ'}</span>
     </button>
   );
 }
