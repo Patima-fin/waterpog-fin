@@ -779,18 +779,30 @@
     return [newReceipt, ...list];
   };
 
-  // ── rebuildFollowUpsLog ───────────────────────────────────────────────
+  // ── rebuildFollowUpsLog (APPEND-ONLY) ─────────────────────────────────
   // Derive flat log from invoices[].followUps so the followUpsLog sheet
   // mirrors the JSON-in-cell follow-ups in a human-readable table.
-  // Called inside save() after invoice changes — keeps the log in sync.
-  // ID strategy: stable id_followup_<invoiceId>_<idx> so re-running this
-  // doesn't duplicate rows on the sheet (replaceAll wipes + writes).
-  const rebuildFollowUpsLog = (invoices, currentUser) => {
-    const out = [];
+  //
+  // ★ APPEND-ONLY: log is a permanent audit trail — it must NEVER lose a
+  //   follow-up that was once recorded, even if the source followUps array
+  //   later shrinks (deleted by a user, or clobbered by a concurrent write).
+  //   เดิมฟังก์ชันนี้สร้าง log ใหม่ทั้งก้อนจาก invoices → ถ้า followUps ตัวจริง
+  //   หาย log ก็หายตามจนกู้อะไรไม่ได้. ตอนนี้เราเก็บแถวเก่าที่ไม่มีใน invoices
+  //   แล้วไว้ด้วย (mark archived) เพื่อให้มีหลักฐานถาวร.
+  //
+  // Dedup key = invoiceId|date|note (CONTENT, not positional index) so
+  // shifting array positions never duplicates an entry.
+  const rebuildFollowUpsLog = (invoices, currentUser, existingLog) => {
+    const keyOf = (invoiceId, date, note) =>
+      String(invoiceId || '') + '|' + String(date || '') + '|' + String(note || '');
+    const current = [];
+    const liveKeys = new Set();
     (invoices || []).forEach(iv => {
       (iv.followUps || []).forEach((fu, idx) => {
         if (!fu || (!fu.date && !fu.note)) return;
-        out.push({
+        const k = keyOf(iv.id || iv.ivNo, fu.date, fu.note);
+        liveKeys.add(k);
+        current.push({
           id:           `fl_${iv.id || iv.ivNo || 'x'}_${idx}`,
           invoiceId:    iv.id || '',
           ivNo:         iv.ivNo || '',
@@ -800,9 +812,23 @@
           note:         fu.note || '',
           createdAt:    fu.createdAt || fu.date || '',
           createdBy:    fu.createdBy || currentUser || '',
+          archived:     '',
         });
       });
     });
+    // Retain any prior log row whose content is no longer present in invoices
+    // → permanent record of a follow-up that was removed/lost. Mark archived='y'.
+    const retained = [];
+    const seenRetain = new Set();
+    (existingLog || []).forEach(r => {
+      if (!r) return;
+      const k = keyOf(r.invoiceId || r.ivNo, r.followUpDate, r.note);
+      if (liveKeys.has(k)) return;        // still live → already in `current`
+      if (seenRetain.has(k)) return;      // dedup retained too
+      seenRetain.add(k);
+      retained.push(Object.assign({}, r, { archived: 'y' }));
+    });
+    const out = current.concat(retained);
     // newest first by followUpDate
     out.sort((a, b) => (b.followUpDate || '').localeCompare(a.followUpDate || ''));
     return out;

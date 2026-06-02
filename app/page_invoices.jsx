@@ -328,21 +328,16 @@ function InvoicesPage({ data, setData, toast }) {
   ivEffect(() => {
     if (!data.invoices || !data.invoices.length) return;
     if (!WTPData.rebuildFollowUpsLog) return;
-    // Quick check: ใช้ closure ดูว่าต้อง rebuild ไหม (เร็วๆ ก่อน enter setData)
-    const closureExpected = WTPData.rebuildFollowUpsLog(data.invoices);
-    const closureCurrent  = data.followUpsLog || [];
-    const inSync = closureExpected.length === closureCurrent.length &&
-                   closureExpected.every((e, i) => closureCurrent[i] && closureCurrent[i].id === e.id);
-    if (inSync) return;
+    // Quick check: rebuild จำเป็นไหม — เทียบด้วย JSON เพราะ append-only log
+    // อาจมี archived entries ทำให้ .length ต่างกันปกติ (ไม่ใช่สัญญาณต้อง sync)
+    const closureMerged = WTPData.rebuildFollowUpsLog(data.invoices, null, data.followUpsLog || []);
+    if (JSON.stringify(closureMerged) === JSON.stringify(data.followUpsLog || [])) return;
     let updatedData;
     setData(d => {
-      // คำนวณใหม่จาก d (latest state) ไม่ใช่ closure
-      const expected = WTPData.rebuildFollowUpsLog(d.invoices);
-      const current  = d.followUpsLog || [];
-      const stillInSync = expected.length === current.length &&
-                          expected.every((e, i) => current[i] && current[i].id === e.id);
-      if (stillInSync) return d;
-      updatedData = { ...d, followUpsLog: expected };
+      // คำนวณใหม่จาก d (latest state) ไม่ใช่ closure — pass d.followUpsLog เพื่อ append-only
+      const merged = WTPData.rebuildFollowUpsLog(d.invoices, null, d.followUpsLog || []);
+      if (JSON.stringify(merged) === JSON.stringify(d.followUpsLog || [])) return d;
+      updatedData = { ...d, followUpsLog: merged };
       return updatedData;
     });
     if (updatedData && WTPData.forceSyncNow) {
@@ -506,7 +501,7 @@ function InvoicesPage({ data, setData, toast }) {
       // Mirror the embedded followUps arrays into the flat followUpsLog sheet
       const user = (() => { try { return JSON.parse(localStorage.getItem('wtp-session') || 'null'); } catch(_) { return null; } })();
       const newLog = WTPData.rebuildFollowUpsLog
-        ? WTPData.rebuildFollowUpsLog(newInvoices, user && user.username)
+        ? WTPData.rebuildFollowUpsLog(newInvoices, user && user.username, d.followUpsLog || [])
         : (d.followUpsLog || []);
       updatedData = {
         ...d,
@@ -2683,7 +2678,7 @@ function IvReportStandalonePage({ data, setData, toast }) {
         : (d.receipts || []);
       const user = (() => { try { return JSON.parse(localStorage.getItem('wtp-session') || 'null'); } catch(_) { return null; } })();
       const newLog = WTPData.rebuildFollowUpsLog
-        ? WTPData.rebuildFollowUpsLog(newInvoices, user && user.username)
+        ? WTPData.rebuildFollowUpsLog(newInvoices, user && user.username, d.followUpsLog || [])
         : (d.followUpsLog || []);
       updatedData = {
         ...d,

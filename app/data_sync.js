@@ -68,6 +68,21 @@
   var AUTO_MS          = cfg.AUTO_REFRESH_MS || 0;
   var currentInterval  = AUTO_MS;       // may grow via backoff
   var autoTimer        = null;          // setInterval handle (so we can restart)
+  var recentPushAt     = {};            // entity → ts(ms) ของ push ล่าสุดที่สำเร็จ (anti-bounce)
+  var cycleCount       = 0;             // นับรอบ auto-refresh (ใช้ตัดสิน hot vs full)
+
+  // ── Anti-bounce grace window ──────────────────────────────────────
+  // หลัง push สำเร็จ gviz CSV อาจยังเสิร์ฟค่าเก่าได้อีกหลายสิบวินาที
+  // (read-after-write lag). ในช่วงนี้ห้ามเอา CSV เก่ามาทับค่าที่เพิ่ง push
+  // ไม่งั้นจอจะ "เด้งกลับ" เป็นค่าเดิม → user นึกว่าไม่บันทึก เลยแก้ซ้ำ
+  var GRACE_MS = 60000;                 // 60 วินาที
+
+  // ── Hot vs Cold polling ───────────────────────────────────────────
+  // HOT  = entity ที่ user แก้บ่อย (CRUD) — poll ทุกรอบ
+  // COLD = แท็บสรุป/derived (meta/pipeline/warroom/daily/cashFlow/...) ที่
+  //        เปลี่ยนนาน ๆ ครั้ง — ดึงเฉพาะตอน full load (เปิดแอป/manual/กลับ tab/
+  //        ทุก COLD_EVERY รอบ) เพื่อลดจำนวน request → ลด 429 → ข้อมูลสดขึ้น
+  var COLD_EVERY = 4;                   // full load ทุก 4 รอบ (เช่น 45s×4 = ~3 นาที)
 
   function setSyncStatus(s, ctx) {
     syncStatus = s;
@@ -108,7 +123,11 @@
     if (currentInterval > 0) {
       autoTimer = setInterval(function () {
         // Page Visibility guard — tab idle ก็ไม่ต้องดึง
-        if (!document.hidden) loadFromServer();
+        if (document.hidden) return;
+        cycleCount++;
+        // ทุก COLD_EVERY รอบ → full load (ดึงแท็บ cold ด้วย); รอบอื่น → hot เท่านั้น
+        if (cycleCount % COLD_EVERY === 0) loadFromServer();
+        else refreshHotEntities();
       }, currentInterval);
     }
   }
@@ -390,24 +409,25 @@
         manualOverrides:   manualOverrides,
       };
 
-      // Preserve app-only fields from localStorage that aren't yet in the Sheet
-      // (e.g. invType on receipts). Without this, every loadFromServer would
-      // wipe user edits of fields that don't have a corresponding sheet column.
+      // Anti-bounce guard: ถ้า entity มี edit ค้าง (ยังไม่ push) หรือเพิ่ง push
+      // ภายใน grace window → คงค่า local ไว้ ไม่เอา CSV (ที่อาจ stale) มาทับ
+      // ส่วน entity ที่ไม่มีอะไรค้าง → รับค่าชีต + preserve app-only fields ตามเดิม
       try {
         var localData = WTPData.load();
         CRUD_ENTITIES.forEach(function (e) {
-          if (Array.isArray(data[e]) && Array.isArray(localData && localData[e])) {
-            var clr = {};
-            (CLEARABLE_FIELDS[e] || []).forEach(function (k) { clr[k] = true; });
-            data[e] = preserveAppOnlyFields(data[e], localData[e], clr);
-          }
+          if (!Array.isArray(data[e])) return;
+          var g = applyEntityGuard(e, data[e], localData);
+          data[e] = g.rows;
+          if (g.accepted) lastSnapshot[e] = JSON.stringify(g.rows);
+          // ถ้า !accepted (มี edit ค้าง/เพิ่ง push) → ไม่ขยับ snapshot
+          // เพื่อให้ syncDiff ยัง detect diff แล้ว push ต่อ (กันงานหาย + กันเด้งกลับ)
         });
-      } catch (_) { /* if localStorage parse fails, skip — non-fatal */ }
-
-      // Cache snapshots so the next save doesn't re-push unchanged entities
-      CRUD_ENTITIES.forEach(function (e) {
-        lastSnapshot[e] = JSON.stringify(data[e] || []);
-      });
+      } catch (_) {
+        // fallback: localStorage parse พัง → ตั้ง snapshot ตามชีตแบบเดิม
+        CRUD_ENTITIES.forEach(function (e) {
+          lastSnapshot[e] = JSON.stringify(data[e] || []);
+        });
+      }
       cachedServerData = data;
       serverDataLoaded = true;
       origSave(data);                                    // persist to localStorage (skip syncDiff)
@@ -416,6 +436,70 @@
     }).catch(function (err) {
       console.warn('[WTP Sync] โหลดข้อมูลล้มเหลว:', err);
       setSyncStatus('error');
+    });
+  }
+
+  /* ── anti-bounce guard helper ─────────────────────────────────────
+   * ตัดสินว่า entity นี้ควร "รับค่าจากชีต" หรือ "คงค่า local" ตอนโหลด
+   *   - มี edit ค้าง (local != snapshot ที่ push ล่าสุด) → คงค่า local (รอ push)
+   *   - เพิ่ง push สำเร็จภายใน GRACE_MS → คงค่า local (กัน CSV เก่าทับ)
+   *   - อื่น ๆ → รับค่าชีต + preserve app-only fields
+   * คืน { rows, accepted } ; accepted=true แปลว่าให้ caller อัป snapshot ตามชีตได้
+   */
+  function clearableOf(entity) {
+    var clr = {};
+    (CLEARABLE_FIELDS[entity] || []).forEach(function (k) { clr[k] = true; });
+    return clr;
+  }
+  function applyEntityGuard(entity, sheetRows, localData) {
+    var localRows = localData && localData[entity];
+    var snap = lastSnapshot[entity];
+    var hasPending = snap !== undefined &&
+                     JSON.stringify(Array.isArray(localRows) ? localRows : []) !== snap;
+    var inGrace = recentPushAt[entity] && (Date.now() - recentPushAt[entity] < GRACE_MS);
+    if ((hasPending || inGrace) && Array.isArray(localRows)) {
+      // protected → คงค่า local ที่กำลังจะ/เพิ่ง push ไว้ ไม่ให้ stale CSV ทับ
+      return { rows: localRows, accepted: false };
+    }
+    var merged = Array.isArray(localRows)
+      ? preserveAppOnlyFields(sheetRows, localRows, clearableOf(entity))
+      : sheetRows;
+    return { rows: merged, accepted: true };
+  }
+
+  /* ── HOT refresh: ดึงเฉพาะ CRUD entity (ไม่ดึงแท็บ cold) ───────────
+   * ใช้ใน auto-refresh ส่วนใหญ่เพื่อลดจำนวน request → ลด 429
+   * แท็บ cold (สรุป/derived) ยังอยู่จาก cachedServerData รอบก่อน */
+  function refreshHotEntities() {
+    if (!cachedServerData) return loadFromServer();  // ยังไม่มี base → full load
+    setSyncStatus('syncing');
+    return Promise.allSettled(CRUD_ENTITIES.map(fetchSheet)).then(function (settled) {
+      // atomic: hot tab ใดพัง → ทิ้งทั้งรอบ คงข้อมูลเดิม retry รอบหน้า (กัน data loss)
+      var failed = [];
+      settled.forEach(function (s, idx) {
+        if (s.status === 'rejected') failed.push(CRUD_ENTITIES[idx]);
+      });
+      if (failed.length) {
+        console.warn('[WTP Sync] hot refresh: ' + failed.length + ' แท็บล้มเหลว — คงข้อมูลเดิม',
+          failed.join(', '));
+        setSyncStatus('error', { error: 'hot fetch failed', sheets: failed });
+        return;
+      }
+      var localData = null;
+      try { localData = WTPData.load(); } catch (_) {}
+      var data = Object.assign({}, cachedServerData);  // คง cold tab จาก cache
+      CRUD_ENTITIES.forEach(function (e, idx) {
+        var jsonFields = ENTITY_JSON_FIELDS[e] || null;
+        var sheetRows = rowsToObjects(settled[idx].value, jsonFields);
+        var g = applyEntityGuard(e, sheetRows, localData);
+        data[e] = g.rows;
+        if (g.accepted) lastSnapshot[e] = JSON.stringify(g.rows);
+      });
+      cachedServerData = data;
+      serverDataLoaded = true;
+      origSave(data);
+      subscribers.forEach(function (cb) { cb(data); });
+      setSyncStatus('ok');
     });
   }
 
@@ -521,6 +605,69 @@
     });
   }
 
+  /* ── 3-way merge (base / ours / theirs) ──────────────────────────────
+   * แก้บั๊ก multi-writer clobber: เดิม mergeRowKeepSheetForEmpty ใช้ค่าแอป
+   * (ของเรา) ชนะทุก field ที่ "ไม่ว่าง" → ถ้าคนอื่นเพิ่งแก้ field เดียวกันในชีต
+   * ระหว่างที่เราเปิดหน้าค้างไว้ การ replaceAll จะเขียนทับงานของเขาหายเงียบ
+   * (followUps หาย, status เด้งกลับ).
+   *
+   * 3-way merge ตัดสินจาก "ใครเป็นคนแก้จริง" เทียบกับ base (snapshot ที่เรา
+   * เห็นล่าสุดก่อนแก้):
+   *   - field ที่เราแก้ (ours != base)            → ใช้ของเรา
+   *   - field ที่เราไม่แตะ แต่เขาแก้ (theirs != base) → ใช้ของเขา (ค่าสดจากชีต)
+   *   - แถวที่คนอื่นเพิ่งเพิ่ม (อยู่ในชีต ไม่อยู่ใน base) → คงไว้ ไม่ลบทิ้ง
+   *   - แถวที่เราลบ (อยู่ใน base+ชีต ไม่อยู่ในของเรา) → ลบจริง เว้นแต่คนอื่น
+   *     เพิ่งแก้แถวนั้น (theirs != base) ให้คงของเขาไว้ กันลบทับงานเขา
+   */
+  function _eq(a, b) {
+    try { return JSON.stringify(a) === JSON.stringify(b); }
+    catch (_) { return a === b; }
+  }
+  function mergeRowFields(base, ours, theirs, clearable) {
+    var skip = clearable || {};
+    var result = Object.assign({}, ours);
+    var keys = {};
+    [base, ours, theirs].forEach(function (o) {
+      if (o) Object.keys(o).forEach(function (k) { keys[k] = true; });
+    });
+    Object.keys(keys).forEach(function (k) {
+      if (skip[k]) return; // clearable → เชื่อค่าแอปเสมอ (อนุญาตให้ล้างตั้งใจ)
+      var weChanged   = !_eq(ours[k], base ? base[k] : undefined);
+      var theyChanged = !_eq(theirs[k], base ? base[k] : undefined);
+      // เราไม่แก้ field นี้ แต่เขาแก้ → เอาค่าสดของเขา
+      if (!weChanged && theyChanged) result[k] = theirs[k];
+      // กรณีอื่น (เราแก้ / ไม่มีใครแก้ / แก้ทั้งคู่) → คงของเรา
+    });
+    return result;
+  }
+  function threeWayMergeRows(base, ours, theirs, clearable) {
+    var baseById = {}, theirsById = {}, ourIds = {};
+    (base   || []).forEach(function (r) { if (r && r.id != null) baseById[r.id]   = r; });
+    (theirs || []).forEach(function (r) { if (r && r.id != null) theirsById[r.id] = r; });
+    var out = [];
+    (ours || []).forEach(function (o) {
+      if (o == null) return;
+      if (o.id == null) { out.push(o); return; } // ไม่มี id → จับคู่ไม่ได้ คงของเรา
+      ourIds[o.id] = true;
+      var b = baseById[o.id], t = theirsById[o.id];
+      if (!b) { out.push(o); return; }            // แถวใหม่ที่เราสร้าง
+      if (!t) {                                    // คนอื่นลบแถวนี้ไปจากชีต
+        if (!_eq(o, b)) out.push(o);               // เราแก้ → คงของเราไว้ (ไม่ให้ลบกลืน)
+        return;                                    // เราไม่แตะ → ยอมรับการลบของเขา
+      }
+      out.push(mergeRowFields(b, o, t, clearable));
+    });
+    // แถวที่อยู่ในชีตแต่ไม่อยู่ในของเรา
+    (theirs || []).forEach(function (t) {
+      if (t == null || t.id == null || ourIds[t.id]) return;
+      var b = baseById[t.id];
+      if (!b) { out.push(t); return; }             // คนอื่นเพิ่งเพิ่ม → คงไว้
+      if (!_eq(t, b)) out.push(t);                 // เราลบ แต่เขาแก้ → คงของเขา
+      // เราลบ และเขาไม่แตะ → ลบจริง (ไม่ push)
+    });
+    return out;
+  }
+
   function syncDiff(data) {
     if (!POST_URL) return;
     if (inSyncDiff) return;
@@ -589,23 +736,24 @@
         return { entity: c.entity, sheetRows: null, currentRows: c.currentRows };
       });
     })).then(function (fetched) {
-      // STEP 2: Merge — preserve Sheet's non-empty values for empty app fields
+      // STEP 2: 3-way merge (base=preSnapshot / ours=app / theirs=sheet).
+      // กันงานของ writer คนอื่นถูกเขียนทับ: field ที่เราไม่ได้แก้ ให้ค่าสดจากชีต
+      // ชนะ, แถวที่คนอื่นเพิ่งเพิ่มก็คงไว้ไม่ลบทิ้ง (ดู threeWayMergeRows)
       var safeChanges = fetched.map(function (f) {
         if (!f.sheetRows) return { entity: f.entity, rows: f.currentRows };  // re-fetch fail → push as-is
-        var sheetById = {};
-        f.sheetRows.forEach(function (r) { if (r.id) sheetById[r.id] = r; });
         var clearable = {};
         (CLEARABLE_FIELDS[f.entity] || []).forEach(function (k) { clearable[k] = true; });
-        var merged = f.currentRows.map(function (appRow) {
-          return mergeRowKeepSheetForEmpty(appRow, sheetById[appRow.id], clearable);
-        });
+        var base = preSnapshots[f.entity] || [];
+        var merged = threeWayMergeRows(base, f.currentRows, f.sheetRows, clearable);
         return { entity: f.entity, rows: merged };
       });
 
-      // STEP 3: Update snapshot, localStorage, and notify React with merged data
+      // STEP 3: Update localStorage + notify React with merged data.
+      // ★ ยังไม่อัป lastSnapshot ตรงนี้ — รอจน push สำเร็จก่อน (STEP 5)
+      //   ไม่งั้นถ้า push ล้มเหลว snapshot จะเลื่อนทั้งที่ขึ้นชีตไม่สำเร็จ →
+      //   syncDiff รอบหน้าเห็นว่า "ไม่มีอะไรเปลี่ยน" → ไม่ retry → ข้อมูลเด้งกลับ
       var mergedData = Object.assign({}, data);
       safeChanges.forEach(function (c) {
-        lastSnapshot[c.entity] = JSON.stringify(c.rows);
         mergedData[c.entity] = c.rows;
       });
       origSave(mergedData);
@@ -614,7 +762,14 @@
       // STEP 4: Push merged data to Sheet (with audit metadata — old vs new row counts)
       return Promise.all(safeChanges.map(function (c) {
         return pushEntity(c.entity, c.rows, preSnapshots[c.entity] || []);
-      }));
+      })).then(function () {
+        // STEP 5: push สำเร็จแล้วเท่านั้น จึงค่อยอัป snapshot ให้ตรงกับชีต
+        // + stamp recentPushAt เพื่อเปิด grace window กัน CSV เก่าเด้งทับ (anti-bounce)
+        safeChanges.forEach(function (c) {
+          lastSnapshot[c.entity] = JSON.stringify(c.rows);
+          recentPushAt[c.entity] = Date.now();
+        });
+      });
     }).then(function () {
       setSyncStatus('ok');
     }).catch(function (err) {
