@@ -1478,7 +1478,7 @@ function CashFlowDashboard({ data, setData, toast }) {
             }}>{detailItem.source}</span>
             <span style={{ fontSize: 20, fontWeight: 800, fontVariantNumeric: 'tabular-nums',
               color: detailItem.amount < 0 ? 'var(--bad)' : 'var(--good)' }}>
-              {fmtNum(detailItem.amount, 0)} ฿
+              {fmtNum(detailItem.amount, Number.isInteger(detailItem.amount) ? 0 : 2)} ฿
             </span>
           </div>
           <table className="tbl" style={{ width: '100%', fontSize: 13 }}>
@@ -1733,7 +1733,7 @@ function DrillRow({ item, onCommit, onView, onTogglePaid }) {
   const editable = item.editable && !readOnly && item.feId;
   const canTogglePaid = item.source === 'AP' && item.vchno && !readOnly && !item.isPaid; // ยังไม่มี PV
   const canUntoggle   = item.source === 'AP' && item.vchno && !readOnly && item.isManualPaid; // manual เท่านั้นที่ถอนได้
-  const fmtMag = (a) => { const m = Math.abs(Number(a) || 0); return m ? Math.round(m).toLocaleString('en-US') : ''; };
+  const fmtMag = (a) => { const m = Math.abs(Number(a) || 0); if (!m) return ''; const d = Number.isInteger(m) ? 0 : 2; return m.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d }); };
   const [editing, setEditing] = cfState(false);
   const [hover, setHover]     = cfState(false);
   const [val, setVal]         = cfState(fmtMag(item.amount));
@@ -1793,7 +1793,7 @@ function DrillRow({ item, onCommit, onView, onTogglePaid }) {
               background: 'color-mix(in oklch, var(--brand-500) 6%, white)', textAlign: 'right',
               fontFamily: 'ui-monospace', fontVariantNumeric: 'tabular-nums', fontWeight: 600, fontSize: 'inherit', color: 'inherit' }}
           />
-        ) : fmtNum(item.amount, 0)}
+        ) : fmtNum(item.amount, Number.isInteger(item.amount) ? 0 : 2)}
       </td>
       <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }} onClick={editing ? stop : undefined}>
         {editing ? (
