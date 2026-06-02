@@ -2,7 +2,7 @@
 // Matches "Present War room - 18052026 การเงินด้านรับ" PDF page 2.
 // Globals: React, KpiTile, AnimatedNumber, Badge, Icon, StackedBars, fmtNum, fmtMoney, fmtDate, KpiCallout, SectionCard, BigCallout
 
-const WR2_BUILD = '20260601o';
+const WR2_BUILD = '20260602a';
 console.info('[WTP] War Room p2 build:', WR2_BUILD, '· WIP uses % งวด with %-stripping + fallback');
 
 const { useMemo: wr2Memo, useState: wr2State } = React;
@@ -25,6 +25,7 @@ function wr2SaveLocalProjects(arr) {
 function WarRoomPage2({ data, setData, toast }) {
   const { monthlyForecast, warroomP2, meta } = data;
   const [editMode, setEditMode] = wr2State(false);
+  const [ivTypeFilter, setIvTypeFilter] = wr2State('P'); // 'all' | 'P' | 'O' — default 'P' (โครงการ) เหมือนหน้า 1
   const [drill, setDrill] = wr2State(null);
   const [wsUploadOpen, setWsUploadOpen] = wr2State(false);
   useOverrideSubAny();
@@ -69,6 +70,9 @@ function WarRoomPage2({ data, setData, toast }) {
     const pre = wr2ToN(p['มูลค่าสัญญาที่เซ็น']) || wr2ToN(p.signedValue);
     return pre > 0 ? Math.round(pre * 1.07 * 100) / 100 : 0;
   };
+  // ประเภทใบแจ้งหนี้ (เหมือนหน้า 1): P = โครงการ, O = อื่นๆ · default P
+  const wr2InvType = (iv) => ((iv.invType || iv.invtype || 'P').toString().trim().toUpperCase() === 'O' ? 'O' : 'P');
+  const wr2TypeMatch = (t) => ivTypeFilter === 'all' || t === ivTypeFilter;
 
   // ── Subscribe to localStorage changes (WS upload triggers re-render) ──
   const [wsLocalVer, setWsLocalVer] = wr2State(0);
@@ -122,10 +126,17 @@ function WarRoomPage2({ data, setData, toast }) {
       return c ? (invByCode[c] || []) : [];
     };
     const receiptsOfIv = (iv) => rcByIvNo[iv.ivNo || iv.invoiceNo] || [];
+    // ประเภทของโครงการ = ดูจาก IV ของโครงการ · ไม่มี IV → ถือเป็นงานโครงการ (P)
+    //   เป็น 'O' เฉพาะเมื่อมี IV และทุกใบเป็น 'O' เท่านั้น
+    const projTypeOf = (p) => {
+      const ivs = projInvoicesOf(p);
+      if (!ivs.length) return 'P';
+      return ivs.every(iv => wr2InvType(iv) === 'O') ? 'O' : 'P';
+    };
 
     // 1) รอลงนาม — Start ว่าง + ไม่ยกเลิก → ใช้มูลค่าใบจัดสรร
     const unsignedList = active
-      .filter(p => isEmpty(getStart(p)))
+      .filter(p => isEmpty(getStart(p)) && wr2TypeMatch(projTypeOf(p)))
       .map(p => ({
         id: p.id,
         code: String(p['Contract No.'] || p.code || '—').trim(),
@@ -139,7 +150,7 @@ function WarRoomPage2({ data, setData, toast }) {
 
     // 2) ใบแจ้งหนี้คงค้าง — IV status != paid, balance > 0
     const invForwardList = invoices
-      .filter(iv => iv.status !== 'paid' && wr2ToN(iv.balance) > 0)
+      .filter(iv => iv.status !== 'paid' && wr2ToN(iv.balance) > 0 && wr2TypeMatch(wr2InvType(iv)))
       .map(iv => ({
         id: iv.id,
         ivNo: iv.ivNo || iv.invoiceNo || '—',
@@ -176,7 +187,7 @@ function WarRoomPage2({ data, setData, toast }) {
       return variants.some(k => !!p[k]);
     };
     const wipList = active
-      .filter(p => !isEmpty(getStart(p)))   // ลงนามแล้ว
+      .filter(p => !isEmpty(getStart(p)) && wr2TypeMatch(projTypeOf(p)))   // ลงนามแล้ว
       .map(p => {
         const contract = wr2GetContract(p);
         const ivs = projInvoicesOf(p);
@@ -257,7 +268,7 @@ function WarRoomPage2({ data, setData, toast }) {
       wip:        { value: wipValue,        count: wipList.length,        list: wipList },
       signedTotal, grandTotal,
     };
-  }, [data.projects, data.invoices, data.receipts, wsLocalVer]);
+  }, [data.projects, data.invoices, data.receipts, wsLocalVer, ivTypeFilter]);
 
   // ── Drill-down builders ─────────────────────────────────────────────────
   const fmtT0 = (v) => Number(v || 0).toLocaleString('en-US', { maximumFractionDigits: 0 });
@@ -450,6 +461,30 @@ function WarRoomPage2({ data, setData, toast }) {
             🔄 v{WR2_BUILD.slice(-4)}
           </button>
         </div>
+      </div>
+
+      {/* invType filter toggle — เหมือนหน้า 1 · default โครงการ (P) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }} className="anim-in">
+        <span style={{ fontSize: 12, color: 'var(--ink-500)' }}>กรองประเภทใบแจ้งหนี้:</span>
+        {[
+          { k: 'all', label: 'ทั้งหมด',           bg: '#f8fafc', color: '#2d3748', bd: '#cbd5e0' },
+          { k: 'P',   label: '📋 โครงการ (P)',    bg: '#ebf8ff', color: '#1e4fbd', bd: '#63b3ed' },
+          { k: 'O',   label: '🛒 อื่นๆ (O)',       bg: '#faf5ff', color: '#6b46c1', bd: '#b794f4' },
+        ].map(t => {
+          const active = ivTypeFilter === t.k;
+          return (
+            <button key={t.k} onClick={() => setIvTypeFilter(t.k)}
+              style={{
+                fontSize: 12, padding: '5px 12px', borderRadius: 16, cursor: 'pointer',
+                border: `1.5px solid ${active ? t.bd : 'transparent'}`,
+                background: active ? t.bg : 'transparent',
+                color: active ? t.color : 'var(--ink-500)',
+                fontWeight: active ? 700 : 500,
+              }}>
+              {t.label}
+            </button>
+          );
+        })}
       </div>
 
       {editMode && (
