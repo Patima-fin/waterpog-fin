@@ -3,63 +3,75 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- บังคับให้ browser revalidate index.html ทุกครั้ง เพื่อรับ cache-bust ?v=... ของ asset ใหม่ -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
   <title>Water POG · Financial Console</title>
+  <link rel="icon" type="image/png" href="waterpog_Logo-02.png?v=20260601" />
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=Sarabun:wght@400;500;600;700&family=Noto+Sans+Thai+Looped:wght@400;500;600;700&family=Kanit:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
-  <link rel="stylesheet" href="app/styles.css?v=20260526d" />
+  <link rel="stylesheet" href="app/styles.css?v=20260531a" />
 
   <!-- React + Babel (pinned with integrity) -->
   <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
   <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 
-  <!-- SheetJS — Excel export -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- SheetJS (xlsx-js-style fork) — Excel export พร้อมสไตล์ (สี/เส้น/ฟอนต์) · drop-in API เดิม global XLSX -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+
+  <!-- html2canvas-pro — capture report layout as PNG (รองรับ oklch() + modern CSS) -->
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas-pro@1.5.8/dist/html2canvas-pro.min.js"></script>
 
   <style>
     /* Critical above-the-fold for splash */
-    html, body { background: #f4f7fb; }
-    #splash { position: fixed; inset: 0; display: grid; place-items: center; background: #f4f7fb; z-index: 9999; transition: opacity 360ms ease; }
+    html, body { background: #f4f7fb; margin: 0; }
+    #splash { position: fixed; inset: 0; display: grid; place-items: center; z-index: 9999; transition: opacity 360ms ease;
+      background: radial-gradient(1200px 600px at 50% -10%, #eaf2ff 0%, #f4f7fb 55%, #eef2f8 100%); }
     #splash.gone { opacity: 0; pointer-events: none; }
-    #splash .spin { width: 56px; height: 56px; border-radius: 14px; background: linear-gradient(135deg, #2a6fdb, #1a4490); display: grid; place-items: center; box-shadow: 0 12px 32px rgba(31, 86, 184, 0.25); animation: pulse 1.6s ease-in-out infinite; }
-    #splash .lbl { margin-top: 16px; color: #475063; font: 14px/1 "IBM Plex Sans Thai", system-ui; }
-    @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+    #splash .box { text-align: center; animation: rise 600ms cubic-bezier(.2,.7,.2,1) both; }
+    #splash .logo { width: 168px; height: auto; display: block; margin: 0 auto; animation: float 3s ease-in-out infinite; filter: drop-shadow(0 14px 30px rgba(31, 86, 184, 0.18)); }
+    #splash .lbl { margin-top: 22px; color: #5a6478; font: 500 14px/1.4 "IBM Plex Sans Thai", system-ui; letter-spacing: .2px; }
+    #splash .bar { margin: 18px auto 0; width: 200px; height: 4px; border-radius: 99px; background: #dfe7f3; overflow: hidden; position: relative; }
+    #splash .bar::before { content: ""; position: absolute; inset: 0; width: 40%; border-radius: 99px;
+      background: linear-gradient(90deg, #2a6fdb, #36a9e1); animation: slide 1.25s ease-in-out infinite; }
+    @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+    @keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes slide { 0% { left: -40%; } 100% { left: 100%; } }
     .no-anim *, .no-anim *:before, .no-anim *:after { animation-duration: 0ms !important; transition: none !important; }
   </style>
 </head>
 <body>
   <div id="splash">
-    <div style="text-align:center">
-      <div class="spin">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
-          <path d="M3 5 L6 19 L9 9 L12 16 L15 9 L18 19 L21 5" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </div>
-      <div class="lbl">กำลังโหลด Water POG Financial Console…</div>
+    <div class="box">
+      <img class="logo" src="waterpog_Logo-02.png?v=20260601" alt="Water POG" />
+      <div class="lbl">กำลังโหลด Financial Console…</div>
+      <div class="bar"></div>
     </div>
   </div>
 
   <div id="root"></div>
 
   <!-- Data + Components + Tweaks panel + App -->
-  <script src="app/config.js?v=20260525l"></script>
-  <script src="app/data.js?v=20260525g"></script>
-  <script src="app/data_sync.js?v=20260526b"></script>
+  <script src="app/config.js?v=20260527a"></script>
+  <script src="app/data.js?v=20260526y"></script>
+  <script src="app/data_sync.js?v=20260601d"></script>
   <script type="text/babel" src="tweaks-panel.jsx?v=20260523n"></script>
   <script type="text/babel" src="app/components.jsx?v=20260601a"></script>
-  <script type="text/babel" src="app/charts.jsx?v=20260523n"></script>
-  <script type="text/babel" src="app/page_daily.jsx?v=20260527c"></script>
-  <script type="text/babel" src="app/page_cashflow.jsx?v=20260526za"></script>
-  <script type="text/babel" src="app/page_warroom_p1.jsx?v=20260525l"></script>
-  <script type="text/babel" src="app/page_warroom_p2.jsx?v=20260525l"></script>
-  <script type="text/babel" src="app/page_projects.jsx?v=20260525l"></script>
+  <script type="text/babel" src="app/charts.jsx?v=20260526a"></script>
+  <script type="text/babel" src="app/page_daily.jsx?v=20260528d"></script>
+  <script type="text/babel" src="app/page_cashflow.jsx?v=20260526zb"></script>
+  <script type="text/babel" src="app/page_warroom_p1.jsx?v=20260526g"></script>
+  <script type="text/babel" src="app/page_warroom_p2.jsx?v=20260601n"></script>
+  <script type="text/babel" src="app/page_projects.jsx?v=20260601n"></script>
   <script type="text/babel" src="app/page_invoices.jsx?v=20260601a"></script>
-  <script type="text/babel" src="app/page_data_extras.jsx?v=20260526k"></script>
+  <script type="text/babel" src="app/page_data_extras.jsx?v=20260530i"></script>
+  <script type="text/babel" src="app/page_debt_ledger.jsx?v=20260601d"></script>
   <script type="text/babel" src="app/page_debt.jsx?v=20260601a"></script>
-  <script type="text/babel" src="app/page_debt_ledger.jsx?v=20260601b"></script>
   <script type="text/babel" src="app/page_receipts.jsx?v=20260525j"></script>
   <script type="text/babel" src="app/page_bank_diary.jsx?v=20260525l"></script>
   <script type="text/babel" src="app/page_checks.jsx?v=20260526a"></script>
@@ -69,7 +81,9 @@
   <script type="text/babel" src="app/page_audit_log.jsx?v=20260525n"></script>
   <script type="text/babel" src="app/page_users.jsx?v=20260526c"></script>
   <script type="text/babel" src="app/page_daily_balance.jsx?v=20260526h"></script>
-  <script type="text/babel" src="app/app.jsx?v=20260526c"></script>
+  <script type="text/babel" src="app/page_pnl.jsx?v=20260531a"></script>
+  <script type="text/babel" src="app/page_budget.jsx?v=20260530d"></script>
+  <script type="text/babel" src="app/app.jsx?v=20260531a"></script>
 
   <script>
     // Hide splash once React mounts

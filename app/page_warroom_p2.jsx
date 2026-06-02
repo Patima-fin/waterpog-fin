@@ -164,7 +164,6 @@ function WarRoomPage2({ data, setData, toast }) {
     //    Edge: ถ้า % งวด 1 = 0, % งวด 2 = 100, งวด 2 ยังไม่ส่ง → WIP 100% = contract เต็ม
     //    Fallback: ถ้าไม่มี % เลย และยังไม่ส่งงาน → WIP เท่ากับ contract (assume งวดเดียว)
     const wr2HasMnDelivery = (p, n) => {
-      const sfx = n === 1 ? ' 1' : n === 2 ? ' 2' : 'งวด ' + n;
       const variants = [
         'วันที่ส่งมอบงาน งวด ' + n,
         'วันที่ส่ง นส.มอบงาน งวด ' + n,
