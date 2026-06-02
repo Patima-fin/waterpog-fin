@@ -29,16 +29,11 @@ function WarRoomPage2({ data, setData, toast }) {
   const [wsUploadOpen, setWsUploadOpen] = wr2State(false);
   useOverrideSubAny();
 
-  // ★ ลบ override เก่าของ KPI หน้านี้ออกเงียบๆ ตอน mount — เพื่อให้ live data ขึ้นแน่นอน
-  //   (clearAll() ถูก safety guard block — ลดทีละ key เพื่อเลี่ยง)
-  React.useEffect(() => {
-    const WR2_OV_KEYS = [
-      'wr2.heroTotal', 'wr2.heroInvForward', 'wr2.heroInvForwardCount',
-      'wr2.heroWip', 'wr2.heroWipCount', 'wr2.heroUnsigned', 'wr2.heroUnsignedCount',
-      'wr2.s11Value', 'wr2.s11Count', 'wr2.s12Value', 'wr2.s12Inv', 'wr2.s12Wip',
-    ];
-    WR2_OV_KEYS.forEach(k => { if (WTPOverride.has(k)) WTPOverride.clear(k); });
-  }, []);
+  // หมายเหตุ: WTPOverride sync ผ่าน cloud (data.manualOverrides) → ทุก browser
+  // ของทีมเห็นค่าที่ user แก้มือ · keys ที่แก้ได้:
+  //   wr2.heroTotal, wr2.heroInvForward, wr2.heroWip, wr2.heroUnsigned
+  //   wr2.s11Value, wr2.s11Count, wr2.s12Value, wr2.s12Inv, wr2.s12Wip
+  // ใช้: กดปุ่ม "โหมดแก้ไข" → คลิกที่ตัวเลข → กรอกค่าใหม่ → Enter
 
   // ── Helpers (prefixed wr2 เพื่อกัน collision กับ page อื่น) ─────────────
   const getStart = (p) => p['Start'] || p['start'] || p['startDate'] || p['_start'] || '';
@@ -548,41 +543,53 @@ function WarRoomPage2({ data, setData, toast }) {
               ประมาณการรับเงินจากโครงการที่ลงนามแล้ว
             </div>
             <div style={{ fontSize: 12, color: 'var(--ink-500)', marginTop: 2 }}>= ใบแจ้งหนี้คงค้าง + งานระหว่างก่อสร้าง</div>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginTop: 14, cursor: editMode ? 'auto' : 'pointer' }}
-              onClick={editMode ? undefined : openSignedDrill}>
-              <div style={{ fontSize: 32, fontWeight: 800, color: 'var(--brand-700)', fontVariantNumeric: 'tabular-nums', letterSpacing: '-.01em' }}>
-                <AnimatedNumber value={liveCalc.signedTotal} digits={2} />
-              </div>
-              <div style={{ fontSize: 14, color: 'var(--ink-500)' }}>บาท</div>
-            </div>
+            {/* Computed dynamic total — IV + WIP (auto-update เมื่อแก้ override) */}
+            {(() => {
+              const effInv = WTPOverride.resolve('wr2.s12Inv', liveCalc.invForward.value);
+              const effWip = WTPOverride.resolve('wr2.s12Wip', liveCalc.wip.value);
+              const effTotal = effInv + effWip;
+              return (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginTop: 14, cursor: editMode ? 'auto' : 'pointer' }}
+                    onClick={editMode ? undefined : openSignedDrill}>
+                    <div style={{ fontSize: 32, fontWeight: 800, color: 'var(--brand-700)', fontVariantNumeric: 'tabular-nums', letterSpacing: '-.01em' }}>
+                      <AnimatedNumber value={effTotal} digits={2} />
+                    </div>
+                    <div style={{ fontSize: 14, color: 'var(--ink-500)' }}>บาท</div>
+                  </div>
 
-            {/* Breakdown — invoice vs WIP (each row clickable) */}
-            <div style={{ marginTop: 14, padding: 14, borderRadius: 12, background: 'white', border: '1px solid var(--line)', display: 'grid', gap: 10 }}>
-              <div onClick={editMode ? undefined : openInvForwardDrill}
-                style={{ cursor: editMode ? 'auto' : 'pointer', borderRadius: 8, padding: 4, margin: -4 }}
-                title={editMode ? '' : 'คลิกดูใบแจ้งหนี้คงค้างทั้งหมด'}>
-                <SignedBreakdownRow
-                  color="oklch(60% 0.13 245)"
-                  label={'มูลค่าใบแจ้งหนี้คงค้าง ' + (editMode ? '' : '🔍')}
-                  sub={liveCalc.invForward.count + ' ใบ · ออก IV แล้ว · รอติดตามรับเงิน'}
-                  value={liveCalc.invForward.value}
-                  total={liveCalc.signedTotal}
-                  editMode={false}
-                />
-              </div>
-              <div onClick={editMode ? undefined : openWipDrill}
-                style={{ cursor: editMode ? 'auto' : 'pointer', borderRadius: 8, padding: 4, margin: -4 }}
-                title={editMode ? '' : 'คลิกดูโครงการระหว่างก่อสร้าง'}>
-                <SignedBreakdownRow
-                  color="oklch(55% 0.16 215)"
-                  label={'มูลค่างานระหว่างก่อสร้าง ' + (editMode ? '' : '🔍')}
-                  sub={liveCalc.wip.count + ' โครงการ · contract – billed'}
-                  value={liveCalc.wip.value}
-                  total={liveCalc.signedTotal}
-                  editMode={false}
-                />
-              </div>
-            </div>
+                  {/* Breakdown — invoice vs WIP (each row editable + clickable) */}
+                  <div style={{ marginTop: 14, padding: 14, borderRadius: 12, background: 'white', border: '1px solid var(--line)', display: 'grid', gap: 10 }}>
+                    <div onClick={editMode ? undefined : openInvForwardDrill}
+                      style={{ cursor: editMode ? 'auto' : 'pointer', borderRadius: 8, padding: 4, margin: -4 }}
+                      title={editMode ? '' : 'คลิกดูใบแจ้งหนี้คงค้างทั้งหมด'}>
+                      <SignedBreakdownRow
+                        color="oklch(60% 0.13 245)"
+                        label={'มูลค่าใบแจ้งหนี้คงค้าง ' + (editMode ? '✏️' : '🔍')}
+                        sub={liveCalc.invForward.count + ' ใบ · ออก IV แล้ว · รอติดตามรับเงิน'}
+                        value={effInv}
+                        total={effTotal}
+                        editMode={editMode}
+                        ovKey="wr2.s12Inv"
+                      />
+                    </div>
+                    <div onClick={editMode ? undefined : openWipDrill}
+                      style={{ cursor: editMode ? 'auto' : 'pointer', borderRadius: 8, padding: 4, margin: -4 }}
+                      title={editMode ? '' : 'คลิกดูโครงการระหว่างก่อสร้าง'}>
+                      <SignedBreakdownRow
+                        color="oklch(55% 0.16 215)"
+                        label={'มูลค่างานระหว่างก่อสร้าง ' + (editMode ? '✏️' : '🔍')}
+                        sub={liveCalc.wip.count + ' โครงการ · ' + (WTPOverride.has('wr2.s12Wip') ? 'ค่าที่กรอกมือ' : 'contract – billed')}
+                        value={effWip}
+                        total={effTotal}
+                        editMode={editMode}
+                        ovKey="wr2.s12Wip"
+                      />
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
 
             <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
               <Badge kind="b-blue" dot>{liveCalc.grandTotal > 0 ? ((liveCalc.signedTotal / liveCalc.grandTotal) * 100).toFixed(0) : 0}% ของมูลค่าทั้งหมด</Badge>
@@ -715,15 +722,33 @@ function HeroStat({ label, value, count }) {
   );
 }
 
-// Hero stat — render live computed value, no override
+// Hero stat — editable + sync ผ่าน cloud
 function HeroStatEditable({ ovKey, label, computed, count, countKey, editMode }) {
+  const overridden = WTPOverride.has(ovKey);
+  useOverrideSub(ovKey);
+  useOverrideSub(countKey || '_');
+  const value = WTPOverride.resolve(ovKey, computed);
+  const resolvedCount = countKey ? WTPOverride.resolve(countKey, count || 0) : count;
   return (
     <div style={{ textAlign: 'right' }}>
       <div style={{ fontSize: 11, opacity: 0.8, textTransform: 'uppercase', letterSpacing: '.06em' }}>{label}</div>
       <div style={{ fontSize: 20, fontWeight: 700, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
-        {(computed / 1_000_000).toFixed(2)} <span style={{ fontSize: 12, opacity: 0.85, fontWeight: 500 }}>ลบ.</span>
+        {editMode ? (
+          <EditableNumber ovKey={ovKey} computed={computed} editMode={true} digits={0} />
+        ) : (
+          <>
+            {(value / 1_000_000).toFixed(2)} <span style={{ fontSize: 12, opacity: 0.85, fontWeight: 500 }}>ลบ.</span>
+            {overridden && <span title="แก้มือ" style={{ fontSize: 9, marginLeft: 4, opacity: 0.85 }}>✏️</span>}
+          </>
+        )}
       </div>
-      {count != null && <div style={{ fontSize: 11, opacity: 0.85, marginTop: 2 }}>{count} โครงการ</div>}
+      {(count != null || countKey) && (
+        <div style={{ fontSize: 11, opacity: 0.85, marginTop: 2 }}>
+          {countKey && editMode ? (
+            <EditableNumber ovKey={countKey} computed={count || 0} editMode={editMode} digits={0} />
+          ) : resolvedCount} โครงการ
+        </div>
+      )}
     </div>
   );
 }
