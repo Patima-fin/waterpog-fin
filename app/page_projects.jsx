@@ -89,12 +89,14 @@ function computeProjectStatus(p, projInvoices, projReceipts) {
   if (manual && PROJ_STATUS[manual]) return manual;
 
   // ✦ Synthetic code prefix — ทนต่อ cloud sync ที่อาจ strip flag ยกเลิกออก
-  // ถ้า code ขึ้นต้น "XL-" = โครงการยกเลิก (แพ้ประมูล/ยกเลิกก่อนเซ็น) มาตั้งแต่ตอน
-  // Migration แล้ว ฟ้าผ่ายังไงก็เป็นยกเลิก
   const code = String((p && (p['Contract No.'] || p.code)) || '').trim();
   if (/^XL-/i.test(code)) return 'cancelled';
-  // WS- = waiting sign (ไม่มี Contract No.จริง · มีใบจัดสรร · ยังไม่ลงนาม)
   if (/^WS-/i.test(code)) return 'waiting_sign';
+
+  // ✦ Placeholder code = โครงการที่รันเลขประมูลไว้เฉย ๆ แต่ไม่ได้ลงนาม → ยกเลิก
+  // เช่น "AW" (ล้วน ๆ), "AW-67"/"AW-68"/"AW-69" (year suffix จาก finalizeCode)
+  // ไม่จับ canonical: AW119, PP001 ฯลฯ ที่มีตัวเลขโครงการต่อท้าย
+  if (/^[A-Z]{2,5}(-\d{2,4})?$/i.test(code)) return 'cancelled';
 
   // ยกเลิกโครงการ flag (column Z) — ใช้ในกรณีโครงการที่มี Contract No.จริงและยกเลิก
   if (getCancelFlag(p)) return 'cancelled';
