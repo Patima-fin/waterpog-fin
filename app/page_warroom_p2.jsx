@@ -2,6 +2,9 @@
 // Matches "Present War room - 18052026 การเงินด้านรับ" PDF page 2.
 // Globals: React, KpiTile, AnimatedNumber, Badge, Icon, StackedBars, fmtNum, fmtMoney, fmtDate, KpiCallout, SectionCard, BigCallout
 
+const WR2_BUILD = '20260601o';
+console.info('[WTP] War Room p2 build:', WR2_BUILD, '· WIP uses % งวด with %-stripping + fallback');
+
 const { useMemo: wr2Memo, useState: wr2State } = React;
 
 // ── Persistent WS/XL synthetic projects ─────────────────────────────────────
@@ -440,6 +443,11 @@ function WarRoomPage2({ data, setData, toast }) {
           <EditModeToggle value={editMode} onChange={setEditMode} />
           <a className="btn btn-ghost" href="#warroom1"><Icon name="arrow" size={14} style={{ transform: 'rotate(180deg)' }} /> ย้อนกลับ · หน้า 1</a>
           <PrintButton label="พิมพ์ / PDF" />
+          <button className="btn btn-ghost" onClick={() => { if (confirm('โหลด JS ใหม่ทั้งหมด (clear cache) ?')) { location.href = location.pathname + '?t=' + Date.now() + '#warroom2'; } }}
+            title={'Build: ' + WR2_BUILD + ' · คลิกเพื่อ force reload ทั้ง JS files'}
+            style={{ fontSize: 10.5, opacity: 0.7 }}>
+            🔄 v{WR2_BUILD.slice(-4)}
+          </button>
         </div>
       </div>
 
