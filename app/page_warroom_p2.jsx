@@ -599,7 +599,7 @@ function WarRoomPage2({ data, setData, toast }) {
                       <SignedBreakdownRow
                         color="oklch(55% 0.16 215)"
                         label={'มูลค่างานระหว่างก่อสร้าง ' + (editMode ? '✏️' : '🔍')}
-                        sub={liveCalc.wip.count + ' โครงการ · ' + (WTPOverride.has('wr2.s12Wip') ? 'ค่าที่กรอกมือ' : 'contract – billed')}
+                        sub={WTPOverride.has('wr2.s12Wip') ? 'ค่าที่กรอกมือ' : (liveCalc.wip.count + ' โครงการ · contract – billed')}
                         value={effWip}
                         total={effTotal}
                         editMode={editMode}
