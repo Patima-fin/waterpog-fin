@@ -167,6 +167,11 @@ function WarRoomPage2({ data, setData, toast }) {
     //    Edge: ถ้า % งวด 1 = 0, % งวด 2 = 100, งวด 2 ยังไม่ส่ง → WIP 100% = contract เต็ม
     //    Fallback: ถ้าไม่มี % เลย และยังไม่ส่งงาน → WIP เท่ากับ contract (assume งวดเดียว)
     const wr2HasMnDelivery = (p, n) => {
+      // ✦ Authority: "Summary Payment N" — engineer ใส่ยอดเมื่อส่งงานแล้ว
+      //   (per user explanation 01/06/26: "ถ้าโครงไหนส่งงานเเล้ว แกจะใส่ยอด
+      //    ที่ Summary Payment N · ถ้ายังไม่ส่งก็จะไม่มี")
+      //   secondary: วันที่ส่งมอบงาน (ถ้ากรอก) — fall back
+      if (wr2ToN(p['Summary Payment ' + n]) > 0) return true;
       const variants = [
         'วันที่ส่งมอบงาน งวด ' + n,
         'วันที่ส่ง นส.มอบงาน งวด ' + n,
@@ -204,8 +209,9 @@ function WarRoomPage2({ data, setData, toast }) {
           wipPct = 100;
         }
         let wip = Math.round(contract * wipPct) / 100;
-        // หักเงินที่รับมาแล้ว (กัน double-count กับ IV/receipts bucket)
-        wip = Math.max(0, wip - received);
+        // หัก received เฉพาะ fallback path (no pct data) — กัน double-count
+        // กรณี % path: % งวดที่ส่งแล้วไม่ถูกรวมใน wipPct อยู่แล้ว → ไม่ต้องหัก
+        if (!hasPctData) wip = Math.max(0, wip - received);
         return {
           id: p.id,
           code: String(p['Contract No.'] || p.code || '—').trim(),

@@ -129,11 +129,14 @@ function computeProjectStatus(p, projInvoices, projReceipts) {
   const m2Required = hasPctData ? pct2 > 0 : true;
   const m3Required = hasPctData ? pct3 > 0 : false;
   // milestones — งวดที่ไม่มี (% = 0) ถือว่า "ผ่านแล้ว"
-  // ใช้ "วันที่ส่งมอบงาน" OR "Receive Date" (user มอง field นี้ใน timeline ว่าส่งงานแล้ว)
-  //   ไม่ใช้ Payment Status อย่างเดียว เพราะอาจ predict ไว้ก่อน (ENC179: ps2=DONE + rd2=2025-08 = ส่งจริง)
-  const m1Delivered = !m1Required || !!p['วันที่ส่งมอบงาน งวด 1'] || !!p['Receive Date'];
-  const m2Delivered = !m2Required || !!p['วันที่ส่งมอบงาน งวด 2'] || !!p['Receive Date2'];
-  const m3Delivered = !m3Required || !!p['วันที่ส่งมอบงานงวด 3'] || !!p['Receive Date3'];
+  // ✦ Authority: "Summary Payment N" — engineer ใส่ยอดเมื่อ "ส่งงาน" เท่านั้น
+  //   ตรรกะ user (01/06/26): ส่งงาน → กรอก Summary Payment · รับเงิน → set Status=DONE
+  //   ถ้ายังไม่ส่งงาน → Summary Payment ว่าง (signal ที่แม่นกว่า delivery date)
+  //   secondary fall-back: วันที่ส่งมอบงาน, Receive Date (กันเคสที่ engineer ไม่ตามแบบ)
+  const hasSum = (n) => toNum(p['Summary Payment ' + n]) > 0;
+  const m1Delivered = !m1Required || hasSum(1) || !!p['วันที่ส่งมอบงาน งวด 1'] || !!p['Receive Date'];
+  const m2Delivered = !m2Required || hasSum(2) || !!p['วันที่ส่งมอบงาน งวด 2'] || !!p['Receive Date2'];
+  const m3Delivered = !m3Required || hasSum(3) || !!p['วันที่ส่งมอบงานงวด 3'] || !!p['Receive Date3'];
   const milestoneCount = (m1Delivered && m1Required ? 1 : 0) + (m2Delivered && m2Required ? 1 : 0) + (m3Delivered && m3Required ? 1 : 0);
 
   const invoiceCount = projInvoices.length;
