@@ -99,12 +99,13 @@ function computeProjectStatus(p, projInvoices, projReceipts) {
   // ยกเลิกโครงการ flag (column Z) — ใช้ในกรณีโครงการที่มี Contract No.จริงและยกเลิก
   if (getCancelFlag(p)) return 'cancelled';
 
-  // รอลงนาม — Sign Date IS NULL (ใช้ Start date เป็นเกณฑ์: ถ้ายังไม่มีวันเริ่มงาน
-  // = ยังไม่ลงนามจริง). `เซ็นสัญญา` flag อย่างเดียวเชื่อไม่ได้ — ในข้อมูลจริง
-  // หลายโครงการตั้งเป็น "1" ค้างไว้ทั้งที่ยังไม่ได้ลงนาม
+  // รอลงนาม — Sign Date IS NULL (ใช้ Start date เป็นเกณฑ์)
   const startDate = p['Start'] || p.startDate || '';
-  // ถือว่ายังไม่ลงนามถ้า: Start ว่าง AND (ไม่มี signed flag หรือไม่มี receive date เลย)
-  const hasAnyActivity = !!p['Receive Date'] || isStatusDone(p['Payment 1 Status']) || !!p['แจ้งเข้าดำเนินการ'];
+  // hasAnyActivity ต้องดู: project flags + IV/receipt records (กันโครงการที่
+  // รับเงินผ่าน receipts โดยไม่ได้ใส่ p['Receive Date'] เช่น AW ที่รับมา 1.3M)
+  const hasAnyActivity = !!p['Receive Date'] || isStatusDone(p['Payment 1 Status']) || !!p['แจ้งเข้าดำเนินการ']
+    || (projInvoices && projInvoices.length > 0)
+    || (projReceipts && projReceipts.length > 0);
   if (!startDate && !hasAnyActivity) return 'waiting_sign';
 
   const contractValue = toNum(p['มูลค่าสัญญาที่เซ็น'] || p.signedValue);
@@ -362,7 +363,29 @@ function ProjectsPage({ data, setData, toast }) {
     () => {
       // กรอง ghost rows (แถวที่พิมพ์เล่นใน Excel — มีแต่ชื่อ ไม่มีข้อมูลจริง)
       const real = (baseProjects || []).filter(p => !isGhostRow(p));
-      return enrichProjects(real, data.invoices || [], data.receipts || []);
+      const enrichedRaw = enrichProjects(real, data.invoices || [], data.receipts || []);
+
+      // ✦ Dedup โครงการรอลงนาม (waiting_sign) ตามชื่อ — เก็บ id ที่เห็นล่าสุด
+      //   เคสนี้สำคัญ: โครงการเดียวกันโผล่หลายงบ (Main all67/68/69) หรือซ้ำจาก
+      //   upload หลายครั้ง → ใน KPI/ตาราง ต้องนับ 1 ครั้ง
+      //   วิธี: group by normalized name, prefer id ที่มี code หรือ id หมายเลขใหญ่
+      //   (assumption: id ใหญ่ = upload หลัง = ปีงบล่าสุด)
+      const wsBest = {};
+      enrichedRaw.forEach(p => {
+        if (p._status !== 'waiting_sign') return;
+        const nameKey = String(p._name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+        if (!nameKey || nameKey === '—') return;
+        const currentBest = wsBest[nameKey];
+        const candScore = (p._code ? 100 : 0) + (parseInt(String(p._id || '').match(/(\d+)$/)?.[1] || '0', 10));
+        const bestScore = currentBest ? currentBest.score : -1;
+        if (candScore > bestScore) wsBest[nameKey] = { id: p._id, score: candScore };
+      });
+      return enrichedRaw.filter(p => {
+        if (p._status !== 'waiting_sign') return true;
+        const nameKey = String(p._name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+        if (!nameKey || nameKey === '—') return true;
+        return wsBest[nameKey] && wsBest[nameKey].id === p._id;
+      });
     },
     [baseProjects, data.invoices, data.receipts]
   );
