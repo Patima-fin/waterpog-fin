@@ -477,10 +477,11 @@ function CashFlowDashboard({ data, setData, toast }) {
     const actual   = weeks.map(() => 0);
     invoices.forEach(iv => {
       const net = ivNetExpected(iv, financeByCode);
-      // Plan bucket — IV ทุกใบที่มี expectedReceive ตกในเดือนนี้
-      //   รวมถึง IV ที่จ่ายแล้ว เพราะตอนที่วางแผนมันก็เป็นส่วนหนึ่งของ "plan"
-      //   (จะได้เห็น Plan vs Actual = 100% ตอนรับเงินครบ)
-      if (iv.expectedReceive && inMonth(iv.expectedReceive, year, month)) {
+      // Plan bucket — เฉพาะ IV ที่ "ยังไม่ได้รับเงิน" และมี expectedReceive ตกในเดือนนี้
+      //   ตัด IV ที่จ่าย/รับเงินไปแล้วออก (เงินเข้าแล้ว ไม่ใช่ "คาดรับ" อีกต่อไป)
+      //   ใช้เกณฑ์เดียวกับ drill-down (ivIsPaid) → การ์ด/ตาราง/รายละเอียดตรงกันเป๊ะ
+      //   กันเคส IV ที่คาดรับเดือนนี้ แต่รับเงินจริงไปแล้วตั้งแต่เดือนก่อน (ยอดพองเกินจริง)
+      if (!ivIsPaid(iv) && iv.expectedReceive && inMonth(iv.expectedReceive, year, month)) {
         const w = findWeekIdx(iv.expectedReceive, weeks);
         if (w >= 0) forecast[w] += net;
       }
