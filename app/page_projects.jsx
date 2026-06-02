@@ -117,28 +117,31 @@ function computeProjectStatus(p, projInvoices, projReceipts) {
   // ปิดโครงการ — รับเงินครบ
   if (contractValue > 0 && totalReceived >= contractValue * 0.99) return 'closed';
 
-  // milestones from "Payment N Status" + "Receive Date N"
-  const m1Delivered = isStatusDone(p['Payment 1 Status']) || !!p['Receive Date'];
-  const m2Delivered = isStatusDone(p['Payment 2 Status']) || !!p['Receive Date2'];
-  const m3Delivered = isStatusDone(p['Payment 3 Status']) || !!p['Receive Date3'];
+  // milestones — อ่านจากวันที่ส่งมอบงานเป็นหลัก (data ใน Excel)
+  // เสริมด้วย Payment Status และ Receive Date (กันเคสที่ Excel ไม่ครบ)
+  const m1Delivered = !!p['วันที่ส่งมอบงาน งวด 1'] || isStatusDone(p['Payment 1 Status']) || !!p['Receive Date'];
+  const m2Delivered = !!p['วันที่ส่งมอบงาน งวด 2'] || isStatusDone(p['Payment 2 Status']) || !!p['Receive Date2'];
+  const m3Delivered = !!p['วันที่ส่งมอบงานงวด 3'] || isStatusDone(p['Payment 3 Status']) || !!p['Receive Date3'];
   const milestoneCount = (m1Delivered ? 1 : 0) + (m2Delivered ? 1 : 0) + (m3Delivered ? 1 : 0);
 
   const invoiceCount = projInvoices.length;
   const hasUnpaidInvoice = projInvoices.some(iv => iv.status !== 'paid');
 
-  // เก็บเงินบางส่วน
+  // ✦ "กำลังก่อสร้าง" = สถานะจริงของงาน ดูจาก delivery dates เป็นหลัก
+  //   มี IV/Payment status ไม่ได้แปลว่าเสร็จ — งวด 1 ยังไม่ส่งมอบ = ก่อสร้างอยู่
+  //   ออก IV ล่วงหน้า (advance payment) เกิดได้ก่อนส่งงาน
+  //   ดังนั้น check "ยังไม่ส่งมอบ" ก่อน IV/payment state
+  if (!m1Delivered) return 'construction_m1';
+  if (!m2Delivered) return 'construction_m2';
+  if (!m3Delivered && (p['วันที่ส่งมอบงานงวด 3'] !== undefined || toNum(p['% งวด 3']) > 0)) return 'construction_m3';
+
+  // ส่งมอบงานครบแล้ว → ดู IV / payment state
   if (totalReceived > 0 && contractValue > 0 && totalReceived < contractValue) return 'partial_paid';
-
-  // มี invoice + ยังไม่ได้รับครบ → รอรับชำระ
   if (invoiceCount > 0 && hasUnpaidInvoice) return 'waiting_payment';
-
-  // ส่งมอบงานแล้ว แต่ invoice ยังไม่ครบ → รอออก IV
   if (milestoneCount > invoiceCount) return 'waiting_invoice';
 
-  // ระหว่างก่อสร้าง — งวดต่อไป
-  if (m2Delivered) return 'construction_m3';
-  if (m1Delivered) return 'construction_m2';
-  return 'construction_m1';
+  // fallback (สถานะเฉพาะหายาก) — ก่อสร้างงวดสุดท้าย
+  return m2Delivered ? 'construction_m3' : (m1Delivered ? 'construction_m2' : 'construction_m1');
 }
 
 // ── Project enrichment — join projects with invoices/receipts ──────────────
