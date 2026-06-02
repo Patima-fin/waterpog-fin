@@ -7,7 +7,7 @@ const { useMemo: wr1Memo, useState: wr1State } = React;
 
 function WarRoomPage1({ data, setData, toast }) {
   const { warroomP1, meta } = data;
-  const [ivTypeFilter, setIvTypeFilter] = wr1State('all'); // 'all' | 'P' | 'O'
+  const [ivTypeFilter, setIvTypeFilter] = wr1State('P'); // 'all' | 'P' | 'O' — default 'P' (โครงการ)
   const [drillModal, setDrillModal]     = wr1State(null);  // { kind: 'month'|'week', title, items }
   const wrInvType = iv => ((iv.invType || iv.invtype || 'P').toString().trim().toUpperCase() === 'O' ? 'O' : 'P');
   const matchType = iv => ivTypeFilter === 'all' || wrInvType(iv) === ivTypeFilter;
