@@ -497,10 +497,10 @@ function WarRoomPage2({ data, setData, toast }) {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, auto)', gap: 24, fontSize: 12 }}>
             <div style={{ cursor: editMode ? 'auto' : 'pointer' }} onClick={editMode ? undefined : openInvForwardDrill} title={editMode ? '' : 'คลิกดูรายการ IV'}>
-              <HeroStatEditable ovKey="wr2.heroInvForward" label="ใบแจ้งหนี้คงค้าง 🔍" computed={liveCalc.invForward.value} count={liveCalc.invForward.count} countKey="wr2.heroInvForwardCount" editMode={editMode} />
+              <HeroStatEditable ovKey="wr2.heroInvForward" label="ใบแจ้งหนี้คงค้าง 🔍" computed={liveCalc.invForward.value} editMode={editMode} />
             </div>
             <div style={{ cursor: editMode ? 'auto' : 'pointer' }} onClick={editMode ? undefined : openWipDrill} title={editMode ? '' : 'คลิกดูโครงการระหว่างก่อสร้าง'}>
-              <HeroStatEditable ovKey="wr2.heroWip" label="งานระหว่างก่อสร้าง 🔍" computed={liveCalc.wip.value} count={liveCalc.wip.count} countKey="wr2.heroWipCount" editMode={editMode} />
+              <HeroStatEditable ovKey="wr2.heroWip" label="งานระหว่างก่อสร้าง 🔍" computed={liveCalc.wip.value} editMode={editMode} />
             </div>
             <div style={{ cursor: editMode ? 'auto' : 'pointer' }} onClick={editMode ? undefined : openUnsignedDrill} title={editMode ? '' : 'คลิกดูโครงการรอลงนาม'}>
               <HeroStatEditable ovKey="wr2.heroUnsigned" label="ใบจัดสรร · รอลงนาม 🔍" computed={liveCalc.unsigned.value} count={liveCalc.unsigned.count} editMode={editMode} countKey="wr2.heroUnsignedCount" />
@@ -599,7 +599,7 @@ function WarRoomPage2({ data, setData, toast }) {
                       <SignedBreakdownRow
                         color="oklch(55% 0.16 215)"
                         label={'มูลค่างานระหว่างก่อสร้าง ' + (editMode ? '✏️' : '🔍')}
-                        sub={WTPOverride.has('wr2.s12Wip') ? 'ค่าที่กรอกมือ' : (liveCalc.wip.count + ' โครงการ · contract – billed')}
+                        sub={WTPOverride.has('wr2.s12Wip') ? '' : (liveCalc.wip.count + ' โครงการ · contract – billed')}
                         value={effWip}
                         total={effTotal}
                         editMode={editMode}
