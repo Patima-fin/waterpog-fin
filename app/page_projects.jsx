@@ -129,11 +129,11 @@ function computeProjectStatus(p, projInvoices, projReceipts) {
   const m2Required = hasPctData ? pct2 > 0 : true;
   const m3Required = hasPctData ? pct3 > 0 : false;
   // milestones — งวดที่ไม่มี (% = 0) ถือว่า "ผ่านแล้ว"
-  // ใช้ "วันที่ส่งมอบงาน" เท่านั้น (definitive) — ไม่ใช้ Payment Status เพราะอาจหมายถึง
-  // สถานะงาน predict ไว้ ไม่ใช่ delivery จริง (PP074: ps2=DONE แต่ d2 ว่าง = ยังไม่ส่ง)
-  const m1Delivered = !m1Required || !!p['วันที่ส่งมอบงาน งวด 1'];
-  const m2Delivered = !m2Required || !!p['วันที่ส่งมอบงาน งวด 2'];
-  const m3Delivered = !m3Required || !!p['วันที่ส่งมอบงานงวด 3'];
+  // ใช้ "วันที่ส่งมอบงาน" OR "Receive Date" (user มอง field นี้ใน timeline ว่าส่งงานแล้ว)
+  //   ไม่ใช้ Payment Status อย่างเดียว เพราะอาจ predict ไว้ก่อน (ENC179: ps2=DONE + rd2=2025-08 = ส่งจริง)
+  const m1Delivered = !m1Required || !!p['วันที่ส่งมอบงาน งวด 1'] || !!p['Receive Date'];
+  const m2Delivered = !m2Required || !!p['วันที่ส่งมอบงาน งวด 2'] || !!p['Receive Date2'];
+  const m3Delivered = !m3Required || !!p['วันที่ส่งมอบงานงวด 3'] || !!p['Receive Date3'];
   const milestoneCount = (m1Delivered && m1Required ? 1 : 0) + (m2Delivered && m2Required ? 1 : 0) + (m3Delivered && m3Required ? 1 : 0);
 
   const invoiceCount = projInvoices.length;
