@@ -530,23 +530,36 @@ function WarRoomPage2({ data, setData, toast }) {
             </div>
             <div style={{ marginTop: 10, fontSize: 14, color: 'var(--ink-600)', fontWeight: 500 }}>โครงการที่รอลงนามสัญญา</div>
             <div style={{ fontSize: 12, color: 'var(--ink-500)', marginTop: 2 }}>ได้รับใบจัดสรรแล้ว · Start ว่าง · ไม่ยกเลิก · ใช้มูลค่าใบจัดสรร</div>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginTop: 14 }}>
-              <div style={{ fontSize: 32, fontWeight: 800, color: 'var(--ink-900)', fontVariantNumeric: 'tabular-nums', letterSpacing: '-.01em' }}
-                onClick={editMode ? (e) => e.stopPropagation() : undefined}>
-                <AnimatedNumber value={liveCalc.unsigned.value} digits={2} />
-              </div>
-              <div style={{ fontSize: 14, color: 'var(--ink-500)' }}>บาท</div>
-            </div>
-            <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <Badge kind="b-amber" dot>
-                {liveCalc.unsigned.count} โครงการ
-              </Badge>
-              {liveCalc.grandTotal > 0 && (
-                <span style={{ fontSize: 11.5, color: 'var(--ink-500)' }}>
-                  {((liveCalc.unsigned.value / liveCalc.grandTotal) * 100).toFixed(1)}% ของมูลค่าทั้งหมด
-                </span>
-              )}
-            </div>
+            {(() => {
+              // ใช้ค่าเดียวกับ hero "ใบจัดสรร · รอลงนาม" — ถ้าแก้มือ (override) ให้โชว์ยอดที่กรอก
+              const unsignedOverridden = WTPOverride.has('wr2.heroUnsigned');
+              const effUnsigned = WTPOverride.resolve('wr2.heroUnsigned', liveCalc.unsigned.value);
+              const effUnsignedCount = WTPOverride.resolve('wr2.heroUnsignedCount', liveCalc.unsigned.count);
+              return (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginTop: 14 }}>
+                    <div style={{ fontSize: 32, fontWeight: 800, color: 'var(--ink-900)', fontVariantNumeric: 'tabular-nums', letterSpacing: '-.01em' }}
+                      onClick={editMode ? (e) => e.stopPropagation() : undefined}>
+                      <AnimatedNumber value={effUnsigned} digits={2} />
+                    </div>
+                    <div style={{ fontSize: 14, color: 'var(--ink-500)' }}>บาท</div>
+                    {unsignedOverridden && <span title="แก้มือ" style={{ fontSize: 14, opacity: 0.85 }}>✏️</span>}
+                  </div>
+                  <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    {unsignedOverridden ? (
+                      <Badge kind="b-amber" dot>ค่าที่กรอกมือ</Badge>
+                    ) : (
+                      <Badge kind="b-amber" dot>{effUnsignedCount} โครงการ</Badge>
+                    )}
+                    {!unsignedOverridden && liveCalc.grandTotal > 0 && (
+                      <span style={{ fontSize: 11.5, color: 'var(--ink-500)' }}>
+                        {((effUnsigned / liveCalc.grandTotal) * 100).toFixed(1)}% ของมูลค่าทั้งหมด
+                      </span>
+                    )}
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
 
