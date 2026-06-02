@@ -774,17 +774,8 @@ function LoginPage({ onLogin }) {
         border: '1px solid rgba(42,111,219,0.09)',
       }}>
         <div style={{ textAlign: 'center', marginBottom: 36 }}>
-          <div style={{
-            width: 62, height: 62, borderRadius: 17, margin: '0 auto 14px',
-            background: 'linear-gradient(135deg, #2a6fdb, #1a4490)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            boxShadow: '0 8px 24px rgba(42,111,219,0.32)',
-          }}>
-            <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
-              <path d="M3 5 L6 19 L9 9 L12 16 L15 9 L18 19 L21 5" stroke="white" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </div>
-          <div style={{ fontSize: 21, fontWeight: 700, color: '#1a2236' }}>Water POG</div>
+          <img src="waterpog_Logo-02.png" alt="Water POG"
+            style={{ height: 88, width: 'auto', maxWidth: '70%', objectFit: 'contain', margin: '0 auto 10px', display: 'block' }} />
           <div style={{ fontSize: 13, color: '#7b8ca6', marginTop: 3 }}>Financial Console</div>
         </div>
 
@@ -819,14 +810,14 @@ function LoginPage({ onLogin }) {
                 }}>
                 {showPw ? (
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
-                    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
-                    <line x1="1" y1="1" x2="23" y2="23"/>
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                    <circle cx="12" cy="12" r="3"/>
                   </svg>
                 ) : (
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                    <circle cx="12" cy="12" r="3"/>
+                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                    <line x1="1" y1="1" x2="23" y2="23"/>
                   </svg>
                 )}
               </button>
