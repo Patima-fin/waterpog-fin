@@ -167,7 +167,7 @@ function WarRoomPage1({ data, setData, toast }) {
   }), [nextMthIvs]);
 
   return (
-    <div className="page bg-pattern">
+    <div className="page bg-pattern present-page">
       <div className="page-head anim-in">
         <div>
           <h1 className="page-title">Revenue Collection & Receivables Overview</h1>

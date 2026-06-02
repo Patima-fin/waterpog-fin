@@ -889,7 +889,7 @@ function CashFlowDashboard({ data, setData, toast }) {
   };
 
   return (
-    <div className="page bg-pattern cf-page">
+    <div className="page bg-pattern cf-page present-page">
       {/* Header */}
       <div className="page-head anim-in">
         <div>

@@ -536,6 +536,56 @@ button { font: inherit; color: inherit; }
 .anim-stagger > *:nth-child(7) { animation-delay: 340ms; }
 .anim-stagger > *:nth-child(8) { animation-delay: 390ms; }
 
+/* ════════════════════════════════════════════════════════════════════════
+   Presentation spotlight — used on War Room 1/2 + Cash Flow (.present-page)
+   ชี้ (hover) ไปที่การ์ด/แถวไหน → อันนั้นยกตัว + เรืองแสง, อันอื่นหรี่ลง
+   ช่วยให้ผู้ฟังรู้ทันทีว่ากำลังพูดถึงส่วนไหนระหว่างพรีเซนต์
+   ════════════════════════════════════════════════════════════════════════ */
+.present-page .card,
+.present-page .kpi {
+  border-radius: 20px;                /* การ์ดแบบมนๆ เฉพาะหน้าพรีเซนต์ */
+  transition: transform .28s var(--ease), box-shadow .28s var(--ease),
+              opacity .28s var(--ease), filter .28s var(--ease);
+}
+/* การ์ดที่มีแถบสีซ้าย (kpi-accent) → clip ให้แถบโค้งตามมุมการ์ด ไม่โผล่เป็นเหลี่ยม */
+.present-page .card:has(> .kpi-accent),
+.present-page .kpi:has(> .kpi-accent) { overflow: hidden; }
+/* the block you point at — lift + glowing brand ring */
+.present-page .card:hover,
+.present-page .kpi:hover {
+  transform: translateY(-4px);
+  box-shadow:
+    0 22px 55px -16px color-mix(in oklch, var(--brand-500) 60%, transparent),
+    0 0 0 2.5px color-mix(in oklch, var(--brand-500) 55%, transparent);
+  z-index: 6;
+  position: relative;
+}
+/* everything else fades back so the focus pops */
+.present-page:has(.card:hover, .kpi:hover) .card:not(:hover),
+.present-page:has(.card:hover, .kpi:hover) .kpi:not(:hover) {
+  opacity: .38;
+  filter: saturate(.7);
+}
+/* row-level spotlight: point at a single line in any table */
+.present-page .tbl tbody tr {
+  transition: background .2s var(--ease), opacity .2s var(--ease), box-shadow .2s var(--ease);
+}
+.present-page .tbl tbody tr:hover {
+  background: color-mix(in oklch, var(--brand-500) 15%, white) !important;
+  box-shadow: inset 4px 0 0 0 var(--brand-500);
+}
+.present-page .tbl tbody:has(tr:hover) tr:not(:hover) { opacity: .42; }
+/* don't carry the spotlight into print / reduced motion */
+.no-anim .present-page .card:hover,
+.no-anim .present-page .kpi:hover { transform: none; }
+@media print {
+  .present-page .card:hover,
+  .present-page .kpi:hover { transform: none; box-shadow: none; }
+  .present-page:has(.card:hover, .kpi:hover) .card:not(:hover),
+  .present-page:has(.card:hover, .kpi:hover) .kpi:not(:hover),
+  .present-page .tbl tbody:has(tr:hover) tr:not(:hover) { opacity: 1; filter: none; }
+}
+
 /* Dense layout option */
 .dense .card, .dense .kpi { padding: 14px; }
 .dense .tbl tbody td { padding: 9px 12px; }
