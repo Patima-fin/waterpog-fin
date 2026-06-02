@@ -668,6 +668,9 @@ button { font: inherit; color: inherit; }
   .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
+  /* Cashflow hero — big Strategic card drops below the small-card block */
+  .cf-heroA { grid-template-columns: 1fr !important; }
+
   .pipeline { grid-template-columns: repeat(2, 1fr); }
   .pipe-arrow { display: none; }
 

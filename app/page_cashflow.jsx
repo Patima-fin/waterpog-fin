@@ -156,6 +156,10 @@ const CATEGORY_LABELS_SHORT = {
 //   แล้วไปรวมเป็น "pool" ก้อนเดียว ให้ผู้ใช้คีย์เองว่างวดนี้จะจ่ายเท่าไหร่
 //   เก็บรายชื่อ (เศษชื่อ — match แบบ contains) ใน localStorage แก้ได้
 const CF_FLEX_LS_KEY = 'wtp-cf-flexible-vendors';
+// ── Manual "paid" flag — ทำเครื่องหมาย AP ว่าจ่ายแล้วเอง (เงินออกจริงแล้ว แต่ยังไม่ได้ตีด PV)
+//   เก็บผ่าน WTPOverride (sync ข้าม user) คีย์ = cf.paidAp.<vchno> = 1
+const CF_MANUAL_PAID_PREFIX = 'cf.paidAp';
+const cfManualPaidKey = (vchno) => `${CF_MANUAL_PAID_PREFIX}.${vchno}`;
 const CF_FLEX_DEFAULTS = [
   'เอเซีย วอเตอร์', 'เวลโกร', 'อินโนวาเทค', 'พินพอยท์', 'เอสทีอาร์', 'ธารา วอเตอร์',
   'เอ็นคอนเนค', 'เคพีเอส', 'โทเทิล',   // เผื่อสะกดต่าง/ยังไม่มี AP — แก้ทีหลังได้
@@ -318,6 +322,25 @@ function CashFlowDashboard({ data, setData, toast }) {
   // ── AP-PV match: exclude AP that has a matching PV ────────────────────
   const paidVchnoSet = cfMemo(() => buildPaidVchnoSet(pvVouchers), [pvVouchers]);
 
+  // ── Manual "paid" flags — AP ที่เงินออกจริงแล้ว แต่ยังไม่ได้ตีด PV ────────
+  //   useMemo ไม่ recompute ตอน override เปลี่ยน (deps ไม่เปลี่ยน) → ใช้ ovTick กระตุ้น
+  const [ovTick, setOvTick] = cfState(0);
+  cfEffect(() => {
+    const h = () => setOvTick(x => x + 1);
+    window.addEventListener('wtp-override-change', h);
+    return () => window.removeEventListener('wtp-override-change', h);
+  }, []);
+  const manualPaidSet = cfMemo(() => {
+    const all = WTPOverride._load();
+    const s = new Set();
+    Object.keys(all).forEach(k => {
+      if (k.startsWith(CF_MANUAL_PAID_PREFIX + '.') && all[k]) s.add(k.slice(CF_MANUAL_PAID_PREFIX.length + 1));
+    });
+    return s;
+  }, [ovTick]);
+  // จ่ายแล้วจริง = มี PV ตรง vchno (อัตโนมัติ) หรือ ทำเครื่องหมายเอง (manual)
+  const isApPaid = (ap) => !!ap && (paidVchnoSet.has(ap.vchno) || manualPaidSet.has(ap.vchno));
+
   // ── Flexible vendors — AP กลุ่มที่จ่ายตามสภาพคล่อง (ไม่ตามดิว) ──────────
   const isFlexAp = (ap) => cfIsFlexibleVendor(ap.cust_name || ap.vendor, flexVendors);
   //   pool = ยอดค้างรวมของกลุ่มนี้ (เฉพาะที่ยังไม่จ่าย) + แยกรายเจ้าหนี้
@@ -326,7 +349,7 @@ function CashFlowDashboard({ data, setData, toast }) {
     let total = 0, count = 0;
     payables.forEach(ap => {
       if (!isFlexAp(ap)) return;
-      if (paidVchnoSet.has(ap.vchno)) return;      // จ่ายแล้วไม่นับ
+      if (isApPaid(ap)) return;      // จ่ายแล้วไม่นับ (PV หรือทำเครื่องหมายเอง)
       const amt = Number(ap.netpayment || ap.Amount || 0);
       if (!amt) return;
       total += amt; count++;
@@ -335,7 +358,7 @@ function CashFlowDashboard({ data, setData, toast }) {
     });
     const rows = Object.entries(byVendor).map(([name, sum]) => ({ name, sum })).sort((a, b) => b.sum - a.sum);
     return { total, count, rows };
-  }, [payables, paidVchnoSet, flexVendors]);
+  }, [payables, paidVchnoSet, manualPaidSet, flexVendors]);
 
   // ยอดที่ "เลือกจ่าย" งวดนี้ (คีย์เอง, sync ผ่าน override, แยกตามเดือน)
   const flexPayCurrent = Math.abs(WTPOverride.resolve(`${ovPrefix}.s01.flex.current`, 0));
@@ -375,6 +398,33 @@ function CashFlowDashboard({ data, setData, toast }) {
     });
     return grid;
   }, [payables, forecastEntries, paidVchnoSet, weeks, year, month, flexVendors]);
+
+  // ── AP ที่ "จ่ายแล้ว" (PV หรือ manual) แยกตาม week×cat — เพื่อหักออกจากคอลัมน์สัปดาห์
+  //   เงินออกจากบัญชีจริงแล้ว (เงินใช้ได้ปัจจุบันถูกหักไป) จึงไม่คิดซ้ำใน Plan รายสัปดาห์/คงเหลือ
+  const apPaidByWeekCat = cfMemo(() => {
+    const grid = weeks.map(() => ({ 1: 0, 2: 0, 3: 0, 4: 0 }));
+    payables.forEach(ap => {
+      if (isFlexAp(ap)) return;
+      if (!isApPaid(ap)) return;
+      const due = ap.due2 || ap.due || ap.vchdate;
+      if (!inMonth(due, year, month)) return;
+      const wIdx = findWeekIdx(due, weeks);
+      if (wIdx < 0) return;
+      grid[wIdx][categorizePayable(ap)] += Number(ap.netpayment || ap.Amount || 0);
+    });
+    return grid;
+  }, [payables, paidVchnoSet, manualPaidSet, weeks, year, month, flexVendors]);
+
+  // Plan รายสัปดาห์ (คอลัมน์ current/rest + คงเหลือ/net) = ทั้งหมด − ที่จ่ายแล้ว
+  //   หมายเหตุ: การ์ด KPI "ค่าใช้จ่ายรวม/Plan vs Actual" + "คาดการณ์สิ้นเดือน" ยังใช้ apForecastByWeekCat (เต็ม)
+  const apForecastByWeekCatUnpaid = cfMemo(() =>
+    apForecastByWeekCat.map((g, w) => ({
+      1: g[1] - apPaidByWeekCat[w][1],
+      2: g[2] - apPaidByWeekCat[w][2],
+      3: g[3] - apPaidByWeekCat[w][3],
+      4: g[4] - apPaidByWeekCat[w][4],
+    })),
+  [apForecastByWeekCat, apPaidByWeekCat]);
 
   // ── PV actual outflow by week × category ──────────────────────────────
   const pvActualByWeekCat = cfMemo(() => {
@@ -529,13 +579,13 @@ function CashFlowDashboard({ data, setData, toast }) {
       if (!isLoan && amt < 0) out[categorizeForecastEntry(fe)] += Math.abs(amt);
     });
     payables.forEach(ap => {
-      if (paidVchnoSet.has(ap.vchno)) return;
+      if (isApPaid(ap)) return;
       const due = ap.due2 || ap.due || ap.vchdate;
       if (!inMonth(due, nextYear, nextMonth)) return;
       out[categorizePayable(ap)] += Number(ap.netpayment || ap.Amount || 0);
     });
     return { iv, loan, out };
-  }, [isLastWeekOfMonth, invoices, payables, forecastEntries, paidVchnoSet, year, month]);
+  }, [isLastWeekOfMonth, invoices, payables, forecastEntries, paidVchnoSet, manualPaidSet, year, month]);
 
   // Plan table — use forecast bucket only (it already includes all entries,
   //   ACTUAL items at their planned date). Drill-down popup shows breakdown.
@@ -546,11 +596,13 @@ function CashFlowDashboard({ data, setData, toast }) {
 
   const planIv   = currentRestSplit(ivCombinedByWeek,   nextMonthInflow.iv);
   const planLoan = currentRestSplit(loanCombinedByWeek, nextMonthInflow.loan);
+  // ตาราง Plan รายสัปดาห์ — ใช้ unpaid grid (ไม่หักซ้ำกับเงินใช้ได้ปัจจุบัน)
+  // หมายเหตุ: outflowForecast/การ์ด KPI รายเดือนยังใช้ apForecastByWeekCat (เต็ม)
   const planOut  = {
-    1: currentRestSplit(apForecastByWeekCat.map(g => g[1]), nextMonthInflow.out[1]),
-    2: currentRestSplit(apForecastByWeekCat.map(g => g[2]), nextMonthInflow.out[2]),
-    3: currentRestSplit(apForecastByWeekCat.map(g => g[3]), nextMonthInflow.out[3]),
-    4: currentRestSplit(apForecastByWeekCat.map(g => g[4]), nextMonthInflow.out[4]),
+    1: currentRestSplit(apForecastByWeekCatUnpaid.map(g => g[1]), nextMonthInflow.out[1]),
+    2: currentRestSplit(apForecastByWeekCatUnpaid.map(g => g[2]), nextMonthInflow.out[2]),
+    3: currentRestSplit(apForecastByWeekCatUnpaid.map(g => g[3]), nextMonthInflow.out[3]),
+    4: currentRestSplit(apForecastByWeekCatUnpaid.map(g => g[4]), nextMonthInflow.out[4]),
   };
   // ใช้ค่าที่ resolve override แล้ว เพื่อให้ "รวมรายจ่าย" สะท้อนยอดที่ user คีย์มือ
   // และ net end-of-week/month ก็ใช้ยอดนี้คำนวณต่อด้วย
@@ -567,21 +619,13 @@ function CashFlowDashboard({ data, setData, toast }) {
   const totalOutRest    = [1,2,3,4].reduce((s, c) => s + _resolvedOut(c).rest,    0) + flexPayRest;
   const totalOutAll     = [1,2,3,4].reduce((s, c) => s + _resolvedOut(c).total,   0) + flexPayCurrent + flexPayRest;
 
-  // ── Week-start balance (net of HOLD): snapshot at start of current week
-  //   ใช้ในตาราง Plan แถว "เงินสดคงเหลือยกมา" ของ current-week column
+  // ── Carry-forward base (net of HOLD) for the current-week column
+  //   แถว "เงินสดคงเหลือยกมา" ของสัปดาห์ปัจจุบัน = เงินใช้ได้ปัจจุบัน (liveAvailable)
+  //   ให้ตรงกับการ์ด "เงินสดใช้ได้ปัจจุบัน" ด้านบน · กรณีดูเดือนอื่น (ไม่มีสัปดาห์ปัจจุบัน) → ใช้ยอดต้นเดือน
   const weekBF = cfMemo(() => {
-    let raw;
-    if (nowWeek == null || !weeks[nowWeek]) {
-      raw = monthBF;
-    } else {
-      const wStart = weeks[nowWeek].fromISO;
-      const d = new Date(wStart);
-      d.setDate(d.getDate() - 1);
-      const prevISO = d.toISOString().slice(0, 10);
-      raw = openingBalanceAt(snapshots, prevISO, liveBalance);
-    }
+    const raw = (nowWeek == null || !weeks[nowWeek]) ? monthBF : liveBalance;
     return Math.max(0, raw - liveHold);
-  }, [snapshots, weeks, nowWeek, monthBF, liveBalance, liveHold]);
+  }, [weeks, nowWeek, monthBF, liveBalance, liveHold]);
 
   // Net at end of current week + end of month — used in PlanRow + Net row
   // ใช้ค่าหลัง override สำหรับ inflow ด้วย เพื่อให้ คงเหลือ/Final Net Position ตามที่ user คีย์
@@ -701,9 +745,11 @@ function CashFlowDashboard({ data, setData, toast }) {
         if (!d || !inPeriod(d)) return;
         const cat = categorizePayable(ap);
         if (cat !== targetCat) return;
-        const isPaid = paidVchnoSet.has(ap.vchno);
+        const isPaid    = paidVchnoSet.has(ap.vchno);
+        const isManual  = manualPaidSet.has(ap.vchno);
         const noteParts = [];
-        if (isPaid) noteParts.push('✅ จ่ายแล้ว');
+        if (isPaid || isManual) noteParts.push('✅ จ่ายแล้ว');
+        if (isManual && !isPaid) noteParts.push('(ทำเครื่องหมายเอง)');
         if (ap.jobcode) noteParts.push(`Job: ${ap.jobcode}`);
         if (ap.dpt_code) noteParts.push(ap.dpt_code);
         items.push({
@@ -712,6 +758,9 @@ function CashFlowDashboard({ data, setData, toast }) {
           name: ap.cust_name || ap.vendor || '—',
           ref: ap.vchno || ap.docno || '',
           amount: -Number(ap.netpayment || ap.Amount || 0),  // negative = outflow
+          isPaid: isPaid || isManual,
+          isManualPaid: isManual && !isPaid,
+          vchno: ap.vchno,
           note: noteParts.join(' · ') || '—',
           detail: [
             ['ผู้ขาย', ap.cust_name || ap.vendor || '—'],
@@ -721,7 +770,7 @@ function CashFlowDashboard({ data, setData, toast }) {
             ['วันที่เอกสาร', fmtDate(ap.vchdate) || '—'],
             ['วันครบกำหนด', fmtDate(ap.due2 || ap.due) || '—'],
             ['ยอดจ่ายสุทธิ', fmtNum(Number(ap.netpayment || ap.Amount) || 0, 0) + ' ฿'],
-            ['สถานะ', isPaid ? '✅ จ่ายแล้ว (ตัดออกจากแผน)' : 'ค้างจ่าย'],
+            ['สถานะ', isPaid ? '✅ จ่ายแล้ว (PV ตรง)' : isManual ? '✅ จ่ายแล้ว (ทำเครื่องหมายเอง)' : 'ค้างจ่าย'],
             ['หมายเหตุ', ap.remark || '—'],
           ],
         });
@@ -765,6 +814,38 @@ function CashFlowDashboard({ data, setData, toast }) {
     // Sort by date ascending
     items.sort((a, b) => String(a.date).localeCompare(String(b.date)));
     setDrillDown({ title: label, period, row, items });
+  };
+
+  // ─── Toggle manual "paid" flag on AP item ────────────────────────────────
+  const toggleManualPaid = (vchno) => {
+    if (!vchno) return;
+    const key = cfManualPaidKey(vchno);
+    if (WTPOverride.has(key)) {
+      WTPOverride.clear(key);
+    } else {
+      WTPOverride.set(key, 1);
+    }
+    // อัปเดต items ใน popup ทันที
+    setDrillDown(prev => prev && {
+      ...prev,
+      items: prev.items.map(x => {
+        if (x.vchno !== vchno) return x;
+        const nowPaid = !x.isManualPaid;
+        return {
+          ...x,
+          isPaid: x.isPaid && !x.isManualPaid ? true : nowPaid,   // ถ้า PV ตรงอยู่แล้ว คง isPaid=true
+          isManualPaid: nowPaid,
+          note: [
+            nowPaid ? '✅ จ่ายแล้ว (ทำเครื่องหมายเอง)' : null,
+            x.note && !x.note.startsWith('✅') ? x.note : null,
+          ].filter(Boolean).join(' · ') || '—',
+          detail: x.detail.map(([k, v]) =>
+            k === 'สถานะ' ? [k, nowPaid ? '✅ จ่ายแล้ว (ทำเครื่องหมายเอง)' : 'ค้างจ่าย'] : [k, v]
+          ),
+        };
+      }),
+    });
+    if (typeof toast === 'function') toast(WTPOverride.has(cfManualPaidKey(vchno)) ? 'ทำเครื่องหมายจ่ายแล้ว — ตัดออกจากประมาณการสัปดาห์' : 'ยกเลิกเครื่องหมาย — กลับเข้าประมาณการ');
   };
 
   // ─── Inline-edit a FORECAST line from the drill-down ──────────────────────
@@ -857,25 +938,67 @@ function CashFlowDashboard({ data, setData, toast }) {
       )}
 
       {/* ═════ SECTION A — Hero balance cards + PlanVsActual KPIs ═════════ */}
-      {/* Hero strip — 3 big gradient cards: อดีต (B/F) → ปัจจุบัน (ใช้ได้) → อนาคต (สิ้นเดือน) */}
-      <div className="grid grid-3 anim-in" style={{ marginBottom: 18 }}>
+      {/* ซ้าย: การ์ดเล็ก 5 อัน (2 แถว) · ขวา: คาดการณ์สิ้นเดือน (Strategic) อันใหญ่สูงเต็ม */}
+      <div className="cf-heroA anim-in" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: 16, alignItems: 'stretch', marginBottom: 22 }}>
+        {/* ── ซ้าย — การ์ดเล็ก 5 อัน เรียง 2 แถว ── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* แถวบน — เงินสด: ยกมา + ใช้ได้วันนี้ */}
+          <div className="grid grid-2">
+            <BalanceCard
+              tone="bf"
+              label="เงินสดยกมาใช้ได้ (B/F)"
+              value={monthBFAvailable}
+              editMode={editMode}
+              ovKey={`${ovPrefix}.bf`}
+              hint={`ต้นเดือน · ${monthNames[month - 1]} ${year + 543}`}
+              icon="coin"
+            />
+            <BalanceCard
+              tone="now"
+              label="เงินสดใช้ได้ปัจจุบัน"
+              value={liveAvailable}
+              hint={`ยอดพร้อมใช้จริง ณ วันนี้`}
+              icon="bank"
+            />
+          </div>
+          {/* แถวล่าง — Plan vs Actual: รับเงิน / เงินกู้ / คชจ */}
+          <div className="grid grid-3">
+            <PlanVsActualCard
+              tone="good"
+              icon="bank"
+              label="รับเงินโครงการ (IV)"
+              plan={ivForecast}
+              actual={ivActual}
+              editMode={editMode}
+              ovKey={`${ovPrefix}.iv`}
+              hint={`คาดรับ ${fmtNum(ivForecast, 0)} · รับจริง ${fmtNum(ivActual, 0)}`}
+            />
+            <PlanVsActualCard
+              tone="info"
+              icon="money"
+              label="เงินกู้/สินเชื่อหมุนเวียน"
+              plan={loanForecast}
+              actual={loanActual}
+              editMode={editMode}
+              ovKey={`${ovPrefix}.loan`}
+              hint={loanForecast === 0 ? 'ยังไม่มีประมาณการเงินกู้เดือนนี้' : `เบิกแล้ว ${loanForecast > 0 ? ((loanActual / loanForecast) * 100).toFixed(1) : 0}%`}
+            />
+            <PlanVsActualCard
+              tone="bad"
+              icon="arrow_up"
+              label="ค่าใช้จ่ายรวม (4 หมวด)"
+              plan={outflowForecast}
+              actual={outflowActual}
+              editMode={editMode}
+              ovKey={`${ovPrefix}.outflow`}
+              hint="รวม ดำเนินงาน / โครงการ / การเงิน / เบ็ดเตล็ด+เงินเดือน"
+            />
+          </div>
+        </div>
+
+        {/* ── ขวา — คาดการณ์สิ้นเดือน อันใหญ่ ── */}
         <BalanceCard
-          tone="bf"
-          label="เงินสดยกมาใช้ได้ (B/F)"
-          value={monthBFAvailable}
-          editMode={editMode}
-          ovKey={`${ovPrefix}.bf`}
-          hint={`ต้นเดือน · ${monthNames[month - 1]} ${year + 543}`}
-          icon="coin"
-        />
-        <BalanceCard
-          tone="now"
-          label="เงินสดใช้ได้ปัจจุบัน"
-          value={liveAvailable}
-          hint={`ยอดพร้อมใช้จริง ณ วันนี้`}
-          icon="bank"
-        />
-        <BalanceCard
+          big
           tone={strategicNet < 0 ? 'bad' : 'good'}
           label="คาดการณ์สิ้นเดือน (Strategic)"
           value={strategicNet}
@@ -886,40 +1009,6 @@ function CashFlowDashboard({ data, setData, toast }) {
             'B/F + IV คาดรับ + เงินกู้ − รายจ่ายตามดิว − จ่ายสภาพคล่อง'
           }
           icon={strategicNet < 0 ? 'arrow_down' : 'arrow_up'}
-        />
-      </div>
-
-      {/* 3 PlanVsActual cards — รับโครงการ / เงินกู้ / ค่าใช้จ่ายรวม */}
-      <div className="grid grid-3 anim-stagger" style={{ marginBottom: 22 }}>
-        <PlanVsActualCard
-          tone="good"
-          icon="bank"
-          label="รับเงินโครงการ (IV)"
-          plan={ivForecast}
-          actual={ivActual}
-          editMode={editMode}
-          ovKey={`${ovPrefix}.iv`}
-          hint={`คาดรับ ${fmtNum(ivForecast, 0)} · รับจริง ${fmtNum(ivActual, 0)}`}
-        />
-        <PlanVsActualCard
-          tone="info"
-          icon="money"
-          label="เงินกู้/สินเชื่อหมุนเวียน"
-          plan={loanForecast}
-          actual={loanActual}
-          editMode={editMode}
-          ovKey={`${ovPrefix}.loan`}
-          hint={loanForecast === 0 ? 'ยังไม่มีประมาณการเงินกู้เดือนนี้' : `เบิกแล้ว ${loanForecast > 0 ? ((loanActual / loanForecast) * 100).toFixed(1) : 0}%`}
-        />
-        <PlanVsActualCard
-          tone="bad"
-          icon="arrow_up"
-          label="ค่าใช้จ่ายรวม (4 หมวด)"
-          plan={outflowForecast}
-          actual={outflowActual}
-          editMode={editMode}
-          ovKey={`${ovPrefix}.outflow`}
-          hint="รวม ดำเนินงาน / โครงการ / การเงิน / เบ็ดเตล็ด+เงินเดือน"
         />
       </div>
 
@@ -1315,34 +1404,55 @@ function CashFlowDashboard({ data, setData, toast }) {
                   </div>
                 </div>
               </div>
-              <div style={{ maxHeight: '60vh', overflow: 'auto' }}>
-                <table className="tbl" style={{ width: '100%', fontSize: 12.5 }}>
-                  <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
-                    <tr>
-                      <th style={{ width: 70, textAlign: 'left' }}>ที่มา</th>
-                      <th style={{ width: 100 }}>วันที่</th>
-                      <th style={{ width: 130 }}>เลขที่</th>
-                      <th>ชื่อ/รายการ</th>
-                      <th style={{ width: 140, textAlign: 'right' }}>จำนวน (฿)</th>
-                      <th style={{ width: 150, textAlign: 'center' }}>จัดการ</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {drillDown.items.map((it, i) => (
-                      <DrillRow key={i} item={it} onCommit={commitForecastEdit} onView={setDetailItem} />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              {(() => {
+                const pending = drillDown.items.filter(x => !x.isPaid);
+                const paid    = drillDown.items.filter(x =>  x.isPaid);
+                const tbl = (rows, grayed) => (
+                  <table className="tbl" style={{ width: '100%', fontSize: 12.5, opacity: grayed ? 0.75 : 1 }}>
+                    <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
+                      <tr>
+                        <th style={{ width: 70, textAlign: 'left' }}>ที่มา</th>
+                        <th style={{ width: 100 }}>วันที่</th>
+                        <th style={{ width: 130 }}>เลขที่</th>
+                        <th>ชื่อ/รายการ</th>
+                        <th style={{ width: 140, textAlign: 'right' }}>จำนวน (฿)</th>
+                        <th style={{ width: 150, textAlign: 'center' }}>จัดการ</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((it, i) => (
+                        <DrillRow key={i} item={it} onCommit={commitForecastEdit} onView={setDetailItem} onTogglePaid={toggleManualPaid} />
+                      ))}
+                    </tbody>
+                  </table>
+                );
+                return (
+                  <div style={{ maxHeight: '60vh', overflow: 'auto' }}>
+                    {tbl(pending, false)}
+                    {paid.length > 0 && (
+                      <>
+                        <div style={{ margin: '14px 0 6px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ flex: 1, height: 1, background: 'var(--ink-100)' }} />
+                          <span style={{ fontSize: 11.5, color: 'var(--ink-500)', whiteSpace: 'nowrap', fontWeight: 600 }}>
+                            ✅ จ่ายแล้ว ({paid.length} รายการ · ตัดออกจากประมาณการสัปดาห์แล้ว)
+                          </span>
+                          <div style={{ flex: 1, height: 1, background: 'var(--ink-100)' }} />
+                        </div>
+                        {tbl(paid, true)}
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
               <div style={{ marginTop: 10, fontSize: 11, color: 'var(--ink-500)', lineHeight: 1.6 }}>
                 💡 <strong>AP</strong> = เจ้าหนี้คงค้างจากระบบ ·
                 <strong> IV</strong> = ใบแจ้งหนี้รับเงิน ·
                 <strong> Forecast</strong> = ประมาณการบันทึกเอง<br />
                 👆 <strong>คลิกที่บรรทัด</strong> เพื่อดูรายละเอียดของรายการนั้น ·
-                ✏️ แถว <strong>Forecast (PLANNED)</strong> กด <strong>แก้</strong> เพื่อแก้ยอด แล้วกด ✓ บันทึก (ซิงค์อัตโนมัติ) ·
-                AP/IV และรายการที่เกิดจริงแล้ว แก้ที่หน้า
-                <a href="#data_payables" style={{ color: 'var(--brand-600)' }}> AP Outstanding</a>,
-                <a href="#data_invoices" style={{ color: 'var(--brand-600)' }}> รายงานติดตามรับเงิน</a> หรือ
+                ✅ AP ค้างจ่าย: กด <strong>จ่ายแล้ว</strong> เพื่อตัดออกจากประมาณการสัปดาห์ (รอ PV) ·
+                ✏️ Forecast (PLANNED): กด <strong>แก้</strong> เพื่อแก้ยอด ·
+                แก้ข้อมูลต้นทางได้ที่
+                <a href="#data_payables" style={{ color: 'var(--brand-600)' }}> AP Outstanding</a> หรือ
                 <a href="#data_forecast" style={{ color: 'var(--brand-600)' }}> ประมาณการรายจ่าย</a>
               </div>
             </>
@@ -1410,7 +1520,7 @@ function SectionTitle({ num, title, subtitle }) {
   );
 }
 
-function BalanceCard({ tone, label, value, hint, icon, editMode, ovKey }) {
+function BalanceCard({ tone, label, value, hint, icon, editMode, ovKey, big, style }) {
   const tones = {
     bf:   { bg: 'linear-gradient(135deg, var(--brand-500), var(--brand-700))', text: 'white' },
     now:  { bg: 'linear-gradient(135deg, oklch(62% 0.13 245), oklch(46% 0.16 255))', text: 'white' },
@@ -1421,13 +1531,13 @@ function BalanceCard({ tone, label, value, hint, icon, editMode, ovKey }) {
   const displayValue = ovKey ? WTPOverride.resolve(ovKey, value) : value;
   useOverrideSub(ovKey || '_');
   return (
-    <div className="card" style={{ background: t.bg, color: t.text, borderColor: 'transparent', padding: 22, position: 'relative', overflow: 'hidden' }}>
-      <div style={{ position: 'absolute', right: -40, top: -40, width: 160, height: 160, borderRadius: '50%', background: 'rgba(255,255,255,0.1)' }} />
+    <div className="card" style={{ background: t.bg, color: t.text, borderColor: 'transparent', padding: big ? 28 : 22, position: 'relative', overflow: 'hidden', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: big ? 'center' : 'flex-start', ...style }}>
+      <div style={{ position: 'absolute', right: -40, top: -40, width: big ? 220 : 160, height: big ? 220 : 160, borderRadius: '50%', background: 'rgba(255,255,255,0.1)' }} />
       <div style={{ position: 'relative' }}>
-        <div style={{ fontSize: 13, opacity: 0.9, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
-          {icon && <Icon name={icon} size={14} />} {label}
+        <div style={{ fontSize: big ? 15 : 13, opacity: 0.9, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
+          {icon && <Icon name={icon} size={big ? 17 : 14} />} {label}
         </div>
-        <div style={{ fontSize: 36, fontWeight: 800, fontVariantNumeric: 'tabular-nums', marginTop: 6, letterSpacing: '-.02em' }}>
+        <div style={{ fontSize: big ? 52 : 36, fontWeight: 800, fontVariantNumeric: 'tabular-nums', marginTop: 6, letterSpacing: '-.02em', lineHeight: 1.05 }}>
           {editMode && ovKey ? (
             <EditableNumber ovKey={ovKey} computed={value} editMode={true} digits={0} />
           ) : (
@@ -1437,7 +1547,7 @@ function BalanceCard({ tone, label, value, hint, icon, editMode, ovKey }) {
             </>
           )}
         </div>
-        {hint && <div style={{ fontSize: 12, opacity: 0.85, marginTop: 4 }}>{hint}</div>}
+        {hint && <div style={{ fontSize: big ? 13 : 12, opacity: 0.85, marginTop: big ? 10 : 4 }}>{hint}</div>}
       </div>
     </div>
   );
@@ -1618,9 +1728,11 @@ function PlanRow({ label, current, rest, total, subtle, negative, carrySigned, o
 //   AP/IV/รายการที่เกิดจริง = ดูอย่างเดียว · Forecast (PLANNED) = กดแก้ยอดได้
 //   แก้ = กรอก "ขนาด" (magnitude) คงเครื่องหมายเดิม (จ่าย = ลบ, รับ = บวก)
 //   ช่องแก้เป็น text + comma (ไม่มีลูกศรเพิ่ม/ลด) พิมพ์เองได้เร็ว
-function DrillRow({ item, onCommit, onView }) {
+function DrillRow({ item, onCommit, onView, onTogglePaid }) {
   const readOnly = typeof _wtpRoleIsReadOnly === 'function' && _wtpRoleIsReadOnly();
   const editable = item.editable && !readOnly && item.feId;
+  const canTogglePaid = item.source === 'AP' && item.vchno && !readOnly && !item.isPaid; // ยังไม่มี PV
+  const canUntoggle   = item.source === 'AP' && item.vchno && !readOnly && item.isManualPaid; // manual เท่านั้นที่ถอนได้
   const fmtMag = (a) => { const m = Math.abs(Number(a) || 0); return m ? Math.round(m).toLocaleString('en-US') : ''; };
   const [editing, setEditing] = cfState(false);
   const [hover, setHover]     = cfState(false);
@@ -1694,6 +1806,12 @@ function DrillRow({ item, onCommit, onView }) {
         ) : editable ? (
           <button type="button" onClick={(e) => { stop(e); setEditing(true); }} title="แก้ยอดประมาณการ"
             style={miniBtn({ borderColor: 'var(--brand-400)', color: 'var(--brand-700)' })}>✏️ แก้</button>
+        ) : canTogglePaid ? (
+          <button type="button" onClick={(e) => { stop(e); if (onTogglePaid) onTogglePaid(item.vchno); }} title="ทำเครื่องหมายว่าจ่ายแล้ว (ยังไม่มี PV)"
+            style={miniBtn({ borderColor: 'var(--good)', color: 'var(--good)', background: 'color-mix(in oklch, var(--good) 8%, white)' })}>✅ จ่ายแล้ว</button>
+        ) : canUntoggle ? (
+          <button type="button" onClick={(e) => { stop(e); if (onTogglePaid) onTogglePaid(item.vchno); }} title="ยกเลิกเครื่องหมาย — กลับเข้าประมาณการ"
+            style={miniBtn({ borderColor: 'var(--ink-400)', color: 'var(--ink-500)' })}>↩ ยกเลิก</button>
         ) : (
           <span style={{ color: 'var(--ink-300)', fontSize: 14 }}>›</span>
         )}
