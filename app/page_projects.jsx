@@ -117,23 +117,39 @@ function computeProjectStatus(p, projInvoices, projReceipts) {
   // ปิดโครงการ — รับเงินครบ
   if (contractValue > 0 && totalReceived >= contractValue * 0.99) return 'closed';
 
-  // milestones — อ่านจากวันที่ส่งมอบงานเป็นหลัก (data ใน Excel)
-  // เสริมด้วย Payment Status และ Receive Date (กันเคสที่ Excel ไม่ครบ)
-  const m1Delivered = !!p['วันที่ส่งมอบงาน งวด 1'] || isStatusDone(p['Payment 1 Status']) || !!p['Receive Date'];
-  const m2Delivered = !!p['วันที่ส่งมอบงาน งวด 2'] || isStatusDone(p['Payment 2 Status']) || !!p['Receive Date2'];
-  const m3Delivered = !!p['วันที่ส่งมอบงานงวด 3'] || isStatusDone(p['Payment 3 Status']) || !!p['Receive Date3'];
-  const milestoneCount = (m1Delivered ? 1 : 0) + (m2Delivered ? 1 : 0) + (m3Delivered ? 1 : 0);
+  // % งวด (strip "%" sign) — ใช้ตัดสินว่ามี งวดนั้นจริงไหม
+  const pctOf = (k) => { const n = Number(String(p[k] || '').replace(/[%,\s]/g, '')); return isNaN(n) ? 0 : n; };
+  const pct1 = pctOf('% งวด 1');
+  const pct2 = pctOf('% งวด 2');
+  const pct3 = pctOf('% งวด 3');
+  const hasPctData = pct1 > 0 || pct2 > 0 || pct3 > 0;
+  // ถ้า % งวดใส่ 0 = ไม่มีงวดนั้น (เช่น โครงการเล็ก: pct1=0, pct2=100 → งวดเดียว)
+  // ถ้าไม่มี % data เลย → default ให้ทุกงวดต้องเช็คตามปกติ
+  const m1Required = hasPctData ? pct1 > 0 : true;
+  const m2Required = hasPctData ? pct2 > 0 : true;
+  const m3Required = hasPctData ? pct3 > 0 : false;
+  // milestones — งวดที่ไม่มี (% = 0) ถือว่า "ผ่านแล้ว"
+  // ใช้ "วันที่ส่งมอบงาน" เท่านั้น (definitive) — ไม่ใช้ Payment Status เพราะอาจหมายถึง
+  // สถานะงาน predict ไว้ ไม่ใช่ delivery จริง (PP074: ps2=DONE แต่ d2 ว่าง = ยังไม่ส่ง)
+  const m1Delivered = !m1Required || !!p['วันที่ส่งมอบงาน งวด 1'];
+  const m2Delivered = !m2Required || !!p['วันที่ส่งมอบงาน งวด 2'];
+  const m3Delivered = !m3Required || !!p['วันที่ส่งมอบงานงวด 3'];
+  const milestoneCount = (m1Delivered && m1Required ? 1 : 0) + (m2Delivered && m2Required ? 1 : 0) + (m3Delivered && m3Required ? 1 : 0);
 
   const invoiceCount = projInvoices.length;
   const hasUnpaidInvoice = projInvoices.some(iv => iv.status !== 'paid');
 
-  // ✦ "กำลังก่อสร้าง" = สถานะจริงของงาน ดูจาก delivery dates เป็นหลัก
-  //   มี IV/Payment status ไม่ได้แปลว่าเสร็จ — งวด 1 ยังไม่ส่งมอบ = ก่อสร้างอยู่
-  //   ออก IV ล่วงหน้า (advance payment) เกิดได้ก่อนส่งงาน
-  //   ดังนั้น check "ยังไม่ส่งมอบ" ก่อน IV/payment state
-  if (!m1Delivered) return 'construction_m1';
-  if (!m2Delivered) return 'construction_m2';
-  if (!m3Delivered && (p['วันที่ส่งมอบงานงวด 3'] !== undefined || toNum(p['% งวด 3']) > 0)) return 'construction_m3';
+  // ✦ "กำลังก่อสร้าง" ดูจาก งวดสุดท้าย (last required งวด)
+  //   ถ้างวดสุดท้ายส่งแล้ว = ก่อสร้างเสร็จ → ไปดู IV/payment state
+  //   ถ้างวดสุดท้ายยังไม่ส่ง = ยังก่อสร้างอยู่ → จัดเข้า construction_mX ของงวดแรกที่ยังไม่ส่ง
+  //   เคส AW143: งวด 1=40% (d1 ว่าง) + งวด 2=60% (ส่งแล้ว 9/Jun/25) + IV ครบ 5.4M
+  //     → งวดสุดท้ายส่งแล้ว → ไม่ใช่ก่อสร้าง → ดู IV → waiting_payment
+  const lastDelivered = m3Required ? m3Delivered : (m2Required ? m2Delivered : (m1Required ? m1Delivered : true));
+  if (!lastDelivered) {
+    if (m1Required && !m1Delivered) return 'construction_m1';
+    if (m2Required && !m2Delivered) return 'construction_m2';
+    if (m3Required && !m3Delivered) return 'construction_m3';
+  }
 
   // ส่งมอบงานครบแล้ว → ดู IV / payment state
   if (totalReceived > 0 && contractValue > 0 && totalReceived < contractValue) return 'partial_paid';
