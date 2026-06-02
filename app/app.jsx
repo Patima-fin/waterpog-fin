@@ -677,6 +677,23 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
   );
 }
 
+// Present Mode — toggle ที่เปิด spotlight + การ์ดมน เฉพาะหน้านำเสนอ
+// จัดการ class บน <body> + จำสถานะใน localStorage เอง (ใช้ได้ข้ามหน้า)
+function PresentModeToggle() {
+  const [on, setOn] = aState(() => { try { return localStorage.getItem('wtp-present-mode') === '1'; } catch (_) { return false; } });
+  aEffect(() => {
+    document.body.classList.toggle('present-mode', on);
+    try { localStorage.setItem('wtp-present-mode', on ? '1' : '0'); } catch (_) {}
+  }, [on]);
+  return (
+    <button type="button" className={`present-toggle${on ? ' is-on' : ''}`} onClick={() => setOn(v => !v)}
+      title={on ? 'โหมดนำเสนอ: เปิด — ชี้ที่การ์ด/แถวเพื่อไฮไลต์ (คลิกเพื่อปิด)' : 'เปิดโหมดนำเสนอ — ชี้ที่การ์ด/แถวแล้วเด่นขึ้น เหมาะตอนพรีเซนต์'}>
+      <span className="dot" />
+      <span className="lbl">โหมดนำเสนอ{on ? ' · เปิด' : ''}</span>
+    </button>
+  );
+}
+
 function Topbar({ route, routes, data, onReset, onMenuClick }) {
   const r = routes[route] || routes.daily;
   const today = new Date().toLocaleDateString('th-TH-u-ca-gregory', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
@@ -700,6 +717,7 @@ function Topbar({ route, routes, data, onReset, onMenuClick }) {
         </div>
       </div>
       <div className="tb-actions">
+        {isPresentation && <PresentModeToggle />}
         <div className="tb-search">
           <Icon name="search" size={14} />
           <input placeholder="ค้นหาโครงการ / IV…" />
