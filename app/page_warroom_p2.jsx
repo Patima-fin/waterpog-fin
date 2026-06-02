@@ -44,7 +44,7 @@ function WarRoomPage2({ data, setData, toast }) {
     const s = String(v).trim();
     return s === '' || s === '—' || s === '-' || s === '0' || s.toLowerCase() === 'null';
   };
-  const wr2ToN = (v) => { const n = Number(String(v == null ? '' : v).replace(/[, ]/g, '')); return isNaN(n) ? 0 : n; };
+  const wr2ToN = (v) => { const n = Number(String(v == null ? '' : v).replace(/[,%\s฿]/g, '')); return isNaN(n) ? 0 : n; };
   const wr2NormCode = (code) => {
     const s = String(code || '').trim();
     if (!s) return '';
@@ -155,51 +155,64 @@ function WarRoomPage2({ data, setData, toast }) {
       .sort((a, b) => b.value - a.value);
     const invForwardValue = invForwardList.reduce((s, iv) => s + iv.value, 0);
 
-    // 3) งานระหว่างก่อสร้าง (WIP) — ลงนามแล้ว + ยังไม่ออก/ไม่จ่าย IV ครบ
-    //    settled = max(billed, received) — เลือกตัวที่มากกว่า (เผื่อรับเงินไม่ผ่าน IV)
-    //    WIP = contract - settled
-    //    ตัดออก: โครงการที่ไม่มี IV link เลย AND ไม่มี receipt link เลย
-    //      → น่าจะเป็นข้อมูลเก่า/ปิดไปแล้ว ที่ไม่ track ใน IV system
+    // 3) งานระหว่างก่อสร้าง (WIP) — ดู % แต่ละงวดที่ยังไม่ส่งมอบจริง
+    //    ตรรกะ: ลงนามแล้ว → ดูทีละงวด ว่าส่งแล้วหรือยัง?
+    //      งวด 1 ส่งแล้ว → ไม่นับ (อยู่ใน "ใบแจ้งหนี้คงค้าง" หรือรับเงินไปแล้ว)
+    //      งวด 1 ยังไม่ส่ง → บวก (% งวด 1) เข้า WIP
+    //      เช็คงวด 2 แบบเดียวกัน
+    //    Value = contract × Σ(% งวดที่ยังไม่ส่ง)
+    //    Edge: ถ้า % งวด 1 = 0, % งวด 2 = 100, งวด 2 ยังไม่ส่ง → WIP 100% = contract เต็ม
+    //    Fallback: ถ้าไม่มี % เลย และยังไม่ส่งงาน → WIP เท่ากับ contract (assume งวดเดียว)
+    const wr2HasMnDelivery = (p, n) => {
+      const sfx = n === 1 ? ' 1' : n === 2 ? ' 2' : 'งวด ' + n;
+      const variants = [
+        'วันที่ส่งมอบงาน งวด ' + n,
+        'วันที่ส่ง นส.มอบงาน งวด ' + n,
+        'วันที่เซ็น/รับ ใบตรวจรับ งวดที่ ' + n,
+        'วันที่เซ็น/รับ ใบตรวจรับ งวด ' + n,
+      ];
+      return variants.some(k => !!p[k]);
+    };
     const wipList = active
-      .filter(p => !isEmpty(getStart(p)))
+      .filter(p => !isEmpty(getStart(p)))   // ลงนามแล้ว
       .map(p => {
         const contract = wr2GetContract(p);
         const ivs = projInvoicesOf(p);
-        // billed = ผลรวม IV ที่ออกแล้ว (paid + outstanding)
         const billed = ivs.reduce((s, iv) => {
           const paid = wr2ToN(iv.netReceived || iv.grossAmount || 0);
           const bal  = wr2ToN(iv.balance || 0);
           return s + (iv.status === 'paid' ? paid : (paid + bal));
         }, 0);
-        // received = ผลรวมเงินที่ลูกค้าจ่าย (gross — ก่อนหักภาระหนี้/transferDeduction)
-        //   ใช้ gross เพราะ "งานเสร็จเท่าไหร่" ดูจากยอดที่ลูกค้าจ่าย ไม่ใช่ net หลังหักหนี้
-        //   ตัวอย่าง: สัญญา 1.1M ลูกค้าจ่าย 1.1M (gross) → โอนภาระหนี้ 550K → net เหลือ 550K
-        //   งานเสร็จครบ 1.1M → WIP = 0 (ไม่ใช่ 550K)
         const received = ivs.reduce((s, iv) => {
           const rcs = receiptsOfIv(iv);
           return s + rcs.reduce((s2, rc) => s2 + wr2ToN(rc.grossAmount || rc.netReceived || 0), 0);
         }, 0);
-        const settled = Math.max(billed, received);
-        const wip = Math.max(0, contract - settled);
-        const hasOutstandingIV = ivs.some(iv => iv.status !== 'paid' && wr2ToN(iv.balance) > 0);
+        const pct1 = wr2ToN(p['% งวด 1']);
+        const pct2 = wr2ToN(p['% งวด 2']);
+        const delivered1 = wr2HasMnDelivery(p, 1);
+        const delivered2 = wr2HasMnDelivery(p, 2);
+        const hasPctData = pct1 > 0 || pct2 > 0;
+        // ถ้าได้รับเงินครบสัญญาแล้ว (≥95%) → โครงการเสร็จแล้ว ไม่ใช่ WIP
+        const fullyReceived = contract > 0 && received >= contract * 0.95;
+        let wipPct = 0;
+        if (hasPctData && !fullyReceived) {
+          if (!delivered1 && pct1 > 0) wipPct += pct1;
+          if (!delivered2 && pct2 > 0) wipPct += pct2;
+        }
+        // ไม่มี % data → skip (โครงการเก่า/ข้อมูลไม่ครบ ไม่ assume WIP เต็ม)
+        const wip = Math.round(contract * wipPct) / 100;
         return {
           id: p.id,
           code: String(p['Contract No.'] || p.code || '—').trim(),
           name: String(p['พื้นที่'] || p.name || '—').trim(),
           province: p['Province'] || '',
-          contract, billed, received, settled, wip,
-          ivCount: ivs.length,
-          rcCount: ivs.reduce((s, iv) => s + receiptsOfIv(iv).length, 0),
-          hasOutstandingIV,
+          contract, billed, received,
+          pct1, pct2, delivered1, delivered2, wipPct,
+          wip,
         };
       })
-      // เก็บเฉพาะที่ยังมี work รออยู่ (wip > 1 บาท — กัน floating point)
-      // AND มีร่องรอย IV/receipt (ถ้าไม่มีเลย = น่าจะปิดไปแล้ว)
-      // ✦ AND ไม่มี IV ค้างติดตาม — ถ้ามี IV ออกแล้วยังไม่จ่าย = อยู่ใน "ลูกหนี้คงค้าง" บัคเก็ต
-      //   นับเป็น WIP จะซ้ำกับยอด "ใบแจ้งหนี้คงค้าง" (75.30M)
-      //   เคสที่นับเป็น WIP: ลงนามแล้ว + ไม่มี IV ค้าง + มี receipt/IV paid (รับเงินมาบ้าง)
-      //   ส่วนงานที่เหลือยังไม่ออก IV = WIP จริง
-      .filter(x => x.wip > 1 && (x.ivCount > 0 || x.rcCount > 0) && !x.hasOutstandingIV)
+      // signed + ยังมี % งวด ที่ยังไม่ส่ง > 0
+      .filter(x => x.contract > 0 && x.wip > 1)
       .sort((a, b) => b.wip - a.wip);
     const wipValue = wipList.reduce((s, x) => s + x.wip, 0);
 
@@ -269,16 +282,16 @@ function WarRoomPage2({ data, setData, toast }) {
   });
   const openWipDrill = () => setDrill({
     title: '🚧 มูลค่างานระหว่างก่อสร้าง (WIP)',
-    subtitle: liveCalc.wip.count + ' โครงการ · รวม ' + fmtT0(liveCalc.wip.value) + ' บาท · (ลงนามแล้ว · ไม่มี IV ค้าง · ส่วนยังไม่ออก IV = contract − รับเงิน · ไม่ซ้ำกับใบแจ้งหนี้คงค้าง)',
+    subtitle: liveCalc.wip.count + ' โครงการ · รวม ' + fmtT0(liveCalc.wip.value) + ' บาท · ดู % งวดที่ยังไม่ส่งมอบจริง (งวด 1 ส่งแล้ว → ไม่นับ)',
     items: liveCalc.wip.list,
     total: liveCalc.wip.value,
     columns: [
       { key: 'code', label: 'Contract No.', width: 110 },
       { key: 'name', label: 'ชื่อโครงการ' },
       { key: 'contract', label: 'สัญญา (฿)', align: 'right', width: 110, fmt: (v) => fmtT0(v) },
-      { key: 'billed', label: 'ออก IV (฿)', align: 'right', width: 110, fmt: (v) => fmtT0(v) },
-      { key: 'received', label: 'รับเงิน (฿)', align: 'right', width: 110, fmt: (v) => fmtT0(v) },
-      { key: 'ivCount', label: '#IV', align: 'center', width: 50 },
+      { key: 'pct1', label: 'งวด 1', align: 'center', width: 70, fmt: (v, row) => v + '%' + (row.delivered1 ? ' ✓' : '') },
+      { key: 'pct2', label: 'งวด 2', align: 'center', width: 70, fmt: (v, row) => v + '%' + (row.delivered2 ? ' ✓' : '') },
+      { key: 'wipPct', label: 'WIP %', align: 'center', width: 70, fmt: (v) => v + '%' },
       { key: 'wip', label: 'WIP (฿)', align: 'right', width: 120, fmt: (v) => fmtT0(v), isMoney: true },
     ],
   });
