@@ -182,21 +182,23 @@ function DailyBalancePage({ data, setData, toast }) {
   const totalHold      = mainRows.reduce((s, r) => s + (r.hold || 0), 0);
   const totalAvailable = todayTotal - totalHold;
 
-  // Mini history — last 7 days total balance
-  const sevenDayTotal = dbMemo(() => {
+  // แถบวันสำหรับกดสลับวันที่เร็วๆ — 8 วัน: ย้อนหลัง 6 วัน + วันนี้ + พรุ่งนี้
+  // ยึดกับ "วันนี้จริง" (ไม่เลื่อนตามวันที่เลือก) เพื่อให้แถบนิ่ง กดไปมาได้
+  const dayStrip = dbMemo(() => {
     const days = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(entryDate);
+    const today = todayISO();
+    for (let i = 6; i >= -1; i--) {
+      const d = new Date(today);
       d.setDate(d.getDate() - i);
       const iso = d.toISOString().slice(0, 10);
       const total = accountsByType.main.reduce((sum, a) => {
         const snap = snapshots.find(s => s.bankAc === a.Bank_AC && s.date === iso);
         return sum + (snap ? Number(snap.balance) || 0 : 0);
       }, 0);
-      days.push({ date: iso, total });
+      days.push({ date: iso, total, isFuture: iso > today, isRealToday: iso === today });
     }
     return days;
-  }, [snapshots, accountsByType.main, entryDate]);
+  }, [snapshots, accountsByType.main]);
 
   // ── Save handlers ─────────────────────────────────────────────────
   const saveOne = (ac) => {
@@ -230,6 +232,26 @@ function DailyBalancePage({ data, setData, toast }) {
       return { ...d, cashflowSnapshots: [...others, row], bankAccounts: updatedAccounts };
     });
     toast(`บันทึก ${a?.BANK_NAME || ac} แล้ว`);
+  };
+
+  // ยกเลิก/ลบยอดที่บันทึกไปแล้วของวันนี้ (เผื่อยังไม่จบวัน ยังไม่อยากยกเป็นยอดยกไป)
+  const deleteOne = (ac) => {
+    const existing = todayByAc[ac];
+    if (!existing) return;
+    const a = accounts.find(x => x.Bank_AC === ac);
+    if (!confirm(`ยกเลิกการบันทึกยอด ${a?.BANK_NAME || ac} ของวันที่ ${entryDate}?\n(ยอดใน DATA BANK จะกลับไปใช้ค่าล่าสุดก่อนหน้า)`)) return;
+    const y = yesterdayByAc[ac];
+    setData(d => {
+      const others = (d.cashflowSnapshots || []).filter(s => !(s.date === entryDate && s.bankAc === ac));
+      const updatedAccounts = (d.bankAccounts || []).map(acc => {
+        if (acc.Bank_AC !== ac) return acc;
+        // กลับไปใช้ยอดล่าสุดก่อนหน้า ถ้ามี — ไม่งั้นคงไว้
+        return y ? { ...acc, BALANCE: Number(y.balance), DATE: y.date } : acc;
+      });
+      return { ...d, cashflowSnapshots: others, bankAccounts: updatedAccounts };
+    });
+    setDraft(dft => { const n = { ...dft }; delete n[ac]; return n; });
+    toast(`ยกเลิกการบันทึก ${a?.BANK_NAME || ac} แล้ว`);
   };
 
   const saveAll = () => {
@@ -307,27 +329,32 @@ function DailyBalancePage({ data, setData, toast }) {
           accent={mainSavedCount === mainTotalCount ? 'var(--good)' : 'var(--bad)'} icon="check" />
       </div>
 
-      {/* 7-day mini-trend */}
-      {sevenDayTotal.length > 0 && (
-        <div className="card" style={{ padding: '12px 16px', marginBottom: 14, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-          <div style={{ fontSize: 12, color: 'var(--ink-500)', fontWeight: 600 }}>7 วันล่าสุด:</div>
-          {sevenDayTotal.map((d, i) => {
-            const isToday = d.date === entryDate;
+      {/* แถบ 8 วัน — กดเพื่อสลับวันที่เร็วๆ (ย้อนหลัง 6 + วันนี้ + พรุ่งนี้) */}
+      {dayStrip.length > 0 && (
+        <div className="card" style={{ padding: '12px 16px', marginBottom: 14, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 12, color: 'var(--ink-500)', fontWeight: 600 }}>กดเลือกวัน:</div>
+          {dayStrip.map((d, i) => {
+            const isSelected = d.date === entryDate;
             const has = d.total > 0;
+            const tag = d.isRealToday ? 'วันนี้' : (d.isFuture ? 'พรุ่งนี้' : null);
             return (
-              <div key={i} style={{
-                padding: '6px 10px', borderRadius: 6,
-                background: isToday ? 'var(--brand-50)' : 'var(--ink-50)',
-                border: `1px solid ${isToday ? 'var(--brand-200)' : 'var(--line)'}`,
-                minWidth: 100, textAlign: 'center',
-              }}>
-                <div style={{ fontSize: 10, color: 'var(--ink-500)' }}>
-                  {new Date(d.date).toLocaleDateString('th-TH', { weekday: 'short', day: '2-digit', month: '2-digit' })}
+              <button key={i} type="button" onClick={() => setEntryDate(d.date)}
+                title={`ดู/บันทึกยอดวันที่ ${d.date}`}
+                style={{
+                  padding: '6px 10px', borderRadius: 6, cursor: 'pointer',
+                  background: isSelected ? 'var(--brand-50)' : (d.isFuture ? 'transparent' : 'var(--ink-50)'),
+                  border: `1px solid ${isSelected ? 'var(--brand-400)' : 'var(--line)'}`,
+                  borderStyle: d.isFuture && !isSelected ? 'dashed' : 'solid',
+                  minWidth: 92, textAlign: 'center', font: 'inherit',
+                  boxShadow: isSelected ? '0 0 0 1px var(--brand-400) inset' : 'none',
+                }}>
+                <div style={{ fontSize: 10, color: isSelected ? 'var(--brand-700)' : 'var(--ink-500)', fontWeight: tag ? 700 : 400 }}>
+                  {tag || new Date(d.date).toLocaleDateString('th-TH', { weekday: 'short', day: '2-digit', month: '2-digit' })}
                 </div>
                 <div style={{ fontSize: 12, fontWeight: 600, color: has ? 'var(--ink-800)' : 'var(--ink-300)', fontVariantNumeric: 'tabular-nums' }}>
                   {has ? fmtNum(d.total, 0) : '—'}
                 </div>
-              </div>
+              </button>
             );
           })}
         </div>
@@ -414,7 +441,15 @@ function DailyBalancePage({ data, setData, toast }) {
                   </td>
                   <td style={{ textAlign: 'center' }}>
                     {r.saved
-                      ? <Badge kind="b-green" dot={false}>✓ บันทึกแล้ว</Badge>
+                      ? <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <Badge kind="b-green" dot={false}>✓ บันทึกแล้ว</Badge>
+                          {canEdit && (
+                            <button className="btn btn-ghost btn-sm" onClick={() => deleteOne(r.ac)}
+                              title="ยกเลิก/ลบยอดที่บันทึกวันนี้" style={{ padding: '2px 6px', fontSize: 11, color: 'var(--bad)' }}>
+                              ✕
+                            </button>
+                          )}
+                        </div>
                       : (draft[r.ac] !== undefined && draft[r.ac] !== ''
                           ? <button className="btn btn-primary btn-sm" onClick={() => saveOne(r.ac)} disabled={!canEdit}
                               style={{ padding: '3px 10px', fontSize: 11 }}>บันทึก</button>
@@ -479,7 +514,15 @@ function DailyBalancePage({ data, setData, toast }) {
                   <td style={{ textAlign: 'right' }}><DiffBadge delta={r.delta} /></td>
                   <td style={{ textAlign: 'center' }}>
                     {r.saved
-                      ? <Badge kind="b-green" dot={false}>✓</Badge>
+                      ? <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <Badge kind="b-green" dot={false}>✓</Badge>
+                          {canEdit && (
+                            <button className="btn btn-ghost btn-sm" onClick={() => deleteOne(r.ac)}
+                              title="ยกเลิก/ลบยอดที่บันทึกวันนี้" style={{ padding: '2px 6px', fontSize: 11, color: 'var(--bad)' }}>
+                              ✕
+                            </button>
+                          )}
+                        </div>
                       : (draft[r.ac] !== undefined && draft[r.ac] !== ''
                           ? <button className="btn btn-primary btn-sm" onClick={() => saveOne(r.ac)} disabled={!canEdit}
                               style={{ padding: '3px 10px', fontSize: 11 }}>บันทึก</button>
