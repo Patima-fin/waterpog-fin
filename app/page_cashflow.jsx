@@ -904,9 +904,9 @@ function CashFlowDashboard({ data, setData, toast }) {
             {monthNames[month - 1]} {year + 543}
           </div>
           <button className="btn btn-ghost" onClick={goNextMonth} title="เดือนถัดไป">›</button>
-          <CloudSyncStatusButton />
-          <EditModeToggle value={editMode} onChange={setEditMode} />
-          <button className="btn btn-ghost" onClick={() => {
+          <span className="no-present" style={{ display: 'contents' }}><CloudSyncStatusButton /></span>
+          <span className="no-present" style={{ display: 'contents' }}><EditModeToggle value={editMode} onChange={setEditMode} /></span>
+          <button className="btn btn-ghost no-present" onClick={() => {
             // A4 landscape print — 5-week tracking fits beautifully across the wider page
             const styleId = 'cf-print-landscape-style';
             let style = document.getElementById(styleId);
@@ -937,7 +937,7 @@ function CashFlowDashboard({ data, setData, toast }) {
       </div>
 
       {editMode && (
-        <div className="no-print" style={{ marginBottom: 12, padding: '8px 14px', borderRadius: 10, background: 'color-mix(in oklch, var(--brand-500) 8%, transparent)', border: '1.5px solid color-mix(in oklch, var(--brand-500) 30%, transparent)', fontSize: 12, color: 'var(--brand-700)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <div className="no-print no-present" style={{ marginBottom: 12, padding: '8px 14px', borderRadius: 10, background: 'color-mix(in oklch, var(--brand-500) 8%, transparent)', border: '1.5px solid color-mix(in oklch, var(--brand-500) 30%, transparent)', fontSize: 12, color: 'var(--brand-700)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <span style={{ fontWeight: 700 }}>📝 โหมดแก้ไข — คลิกในช่องตัวเลขเพื่อกรอกค่า (Tab/Enter บันทึก · ✕ ล้าง)</span>
           <span style={{ fontSize: 11, color: 'var(--ink-500)' }}>ค่าที่กรอกแยกตามเดือน — เปลี่ยนเดือนแล้วเริ่มใหม่</span>
           <button type="button" onClick={() => { if (confirm('ล้างค่าที่กรอกมือทั้งหมดใน app (ทุกหน้า)?')) WTPOverride.clearAll(); }}

@@ -437,14 +437,14 @@ function WarRoomPage2({ data, setData, toast }) {
           <div className="page-sub">ประมาณการรับเงินจากโครงการทั้งหมด · ทั้งปี {meta.year} · ข้อมูล ณ {fmtDate(meta.asOf)}</div>
         </div>
         <div className="page-head-r">
-          <CloudSyncStatusButton />
-          <button className="btn" onClick={() => setWsUploadOpen(true)} style={{ background: '#fef3c7', borderColor: '#fcd34d', color: '#78350f' }} title="เพิ่มโครงการรอลงนามจาก Excel">
+          <span className="no-present" style={{ display: 'contents' }}><CloudSyncStatusButton /></span>
+          <button className="btn no-present" onClick={() => setWsUploadOpen(true)} style={{ background: '#fef3c7', borderColor: '#fcd34d', color: '#78350f' }} title="เพิ่มโครงการรอลงนามจาก Excel">
             📁 เพิ่มจาก Excel
           </button>
-          <EditModeToggle value={editMode} onChange={setEditMode} />
+          <span className="no-present" style={{ display: 'contents' }}><EditModeToggle value={editMode} onChange={setEditMode} /></span>
           <a className="btn btn-ghost" href="#warroom1"><Icon name="arrow" size={14} style={{ transform: 'rotate(180deg)' }} /> ย้อนกลับ · หน้า 1</a>
-          <PrintButton label="พิมพ์ / PDF" />
-          <button className="btn btn-ghost" onClick={() => { if (confirm('โหลด JS ใหม่ทั้งหมด (clear cache) ?')) { location.href = location.pathname + '?t=' + Date.now() + '#warroom2'; } }}
+          <span className="no-present" style={{ display: 'contents' }}><PrintButton label="พิมพ์ / PDF" /></span>
+          <button className="btn btn-ghost no-present" onClick={() => { if (confirm('โหลด JS ใหม่ทั้งหมด (clear cache) ?')) { location.href = location.pathname + '?t=' + Date.now() + '#warroom2'; } }}
             title={'Build: ' + WR2_BUILD + ' · คลิกเพื่อ force reload ทั้ง JS files'}
             style={{ fontSize: 10.5, opacity: 0.7 }}>
             🔄 v{WR2_BUILD.slice(-4)}
@@ -453,7 +453,7 @@ function WarRoomPage2({ data, setData, toast }) {
       </div>
 
       {editMode && (
-        <div style={{ marginBottom: 12, padding: '8px 14px', borderRadius: 10, background: 'color-mix(in oklch, var(--brand-500) 8%, transparent)', border: '1.5px solid color-mix(in oklch, var(--brand-500) 30%, transparent)', fontSize: 12, color: 'var(--brand-700)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <div className="no-present" style={{ marginBottom: 12, padding: '8px 14px', borderRadius: 10, background: 'color-mix(in oklch, var(--brand-500) 8%, transparent)', border: '1.5px solid color-mix(in oklch, var(--brand-500) 30%, transparent)', fontSize: 12, color: 'var(--brand-700)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <span style={{ fontWeight: 700 }}>📝 โหมดแก้ไข — คลิกในช่องตัวเลขเพื่อกรอกค่า (Tab/Enter เพื่อบันทึก, ✕ เพื่อล้าง)</span>
           <button type="button" onClick={() => { if (confirm('ล้างค่าที่กรอกมือทั้งหมดในหน้านี้?')) WTPOverride.clearAll(); }}
             style={{ marginLeft: 'auto', padding: '3px 10px', fontSize: 11, borderRadius: 5, border: '1px solid var(--bad)', background: 'transparent', color: 'var(--bad)', cursor: 'pointer' }}>

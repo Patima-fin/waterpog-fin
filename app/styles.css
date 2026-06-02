@@ -620,6 +620,8 @@ body.present-mode .topbar .tb-date { display: none !important; }
 /* เนื้อหาเต็มความกว้าง อ่านง่ายขึ้นบนจอใหญ่ */
 body.present-mode .page { max-width: none; padding: 26px 40px 56px; }
 body.present-mode .page-title { font-size: 26px; }
+/* ซ่อนปุ่มเครื่องมือ (ส่งออก/พิมพ์/แก้ไข/sync/ฯลฯ) — เก็บปุ่มนำทางไว้ */
+body.present-mode .no-present { display: none !important; }
 
 /* Dense layout option */
 .dense .card, .dense .kpi { padding: 14px; }
