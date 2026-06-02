@@ -191,15 +191,18 @@ function WarRoomPage2({ data, setData, toast }) {
         const delivered1 = wr2HasMnDelivery(p, 1);
         const delivered2 = wr2HasMnDelivery(p, 2);
         const hasPctData = pct1 > 0 || pct2 > 0;
-        // ถ้าได้รับเงินครบสัญญาแล้ว (≥95%) → โครงการเสร็จแล้ว ไม่ใช่ WIP
-        const fullyReceived = contract > 0 && received >= contract * 0.95;
         let wipPct = 0;
-        if (hasPctData && !fullyReceived) {
+        if (hasPctData) {
           if (!delivered1 && pct1 > 0) wipPct += pct1;
           if (!delivered2 && pct2 > 0) wipPct += pct2;
+        } else if (!delivered1 || !delivered2) {
+          // ไม่มี % data + ยังมีงวดที่ยังไม่ส่ง → assume WIP เต็ม contract
+          //   (data เก่าหลายโครงการไม่กรอก % แต่ก็ยังถือว่ามี work pending จริง)
+          wipPct = 100;
         }
-        // ไม่มี % data → skip (โครงการเก่า/ข้อมูลไม่ครบ ไม่ assume WIP เต็ม)
-        const wip = Math.round(contract * wipPct) / 100;
+        let wip = Math.round(contract * wipPct) / 100;
+        // หักเงินที่รับมาแล้ว (กัน double-count กับ IV/receipts bucket)
+        wip = Math.max(0, wip - received);
         return {
           id: p.id,
           code: String(p['Contract No.'] || p.code || '—').trim(),
