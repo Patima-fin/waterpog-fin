@@ -464,6 +464,15 @@ function WarRoomPage2({ data, setData, toast }) {
 
       {/* Headline KPI — มูลค่าโครงการที่คาดว่าจะได้รับทั้งหมด */}
       <div className="hero-pill anim-in" style={{ marginBottom: 18 }}>
+        {(() => {
+          // Hero total auto-update: ผลรวมของ 3 breakdown ที่ user แก้ได้ (IV+WIP+Unsigned)
+          //   ถ้า user ตั้ง wr2.heroTotal เอง → ใช้ค่านั้นทับ
+          const heroInv = WTPOverride.resolve('wr2.heroInvForward', liveCalc.invForward.value);
+          const heroWip = WTPOverride.resolve('wr2.heroWip', liveCalc.wip.value);
+          const heroUns = WTPOverride.resolve('wr2.heroUnsigned', liveCalc.unsigned.value);
+          const heroAutoTotal = heroInv + heroWip + heroUns;
+          const heroTotalOverridden = WTPOverride.has('wr2.heroTotal');
+          return (
         <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
           <div style={{ cursor: editMode ? 'auto' : 'pointer' }}
             onClick={editMode ? undefined : openGrandTotalDrill}
@@ -471,9 +480,18 @@ function WarRoomPage2({ data, setData, toast }) {
             <div style={{ fontSize: 13, opacity: 0.85, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
               มูลค่าโครงการที่คาดว่าจะได้รับทั้งหมด
               {!editMode && <span style={{ fontSize: 11, opacity: 0.7 }}>🔍</span>}
+              {editMode && <span style={{ fontSize: 11, opacity: 0.7 }}>✏️</span>}
             </div>
             <div style={{ fontSize: 44, fontWeight: 800, marginTop: 4, letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
-              <AnimatedNumber value={liveCalc.grandTotal} digits={2} /> <span style={{ fontSize: 18, opacity: 0.8, fontWeight: 500 }}>บาท</span>
+              {editMode ? (
+                <EditableNumber ovKey="wr2.heroTotal" computed={heroAutoTotal} editMode={true} digits={2} />
+              ) : (
+                <>
+                  <AnimatedNumber value={heroTotalOverridden ? WTPOverride.get('wr2.heroTotal') : heroAutoTotal} digits={2} />
+                  {heroTotalOverridden && <span title="แก้มือ" style={{ fontSize: 14, marginLeft: 8, opacity: 0.85 }}>✏️</span>}
+                </>
+              )}
+              {' '}<span style={{ fontSize: 18, opacity: 0.8, fontWeight: 500 }}>บาท</span>
             </div>
             <div style={{ fontSize: 12, opacity: 0.85, marginTop: 6 }}>Total project value forecast · ปี {meta.year}</div>
           </div>
@@ -489,6 +507,8 @@ function WarRoomPage2({ data, setData, toast }) {
             </div>
           </div>
         </div>
+          );
+        })()}
       </div>
 
       {/* SECTION 1 — ประมาณการรับเงินจากโครงการทั้งหมด */}
