@@ -544,6 +544,9 @@ function DataCrudPage({ data, setData, toast, config }) {
               }
             } catch (_) { /* skip */ }
           }
+          // กัน TAB/ขึ้นบรรทัดที่ฝังในเซลล์ (เช่น remark) → ไม่งั้นคอลัมน์เลื่อนตอนแปลงเป็น TSV
+          if (typeof c.v === 'string') c.v = c.v.replace(/[\t\r\n]+/g, ' ');
+          if (typeof c.w === 'string') c.w = c.w.replace(/[\t\r\n]+/g, ' ');
         });
         const tsv = window.XLSX.utils.sheet_to_csv(ws, { FS: '\t' });
         setImportText(tsv);
@@ -2115,6 +2118,9 @@ function DataPayablePage({ data, setData, toast }) {
               }
             } catch (_) { /* skip */ }
           }
+          // กัน TAB/ขึ้นบรรทัดที่ฝังในเซลล์ (เช่น remark) → ไม่งั้นคอลัมน์เลื่อนตอนแปลงเป็น TSV
+          if (typeof c.v === 'string') c.v = c.v.replace(/[\t\r\n]+/g, ' ');
+          if (typeof c.w === 'string') c.w = c.w.replace(/[\t\r\n]+/g, ' ');
         });
         const tsv = window.XLSX.utils.sheet_to_csv(ws, { FS: '\t' });
         setImportText(tsv);
