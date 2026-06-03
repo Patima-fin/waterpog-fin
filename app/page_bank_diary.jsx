@@ -940,7 +940,15 @@ function BDForecastPanel({ forecasts, periodEnd, periodLabel, today, totalRealBa
 function BDApPanel({ apList, plannedRefs, today, periodEnd, periodLabel, onPlan, canEdit }) {
   const [query, setQuery]   = React.useState('');
   const [showAll, setShowAll] = React.useState(false);
+  const [sortKey, setSortKey] = React.useState('due');   // due | amount | vendor
+  const [sortDir, setSortDir] = React.useState('asc');
   const LIMIT = 25;
+
+  const toggleSort = (k) => {
+    if (sortKey === k) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(k); setSortDir(k === 'amount' ? 'desc' : 'asc'); }
+  };
+  const arrow = (k) => sortKey === k ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
 
   const rows = React.useMemo(() => {
     let r = apList.filter(a => a.amount > 0);
@@ -948,8 +956,15 @@ function BDApPanel({ apList, plannedRefs, today, periodEnd, periodLabel, onPlan,
       const q = query.trim().toLowerCase();
       r = r.filter(a => (a.vendor || '').toLowerCase().includes(q) || (a.vchno || '').toLowerCase().includes(q));
     }
-    return r.sort((a, b) => (a.due || '') < (b.due || '') ? -1 : 1); // ค้างนานสุด/เลยกำหนดก่อน
-  }, [apList, query]);
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return r.slice().sort((a, b) => {
+      let av, bv;
+      if (sortKey === 'amount')      { av = a.amount; bv = b.amount; }
+      else if (sortKey === 'vendor') { av = a.vendor || ''; bv = b.vendor || ''; }
+      else                           { av = a.due || ''; bv = b.due || ''; }
+      return av < bv ? -dir : av > bv ? dir : 0;
+    });
+  }, [apList, query, sortKey, sortDir]);
 
   const totalAmt   = rows.reduce((s, a) => s + a.amount, 0);
   const overdue    = rows.filter(a => a.due && a.due < today);
@@ -986,10 +1001,10 @@ function BDApPanel({ apList, plannedRefs, today, periodEnd, periodLabel, onPlan,
         <table className="tbl" style={{ minWidth:760, fontSize:12 }}>
           <thead>
             <tr>
-              <th style={{ width:90 }}>ครบกำหนด</th>
-              <th>ผู้ขาย</th>
+              <th style={{ width:96, cursor:'pointer', userSelect:'none' }} onClick={() => toggleSort('due')}>ครบกำหนด{arrow('due')}</th>
+              <th style={{ cursor:'pointer', userSelect:'none' }} onClick={() => toggleSort('vendor')}>ผู้ขาย{arrow('vendor')}</th>
               <th style={{ width:130 }}>เลขที่ (AP)</th>
-              <th style={{ textAlign:'right', width:120 }}>ยอดค้าง</th>
+              <th style={{ textAlign:'right', width:120, cursor:'pointer', userSelect:'none' }} onClick={() => toggleSort('amount')}>ยอดค้าง{arrow('amount')}</th>
               <th style={{ width:120 }}></th>
             </tr>
           </thead>
