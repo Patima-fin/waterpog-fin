@@ -639,15 +639,22 @@ function BankAccountCard({ view, today, periodEnd, periodLabel, onQuickTransfer,
   const visIn    = visItems.filter(i => i.signed > 0).reduce((s, i) => s + i.signed, 0);
   const visOut   = visItems.filter(i => i.signed < 0).reduce((s, i) => s - i.signed, 0);
 
-  const headerBg = shortNear ? 'linear-gradient(135deg,#fff5f5,#fed7d7)'
+  // เงินขาดในช่วงที่ดู: ยอดคงเหลือสะสม "ต่ำสุด" ภายในช่วง periodEnd ติดลบไหม (ไม่ใช่แค่ 7 วัน)
+  const periodGroups = dayGroups.filter(g => g.date <= periodEnd);
+  const minRunPeriod = periodGroups.reduce((m, g) => Math.min(m, g.running), base);
+  const shortInPeriod = minRunPeriod < 0;
+  const isShort   = shortNear || shortInPeriod;
+  const coverAmt  = Math.max(shortNear ? shortBy : 0, shortInPeriod ? -minRunPeriod : 0);
+
+  const headerBg = isShort ? 'linear-gradient(135deg,#fff5f5,#fed7d7)'
                  : dueToday.length ? 'linear-gradient(135deg,#fffbeb,#fef3c7)'
                  : 'linear-gradient(135deg,#ebf8ff,#dbeafe)';
 
   return (
     <div className="card" style={{
       padding:0, overflow:'hidden',
-      border: shortNear ? '2px solid #fc8181' : '1px solid #e2e8f0',
-      boxShadow: shortNear ? '0 0 0 3px rgba(252,129,129,0.15)' : undefined,
+      border: isShort ? '2px solid #fc8181' : '1px solid #e2e8f0',
+      boxShadow: isShort ? '0 0 0 3px rgba(252,129,129,0.15)' : undefined,
     }}>
       {/* Header */}
       <div style={{ background:headerBg, padding:'12px 16px', cursor:'pointer', display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}
@@ -655,7 +662,7 @@ function BankAccountCard({ view, today, periodEnd, periodLabel, onQuickTransfer,
         <div style={{ minWidth:0 }}>
           <div style={{ fontWeight:700, fontSize:14, color:'#1a202c' }}>
             {acct.bankName || 'บัญชี'}
-            {shortNear && <span style={{ marginLeft:8, fontSize:11, background:'#e53e3e', color:'#fff', borderRadius:4, padding:'1px 6px' }}>⚠ เงินไม่พอใน 7 วัน</span>}
+            {isShort && <span style={{ marginLeft:8, fontSize:11, background:'#e53e3e', color:'#fff', borderRadius:4, padding:'1px 6px' }}>⚠ {shortNear ? 'เงินไม่พอใน 7 วัน' : 'เงินไม่พอในช่วง “' + periodLabel + '”'}</span>}
           </div>
           <div style={{ fontSize:12, color:'#4a5568', marginTop:2, fontFamily:'ui-monospace' }}>{acct.accountNo || '—'}</div>
           {(acct.accountName || acct.note) && <div style={{ fontSize:11, color:'#718096' }}>{acct.accountName || acct.note}</div>}
@@ -720,21 +727,21 @@ function BankAccountCard({ view, today, periodEnd, periodLabel, onQuickTransfer,
             </button>
           )}
 
-          {/* 7-day actionable footer */}
+          {/* Footer — ยอดคงเหลือต่ำสุดในช่วงที่ดู (เห็นว่าเงินขาดหรือไม่) */}
           <div style={{
             display:'flex', justifyContent:'space-between', alignItems:'center', padding:'9px 14px',
-            background: shortNear ? '#fff5f5' : '#f0fdf4',
-            borderTop:'2px solid ' + (shortNear ? '#fc8181' : '#68d391'),
+            background: isShort ? '#fff5f5' : '#f0fdf4',
+            borderTop:'2px solid ' + (isShort ? '#fc8181' : '#68d391'),
             fontWeight:700, fontSize:13,
           }}>
-            <span>{near.length > 0 ? 'เงินคงเหลือหลังรายการใน 7 วัน' : 'ไม่มีรายการใน 7 วัน'}</span>
-            {near.length > 0 && <span style={{ color: shortNear ? '#e53e3e' : '#276749' }}>{fmtMoney(afterNear)}</span>}
+            <span>{periodGroups.length > 0 ? 'ยอดคงเหลือต่ำสุด (ช่วง “' + periodLabel + '”)' : 'ไม่มีรายการในช่วงนี้'}</span>
+            {periodGroups.length > 0 && <span style={{ color: shortInPeriod ? '#e53e3e' : '#276749' }}>{fmtMoney(minRunPeriod)}</span>}
           </div>
 
-          {/* Quick transfer when short near-term */}
-          {shortNear && canEdit && (
+          {/* Quick transfer when short (7 วัน หรือ ติดลบในช่วง) */}
+          {isShort && canEdit && (
             <div style={{ padding:'10px 14px', background:'#fff5f5', borderTop:'1px dashed #fecaca', display:'flex', justifyContent:'space-between', alignItems:'center', gap:10 }}>
-              <span style={{ fontSize:11, color:'#b91c1c' }}>ต้องเติมเงินอีกประมาณ <b>{fmtMoney(shortBy)}</b> ก่อนรายการครบกำหนด</span>
+              <span style={{ fontSize:11, color:'#b91c1c' }}>ต้องเติมเงินอีกประมาณ <b>{fmtMoney(coverAmt)}</b> ก่อนรายการครบกำหนด</span>
               <button onClick={() => onQuickTransfer(acct.accountNo)}
                 style={{ background:'linear-gradient(135deg,#2a6fdb,#1a4490)', color:'#fff', border:'none', borderRadius:7, padding:'6px 12px', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'inherit', whiteSpace:'nowrap' }}>
                 ⇄ โอนเข้าบัญชีนี้
@@ -1244,7 +1251,11 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
   /* ── Totals across all accounts ── */
   const totalBalance     = accounts.reduce((s, a) => s + a.balance, 0);
   const totalAvailable   = accounts.reduce((s, a) => s + (a.available != null ? a.available : a.balance), 0);
-  const shortAccounts    = accountViews.filter(v => v.shortNear).length;
+  const shortAccounts    = accountViews.filter(v => {
+    if (v.shortNear) return true;
+    const min = v.dayGroups.filter(g => g.date <= periodEnd).reduce((m, g) => Math.min(m, g.running), v.base);
+    return min < 0;  // ยอดคงเหลือสะสมติดลบภายในช่วงที่เลือก
+  }).length;
   // ยอดจ่ายรวมเฉพาะช่วงที่เลือก (KPI)
   const periodOut = accountViews.reduce(
     (s, v) => s + v.items.filter(i => i.signed < 0 && i.date <= periodEnd).reduce((a, i) => a - i.signed, 0),
