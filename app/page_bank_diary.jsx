@@ -108,6 +108,17 @@ function bdNormForecast(e) {
   };
 }
 
+/* Normalize payables (AP) — ยอดค้าง = Balance_Amount1 (สำรอง: netpayment/net_new/Amount) */
+function bdNormAP(p) {
+  const amount = bdNum(p.Balance_Amount1 != null && p.Balance_Amount1 !== '' ? p.Balance_Amount1
+               : (p.netpayment != null && p.netpayment !== '' ? p.netpayment
+               : (p.net_new != null && p.net_new !== '' ? p.net_new : p.Amount)));
+  return {
+    id: p.id, vendor: p.cust_name || '—', due: bdToISO(p.due), amount: amount,
+    vchno: p.vchno || p.docno || '', remark: p.remark || '', raw: p,
+  };
+}
+
 /* Build the per-account view (เช็คค้างจ่าย + forecast ที่ผูกบัญชี) — base = ยอดเงินจริง (ไม่หัก HOLD)
  * สัญญาณ "เงินไม่พอ" ใช้กรอบ 7 วัน (near-term) เทียบยอดเงินจริง */
 function bdBuildAccountView(acct, matchedChecks, matchedForecasts, matchedTransfers, today, next7) {
@@ -724,16 +735,17 @@ function BankAccountCard({ view, today, periodEnd, periodLabel, onQuickTransfer,
 }
 
 /* ── Forecast Modal — เพิ่ม/แก้ไขรายการประมาณการ ────────────────────── */
-function ForecastModal({ bankAccounts, today, initial, onSave, onClose, onDelete, canDelete }) {
+function ForecastModal({ bankAccounts, today, initial, prefill, onSave, onClose, onDelete, canDelete }) {
   const isEdit = !!(initial && initial.id);
   const raw    = (initial && initial.raw) || {};
+  const pf     = prefill || {};
   const [form, setForm] = React.useState({
-    payDate:     (initial && (initial.payDate || initial.date)) || today,
-    dir:         (initial && initial.amount != null) ? (initial.amount < 0 ? 'out' : 'in') : 'out',
-    amount:      (initial && initial.planAmount != null) ? String(Math.abs(initial.planAmount)) : '',
-    description: (initial && initial.desc) || '',
-    bankAc:      (initial && initial.bankAc) || '',
-    note:        (raw.NOTE || '') ,
+    payDate:     (initial && (initial.payDate || initial.date)) || pf.payDate || today,
+    dir:         (initial && initial.amount != null) ? (initial.amount < 0 ? 'out' : 'in') : (pf.dir || 'out'),
+    amount:      (initial && initial.planAmount != null) ? String(Math.abs(initial.planAmount)) : (pf.amount != null ? String(pf.amount) : ''),
+    description: (initial && initial.desc) || pf.desc || '',
+    bankAc:      (initial && initial.bankAc) || pf.bankAc || '',
+    note:        (raw.NOTE || '') || pf.note || '',
   });
   const [err, setErr] = React.useState('');
   const setF = (k, v) => { setErr(''); setForm(prev => ({ ...prev, [k]: v })); };
@@ -753,11 +765,11 @@ function ForecastModal({ bankAccounts, today, initial, onSave, onClose, onDelete
     } else {
       const id = (window.WTPData && WTPData.newId) ? WTPData.newId() : ('fe-' + Date.now());
       onSave({
-        id, DATE: today, PAYMENT_DATE: form.payDate, EXPENSE_TYPE: 'Manual',
+        id, DATE: today, PAYMENT_DATE: form.payDate, EXPENSE_TYPE: pf.expType || 'Manual',
         DESCRIPTION: form.description.trim(), JOB_NO: null, PROJECT_NAME: null,
         AMOUNT: String(signed), Bank_AC: form.bankAc || null, STATUS: 'PLANNED',
         CATEGORY: null, IS_ACCRUED: null, NOTE: form.note.trim() || null,
-        ACTUAL_AMOUNT: null, ACTUAL_DATE: null, REF_DOC: null, BOOKED_AT: null, CFS_ACTIVITY: null,
+        ACTUAL_AMOUNT: null, ACTUAL_DATE: null, REF_DOC: pf.refDoc || null, BOOKED_AT: null, CFS_ACTIVITY: null,
       }, false);
     }
   };
@@ -924,10 +936,103 @@ function BDForecastPanel({ forecasts, periodEnd, periodLabel, today, totalRealBa
   );
 }
 
+/* ── AP Panel — เจ้าหนี้คงค้างให้เลือกจ่าย (กดวางแผนจ่าย → สร้างประมาณการ) ── */
+function BDApPanel({ apList, plannedRefs, today, periodEnd, periodLabel, onPlan, canEdit }) {
+  const [query, setQuery]   = React.useState('');
+  const [showAll, setShowAll] = React.useState(false);
+  const LIMIT = 25;
+
+  const rows = React.useMemo(() => {
+    let r = apList.filter(a => a.amount > 0);
+    if (query.trim()) {
+      const q = query.trim().toLowerCase();
+      r = r.filter(a => (a.vendor || '').toLowerCase().includes(q) || (a.vchno || '').toLowerCase().includes(q));
+    }
+    return r.sort((a, b) => (a.due || '') < (b.due || '') ? -1 : 1); // ค้างนานสุด/เลยกำหนดก่อน
+  }, [apList, query]);
+
+  const totalAmt   = rows.reduce((s, a) => s + a.amount, 0);
+  const overdue    = rows.filter(a => a.due && a.due < today);
+  const overdueAmt = overdue.reduce((s, a) => s + a.amount, 0);
+  const inPeriodAmt = rows.filter(a => a.due && a.due >= today && a.due <= periodEnd).reduce((s, a) => s + a.amount, 0);
+  const visible = showAll ? rows : rows.slice(0, LIMIT);
+
+  return (
+    <div className="card" style={{ padding:0, overflow:'hidden', marginBottom:20 }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'12px 16px', background:'linear-gradient(135deg,#fff7ed,#ffedd5)', borderBottom:'1px solid #fed7aa', flexWrap:'wrap', gap:8 }}>
+        <div>
+          <div style={{ fontWeight:700, fontSize:14, color:'#9a3412' }}>📥 เจ้าหนี้ต้องจ่าย (AP)</div>
+          <div style={{ fontSize:12, color:'#c2410c', marginTop:2 }}>{rows.length} รายการค้าง · กด “วางแผนจ่าย” เพื่อนำเข้ายอด (เลือกบัญชี/วันจ่าย)</div>
+        </div>
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="ค้นหาผู้ขาย / เลขที่"
+          style={{ padding:'6px 11px', border:'1.5px solid #fed7aa', borderRadius:8, fontSize:12, fontFamily:'inherit', outline:'none', minWidth:180 }} />
+      </div>
+
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))', gap:1, background:'#f5ead9' }}>
+        {[
+          { l:'ค้างทั้งหมด', v:totalAmt, c:'#9a3412' },
+          { l:'เลยกำหนด', v:overdueAmt, c:'#dc2626', sub: overdue.length + ' รายการ' },
+          { l:'ครบกำหนดในช่วง “' + periodLabel + '”', v:inPeriodAmt, c:'#c2410c' },
+        ].map((t, i) => (
+          <div key={i} style={{ background:'#fff', padding:'10px 14px' }}>
+            <div style={{ fontSize:11, color:'#718096' }}>{t.l}</div>
+            <div style={{ fontSize:14, fontWeight:700, color:t.c, fontVariantNumeric:'tabular-nums' }}>{fmtMoney(t.v)}</div>
+            {t.sub && <div style={{ fontSize:10, color:'#a0aec0' }}>{t.sub}</div>}
+          </div>
+        ))}
+      </div>
+
+      <div style={{ overflowX:'auto' }}>
+        <table className="tbl" style={{ minWidth:760, fontSize:12 }}>
+          <thead>
+            <tr>
+              <th style={{ width:90 }}>ครบกำหนด</th>
+              <th>ผู้ขาย</th>
+              <th style={{ width:130 }}>เลขที่ (AP)</th>
+              <th style={{ textAlign:'right', width:120 }}>ยอดค้าง</th>
+              <th style={{ width:120 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {visible.length === 0 ? (
+              <tr><td colSpan={5} style={{ textAlign:'center', color:'#a0aec0', padding:'16px 0' }}>ไม่มีรายการ</td></tr>
+            ) : visible.map(a => {
+              const od = a.due && a.due < today;
+              const planned = plannedRefs.has(a.vchno);
+              return (
+                <tr key={a.id} style={{ background: planned ? '#f0fff4' : 'transparent' }}>
+                  <td style={{ whiteSpace:'nowrap', color: od ? '#dc2626' : '#4a5568' }}>
+                    {fmtDate(a.due) || '—'}{od && <span style={{ display:'block', fontSize:9, fontWeight:700, color:'#dc2626' }}>เลยกำหนด</span>}
+                  </td>
+                  <td>{a.vendor}</td>
+                  <td style={{ fontFamily:'ui-monospace', fontSize:11, color:'#64748b' }}>{a.vchno || '—'}</td>
+                  <td style={{ textAlign:'right', fontVariantNumeric:'tabular-nums', fontWeight:700, color:'#c53030', whiteSpace:'nowrap' }}>{fmtMoney(a.amount)}</td>
+                  <td style={{ textAlign:'right' }}>
+                    {planned
+                      ? <span style={{ background:'#c6f6d5', color:'#276749', fontSize:11, fontWeight:600, borderRadius:12, padding:'2px 9px' }}>✓ วางแผนแล้ว</span>
+                      : canEdit
+                        ? <button onClick={() => onPlan(a)} style={{ background:'#ea580c', color:'#fff', border:'none', borderRadius:6, padding:'4px 12px', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'inherit', whiteSpace:'nowrap' }}>วางแผนจ่าย</button>
+                        : null}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {rows.length > LIMIT && (
+        <button onClick={() => setShowAll(s => !s)} style={{ width:'100%', background:'#fff7ed', border:'none', borderTop:'1px solid #fed7aa', padding:'8px 14px', fontSize:11, fontWeight:600, color:'#c2410c', cursor:'pointer', fontFamily:'inherit' }}>
+          {showAll ? '▴ ย่อ' : `▾ ดูทั้งหมด (${rows.length} รายการ)`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 /* ── Main Page ───────────────────────────────────────────────────────── */
 const BankDiaryPage = ({ data: propData, setData, toast }) => {
   const raw = propData || WTPData.load();
-  const { bankAccounts: rawAccounts = [], bankEntries = [], bankTransfers = [], checks: rawChecks = [], forecastEntries: rawForecast = [] } = raw;
+  const { bankAccounts: rawAccounts = [], bankEntries = [], bankTransfers = [], checks: rawChecks = [], forecastEntries: rawForecast = [], payables: rawPayables = [] } = raw;
   const today = new Date().toISOString().slice(0, 10);
   const next7 = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
 
@@ -936,6 +1041,7 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
   const [editTransfer, setEditTransfer]       = React.useState(null);
   const [showAddForecast, setShowAddForecast] = React.useState(false);
   const [editForecast, setEditForecast]       = React.useState(null);
+  const [apPrefill, setApPrefill]             = React.useState(null);
   const [period, setPeriod]                   = React.useState('thisMonth');
 
   const periodEnd   = bdPeriodEnd(today, period);
@@ -968,6 +1074,9 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
 
   /* Normalize forecast + match → accounts (ที่มี Bank_AC) */
   const forecasts = React.useMemo(() => rawForecast.map(bdNormForecast), [rawForecast]);
+  // AP (เจ้าหนี้คงค้าง) + เซ็ตเลขที่ที่วางแผนจ่ายแล้ว (มี forecast อ้างถึง REF_DOC) กันวางซ้ำ
+  const apList     = React.useMemo(() => rawPayables.map(bdNormAP), [rawPayables]);
+  const plannedRefs = React.useMemo(() => new Set(forecasts.filter(f => f.refDoc).map(f => f.refDoc)), [forecasts]);
   const forecastByAccount = React.useMemo(() => {
     const byAcct = {};
     accounts.forEach(a => { byAcct[a.accountNo] = []; });
@@ -1097,6 +1206,24 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
     }
     setShowAddForecast(false);
     setEditForecast(null);
+    setApPrefill(null);
+  };
+
+  /* วางแผนจ่าย AP → เปิดฟอร์มประมาณการ (จ่าย) เติมค่าจาก AP, default บัญชี 4863 */
+  const AP_DEFAULT_BANK = '1362684863';
+  const openPlanAP = (ap) => {
+    const hasDefault = accounts.some(a => a.accountNo === AP_DEFAULT_BANK);
+    setEditForecast(null);
+    setApPrefill({
+      dir: 'out',
+      amount: ap.amount,
+      desc: 'จ่าย ' + ap.vendor + (ap.vchno ? ' (' + ap.vchno + ')' : ''),
+      bankAc: hasDefault ? AP_DEFAULT_BANK : '',
+      payDate: (ap.due && ap.due >= today) ? ap.due : today,
+      refDoc: ap.vchno,
+      expType: 'AP',
+    });
+    setShowAddForecast(true);
   };
 
   /* Delete a forecast row */
@@ -1226,10 +1353,23 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
         periodLabel={periodLabel}
         today={today}
         totalRealBalance={totalBalance}
-        onAdd={() => { setEditForecast(null); setShowAddForecast(true); }}
+        onAdd={() => { setEditForecast(null); setApPrefill(null); setShowAddForecast(true); }}
         onEdit={(r) => setEditForecast(r)}
         canEdit={canEdit}
       />
+
+      {/* AP — เจ้าหนี้คงค้างให้เลือกจ่าย */}
+      {apList.length > 0 && (
+        <BDApPanel
+          apList={apList}
+          plannedRefs={plannedRefs}
+          today={today}
+          periodEnd={periodEnd}
+          periodLabel={periodLabel}
+          onPlan={openPlanAP}
+          canEdit={canEdit}
+        />
+      )}
 
       {/* Unmatched outstanding checks (จับคู่บัญชีไม่ได้) */}
       {unmatchedOutstanding.length > 0 && (
@@ -1339,10 +1479,11 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
           bankAccounts={accounts}
           today={today}
           initial={editForecast}
+          prefill={apPrefill}
           onSave={handleSaveForecast}
           onDelete={handleDeleteForecast}
           canDelete={canDelete}
-          onClose={() => { setShowAddForecast(false); setEditForecast(null); }}
+          onClose={() => { setShowAddForecast(false); setEditForecast(null); setApPrefill(null); }}
         />
       )}
     </div>
