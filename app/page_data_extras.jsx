@@ -1946,6 +1946,135 @@ function _payableNormCmp(v, type) {
   return v == null ? '' : String(v).trim();
 }
 
+// Preview เฉพาะหน้าเจ้าหนี้ — จัดกลุ่มตามสถานะ (ใหม่/แก้/หาย/เหมือนเดิม) แบบย่อ กดกางดูได้
+// + รายการ "หาย" เลือกลบทีละอัน (selectedMissing = Set ของ id แถวเดิมที่จะลบ)
+function PayableImportPreview({ preview, selectedMissing, setSelectedMissing }) {
+  const { added = [], changed = [], unchanged = [], missing = [], fieldByKey = {} } = preview;
+  const [open, setOpen] = dxState({ added: false, changed: false, missing: true, unchanged: false });
+  const toggleSec = k => setOpen(o => ({ ...o, [k]: !o[k] }));
+
+  const fmtCell = (v, type) => {
+    if (v === null || v === undefined || String(v).trim() === '') return '—';
+    if (type === 'number') return fmtNum(parseNum(v), 2);
+    if (type === 'date')   return fmtDate(v) || String(v);
+    return String(v);
+  };
+  const rowOf = it => it.existing || it.row || {};
+  const subOf = r => [r.cust_name, r.remark].filter(x => x && String(x).trim()).join(' · ');
+
+  const missingIds = missing.map(m => m.row?.id).filter(Boolean);
+  const toggleMissing = (id) => setSelectedMissing(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const allMissingSel = missingIds.length > 0 && missingIds.every(id => selectedMissing.has(id));
+  const toggleAllMissing = () => setSelectedMissing(allMissingSel ? new Set() : new Set(missingIds));
+
+  const SECTIONS = [
+    { key: 'added',     icon: '🆕', label: 'รายการใหม่',           color: 'var(--good)',        items: added },
+    { key: 'changed',   icon: '✏️', label: 'แก้ไข',                color: 'oklch(60% 0.18 75)', items: changed },
+    { key: 'missing',   icon: '⚠️', label: 'หาย (ไม่มีในไฟล์ใหม่)', color: 'var(--bad)',        items: missing },
+    { key: 'unchanged', icon: '=',  label: 'เหมือนเดิม',            color: 'var(--ink-400)',     items: unchanged },
+  ];
+
+  const chip = (c, n, label) => (
+    <span style={{ fontSize: 11.5, fontWeight: 700, color: c, padding: '2px 8px', borderRadius: 5,
+      background: `color-mix(in oklch, ${c} 12%, transparent)` }}>{label} {n}</span>
+  );
+
+  const rowStyle  = { display: 'flex', alignItems: 'center', gap: 8, padding: '5px 12px', fontSize: 12, borderTop: '1px solid var(--ink-100, #eef1f5)' };
+  const monoStyle = { fontFamily: 'ui-monospace', fontWeight: 600, color: 'var(--ink-800)', whiteSpace: 'nowrap' };
+  const subStyle  = { fontSize: 11, color: 'var(--ink-500)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+  const amtStyle  = { fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: 'var(--bad)', whiteSpace: 'nowrap' };
+
+  const renderRow = (sec, it, i) => {
+    const r = rowOf(it);
+    const net = fmtNum(parseNum(r.netpayment), 2);
+    if (sec.key === 'missing') {
+      const id = it.row?.id;
+      const checked = selectedMissing.has(id);
+      return (
+        <label key={i} style={{ ...rowStyle, cursor: 'pointer', background: checked ? 'color-mix(in oklch, var(--bad) 8%, transparent)' : 'transparent' }}>
+          <input type="checkbox" checked={checked} onChange={() => toggleMissing(id)} />
+          <span style={monoStyle}>{r.vchno || '—'}</span>
+          <span style={subStyle}>{subOf(r)}</span>
+          <span style={amtStyle}>{net}</span>
+        </label>
+      );
+    }
+    if (sec.key === 'changed') {
+      return (
+        <div key={i} style={{ ...rowStyle, flexDirection: 'column', alignItems: 'stretch', gap: 3 }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <span style={monoStyle}>{r.vchno || '—'}</span>
+            <span style={subStyle}>{r.cust_name || ''}</span>
+          </div>
+          <div style={{ display: 'grid', gap: 2, marginLeft: 4 }}>
+            {Object.entries(it.diff || {}).map(([fk, d]) => {
+              const f = fieldByKey[fk];
+              return (
+                <div key={fk} style={{ fontSize: 11.5, display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span style={{ color: 'var(--ink-500)', minWidth: 92 }}>{f?.label || fk}:</span>
+                  <span style={{ textDecoration: 'line-through', color: 'var(--bad)', background: 'color-mix(in oklch, var(--bad) 10%, transparent)', padding: '0 5px', borderRadius: 3 }}>{fmtCell(d.old, f?.type)}</span>
+                  <span style={{ color: 'var(--ink-400)' }}>→</span>
+                  <span style={{ color: 'var(--good)', fontWeight: 600, background: 'color-mix(in oklch, var(--good) 12%, transparent)', padding: '0 5px', borderRadius: 3 }}>{fmtCell(d.new, f?.type)}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div key={i} style={rowStyle}>
+        <span style={monoStyle}>{r.vchno || '—'}</span>
+        <span style={subStyle}>{subOf(r)}</span>
+        <span style={amtStyle}>{net}</span>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ display: 'grid', gap: 8 }}>
+      {/* summary chips */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        {chip('var(--good)', added.length, '🆕 ใหม่')}
+        {chip('oklch(55% 0.18 75)', changed.length, '✏️ แก้')}
+        {chip('var(--bad)', missing.length, '⚠️ หาย')}
+        {chip('var(--ink-500)', unchanged.length, '= เหมือนเดิม')}
+        {selectedMissing.size > 0 && <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--bad)', fontWeight: 700 }}>เลือกลบ {selectedMissing.size} รายการ</span>}
+      </div>
+
+      {SECTIONS.filter(s => s.items.length > 0).map(sec => {
+        const isOpen = open[sec.key];
+        return (
+          <div key={sec.key} style={{ border: `1px solid color-mix(in oklch, ${sec.color} 30%, var(--ink-100, #e5e9f0))`, borderRadius: 8, overflow: 'hidden' }}>
+            <button type="button" onClick={() => toggleSec(sec.key)} style={{
+              width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
+              background: `color-mix(in oklch, ${sec.color} 7%, transparent)`, border: 'none', cursor: 'pointer', textAlign: 'left',
+            }}>
+              <span style={{ fontSize: 14 }}>{sec.icon}</span>
+              <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink-800)' }}>{sec.label}</span>
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: sec.color, background: `color-mix(in oklch, ${sec.color} 16%, transparent)`, padding: '1px 8px', borderRadius: 10 }}>{sec.items.length}</span>
+              {sec.key === 'missing' && selectedMissing.size > 0 && <span style={{ fontSize: 11, color: 'var(--bad)', fontWeight: 600 }}>· เลือกลบ {selectedMissing.size}</span>}
+              <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--ink-400)' }}>{isOpen ? '▲ ย่อ' : '▼ ดูรายการ'}</span>
+            </button>
+            {isOpen && (
+              <div style={{ maxHeight: 280, overflowY: 'auto' }}>
+                {sec.key === 'missing' && (
+                  <label style={{ ...rowStyle, cursor: 'pointer', background: 'var(--ink-50, #f7f8fa)', position: 'sticky', top: 0, zIndex: 1, fontWeight: 600 }}>
+                    <input type="checkbox" checked={allMissingSel} onChange={toggleAllMissing} />
+                    <span style={{ fontSize: 12 }}>เลือกทั้งหมด</span>
+                    <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--ink-500)' }}>{selectedMissing.size}/{missing.length}</span>
+                  </label>
+                )}
+                {sec.items.map((it, i) => renderRow(sec, it, i))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function DataPayablePage({ data, setData, toast }) {
   const [edit, setEdit]             = dxState(null);
   const [query, setQuery]           = dxState('');
@@ -1960,8 +2089,8 @@ function DataPayablePage({ data, setData, toast }) {
   const [importPasteOpen, setImportPasteOpen] = dxState(false);
   const [importDragOver, setImportDragOver]   = dxState(false);
   const [importFileName, setImportFileName]   = dxState('');
-  const [importPreview, setImportPreview]         = dxState(null);   // {added,changed,unchanged,missing,paidCut,…}
-  const [deleteMissingChoice, setDeleteMissingChoice] = dxState(false);
+  const [importPreview, setImportPreview]     = dxState(null);   // {added,changed,unchanged,missing,paidCut,…}
+  const [selectedMissing, setSelectedMissing] = dxState(() => new Set());   // id แถวเดิม (หาย) ที่เลือกจะลบ
 
   // อัปโหลด .xlsx ตรงๆ → แปลงเป็น TSV → ใส่ใน textarea (reuse handleImport)
   const handleFileUpload = (file) => {
@@ -2095,7 +2224,7 @@ function DataPayablePage({ data, setData, toast }) {
 
   const resetImport = () => {
     setShowImport(false); setImportText(''); setImportPasteOpen(false);
-    setImportFileName(''); setImportPreview(null); setDeleteMissingChoice(false);
+    setImportFileName(''); setImportPreview(null); setSelectedMissing(new Set());
   };
 
   // วิเคราะห์ไฟล์ → สร้าง preview (ตัดแถวสรุปยอด + แยกใหม่/แก้/หาย/จ่ายแล้ว) ก่อน commit
@@ -2162,7 +2291,7 @@ function DataPayablePage({ data, setData, toast }) {
       else missing.push({ row: r, key: v, primary: v });
     });
 
-    setDeleteMissingChoice(false);
+    setSelectedMissing(new Set());
     setImportPreview({
       added, changed, unchanged, missing,
       blankSkipped, noKeyCount: 0,
@@ -2185,16 +2314,16 @@ function DataPayablePage({ data, setData, toast }) {
       // add new
       const newRows = p.added.map(({ row }) => _normPayableRow({ ...row, id: WTPData.newId() }));
       if (newRows.length) next = [...newRows, ...next];
-      // delete: paidCut เสมอ + missing ถ้าติ๊ก
+      // delete: paidCut เสมอ + missing เฉพาะที่ผู้ใช้เลือก
       const removeIds = new Set();
       p.paidCut.forEach(m => { if (m.row?.id) removeIds.add(m.row.id); });
-      if (deleteMissingChoice) p.missing.forEach(m => { if (m.row?.id) removeIds.add(m.row.id); });
+      selectedMissing.forEach(id => removeIds.add(id));
       if (removeIds.size) next = next.filter(r => !removeIds.has(r.id));
       return { ...d, payables: next };
     });
     const parts = [`เพิ่ม ${p.added.length}`, `แก้ ${p.changed.length}`];
     if (p.paidCut.length) parts.push(`ตัดจ่ายแล้ว ${p.paidCut.length}`);
-    if (deleteMissingChoice && p.missing.length) parts.push(`ลบที่หาย ${p.missing.length}`);
+    if (selectedMissing.size) parts.push(`ลบที่หาย ${selectedMissing.size}`);
     toast(`นำเข้าสำเร็จ · ${parts.join(' · ')}`);
     resetImport();
   };
@@ -2407,7 +2536,7 @@ function DataPayablePage({ data, setData, toast }) {
             <button className="btn btn-ghost" onClick={() => setImportPreview(null)}>← ย้อนกลับ</button>
             <button className="btn btn-primary" onClick={commitImport}>
               <Icon name="check" size={13} /> ยืนยันนำเข้า
-              ({importPreview.added.length}+{importPreview.changed.length}{(importPreview.paidCut.length || (deleteMissingChoice && importPreview.missing.length)) ? `-${importPreview.paidCut.length + (deleteMissingChoice ? importPreview.missing.length : 0)}` : ''})
+              ({importPreview.added.length}+{importPreview.changed.length}{(importPreview.paidCut.length + selectedMissing.size) ? `-${importPreview.paidCut.length + selectedMissing.size}` : ''})
             </button>
           </> : <>
             <button className="btn btn-ghost" onClick={resetImport}>ยกเลิก</button>
@@ -2443,12 +2572,10 @@ function DataPayablePage({ data, setData, toast }) {
                   {importPreview.paidImportSkipped > 0 && <span>ข้ามจ่ายแล้วในไฟล์ <strong>{importPreview.paidImportSkipped}</strong> รายการ</span>}
                 </div>
               )}
-              <ImportPreview
+              <PayableImportPreview
                 preview={importPreview}
-                fieldByKey={importPreview.fieldByKey}
-                subFields={['cust_name', 'remark']}
-                deleteMissing={deleteMissingChoice}
-                setDeleteMissing={setDeleteMissingChoice}
+                selectedMissing={selectedMissing}
+                setSelectedMissing={setSelectedMissing}
               />
             </div>
           ) : (<>
