@@ -529,7 +529,7 @@ function ReconcilePanel({ transferPairs, bankAccounts, onReconcile, onEdit, canE
 }
 
 /* ── Day group row (expandable) — เช็คที่ครบกำหนดในวันเดียวกัน ────────── */
-function BDDayGroup({ day, today }) {
+function BDDayGroup({ day, today, onItemEdit }) {
   const [open, setOpen] = React.useState(false);
   const isToday   = day.date === today;
   const isOverdue = day.date < today;
@@ -571,8 +571,12 @@ function BDDayGroup({ day, today }) {
             const tag = it.kind === 'forecast' ? { t:'ประมาณการ', bg:'#ede9fe', c:'#6b21a8' }
                       : it.kind === 'transfer' ? { t:'โอน',       bg:'#fae8ff', c:'#86198f' }
                       : { t:'เช็ค', bg:'#e0f2fe', c:'#075985' };
+            const editable = onItemEdit && (it.kind === 'forecast' || it.kind === 'transfer');
             return (
-              <div key={i} style={{ display:'grid', gridTemplateColumns:'1fr auto', gap:'0 8px', padding:'5px 0', borderTop: i ? '1px dashed #e9e9f3' : 'none' }}>
+              <div key={i}
+                   onClick={editable ? () => onItemEdit(it) : undefined}
+                   title={editable ? 'กดเพื่อแก้ไขรายการ' : undefined}
+                   style={{ display:'grid', gridTemplateColumns:'1fr auto', gap:'0 8px', padding:'5px 0', borderTop: i ? '1px dashed #e9e9f3' : 'none', cursor: editable ? 'pointer' : 'default', borderRadius: editable ? 6 : 0 }}>
                 <div>
                   <div style={{ fontSize:12, color:'#1e293b' }}>
                     <span style={{ display:'inline-block', fontSize:9, fontWeight:700, borderRadius:4, padding:'0 5px', marginRight:5,
@@ -580,6 +584,7 @@ function BDDayGroup({ day, today }) {
                       {tag.t}
                     </span>
                     {it.title}
+                    {editable && <span style={{ marginLeft:6, fontSize:10, color:'#a5b4fc' }}>✏️</span>}
                   </div>
                   <div style={{ fontSize:10, color:'#94a3b8' }}>{it.sub}</div>
                 </div>
@@ -596,7 +601,7 @@ function BDDayGroup({ day, today }) {
 }
 
 /* ── Account Card — ยอดเงินจริง + เช็ค/ประมาณการแยกตามวัน ───────────── */
-function BankAccountCard({ view, today, periodEnd, periodLabel, onQuickTransfer, canEdit }) {
+function BankAccountCard({ view, today, periodEnd, periodLabel, onQuickTransfer, onItemEdit, canEdit }) {
   const [expanded, setExpanded] = React.useState(true);
   const [showAll, setShowAll]   = React.useState(false);
   const { acct, base, dayGroups, near, afterNear, shortNear, shortBy, dueToday, dueTodayOut, overdue } = view;
@@ -682,7 +687,7 @@ function BankAccountCard({ view, today, periodEnd, periodLabel, onQuickTransfer,
           ) : visibleGroups.length === 0 ? (
             <div style={{ textAlign:'center', color:'#a0aec0', fontSize:12, padding:'12px 0' }}>ไม่มีรายการในช่วง “{periodLabel}”</div>
           ) : (
-            visibleGroups.map(day => <BDDayGroup key={day.date} day={day} today={today} />)
+            visibleGroups.map(day => <BDDayGroup key={day.date} day={day} today={today} onItemEdit={onItemEdit} />)
           )}
           {(hiddenCount > 0 || (showAll && dayGroups.length > 0)) && (
             <button onClick={() => setShowAll(s => !s)}
@@ -1060,6 +1065,26 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
 
   const openQuickTransfer = (toAccountNo) => { setTransferTo(toAccountNo); setShowAddTransfer(true); };
 
+  /* จิ้มรายการในการ์ด BANK → เปิดแก้ไขตามชนิด (ประมาณการ / โอน) */
+  const handleItemEdit = (it) => {
+    if (!canEdit || !it) return;
+    if (it.kind === 'forecast') {
+      setEditForecast(it.raw);  // it.raw = forecast ที่ normalize แล้ว
+    } else if (it.kind === 'transfer') {
+      const entries  = transferPairs[it.ref] || [];
+      const outEntry = entries.find(e => e.entryType === 'outflow_transfer');
+      const inEntry  = entries.find(e => e.entryType === 'inflow_transfer');
+      setEditTransfer({
+        fromAccountNo: (outEntry && outEntry.accountNo) || '',
+        toAccountNo:   (inEntry && inEntry.accountNo) || '',
+        amount: Math.abs(parseFloat((outEntry || inEntry || {}).amount) || 0),
+        date: (outEntry || inEntry || {}).entryDate || today,
+        ref: it.ref,
+        note: (outEntry && outEntry.description) || (inEntry && inEntry.description) || '',
+      });
+    }
+  };
+
   /* Add/Edit Forecast handler — append or replace by id */
   const handleSaveForecast = (row, isEdit) => {
     if (setData) {
@@ -1188,6 +1213,7 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
             periodEnd={periodEnd}
             periodLabel={periodLabel}
             onQuickTransfer={openQuickTransfer}
+            onItemEdit={canEdit ? handleItemEdit : null}
             canEdit={canEdit}
           />
         ))}
