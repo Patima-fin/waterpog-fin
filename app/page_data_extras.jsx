@@ -1917,17 +1917,15 @@ function _normPayableRow(r) {
 
 // ─── AP import: change-detection + summary-row / paid-via-PV filters ──────────
 // Fields ที่เทียบ diff ตอนนำเข้าซ้ำ (vchno เดิม) — แสดงผ่าน <ImportPreview/>
+// ⚠️ ใช้เฉพาะคอลัมน์ที่อยู่ใน schema payables จริง (apps_script Code.gs ENTITY_HEADERS.payables)
+// ห้ามใส่ field ที่ Sheet ไม่ได้เก็บ (เช่น Net_amount2_new) ไม่งั้นค่าเดิมว่าง → ทุกแถวกลายเป็น "แก้"
 const _PAYABLE_DIFF_FIELDS = [
   { key: 'netpayment',      label: 'ยอดจ่ายสุทธิ', type: 'number' },
-  { key: 'Net_amount2_new', label: 'ยอดสุทธิ',      type: 'number' },
   { key: 'Amount',          label: 'ยอดเงิน',       type: 'number' },
+  { key: 'VAT',             label: 'VAT',           type: 'number' },
   { key: 'Balance_Amount1', label: 'ยอดคงเหลือ',    type: 'number' },
   { key: 'due2',            label: 'วันครบกำหนด',   type: 'date'   },
-  { key: 'vchdate',         label: 'วันที่เอกสาร',   type: 'date'   },
   { key: 'remark',          label: 'หมายเหตุ',      type: 'text'   },
-  { key: 'dpt_code',        label: 'แผนก',          type: 'text'   },
-  { key: 'jobcode',         label: 'Job',           type: 'text'   },
-  { key: 'cust_name',       label: 'ชื่อเจ้าหนี้',   type: 'text'   },
 ];
 const _PAYABLE_FIELD_BY_KEY = Object.fromEntries(_PAYABLE_DIFF_FIELDS.map(f => [f.key, f]));
 
@@ -2143,8 +2141,11 @@ function DataPayablePage({ data, setData, toast }) {
       if (!ex) { added.push({ row: obj, key: v, primary: v }); return; }
       const diff = {};
       _PAYABLE_DIFF_FIELDS.forEach(f => {
-        if (_payableNormCmp(ex[f.key], f.type) !== _payableNormCmp(obj[f.key], f.type)) {
-          diff[f.key] = { old: ex[f.key], new: obj[f.key] };
+        const oldRaw = ex[f.key];
+        // กัน false-positive: ถ้าของเดิมไม่มีค่า field นี้ (schema ต่าง) ไม่ถือว่า "เปลี่ยน"
+        if (oldRaw === undefined || oldRaw === null || String(oldRaw).trim() === '') return;
+        if (_payableNormCmp(oldRaw, f.type) !== _payableNormCmp(obj[f.key], f.type)) {
+          diff[f.key] = { old: oldRaw, new: obj[f.key] };
         }
       });
       const item = { row: obj, existing: ex, key: v, primary: v };
