@@ -668,49 +668,43 @@ function BankAccountCard({ view, today, periodEnd, periodLabel, onQuickTransfer,
 
   const brand = bdBrand(acct.bankName);
   const last4 = bdLast4(acct.accountNo);
-  const headerBg = isShort ? 'linear-gradient(135deg,#fff7f7,#fff)'
-                 : dueToday.length ? 'linear-gradient(135deg,#fffdf5,#fff)'
-                 : 'linear-gradient(180deg,#fbfcfe,#fff)';
+  // หัวการ์ดสไตล์บัตรธนาคาร — สีแบรนด์เต็ม + sheen/เงา ตัวอักษรขาว
+  const headerGrad = 'linear-gradient(135deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0) 38%), linear-gradient(135deg, ' + brand.color + ' 0%, rgba(0,0,0,0.28) 165%)';
 
   return (
     <div className="card" style={{
       padding:0, overflow:'hidden',
       border: isShort ? '2px solid #fc8181' : '1px solid #e6eaf0',
-      boxShadow: isShort ? '0 0 0 3px rgba(252,129,129,0.15)' : '0 1px 3px rgba(16,24,40,0.06)',
+      boxShadow: isShort ? '0 0 0 3px rgba(252,129,129,0.18), 0 8px 20px ' + brand.color + '22' : '0 6px 16px ' + brand.color + '1f, 0 1px 3px rgba(16,24,40,0.08)',
     }}>
-      {/* Brand strip + Header */}
-      <div style={{ cursor:'pointer' }} onClick={() => setExpanded(e => !e)}>
-        <div style={{ height:4, background: brand.color }} />
-        <div style={{ background:headerBg, padding:'12px 14px', display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:10 }}>
-          <div style={{ display:'flex', gap:11, minWidth:0 }}>
-            {/* Bank badge */}
-            <div style={{ flexShrink:0, minWidth:48, height:38, padding:'0 8px', borderRadius:9, background: brand.color, color:'#fff',
-                          display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, fontSize:12, letterSpacing:0.3,
-                          boxShadow:'0 3px 8px ' + brand.color + '55' }}>
-              {brand.label}
+      {/* Bank-card style header */}
+      <div style={{ cursor:'pointer', position:'relative', background: headerGrad, color:'#fff', overflow:'hidden' }} onClick={() => setExpanded(e => !e)}>
+        {/* decorative sheen circles */}
+        <div style={{ position:'absolute', top:-46, right:-26, width:150, height:150, borderRadius:'50%', background:'rgba(255,255,255,0.10)' }} />
+        <div style={{ position:'absolute', bottom:-60, right:46, width:120, height:120, borderRadius:'50%', background:'rgba(255,255,255,0.06)' }} />
+        <div style={{ position:'relative', padding:'14px 16px', display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:10 }}>
+          <div style={{ minWidth:0 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+              <span style={{ fontWeight:800, fontSize:16, letterSpacing:0.5, textShadow:'0 1px 2px rgba(0,0,0,0.18)' }}>{brand.label}</span>
+              {isShort && <span style={{ fontSize:10, fontWeight:800, background:'#fff', color:'#dc2626', borderRadius:5, padding:'2px 7px', whiteSpace:'nowrap', boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }}>⚠ {shortNear ? 'ไม่พอใน 7 วัน' : 'ไม่พอในช่วงนี้'}</span>}
             </div>
-            <div style={{ minWidth:0 }}>
-              <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
-                <span title={acct.accountNo} style={{ fontFamily:'ui-monospace', fontWeight:700, fontSize:14, color:'#1a202c', letterSpacing:1 }}>
-                  <span style={{ color:'#cbd5e1' }}>••••</span> {last4 || '—'}
-                </span>
-                {isShort && <span style={{ fontSize:10, fontWeight:700, background:'#e53e3e', color:'#fff', borderRadius:4, padding:'1px 6px', whiteSpace:'nowrap' }}>⚠ {shortNear ? 'ไม่พอใน 7 วัน' : 'ไม่พอในช่วงนี้'}</span>}
+            <div title={acct.accountNo} style={{ fontFamily:'ui-monospace', fontWeight:700, fontSize:16, letterSpacing:2.5, marginTop:8, color:'rgba(255,255,255,0.96)' }}>
+              <span style={{ opacity:0.55 }}>••••</span> {last4 || '—'}
+            </div>
+            {(acct.accountName || acct.note || acct.type) && (
+              <div style={{ fontSize:11, color:'rgba(255,255,255,0.78)', marginTop:4, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:175 }}>
+                {acct.accountName || acct.note || acct.type}
               </div>
-              {(acct.accountName || acct.note || acct.type) && (
-                <div style={{ fontSize:11, color:'#94a3b8', marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:165 }}>
-                  {acct.accountName || acct.note || acct.type}
-                </div>
-              )}
-            </div>
+            )}
           </div>
           <div style={{ textAlign:'right', whiteSpace:'nowrap' }}>
-            <div style={{ fontSize:10, color:'#94a3b8', textTransform:'uppercase', letterSpacing:0.4 }}>ยอดเงินจริง</div>
-            <div style={{ fontWeight:800, fontSize:17, color: base < 0 ? '#e53e3e' : '#0f172a', fontVariantNumeric:'tabular-nums' }}>{fmtMoney(base)}</div>
+            <div style={{ fontSize:9.5, color:'rgba(255,255,255,0.8)', textTransform:'uppercase', letterSpacing:0.6 }}>ยอดเงินจริง</div>
+            <div style={{ fontWeight:800, fontSize:19, color:'#fff', fontVariantNumeric:'tabular-nums', textShadow:'0 1px 3px rgba(0,0,0,0.18)' }}>{fmtMoney(base)}</div>
             {acct.available != null && acct.available !== acct.balance && (
-              <div style={{ fontSize:10, color:'#94a3b8', marginTop:1 }}>ใช้ได้ {fmtMoney(acct.available)}</div>
+              <div style={{ fontSize:10, color:'rgba(255,255,255,0.78)', marginTop:2 }}>ใช้ได้ {fmtMoney(acct.available)}</div>
             )}
             {acct.hold != null && acct.hold > 0 && (
-              <div style={{ fontSize:10, color:'#a16207' }}>อายัด/ค้ำ {fmtMoney(acct.hold)}</div>
+              <div style={{ fontSize:10, color:'rgba(255,255,255,0.92)' }}>อายัด/ค้ำ {fmtMoney(acct.hold)}</div>
             )}
           </div>
         </div>
