@@ -1423,7 +1423,7 @@ function ImportPreview({ preview, fieldByKey, subFields = [], deleteMissing, set
         }}>
           <input type="checkbox" checked={deleteMissing} onChange={e => setDeleteMissing(e.target.checked)} />
           <span>
-            ⚠️ มี <strong>{missing.length}</strong> รายการที่อยู่ใน DB ภายในช่วงวันที่ <strong>{dateRange?.lo}</strong> ถึง <strong>{dateRange?.hi}</strong> แต่ไม่มีในไฟล์ใหม่ —
+            ⚠️ มี <strong>{missing.length}</strong> รายการที่อยู่ใน DB{dateRange ? <> ภายในช่วงวันที่ <strong>{dateRange.lo}</strong> ถึง <strong>{dateRange.hi}</strong></> : null} แต่ไม่มีในไฟล์ใหม่ —
             ติ๊กเพื่อ <strong style={{ color: 'var(--bad)' }}>ลบออกจาก DB ด้วย</strong> (default: เก็บไว้)
           </span>
         </label>
@@ -1915,6 +1915,39 @@ function _normPayableRow(r) {
   return r;
 }
 
+// ─── AP import: change-detection + summary-row / paid-via-PV filters ──────────
+// Fields ที่เทียบ diff ตอนนำเข้าซ้ำ (vchno เดิม) — แสดงผ่าน <ImportPreview/>
+const _PAYABLE_DIFF_FIELDS = [
+  { key: 'netpayment',      label: 'ยอดจ่ายสุทธิ', type: 'number' },
+  { key: 'Net_amount2_new', label: 'ยอดสุทธิ',      type: 'number' },
+  { key: 'Amount',          label: 'ยอดเงิน',       type: 'number' },
+  { key: 'Balance_Amount1', label: 'ยอดคงเหลือ',    type: 'number' },
+  { key: 'due2',            label: 'วันครบกำหนด',   type: 'date'   },
+  { key: 'vchdate',         label: 'วันที่เอกสาร',   type: 'date'   },
+  { key: 'remark',          label: 'หมายเหตุ',      type: 'text'   },
+  { key: 'dpt_code',        label: 'แผนก',          type: 'text'   },
+  { key: 'jobcode',         label: 'Job',           type: 'text'   },
+  { key: 'cust_name',       label: 'ชื่อเจ้าหนี้',   type: 'text'   },
+];
+const _PAYABLE_FIELD_BY_KEY = Object.fromEntries(_PAYABLE_DIFF_FIELDS.map(f => [f.key, f]));
+
+// แถวรายการจริง = vchno ขึ้นต้น APO/APS/APV; แถวสรุปยอด "Total By Vendor" มี vchno="0"
+// + กัน maincode="Vendor :…" / ty="Total…" หลุดเข้ามา
+function _isPayableDetailRow(o) {
+  const vch = String(o.vchno || '').trim();
+  if (!/^AP[OSV]/i.test(vch)) return false;
+  if (/^Vendor\s*:/i.test(String(o.maincode || ''))) return false;
+  if (/^Total/i.test(String(o.ty || '').trim()))     return false;
+  return true;
+}
+
+// เทียบค่าให้ทน format ต่าง — date → epoch (กัน DD/MM vs ISO), number → parseNum (กัน "2,000.00")
+function _payableNormCmp(v, type) {
+  if (type === 'number') return parseNum(v);
+  if (type === 'date')   { const d = parseDue(v); return d ? d.getTime() : (v == null ? '' : String(v).trim()); }
+  return v == null ? '' : String(v).trim();
+}
+
 function DataPayablePage({ data, setData, toast }) {
   const [edit, setEdit]             = dxState(null);
   const [query, setQuery]           = dxState('');
@@ -1929,6 +1962,8 @@ function DataPayablePage({ data, setData, toast }) {
   const [importPasteOpen, setImportPasteOpen] = dxState(false);
   const [importDragOver, setImportDragOver]   = dxState(false);
   const [importFileName, setImportFileName]   = dxState('');
+  const [importPreview, setImportPreview]         = dxState(null);   // {added,changed,unchanged,missing,paidCut,…}
+  const [deleteMissingChoice, setDeleteMissingChoice] = dxState(false);
 
   // อัปโหลด .xlsx ตรงๆ → แปลงเป็น TSV → ใส่ใน textarea (reuse handleImport)
   const handleFileUpload = (file) => {
@@ -2060,36 +2095,107 @@ function DataPayablePage({ data, setData, toast }) {
     toast('ลบรายการแล้ว');
   };
 
+  const resetImport = () => {
+    setShowImport(false); setImportText(''); setImportPasteOpen(false);
+    setImportFileName(''); setImportPreview(null); setDeleteMissingChoice(false);
+  };
+
+  // วิเคราะห์ไฟล์ → สร้าง preview (ตัดแถวสรุปยอด + แยกใหม่/แก้/หาย/จ่ายแล้ว) ก่อน commit
   const handleImport = () => {
     if (!importText.trim()) { toast('ไม่มีข้อมูล'); return; }
     const lines = importText.trim().split('\n');
     if (lines.length < 2) { toast('ต้องมีแถวหัวตารางและข้อมูลอย่างน้อย 1 แถว'); return; }
     const headers = lines[0].split('\t').map(h => h.trim());
-    const existing = new Set((data.payables || []).map(r => r.vchno).filter(Boolean));
-    let added = 0, skipped = 0;
-    const newRows = [];
+
+    // parse rows → objects (ยังไม่ใส่ id) + normalise due2
+    const parsed = [];
+    let blankSkipped = 0;
     for (let i = 1; i < lines.length; i++) {
       const cols = lines[i].split('\t');
-      if (cols.every(c => !c.trim())) continue;
-      const obj = { id: WTPData.newId() };
+      if (cols.every(c => !String(c || '').trim())) { blankSkipped++; continue; }
+      const obj = {};
       headers.forEach((h, j) => { obj[h] = cols[j] != null ? cols[j].trim() : ''; });
-      // Normalise due-date column name variants → canonical 'due2'
-      if (!obj.due2) {
-        for (const k of _DUE_ALT_KEYS) { if (obj[k]) { obj.due2 = obj[k]; break; } }
-      }
-      if (obj.vchno && existing.has(obj.vchno)) { skipped++; continue; }
-      if (obj.vchno) existing.add(obj.vchno);
-      newRows.push(obj);
-      added++;
+      if (!obj.due2) { for (const k of _DUE_ALT_KEYS) { if (obj[k]) { obj.due2 = obj[k]; break; } } }
+      parsed.push(obj);
     }
-    if (newRows.length > 0) {
-      setData(d => ({ ...d, payables: [...(d.payables||[]), ...newRows] }));
-    }
-    setShowImport(false);
-    setImportText('');
-    setImportPasteOpen(false);
-    setImportFileName('');
-    toast(`นำเข้าแล้ว ${added} รายการ · ข้ามซ้ำ ${skipped} รายการ`);
+
+    // (1) ตัดแถวสรุปยอดเจ้าหนี้ (Total By Vendor) — เก็บเฉพาะแถวรายการจริง
+    let summarySkipped = 0;
+    const detail = parsed.filter(o => { const keep = _isPayableDetailRow(o); if (!keep) summarySkipped++; return keep; });
+
+    // (2) เซ็ตของที่จ่ายแล้ว (ดึงไป PV) — vchno ที่ตรงกับ AP_No ใน pvVouchers
+    const paidSet = new Set((data.pvVouchers || []).map(pv => String(pv.AP_No || '').trim()).filter(Boolean));
+
+    // index payable เดิมด้วย vchno
+    const existing = data.payables || [];
+    const existingByVchno = new Map();
+    existing.forEach(r => { const v = String(r.vchno || '').trim(); if (v && !existingByVchno.has(v)) existingByVchno.set(v, r); });
+
+    const importedVchno = new Set();
+    const added = [], changed = [], unchanged = [];
+    let paidImportSkipped = 0;
+
+    detail.forEach(obj => {
+      const v = String(obj.vchno || '').trim();
+      if (paidSet.has(v)) { paidImportSkipped++; return; }   // จ่ายแล้ว → ไม่นำเข้า
+      importedVchno.add(v);
+      const ex = existingByVchno.get(v);
+      if (!ex) { added.push({ row: obj, key: v, primary: v }); return; }
+      const diff = {};
+      _PAYABLE_DIFF_FIELDS.forEach(f => {
+        if (_payableNormCmp(ex[f.key], f.type) !== _payableNormCmp(obj[f.key], f.type)) {
+          diff[f.key] = { old: ex[f.key], new: obj[f.key] };
+        }
+      });
+      const item = { row: obj, existing: ex, key: v, primary: v };
+      if (Object.keys(diff).length === 0) unchanged.push(item);
+      else changed.push({ ...item, diff });
+    });
+
+    // (3) ของเดิมที่ไม่อยู่ในไฟล์ใหม่ → จ่ายแล้ว (ตัดออกอัตโนมัติ) หรือ หาย (ให้เลือกลบ)
+    const paidCut = [], missing = [];
+    existing.forEach(r => {
+      const v = String(r.vchno || '').trim();
+      if (!v || importedVchno.has(v)) return;
+      if (paidSet.has(v)) paidCut.push({ row: r, key: v, primary: v });
+      else missing.push({ row: r, key: v, primary: v });
+    });
+
+    setDeleteMissingChoice(false);
+    setImportPreview({
+      added, changed, unchanged, missing,
+      blankSkipped, noKeyCount: 0,
+      fieldByKey: _PAYABLE_FIELD_BY_KEY,
+      dedupKeys: ['vchno'], primaryKey: 'vchno', dateRange: null,
+      summarySkipped, paidImportSkipped, paidCut,
+    });
+  };
+
+  // ยืนยัน → upsert changed + add new + ตัด paidCut เสมอ + (option) ลบ missing
+  const commitImport = () => {
+    const p = importPreview;
+    if (!p) return;
+    setData(d => {
+      let next = [...(d.payables || [])];
+      // update changed (merge ฟิลด์จากไฟล์เข้า row เดิม คง id)
+      const changedById = new Map();
+      p.changed.forEach(({ existing, row }) => { if (existing?.id) changedById.set(existing.id, row); });
+      if (changedById.size) next = next.map(r => changedById.has(r.id) ? { ...r, ...changedById.get(r.id) } : r);
+      // add new
+      const newRows = p.added.map(({ row }) => _normPayableRow({ ...row, id: WTPData.newId() }));
+      if (newRows.length) next = [...newRows, ...next];
+      // delete: paidCut เสมอ + missing ถ้าติ๊ก
+      const removeIds = new Set();
+      p.paidCut.forEach(m => { if (m.row?.id) removeIds.add(m.row.id); });
+      if (deleteMissingChoice) p.missing.forEach(m => { if (m.row?.id) removeIds.add(m.row.id); });
+      if (removeIds.size) next = next.filter(r => !removeIds.has(r.id));
+      return { ...d, payables: next };
+    });
+    const parts = [`เพิ่ม ${p.added.length}`, `แก้ ${p.changed.length}`];
+    if (p.paidCut.length) parts.push(`ตัดจ่ายแล้ว ${p.paidCut.length}`);
+    if (deleteMissingChoice && p.missing.length) parts.push(`ลบที่หาย ${p.missing.length}`);
+    toast(`นำเข้าสำเร็จ · ${parts.join(' · ')}`);
+    resetImport();
   };
 
   const COLS = [
@@ -2295,10 +2401,16 @@ function DataPayablePage({ data, setData, toast }) {
                 }}>ⓘ</button>
             </span>
           }
-          onClose={() => { setShowImport(false); setImportText(''); setImportPasteOpen(false); setImportFileName(''); }}
-          footer={<>
-            <button className="btn btn-ghost" onClick={() => { setShowImport(false); setImportText(''); setImportPasteOpen(false); setImportFileName(''); }}>ยกเลิก</button>
-            <button className="btn btn-primary" onClick={handleImport} disabled={!importText.trim()}><Icon name="upload" size={13} /> นำเข้า</button>
+          onClose={resetImport}
+          footer={importPreview ? <>
+            <button className="btn btn-ghost" onClick={() => setImportPreview(null)}>← ย้อนกลับ</button>
+            <button className="btn btn-primary" onClick={commitImport}>
+              <Icon name="check" size={13} /> ยืนยันนำเข้า
+              ({importPreview.added.length}+{importPreview.changed.length}{(importPreview.paidCut.length || (deleteMissingChoice && importPreview.missing.length)) ? `-${importPreview.paidCut.length + (deleteMissingChoice ? importPreview.missing.length : 0)}` : ''})
+            </button>
+          </> : <>
+            <button className="btn btn-ghost" onClick={resetImport}>ยกเลิก</button>
+            <button className="btn btn-primary" onClick={handleImport} disabled={!importText.trim()}><Icon name="check" size={13} /> ตรวจสอบข้อมูล</button>
           </>}>
 
           {importHelpOpen && (
@@ -2308,10 +2420,37 @@ function DataPayablePage({ data, setData, toast }) {
               borderRadius: 7, color: 'var(--ink-700)', lineHeight: 1.65,
             }}>
               <div>📥 <strong>อัปโหลดไฟล์ .xlsx/.csv</strong> หรือ <strong>วาง TSV</strong>. แถวแรกต้องเป็นชื่อคอลัมน์ (header)</div>
-              <div>🔁 รายการที่ <strong>vchno ซ้ำ</strong> กับข้อมูลที่มีอยู่จะถูกข้ามโดยอัตโนมัติ — เฉพาะแถวใหม่เท่านั้นที่ถูกเพิ่ม</div>
+              <div>🧹 <strong>แถวสรุปยอด</strong> (Total By Vendor) ถูกตัดออกอัตโนมัติ — นำเข้าเฉพาะรายการจริง (vchno = APO/APS/APV)</div>
+              <div>🔁 รายการที่ <strong>vchno ซ้ำ</strong> แต่ค่าเปลี่ยน (ยอด/วันครบกำหนด) จะ <strong>แจ้งเตือนให้ตรวจทาน</strong> ก่อนอัปเดต</div>
+              <div>✅ รายการที่ <strong>ดึงไป PV แล้ว</strong> (vchno = AP_No ใน PV) จะไม่นำเข้า และตัดของเดิมในลิสต์ออกให้</div>
               <div>📆 คอลัมน์วันครบกำหนด: ถ้าไม่มี <code>due2</code> ระบบจะ map จาก due/duedate/Due/maturity ฯลฯ ให้อัตโนมัติ</div>
             </div>
           )}
+
+          {importPreview ? (
+            <div style={{ display: 'grid', gap: 10 }}>
+              {(importPreview.summarySkipped > 0 || importPreview.paidCut.length > 0 || importPreview.paidImportSkipped > 0) && (
+                <div style={{
+                  padding: '9px 12px', borderRadius: 8, fontSize: 12, lineHeight: 1.6,
+                  background: 'color-mix(in oklch, var(--good) 8%, transparent)',
+                  border: '1px solid color-mix(in oklch, var(--good) 26%, transparent)',
+                  display: 'flex', gap: 14, flexWrap: 'wrap', color: 'var(--ink-700)',
+                }}>
+                  <span style={{ fontWeight: 700, color: 'var(--good)' }}>🧹 จัดการอัตโนมัติ:</span>
+                  {importPreview.summarySkipped > 0   && <span>ตัดแถวสรุปยอด <strong>{importPreview.summarySkipped}</strong> แถว</span>}
+                  {importPreview.paidCut.length > 0   && <span>ตัดของเดิมที่จ่ายแล้ว <strong>{importPreview.paidCut.length}</strong> รายการ</span>}
+                  {importPreview.paidImportSkipped > 0 && <span>ข้ามจ่ายแล้วในไฟล์ <strong>{importPreview.paidImportSkipped}</strong> รายการ</span>}
+                </div>
+              )}
+              <ImportPreview
+                preview={importPreview}
+                fieldByKey={importPreview.fieldByKey}
+                subFields={['cust_name', 'remark']}
+                deleteMissing={deleteMissingChoice}
+                setDeleteMissing={setDeleteMissingChoice}
+              />
+            </div>
+          ) : (<>
 
           {/* Big drop zone */}
           <div
@@ -2400,6 +2539,7 @@ function DataPayablePage({ data, setData, toast }) {
               />
             </>
           )}
+          </>)}
         </Modal>
       )}
 
