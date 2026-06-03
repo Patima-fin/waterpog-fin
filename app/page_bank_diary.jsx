@@ -957,12 +957,19 @@ function BDForecastPanel({ forecasts, periodEnd, periodLabel, today, totalRealBa
   );
 }
 
-/* ── AP Panel — เจ้าหนี้คงค้างให้เลือกจ่าย (กดวางแผนจ่าย → สร้างประมาณการ) ── */
-function BDApPanel({ apList, plannedRefs, today, periodEnd, periodLabel, onPlan, onSetCategory, canEdit }) {
-  const [query, setQuery]   = React.useState('');
+/* ── AP Panel — เจ้าหนี้คงค้างให้เลือกจ่าย (เดี่ยว/หลายรายการ → สร้างประมาณการ) ── */
+function BDApPanel({ apList, plannedRefs, bankAccounts, defaultBank, today, periodEnd, periodLabel, onPlan, onBulkPlan, onSetCategory, canEdit }) {
+  const [query, setQuery]     = React.useState('');
   const [showAll, setShowAll] = React.useState(false);
   const [sortKey, setSortKey] = React.useState('due');   // due | amount | vendor
   const [sortDir, setSortDir] = React.useState('asc');
+  const [dueFrom, setDueFrom] = React.useState('');      // filter ครบกำหนด ตั้งแต่
+  const [dueTo, setDueTo]     = React.useState('');      // ถึง
+  const [selected, setSelected] = React.useState(() => new Set());
+  // bulk options
+  const [bulkDate, setBulkDate] = React.useState(today);
+  const [bulkCat, setBulkCat]   = React.useState('');
+  const [bulkBank, setBulkBank] = React.useState(defaultBank || '');
   const LIMIT = 25;
 
   const toggleSort = (k) => {
@@ -977,6 +984,8 @@ function BDApPanel({ apList, plannedRefs, today, periodEnd, periodLabel, onPlan,
       const q = query.trim().toLowerCase();
       r = r.filter(a => (a.vendor || '').toLowerCase().includes(q) || (a.vchno || '').toLowerCase().includes(q));
     }
+    if (dueFrom) r = r.filter(a => a.due && a.due >= dueFrom);
+    if (dueTo)   r = r.filter(a => a.due && a.due <= dueTo);
     const dir = sortDir === 'asc' ? 1 : -1;
     return r.slice().sort((a, b) => {
       let av, bv;
@@ -985,7 +994,7 @@ function BDApPanel({ apList, plannedRefs, today, periodEnd, periodLabel, onPlan,
       else                           { av = a.due || ''; bv = b.due || ''; }
       return av < bv ? -dir : av > bv ? dir : 0;
     });
-  }, [apList, query, sortKey, sortDir]);
+  }, [apList, query, dueFrom, dueTo, sortKey, sortDir]);
 
   const totalAmt   = rows.reduce((s, a) => s + a.amount, 0);
   const overdue    = rows.filter(a => a.due && a.due < today);
@@ -993,20 +1002,55 @@ function BDApPanel({ apList, plannedRefs, today, periodEnd, periodLabel, onPlan,
   const inPeriodAmt = rows.filter(a => a.due && a.due >= today && a.due <= periodEnd).reduce((s, a) => s + a.amount, 0);
   const visible = showAll ? rows : rows.slice(0, LIMIT);
 
+  const selectable = (a) => !plannedRefs.has(a.vchno);
+  const toggleOne  = (id) => setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const visibleSelectableIds = visible.filter(selectable).map(a => a.id);
+  const allChecked = visibleSelectableIds.length > 0 && visibleSelectableIds.every(id => selected.has(id));
+  const toggleAll  = () => setSelected(prev => {
+    const n = new Set(prev);
+    if (allChecked) visibleSelectableIds.forEach(id => n.delete(id));
+    else            visibleSelectableIds.forEach(id => n.add(id));
+    return n;
+  });
+
+  const selectedAps = apList.filter(a => selected.has(a.id) && selectable(a));
+  const selectedSum = selectedAps.reduce((s, a) => s + a.amount, 0);
+
+  const doBulk = () => {
+    if (!selectedAps.length) return;
+    onBulkPlan(selectedAps, { payDate: bulkDate || today, category: bulkCat, bankAc: bulkBank });
+    setSelected(new Set());
+  };
+
+  const colCount = canEdit ? 7 : 6;
+
   return (
     <div className="card" style={{ padding:0, overflow:'hidden', marginBottom:20 }}>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'12px 16px', background:'linear-gradient(135deg,#fff7ed,#ffedd5)', borderBottom:'1px solid #fed7aa', flexWrap:'wrap', gap:8 }}>
         <div>
           <div style={{ fontWeight:700, fontSize:14, color:'#9a3412' }}>📥 เจ้าหนี้ต้องจ่าย (AP)</div>
-          <div style={{ fontSize:12, color:'#c2410c', marginTop:2 }}>{rows.length} รายการค้าง · กด “วางแผนจ่าย” เพื่อนำเข้ายอด (เลือกบัญชี/วันจ่าย)</div>
+          <div style={{ fontSize:12, color:'#c2410c', marginTop:2 }}>{rows.length} รายการ · ติ๊กเลือกหลายรายการแล้วตั้งวัน/ประเภท/บัญชี วางแผนทีเดียว</div>
         </div>
         <input value={query} onChange={e => setQuery(e.target.value)} placeholder="ค้นหาผู้ขาย / เลขที่"
           style={{ padding:'6px 11px', border:'1.5px solid #fed7aa', borderRadius:8, fontSize:12, fontFamily:'inherit', outline:'none', minWidth:180 }} />
       </div>
 
+      {/* Due-date filter */}
+      <div style={{ display:'flex', flexWrap:'wrap', alignItems:'center', gap:8, padding:'8px 16px', borderBottom:'1px solid #fef0e0', background:'#fffaf3' }}>
+        <span style={{ fontSize:11, fontWeight:600, color:'#9a3412' }}>กรองครบกำหนด:</span>
+        <input type="date" value={dueFrom} onChange={e => setDueFrom(e.target.value)}
+          style={{ padding:'4px 8px', border:'1.5px solid #fed7aa', borderRadius:6, fontSize:11, fontFamily:'inherit', outline:'none' }} />
+        <span style={{ fontSize:11, color:'#a0aec0' }}>ถึง</span>
+        <input type="date" value={dueTo} onChange={e => setDueTo(e.target.value)}
+          style={{ padding:'4px 8px', border:'1.5px solid #fed7aa', borderRadius:6, fontSize:11, fontFamily:'inherit', outline:'none' }} />
+        <button onClick={() => { setDueFrom(''); setDueTo(today); }} style={{ padding:'4px 10px', borderRadius:14, fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'inherit', border:'1px solid #fed7aa', background:'#fff', color:'#c2410c' }}>เลยกำหนด</button>
+        <button onClick={() => { setDueFrom(today); setDueTo(periodEnd); }} style={{ padding:'4px 10px', borderRadius:14, fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'inherit', border:'1px solid #fed7aa', background:'#fff', color:'#c2410c' }}>ในช่วง “{periodLabel}”</button>
+        {(dueFrom || dueTo) && <button onClick={() => { setDueFrom(''); setDueTo(''); }} style={{ padding:'4px 10px', borderRadius:14, fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'inherit', border:'1px solid #e2e8f0', background:'#fff', color:'#64748b' }}>ล้างตัวกรอง</button>}
+      </div>
+
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))', gap:1, background:'#f5ead9' }}>
         {[
-          { l:'ค้างทั้งหมด', v:totalAmt, c:'#9a3412' },
+          { l:'ค้าง (หลังกรอง)', v:totalAmt, c:'#9a3412', sub: rows.length + ' รายการ' },
           { l:'เลยกำหนด', v:overdueAmt, c:'#dc2626', sub: overdue.length + ' รายการ' },
           { l:'ครบกำหนดในช่วง “' + periodLabel + '”', v:inPeriodAmt, c:'#c2410c' },
         ].map((t, i) => (
@@ -1018,10 +1062,35 @@ function BDApPanel({ apList, plannedRefs, today, periodEnd, periodLabel, onPlan,
         ))}
       </div>
 
+      {/* Bulk action bar */}
+      {canEdit && selectedAps.length > 0 && (
+        <div style={{ display:'flex', flexWrap:'wrap', alignItems:'center', gap:8, padding:'10px 16px', background:'#fff7ed', borderBottom:'1px solid #fed7aa' }}>
+          <span style={{ fontSize:12, fontWeight:700, color:'#9a3412' }}>เลือก {selectedAps.length} รายการ · รวม {fmtMoney(selectedSum)}</span>
+          <span style={{ fontSize:11, color:'#9a3412' }}>วันจ่าย</span>
+          <input type="date" value={bulkDate} onChange={e => setBulkDate(e.target.value)}
+            style={{ padding:'4px 8px', border:'1.5px solid #fdba74', borderRadius:6, fontSize:11, fontFamily:'inherit', outline:'none' }} />
+          <select value={bulkCat} onChange={e => setBulkCat(e.target.value)}
+            style={{ padding:'4px 8px', border:'1.5px solid #fdba74', borderRadius:6, fontSize:11, fontFamily:'inherit', background:'#fff', outline:'none' }}>
+            <option value="">ประเภท: คงเดิมของแต่ละตัว</option>
+            {BD_CF_CATEGORIES.map(c => <option key={c.code} value={c.code}>{c.code}. {c.label}</option>)}
+          </select>
+          <select value={bulkBank} onChange={e => setBulkBank(e.target.value)}
+            style={{ padding:'4px 8px', border:'1.5px solid #fdba74', borderRadius:6, fontSize:11, fontFamily:'inherit', background:'#fff', outline:'none' }}>
+            <option value="">บัญชี: ไม่ระบุ</option>
+            {bankAccounts.map((a, i) => <option key={i} value={a.accountNo}>{a.bankName} — {a.accountNo}</option>)}
+          </select>
+          <button onClick={doBulk} style={{ background:'#ea580c', color:'#fff', border:'none', borderRadius:7, padding:'6px 14px', fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
+            วางแผนจ่าย {selectedAps.length} รายการ
+          </button>
+          <button onClick={() => setSelected(new Set())} style={{ background:'none', border:'none', color:'#9a3412', fontSize:11, cursor:'pointer', fontFamily:'inherit', textDecoration:'underline' }}>ล้างที่เลือก</button>
+        </div>
+      )}
+
       <div style={{ overflowX:'auto' }}>
-        <table className="tbl" style={{ minWidth:760, fontSize:12 }}>
+        <table className="tbl" style={{ minWidth:800, fontSize:12 }}>
           <thead>
             <tr>
+              {canEdit && <th style={{ width:34, textAlign:'center' }}><input type="checkbox" checked={allChecked} onChange={toggleAll} title="เลือกทั้งหมดที่เห็น" /></th>}
               <th style={{ width:96, cursor:'pointer', userSelect:'none' }} onClick={() => toggleSort('due')}>ครบกำหนด{arrow('due')}</th>
               <th style={{ cursor:'pointer', userSelect:'none' }} onClick={() => toggleSort('vendor')}>ผู้ขาย{arrow('vendor')}</th>
               <th style={{ width:130 }}>เลขที่ (AP)</th>
@@ -1032,12 +1101,18 @@ function BDApPanel({ apList, plannedRefs, today, periodEnd, periodLabel, onPlan,
           </thead>
           <tbody>
             {visible.length === 0 ? (
-              <tr><td colSpan={6} style={{ textAlign:'center', color:'#a0aec0', padding:'16px 0' }}>ไม่มีรายการ</td></tr>
+              <tr><td colSpan={colCount} style={{ textAlign:'center', color:'#a0aec0', padding:'16px 0' }}>ไม่มีรายการ</td></tr>
             ) : visible.map(a => {
               const od = a.due && a.due < today;
               const planned = plannedRefs.has(a.vchno);
+              const checked = selected.has(a.id);
               return (
-                <tr key={a.id} style={{ background: planned ? '#f0fff4' : 'transparent' }}>
+                <tr key={a.id} style={{ background: planned ? '#f0fff4' : checked ? '#fff7ed' : 'transparent' }}>
+                  {canEdit && (
+                    <td style={{ textAlign:'center' }}>
+                      {!planned && <input type="checkbox" checked={checked} onChange={() => toggleOne(a.id)} />}
+                    </td>
+                  )}
                   <td style={{ whiteSpace:'nowrap', color: od ? '#dc2626' : '#4a5568' }}>
                     {fmtDate(a.due) || '—'}{od && <span style={{ display:'block', fontSize:9, fontWeight:700, color:'#dc2626' }}>เลยกำหนด</span>}
                   </td>
@@ -1276,6 +1351,28 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
     setShowAddForecast(true);
   };
 
+  /* วางแผนจ่าย AP หลายรายการพร้อมกัน → สร้าง forecast หลายแถว + ตั้งประเภท/บัญชี/วันเดียวกัน */
+  const handleBulkPlanAP = (aps, opts) => {
+    if (!setData || !aps.length) return;
+    const payDate = opts.payDate || today;
+    const cat     = opts.category || '';
+    const bankAc  = opts.bankAc || '';
+    const ts = Date.now();
+    const newRows = aps.map((ap, i) => ({
+      id: 'ap-' + ts + '-' + i, DATE: today, PAYMENT_DATE: payDate, EXPENSE_TYPE: 'AP',
+      DESCRIPTION: 'จ่าย ' + ap.vendor + (ap.vchno ? ' (' + ap.vchno + ')' : ''), JOB_NO: null, PROJECT_NAME: null,
+      AMOUNT: String(-Math.abs(ap.amount)), Bank_AC: bankAc || null, STATUS: 'PLANNED',
+      CATEGORY: (cat || ap.cfCategory) || null, IS_ACCRUED: null, NOTE: null,
+      ACTUAL_AMOUNT: null, ACTUAL_DATE: null, REF_DOC: ap.vchno || null, BOOKED_AT: null, CFS_ACTIVITY: null,
+    }));
+    setData(prev => {
+      let pays = prev.payables || [];
+      if (cat) { const ids = new Set(aps.map(a => a.id)); pays = pays.map(p => ids.has(p.id) ? { ...p, cf_category: cat } : p); }
+      return { ...prev, forecastEntries: [...(prev.forecastEntries || []), ...newRows], payables: pays };
+    });
+    if (toast) toast('วางแผนจ่าย ' + aps.length + ' รายการแล้ว');
+  };
+
   /* เลือกประเภท (cf_category) ที่ AP → เขียนกลับ payables (push ขึ้น Sheet) */
   const handleSetApCategory = (ap, code) => {
     if (!setData) return;
@@ -1423,10 +1520,13 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
         <BDApPanel
           apList={apList}
           plannedRefs={plannedRefs}
+          bankAccounts={accounts}
+          defaultBank={AP_DEFAULT_BANK}
           today={today}
           periodEnd={periodEnd}
           periodLabel={periodLabel}
           onPlan={openPlanAP}
+          onBulkPlan={handleBulkPlanAP}
           onSetCategory={handleSetApCategory}
           canEdit={canEdit}
         />
