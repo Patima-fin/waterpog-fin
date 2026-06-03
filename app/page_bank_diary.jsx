@@ -52,6 +52,26 @@ function bdCheckStatus(s) {
 }
 function bdIsOutstanding(st) { return st === 'outstanding' || st === 'clearing'; }
 
+/* แบรนด์ธนาคาร — สี + ชื่อย่อ สำหรับป้ายบนการ์ด */
+const BD_BANK_BRANDS = {
+  SCB:   { color: '#4e2a84', label: 'SCB' },
+  KTB:   { color: '#01a4e4', label: 'KTB' },
+  KBANK: { color: '#138f2c', label: 'KBANK' },
+  KBNK:  { color: '#138f2c', label: 'KBANK' },
+  BBL:   { color: '#1b388f', label: 'BBL' },
+  BAY:   { color: '#c8a44b', label: 'BAY' },
+  TTB:   { color: '#114e8b', label: 'TTB' },
+  GSB:   { color: '#e6177f', label: 'GSB' },
+  KKP:   { color: '#574494', label: 'KKP' },
+  UOB:   { color: '#005ba6', label: 'UOB' },
+  CIMB:  { color: '#9e1b32', label: 'CIMB' },
+};
+function bdBrand(name) {
+  const key = String(name || '').trim().toUpperCase();
+  return BD_BANK_BRANDS[key] || { color: '#475569', label: key || 'BANK' };
+}
+function bdLast4(no) { const d = bdDigits(no); return d.length > 4 ? d.slice(-4) : d; }
+
 /* Local-date → 'YYYY-MM-DD' (ไม่ใช้ toISOString เพราะจะเพี้ยน timezone) */
 function bdISO(dt) {
   const y = dt.getFullYear();
@@ -646,36 +666,53 @@ function BankAccountCard({ view, today, periodEnd, periodLabel, onQuickTransfer,
   const isShort   = shortNear || shortInPeriod;
   const coverAmt  = Math.max(shortNear ? shortBy : 0, shortInPeriod ? -minRunPeriod : 0);
 
-  const headerBg = isShort ? 'linear-gradient(135deg,#fff5f5,#fed7d7)'
-                 : dueToday.length ? 'linear-gradient(135deg,#fffbeb,#fef3c7)'
-                 : 'linear-gradient(135deg,#ebf8ff,#dbeafe)';
+  const brand = bdBrand(acct.bankName);
+  const last4 = bdLast4(acct.accountNo);
+  const headerBg = isShort ? 'linear-gradient(135deg,#fff7f7,#fff)'
+                 : dueToday.length ? 'linear-gradient(135deg,#fffdf5,#fff)'
+                 : 'linear-gradient(180deg,#fbfcfe,#fff)';
 
   return (
     <div className="card" style={{
       padding:0, overflow:'hidden',
-      border: isShort ? '2px solid #fc8181' : '1px solid #e2e8f0',
-      boxShadow: isShort ? '0 0 0 3px rgba(252,129,129,0.15)' : undefined,
+      border: isShort ? '2px solid #fc8181' : '1px solid #e6eaf0',
+      boxShadow: isShort ? '0 0 0 3px rgba(252,129,129,0.15)' : '0 1px 3px rgba(16,24,40,0.06)',
     }}>
-      {/* Header */}
-      <div style={{ background:headerBg, padding:'12px 16px', cursor:'pointer', display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}
-           onClick={() => setExpanded(e => !e)}>
-        <div style={{ minWidth:0 }}>
-          <div style={{ fontWeight:700, fontSize:14, color:'#1a202c' }}>
-            {acct.bankName || 'บัญชี'}
-            {isShort && <span style={{ marginLeft:8, fontSize:11, background:'#e53e3e', color:'#fff', borderRadius:4, padding:'1px 6px' }}>⚠ {shortNear ? 'เงินไม่พอใน 7 วัน' : 'เงินไม่พอในช่วง “' + periodLabel + '”'}</span>}
+      {/* Brand strip + Header */}
+      <div style={{ cursor:'pointer' }} onClick={() => setExpanded(e => !e)}>
+        <div style={{ height:4, background: brand.color }} />
+        <div style={{ background:headerBg, padding:'12px 14px', display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:10 }}>
+          <div style={{ display:'flex', gap:11, minWidth:0 }}>
+            {/* Bank badge */}
+            <div style={{ flexShrink:0, minWidth:48, height:38, padding:'0 8px', borderRadius:9, background: brand.color, color:'#fff',
+                          display:'flex', alignItems:'center', justifyContent:'center', fontWeight:800, fontSize:12, letterSpacing:0.3,
+                          boxShadow:'0 3px 8px ' + brand.color + '55' }}>
+              {brand.label}
+            </div>
+            <div style={{ minWidth:0 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+                <span title={acct.accountNo} style={{ fontFamily:'ui-monospace', fontWeight:700, fontSize:14, color:'#1a202c', letterSpacing:1 }}>
+                  <span style={{ color:'#cbd5e1' }}>••••</span> {last4 || '—'}
+                </span>
+                {isShort && <span style={{ fontSize:10, fontWeight:700, background:'#e53e3e', color:'#fff', borderRadius:4, padding:'1px 6px', whiteSpace:'nowrap' }}>⚠ {shortNear ? 'ไม่พอใน 7 วัน' : 'ไม่พอในช่วงนี้'}</span>}
+              </div>
+              {(acct.accountName || acct.note || acct.type) && (
+                <div style={{ fontSize:11, color:'#94a3b8', marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:165 }}>
+                  {acct.accountName || acct.note || acct.type}
+                </div>
+              )}
+            </div>
           </div>
-          <div style={{ fontSize:12, color:'#4a5568', marginTop:2, fontFamily:'ui-monospace' }}>{acct.accountNo || '—'}</div>
-          {(acct.accountName || acct.note) && <div style={{ fontSize:11, color:'#718096' }}>{acct.accountName || acct.note}</div>}
-        </div>
-        <div style={{ textAlign:'right', whiteSpace:'nowrap' }}>
-          <div style={{ fontSize:11, color:'#718096' }}>ยอดเงินจริง</div>
-          <div style={{ fontWeight:700, fontSize:16, color: base < 0 ? '#e53e3e' : '#1a4490' }}>{fmtMoney(base)}</div>
-          {acct.available != null && acct.available !== acct.balance && (
-            <div style={{ fontSize:10, color:'#94a3b8', marginTop:1 }}>ใช้ได้ {fmtMoney(acct.available)}</div>
-          )}
-          {acct.hold != null && acct.hold > 0 && (
-            <div style={{ fontSize:10, color:'#a16207' }}>อายัด/ค้ำ {fmtMoney(acct.hold)}</div>
-          )}
+          <div style={{ textAlign:'right', whiteSpace:'nowrap' }}>
+            <div style={{ fontSize:10, color:'#94a3b8', textTransform:'uppercase', letterSpacing:0.4 }}>ยอดเงินจริง</div>
+            <div style={{ fontWeight:800, fontSize:17, color: base < 0 ? '#e53e3e' : '#0f172a', fontVariantNumeric:'tabular-nums' }}>{fmtMoney(base)}</div>
+            {acct.available != null && acct.available !== acct.balance && (
+              <div style={{ fontSize:10, color:'#94a3b8', marginTop:1 }}>ใช้ได้ {fmtMoney(acct.available)}</div>
+            )}
+            {acct.hold != null && acct.hold > 0 && (
+              <div style={{ fontSize:10, color:'#a16207' }}>อายัด/ค้ำ {fmtMoney(acct.hold)}</div>
+            )}
+          </div>
         </div>
       </div>
 
