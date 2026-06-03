@@ -92,6 +92,18 @@ const BD_PERIODS = [
   { key: 'all',           label: 'ทั้งหมด' },
 ];
 
+/* หมวด Cash Flow (cf_category / forecast.CATEGORY) */
+const BD_CF_CATEGORIES = [
+  { code: '1', label: 'ค่าใช้จ่ายดำเนินงานรายสัปดาห์' },
+  { code: '2', label: 'ค่าใช้จ่ายเกี่ยวกับโครงการและงานติดตั้ง' },
+  { code: '3', label: 'ต้นทุนทางการเงินและดอกเบี้ย' },
+  { code: '4', label: 'ค่าใช้จ่ายเบ็ดเตล็ดและเงินเดือน' },
+];
+function bdCatLabel(code) {
+  const c = BD_CF_CATEGORIES.find(x => x.code === String(code));
+  return c ? c.label : '';
+}
+
 /* Normalize forecastEntries → ใช้ยอดจริง (ACTUAL_AMOUNT) อัตโนมัติเมื่อมี (ตัด PV แล้ว) */
 function bdNormForecast(e) {
   const planAmount = bdNum(e.AMOUNT);
@@ -104,7 +116,8 @@ function bdNormForecast(e) {
   return {
     id: e.id, date, payDate: bdToISO(e.PAYMENT_DATE), planAmount, actualAmount: actualAmt, amount,
     desc: e.DESCRIPTION || 'ประมาณการ', bankAc: e.Bank_AC || '', status: e.STATUS || 'PLANNED',
-    isActual, refDoc: e.REF_DOC || '', expType: e.EXPENSE_TYPE || '', type: amount >= 0 ? 'in' : 'out', raw: e,
+    isActual, refDoc: e.REF_DOC || '', expType: e.EXPENSE_TYPE || '', category: e.CATEGORY != null ? String(e.CATEGORY) : '',
+    type: amount >= 0 ? 'in' : 'out', raw: e,
   };
 }
 
@@ -115,7 +128,7 @@ function bdNormAP(p) {
                : (p.net_new != null && p.net_new !== '' ? p.net_new : p.Amount)));
   return {
     id: p.id, vendor: p.cust_name || '—', due: bdToISO(p.due), amount: amount,
-    vchno: p.vchno || p.docno || '', remark: p.remark || '', raw: p,
+    vchno: p.vchno || p.docno || '', remark: p.remark || '', cfCategory: p.cf_category != null ? String(p.cf_category) : '', raw: p,
   };
 }
 
@@ -745,6 +758,7 @@ function ForecastModal({ bankAccounts, today, initial, prefill, onSave, onClose,
     amount:      (initial && initial.planAmount != null) ? String(Math.abs(initial.planAmount)) : (pf.amount != null ? String(pf.amount) : ''),
     description: (initial && initial.desc) || pf.desc || '',
     bankAc:      (initial && initial.bankAc) || pf.bankAc || '',
+    category:    (initial && initial.category) || pf.category || '',
     note:        (raw.NOTE || '') || pf.note || '',
   });
   const [err, setErr] = React.useState('');
@@ -760,7 +774,7 @@ function ForecastModal({ bankAccounts, today, initial, prefill, onSave, onClose,
       // คงค่าฟิลด์เดิมทั้งหมด (เช่น ACTUAL_*) แล้วทับเฉพาะที่แก้
       onSave(Object.assign({}, raw, {
         id: initial.id, PAYMENT_DATE: form.payDate, AMOUNT: String(signed),
-        DESCRIPTION: form.description.trim(), Bank_AC: form.bankAc || null, NOTE: form.note.trim() || null,
+        DESCRIPTION: form.description.trim(), Bank_AC: form.bankAc || null, CATEGORY: form.category || null, NOTE: form.note.trim() || null,
       }), true);
     } else {
       const id = (window.WTPData && WTPData.newId) ? WTPData.newId() : ('fe-' + Date.now());
@@ -768,7 +782,7 @@ function ForecastModal({ bankAccounts, today, initial, prefill, onSave, onClose,
         id, DATE: today, PAYMENT_DATE: form.payDate, EXPENSE_TYPE: pf.expType || 'Manual',
         DESCRIPTION: form.description.trim(), JOB_NO: null, PROJECT_NAME: null,
         AMOUNT: String(signed), Bank_AC: form.bankAc || null, STATUS: 'PLANNED',
-        CATEGORY: null, IS_ACCRUED: null, NOTE: form.note.trim() || null,
+        CATEGORY: form.category || null, IS_ACCRUED: null, NOTE: form.note.trim() || null,
         ACTUAL_AMOUNT: null, ACTUAL_DATE: null, REF_DOC: pf.refDoc || null, BOOKED_AT: null, CFS_ACTIVITY: null,
       }, false);
     }
@@ -817,6 +831,13 @@ function ForecastModal({ bankAccounts, today, initial, prefill, onSave, onClose,
               <select style={{ ...inp, background:'#fff', borderColor:'#c7d2fe' }} value={form.bankAc} onChange={e => setF('bankAc', e.target.value)}>
                 <option value="">— ไม่ระบุ (รวมบริษัท) —</option>
                 {bankAccounts.map((a, i) => <option key={i} value={a.accountNo}>{a.bankName} — {a.accountNo}</option>)}
+              </select>
+            </div>
+            <div style={{ gridColumn:'1/-1' }}>
+              <label style={lbl}>ประเภท (หมวด Cash Flow)</label>
+              <select style={{ ...inp, background:'#fff' }} value={form.category} onChange={e => setF('category', e.target.value)}>
+                <option value="">— ไม่ระบุ —</option>
+                {BD_CF_CATEGORIES.map(c => <option key={c.code} value={c.code}>{c.code}. {c.label}</option>)}
               </select>
             </div>
             <div style={{ gridColumn:'1/-1' }}>
@@ -937,7 +958,7 @@ function BDForecastPanel({ forecasts, periodEnd, periodLabel, today, totalRealBa
 }
 
 /* ── AP Panel — เจ้าหนี้คงค้างให้เลือกจ่าย (กดวางแผนจ่าย → สร้างประมาณการ) ── */
-function BDApPanel({ apList, plannedRefs, today, periodEnd, periodLabel, onPlan, canEdit }) {
+function BDApPanel({ apList, plannedRefs, today, periodEnd, periodLabel, onPlan, onSetCategory, canEdit }) {
   const [query, setQuery]   = React.useState('');
   const [showAll, setShowAll] = React.useState(false);
   const [sortKey, setSortKey] = React.useState('due');   // due | amount | vendor
@@ -1004,13 +1025,14 @@ function BDApPanel({ apList, plannedRefs, today, periodEnd, periodLabel, onPlan,
               <th style={{ width:96, cursor:'pointer', userSelect:'none' }} onClick={() => toggleSort('due')}>ครบกำหนด{arrow('due')}</th>
               <th style={{ cursor:'pointer', userSelect:'none' }} onClick={() => toggleSort('vendor')}>ผู้ขาย{arrow('vendor')}</th>
               <th style={{ width:130 }}>เลขที่ (AP)</th>
+              <th style={{ width:170 }}>ประเภท (CF)</th>
               <th style={{ textAlign:'right', width:120, cursor:'pointer', userSelect:'none' }} onClick={() => toggleSort('amount')}>ยอดค้าง{arrow('amount')}</th>
               <th style={{ width:120 }}></th>
             </tr>
           </thead>
           <tbody>
             {visible.length === 0 ? (
-              <tr><td colSpan={5} style={{ textAlign:'center', color:'#a0aec0', padding:'16px 0' }}>ไม่มีรายการ</td></tr>
+              <tr><td colSpan={6} style={{ textAlign:'center', color:'#a0aec0', padding:'16px 0' }}>ไม่มีรายการ</td></tr>
             ) : visible.map(a => {
               const od = a.due && a.due < today;
               const planned = plannedRefs.has(a.vchno);
@@ -1021,6 +1043,18 @@ function BDApPanel({ apList, plannedRefs, today, periodEnd, periodLabel, onPlan,
                   </td>
                   <td>{a.vendor}</td>
                   <td style={{ fontFamily:'ui-monospace', fontSize:11, color:'#64748b' }}>{a.vchno || '—'}</td>
+                  <td>
+                    {canEdit ? (
+                      <select value={a.cfCategory} onChange={e => onSetCategory(a, e.target.value)}
+                        title={bdCatLabel(a.cfCategory)}
+                        style={{ width:'100%', maxWidth:165, padding:'4px 6px', border:'1.5px solid ' + (a.cfCategory ? '#fed7aa' : '#e2e8f0'), borderRadius:6, fontSize:11, fontFamily:'inherit', background:'#fff', outline:'none' }}>
+                        <option value="">— เลือกประเภท —</option>
+                        {BD_CF_CATEGORIES.map(c => <option key={c.code} value={c.code}>{c.code}. {c.label}</option>)}
+                      </select>
+                    ) : (
+                      <span style={{ fontSize:11, color:'#64748b' }}>{a.cfCategory ? a.cfCategory + '. ' + bdCatLabel(a.cfCategory) : '—'}</span>
+                    )}
+                  </td>
                   <td style={{ textAlign:'right', fontVariantNumeric:'tabular-nums', fontWeight:700, color:'#c53030', whiteSpace:'nowrap' }}>{fmtMoney(a.amount)}</td>
                   <td style={{ textAlign:'right' }}>
                     {planned
@@ -1237,8 +1271,19 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
       payDate: (ap.due && ap.due >= today) ? ap.due : today,
       refDoc: ap.vchno,
       expType: 'AP',
+      category: ap.cfCategory || '',  // ติดหมวดเดียวกับ AP → ต่อไป forecast/cash flow
     });
     setShowAddForecast(true);
+  };
+
+  /* เลือกประเภท (cf_category) ที่ AP → เขียนกลับ payables (push ขึ้น Sheet) */
+  const handleSetApCategory = (ap, code) => {
+    if (!setData) return;
+    setData(prev => ({
+      ...prev,
+      payables: (prev.payables || []).map(p => p.id === ap.id ? { ...p, cf_category: code || null } : p),
+    }));
+    if (toast) toast(code ? ('ตั้งประเภท: ' + code + '. ' + bdCatLabel(code)) : 'ล้างประเภทแล้ว');
   };
 
   /* Delete a forecast row */
@@ -1382,6 +1427,7 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
           periodEnd={periodEnd}
           periodLabel={periodLabel}
           onPlan={openPlanAP}
+          onSetCategory={handleSetApCategory}
           canEdit={canEdit}
         />
       )}
