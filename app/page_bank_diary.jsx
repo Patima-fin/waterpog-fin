@@ -244,17 +244,17 @@ function AddTransferModal({ bankAccounts, onSave, onClose, initialTo, initialFro
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(15,23,42,0.45)', zIndex:9000, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}
          onClick={onClose}>
-      <div style={{ background:'#fff', borderRadius:16, width:'100%', maxWidth:500, boxShadow:'0 24px 64px rgba(0,0,0,0.18)', overflow:'hidden' }}
+      <div style={{ background:'#fff', borderRadius:16, width:'100%', maxWidth:500, maxHeight:'calc(100vh - 32px)', display:'flex', flexDirection:'column', boxShadow:'0 24px 64px rgba(0,0,0,0.18)', overflow:'hidden' }}
            onClick={function(e){ e.stopPropagation(); }}>
 
         {/* Header */}
-        <div style={{ padding:'16px 20px', background:'linear-gradient(135deg,#faf5ff,#ede9fe)', borderBottom:'1px solid #d6bcfa', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+        <div style={{ flexShrink:0, padding:'16px 20px', background:'linear-gradient(135deg,#faf5ff,#ede9fe)', borderBottom:'1px solid #d6bcfa', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
           <div style={{ fontWeight:700, fontSize:15, color:'#44337a' }}>{isEdit ? '✏️ แก้ไขการโอนเงินระหว่างบัญชี' : '⇄ บันทึกการโอนเงินระหว่างบัญชี'}</div>
           <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', fontSize:18, color:'#805ad5', lineHeight:1, padding:'0 4px' }}>✕</button>
         </div>
 
-        {/* Body */}
-        <div style={{ padding:20 }}>
+        {/* Body (เลื่อนได้ถ้ายาวเกินจอ) */}
+        <div style={{ padding:20, overflowY:'auto', flex:1, minHeight:0 }}>
           {/* Preview arrow */}
           <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:16, padding:'10px 14px', background:'#f8fafc', borderRadius:10, border:'1px solid #e2e8f0' }}>
             <div style={{ flex:1, textAlign:'center' }}>
@@ -762,12 +762,12 @@ function ForecastModal({ bankAccounts, today, initial, onSave, onClose, onDelete
 
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(15,23,42,0.45)', zIndex:9000, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }} onClick={onClose}>
-      <div style={{ background:'#fff', borderRadius:16, width:'100%', maxWidth:480, boxShadow:'0 24px 64px rgba(0,0,0,0.18)', overflow:'hidden' }} onClick={e => e.stopPropagation()}>
-        <div style={{ padding:'16px 20px', background:'linear-gradient(135deg,#eef2ff,#e0e7ff)', borderBottom:'1px solid #c7d2fe', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+      <div style={{ background:'#fff', borderRadius:16, width:'100%', maxWidth:480, maxHeight:'calc(100vh - 32px)', display:'flex', flexDirection:'column', boxShadow:'0 24px 64px rgba(0,0,0,0.18)', overflow:'hidden' }} onClick={e => e.stopPropagation()}>
+        <div style={{ flexShrink:0, padding:'16px 20px', background:'linear-gradient(135deg,#eef2ff,#e0e7ff)', borderBottom:'1px solid #c7d2fe', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
           <div style={{ fontWeight:700, fontSize:15, color:'#3730a3' }}>{isEdit ? '✏️ แก้ไขรายการประมาณการ' : '➕ เพิ่มรายการประมาณการ'}</div>
           <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', fontSize:18, color:'#6366f1', lineHeight:1, padding:'0 4px' }}>✕</button>
         </div>
-        <div style={{ padding:20 }}>
+        <div style={{ padding:20, overflowY:'auto', flex:1, minHeight:0 }}>
           {isEdit && initial.isActual && (
             <div style={{ marginBottom:12, padding:'8px 12px', background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:7, fontSize:11, color:'#166534' }}>
               ✓ รายการนี้ตัด PV/จ่ายจริงแล้ว (ยอดจริง {fmtMoney(Math.abs(initial.amount))}) — แก้ที่นี่จะแก้เฉพาะ “ค่าประมาณการ”
