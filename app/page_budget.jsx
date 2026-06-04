@@ -93,7 +93,11 @@
       d.budget = Math.round(db); d.actual = Math.round(da);
       tb += d.budget; ta += d.actual;
     }
-    raw.departments = raw.departments.filter(d => d.budget > 1000).sort((a, b) => b.budget - a.budget);
+    // เก็บแผนกที่มี "งบประมาณ" หรือ "ค่าใช้จ่ายจริง" — กันแผนกที่งบ=0 แต่มีรายจ่ายจริงหายไป
+    // (เช่น RSD, SSD, AC ที่ไม่ได้ตั้งงบไว้แต่มีค่าใช้จ่ายเกิดขึ้น)
+    raw.departments = raw.departments
+      .filter(d => d.budget > 1000 || Math.abs(d.actual) > 0)
+      .sort((a, b) => (b.budget || b.actual) - (a.budget || a.actual));
     deptColorMap = {};
     let pi = 0;
     for (const d of raw.departments) {
