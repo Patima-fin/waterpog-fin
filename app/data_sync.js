@@ -222,16 +222,61 @@
   // ใช้ Promise.allSettled แล้วตัดสินใจว่าจะ retry หรือใช้ cache เดิม
   // ★ ห้าม return [] ตอน fail เด็ดขาด — เพราะ [] จะถูกเอาไปทับข้อมูลใน
   //   localStorage (data loss bug) ตอนเจอ HTTP 429 / network error
-  function fetchSheet(name) {
+  // ★ 429 resilience: จำกัดจำนวนคำขอพร้อมกัน + retry แบบ backoff เมื่อชน rate-limit
+  var SHEET_FETCH_CONC = 6;     // ดึงทีละ ≤6 ชีต กัน burst → ลด HTTP 429
+  var SHEET_MAX_RETRY  = 4;     // retry 429/5xx/network ก่อนยอมแพ้ (กันทิ้งทั้งรอบเพราะชน rate-limit)
+  var SHEET_RETRY_BASE = 700;   // ms (exponential + jitter: ~0.7s, 1.4s, 2.8s, 5.6s)
+  var lastRawRows = {};         // ★ raw rows ล่าสุดต่อชีต — ใช้เป็น fallback เมื่อชีตนั้นชน 429 (กันทิ้งทั้งรอบ)
+
+  function fetchSheet(name, attempt) {
+    attempt = attempt || 0;
     // Add cache-busting timestamp so we always get the latest Sheet state.
     // Without this, Google's gviz endpoint may serve stale CSV for several minutes.
     var url = BASE + encodeURIComponent(name) + '&_t=' + Date.now();
     return fetch(url, { cache: 'no-store' })
       .then(function (r) {
-        if (!r.ok) throw new Error(name + ': HTTP ' + r.status);
+        if (!r.ok) { var e = new Error(name + ': HTTP ' + r.status); e.status = r.status; throw e; }
         return r.text();
       })
-      .then(parseCSV);
+      .then(parseCSV)
+      .catch(function (err) {
+        // 429 (rate limit) / 5xx / network → หน่วงเวลาแล้วลองใหม่ (กระจายด้วย jitter)
+        var st = err && err.status;
+        var retryable = st === 429 || st === 500 || st === 502 || st === 503 ||
+                        (err && /Failed to fetch|NetworkError|load failed/i.test(err.message || ''));
+        if (retryable && attempt < SHEET_MAX_RETRY) {
+          var delay = Math.min(SHEET_RETRY_BASE * Math.pow(2, attempt), 8000) + Math.floor(Math.random() * 400);
+          return new Promise(function (res) { setTimeout(res, delay); })
+            .then(function () { return fetchSheet(name, attempt + 1); });
+        }
+        throw err;  // ★ ยังต้อง throw — ให้ atomic rule รักษาข้อมูลเดิม (ห้าม return [])
+      });
+  }
+
+  /* run fn over items with limited concurrency; returns a Promise.allSettled-shaped
+   * array (order preserved) — กัน burst 32 requests พร้อมกันที่ทำให้ชน 429 */
+  function mapLimit(items, limit, fn) {
+    return new Promise(function (resolve) {
+      var results = new Array(items.length);
+      var next = 0, active = 0, finished = 0;
+      if (items.length === 0) { resolve(results); return; }
+      function pump() {
+        while (active < limit && next < items.length) {
+          (function (i) {
+            active++;
+            Promise.resolve().then(function () { return fn(items[i], i); })
+              .then(function (v) { results[i] = { status: 'fulfilled', value: v }; },
+                    function (e) { results[i] = { status: 'rejected', reason: e }; })
+              .then(function () {
+                active--; finished++;
+                if (finished === items.length) resolve(results);
+                else pump();
+              });
+          })(next++);
+        }
+      }
+      pump();
+    });
   }
 
   /* ── load all sheets in parallel + assemble data structure ───────── */
@@ -255,29 +300,36 @@
       'manualOverrides',        // shared manual KPI overrides (visible to all users)
     ];
 
-    return Promise.allSettled(sheetOrder.map(fetchSheet)).then(function (settled) {
-      // ★ Atomic rule: ถ้ามี sheet ใดโหลด fail (HTTP 429 / network / etc.)
-      //   จะไม่ assemble + ไม่ทับ localStorage เลย — รักษาข้อมูลเดิมไว้
-      //   เพื่อป้องกัน data loss (เคยทำให้ user เห็น "บัญชี = 0" ตอนชน rate limit)
-      var failed = [];
-      settled.forEach(function (s, idx) {
-        if (s.status === 'rejected') {
-          failed.push({ name: sheetOrder[idx], err: s.reason && s.reason.message });
-        }
+    return mapLimit(sheetOrder, SHEET_FETCH_CONC, function (n) { return fetchSheet(n); }).then(function (settled) {
+      // ★ Per-sheet fallback (แทนกฎ atomic เดิมที่ทิ้งทั้งรอบ):
+      //   • ชีตที่โหลดสำเร็จ → ใช้ค่าสด + จำไว้เป็น lastRawRows
+      //   • ชีตที่ชน 429/พัง → ใช้ค่าที่โหลดไว้ล่าสุด (ไม่เคยทับด้วย [] → ยังกัน data loss)
+      //   • ชีตที่พัง "และไม่เคยโหลดสำเร็จเลย" (ไม่มีค่าเดิม) → ทิ้งทั้งรอบ retry (กัน render ครึ่งๆ ตอนเปิดครั้งแรก)
+      var failed = [], usedCache = [];
+      var results = settled.map(function (s, idx) {
+        var name = sheetOrder[idx];
+        if (s.status === 'fulfilled') { lastRawRows[name] = s.value; return s.value; }
+        failed.push({ name: name, err: s.reason && s.reason.message });
+        if (lastRawRows[name] !== undefined) { usedCache.push(name); return lastRawRows[name]; }
+        return undefined;  // ไม่มีค่าเดิม
       });
       if (failed.length > 0) {
-        failed.forEach(function (f) {
-          console.warn('[WTP Sync] ดึงชีต', f.name, 'ล้มเหลว:', f.err);
-        });
-        console.warn('[WTP Sync] ⚠ ' + failed.length + '/' + sheetOrder.length +
-          ' ชีตโหลดไม่สำเร็จ — รักษาข้อมูลเดิมไว้ (ไม่ทับ localStorage) จะ retry รอบหน้า');
-        setSyncStatus('error', {
-          error: (failed[0] && failed[0].err) || 'fetch failed',
-          sheets: failed.map(function (f) { return f.name; }),
-        });
-        return;  // ★ early return — ไม่ overwrite cachedServerData + ไม่เรียก origSave
+        failed.forEach(function (f) { console.warn('[WTP Sync] ดึงชีต', f.name, 'ล้มเหลว:', f.err); });
       }
-      var results = settled.map(function (s) { return s.value; });
+      var unrecoverable = failed.filter(function (f) { return lastRawRows[f.name] === undefined; });
+      if (unrecoverable.length > 0) {
+        console.warn('[WTP Sync] ⚠ ' + unrecoverable.length + '/' + sheetOrder.length +
+          ' ชีตโหลดไม่สำเร็จและยังไม่มีค่าเดิม — รักษาข้อมูลเดิมไว้ (ไม่ทับ localStorage) จะ retry รอบหน้า');
+        setSyncStatus('error', {
+          error: (unrecoverable[0] && unrecoverable[0].err) || 'fetch failed',
+          sheets: unrecoverable.map(function (f) { return f.name; }),
+        });
+        return;  // ★ early return — ยังไม่ commit เพราะมีชีตที่ไม่เคยมีข้อมูลเลย
+      }
+      if (usedCache.length > 0) {
+        console.warn('[WTP Sync] ⚠ ' + usedCache.length + ' ชีตชน 429 — ใช้ค่าที่โหลดล่าสุดแทน, ชีตอื่น commit ปกติ:',
+          usedCache.join(', '));
+      }
       var i = 0;
       var metaKV     = rowsToKV(results[i++]);
       var pipelineKV = rowsToKV(results[i++]);
@@ -473,22 +525,22 @@
   function refreshHotEntities() {
     if (!cachedServerData) return loadFromServer();  // ยังไม่มี base → full load
     setSyncStatus('syncing');
-    return Promise.allSettled(CRUD_ENTITIES.map(fetchSheet)).then(function (settled) {
-      // atomic: hot tab ใดพัง → ทิ้งทั้งรอบ คงข้อมูลเดิม retry รอบหน้า (กัน data loss)
+    return mapLimit(CRUD_ENTITIES, SHEET_FETCH_CONC, function (n) { return fetchSheet(n); }).then(function (settled) {
+      // per-entity fallback: แท็บที่พัง → คงค่าเดิมจาก cache, แท็บที่โหลดได้ → อัปเดตปกติ
+      // (ไม่ทิ้งทั้งรอบ — แท็บเดียวชน 429 จะได้ไม่บล็อกแท็บอื่นที่โหลดสำเร็จ)
       var failed = [];
       settled.forEach(function (s, idx) {
         if (s.status === 'rejected') failed.push(CRUD_ENTITIES[idx]);
       });
       if (failed.length) {
-        console.warn('[WTP Sync] hot refresh: ' + failed.length + ' แท็บล้มเหลว — คงข้อมูลเดิม',
+        console.warn('[WTP Sync] hot refresh: ' + failed.length + ' แท็บชน 429 — คงค่าเดิม, แท็บอื่นอัปเดตปกติ:',
           failed.join(', '));
-        setSyncStatus('error', { error: 'hot fetch failed', sheets: failed });
-        return;
       }
       var localData = null;
       try { localData = WTPData.load(); } catch (_) {}
-      var data = Object.assign({}, cachedServerData);  // คง cold tab จาก cache
+      var data = Object.assign({}, cachedServerData);  // คง cold tab + แท็บที่พัง จาก cache
       CRUD_ENTITIES.forEach(function (e, idx) {
+        if (settled[idx].status !== 'fulfilled') return;  // ★ ชีตนี้พัง → คงค่าเดิม (ไม่ทับ)
         var jsonFields = ENTITY_JSON_FIELDS[e] || null;
         var sheetRows = rowsToObjects(settled[idx].value, jsonFields);
         var g = applyEntityGuard(e, sheetRows, localData);
