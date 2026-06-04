@@ -1713,6 +1713,8 @@ function DataPVPage({ data, setData, toast }) {
       sub: 'RAW_PV_PAYMENT · รายการจ่ายเงินจริงทั้งหมด · วาง RAW ได้เลย',
       dataKey: 'pvVouchers',
       importSourceNote: 'เอาข้อมูลจาก AP รายงาน 4.3 มาวาง/อัปโหลด',
+      // ทะเบียน PV ต้นทางตั้งหัวคอลัมน์บัญชีที่ตัดจ่ายว่า "Account_Code" (ไม่ใช่ Bank_AC) → map เข้าให้ตรง
+      headerAliases: { 'Account_Code': 'Bank_AC' },
       dedupKey: ['PL_PV_No', 'AP_No'],   // compound key — PV เดียวมีหลาย AP ได้
       scopeDateField: 'Pmt_Date',         // เทียบ missing เฉพาะ row ที่อยู่ในช่วงวันที่ของไฟล์ import
       previewSubFields: ['Payee', 'cc_remark'],   // subtitle ใน preview
