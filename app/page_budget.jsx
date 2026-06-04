@@ -110,6 +110,11 @@
   function monthsInScope(month) {
     if (!month || month === 'all') return [0,1,2,3,4,5,6,7,8,9,10,11];
     if (QUARTERS[month]) return QUARTERS[month].slice();
+    // multi-month: comma-separated indices e.g. '0,2,4'
+    if (typeof month === 'string' && month.indexOf(',') >= 0) {
+      const arr = month.split(',').map(s => parseInt(s, 10)).filter(n => !isNaN(n) && n >= 0 && n <= 11);
+      return arr.length > 0 ? arr : [0,1,2,3,4,5,6,7,8,9,10,11];
+    }
     const i = parseInt(month); return isNaN(i) ? [0,1,2,3,4,5,6,7,8,9,10,11] : [i];
   }
 
@@ -306,6 +311,143 @@
     );
   }
 
+  // ── MonthMultiSelect — dropdown ที่ติ้กหลายเดือนได้ + quick chips (ทั้งปี/Q1-Q4)
+  function MonthMultiSelect({ value, onChange }) {
+    const [open, setOpen] = useState(false);
+    const ref = useRef(null);
+
+    useEffect(() => {
+      if (!open) return;
+      const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+      document.addEventListener('mousedown', h);
+      return () => document.removeEventListener('mousedown', h);
+    }, [open]);
+
+    // parse current value → array (null = 'all')
+    const selected = useMemo(() => {
+      if (!value || value === 'all') return null;
+      if (QUARTERS[value]) return QUARTERS[value].slice();
+      if (typeof value === 'string' && value.indexOf(',') >= 0) {
+        return value.split(',').map(s => parseInt(s, 10)).filter(n => !isNaN(n) && n >= 0 && n <= 11);
+      }
+      const i = parseInt(value);
+      return isNaN(i) ? null : [i];
+    }, [value]);
+
+    const isAll = selected === null || (selected && selected.length === 12);
+    const set = new Set(selected || []);
+
+    // Canonicalize and emit
+    const emit = (arr) => {
+      if (!arr || arr.length === 0) { onChange('all'); return; }
+      const sorted = [...new Set(arr)].filter(n => n >= 0 && n <= 11).sort((a, b) => a - b);
+      if (sorted.length === 0 || sorted.length === 12) { onChange('all'); return; }
+      // Match a quarter?
+      for (const q of ['q1', 'q2', 'q3', 'q4']) {
+        const ms = QUARTERS[q];
+        if (ms.length === sorted.length && ms.every((m, i) => m === sorted[i])) { onChange(q); return; }
+      }
+      if (sorted.length === 1) { onChange(String(sorted[0])); return; }
+      onChange(sorted.join(','));
+    };
+
+    const toggleMonth = (i) => {
+      if (isAll) { emit([i]); return; } // เริ่ม selection ใหม่จาก "ทั้งปี"
+      const next = set.has(i) ? (selected || []).filter(x => x !== i) : [...(selected || []), i];
+      emit(next);
+    };
+
+    // Display label
+    const displayLabel = (() => {
+      if (isAll) return 'ทั้งปี (YTD)';
+      if (!selected || selected.length === 0) return 'ยังไม่เลือก';
+      const sorted = [...selected].sort((a, b) => a - b);
+      for (const q of ['q1', 'q2', 'q3', 'q4']) {
+        const ms = QUARTERS[q];
+        if (ms.length === sorted.length && ms.every((m, i) => m === sorted[i])) {
+          return `ไตรมาส ${q.slice(1)} (${MONTHS_TH[ms[0]]}–${MONTHS_TH[ms[ms.length - 1]]})`;
+        }
+      }
+      if (sorted.length === 1) return MONTHS_TH[sorted[0]];
+      if (sorted.length <= 3) return sorted.map(i => MONTHS_TH[i]).join(', ');
+      return `${sorted.length} เดือน · ${sorted.map(i => MONTHS_TH[i]).slice(0, 2).join(', ')}…`;
+    })();
+
+    const chipStyle = (active) => ({
+      padding: '3px 9px', fontSize: 11, fontWeight: 700, borderRadius: 999,
+      border: `1px solid ${active ? P.primary : '#D8DDE6'}`,
+      background: active ? P.primary : 'white',
+      color: active ? 'white' : P.ink,
+      cursor: 'pointer',
+    });
+
+    // detect active chip
+    const activeChip = isAll ? 'all' : (selected && selected.length > 0 && (() => {
+      const sorted = [...selected].sort((a, b) => a - b);
+      for (const q of ['q1', 'q2', 'q3', 'q4']) {
+        const ms = QUARTERS[q];
+        if (ms.length === sorted.length && ms.every((m, i) => m === sorted[i])) return q;
+      }
+      return null;
+    })());
+
+    return (
+      <label className="bcc-field" ref={ref} style={{ position: 'relative' }}>
+        <span className="bcc-field-lbl">เดือน · Month</span>
+        <button type="button" className="bcc-select" onClick={() => setOpen(o => !o)}
+          style={{ textAlign: 'left', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayLabel}</span>
+          <span style={{ color: P.mute, fontSize: 11 }}>▾</span>
+        </button>
+        {open && (
+          <div style={{
+            position: 'absolute', zIndex: 50, top: '100%', left: 0, marginTop: 4,
+            background: 'white', border: `1px solid ${P.border}`, borderRadius: 10,
+            boxShadow: '0 8px 24px rgba(15,36,77,.14)', padding: 12, width: 320,
+          }}>
+            {/* Quick chips */}
+            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 10, paddingBottom: 10, borderBottom: `1px solid ${P.grid}` }}>
+              <button type="button" style={chipStyle(activeChip === 'all')} onClick={() => onChange('all')}>ทั้งปี</button>
+              {['q1', 'q2', 'q3', 'q4'].map(q => (
+                <button key={q} type="button" style={chipStyle(activeChip === q)} onClick={() => onChange(q)}>
+                  Q{q.slice(1)}
+                </button>
+              ))}
+              {!isAll && (
+                <button type="button" style={{ ...chipStyle(false), marginLeft: 'auto', color: P.danger, borderColor: '#fecaca' }} onClick={() => onChange('all')}>
+                  ล้าง
+                </button>
+              )}
+            </div>
+            {/* Month grid — 3 cols × 4 rows */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4 }}>
+              {MONTHS_TH.map((mm, i) => {
+                const checked = !isAll && set.has(i);
+                return (
+                  <label key={i} style={{
+                    display: 'flex', alignItems: 'center', gap: 7, padding: '6px 9px', cursor: 'pointer',
+                    borderRadius: 6, background: checked ? 'rgba(47,95,208,.10)' : 'transparent',
+                    fontSize: 12.5, fontWeight: checked ? 700 : 500, color: checked ? P.primary : P.ink,
+                    transition: 'background .1s',
+                  }}
+                  onMouseEnter={e => { if (!checked) e.currentTarget.style.background = '#F5F7FB'; }}
+                  onMouseLeave={e => { if (!checked) e.currentTarget.style.background = 'transparent'; }}>
+                    <input type="checkbox" checked={checked} onChange={() => toggleMonth(i)}
+                      style={{ accentColor: P.primary, width: 14, height: 14, cursor: 'pointer' }} />
+                    <span>{mm}</span>
+                  </label>
+                );
+              })}
+            </div>
+            <div style={{ marginTop: 10, paddingTop: 8, borderTop: `1px solid ${P.grid}`, fontSize: 10.5, color: P.mute, lineHeight: 1.4 }}>
+              💡 ติ้กหลายเดือนเพื่อเปรียบเทียบ · เลือกครบ Q1-Q4 อัตโนมัติเป็นไตรมาส
+            </div>
+          </div>
+        )}
+      </label>
+    );
+  }
+
   function FilterBar({ data, filters, setFilters, onUpload, uploading, canEdit }) {
     const fileRef = useRef(null);
     const sel = (label, value, options, key) => (
@@ -322,14 +464,7 @@
     return (
       <div className="bcc-filterBar">
         {sel('ปี · Year', filters.year, [{ v: '2569', l: '2569 (2026)' }], 'year')}
-        {sel('เดือน · Month', filters.month, [
-          { v: 'all', l: 'ทั้งปี (YTD)' },
-          { v: 'q1', l: '◈ ไตรมาส 1 (ม.ค.–มี.ค.)' },
-          { v: 'q2', l: '◈ ไตรมาส 2 (เม.ย.–มิ.ย.)' },
-          { v: 'q3', l: '◈ ไตรมาส 3 (ก.ค.–ก.ย.)' },
-          { v: 'q4', l: '◈ ไตรมาส 4 (ต.ค.–ธ.ค.)' },
-          ...MONTHS_TH.map((mm, i) => ({ v: String(i), l: ' ' + mm })),
-        ], 'month')}
+        <MonthMultiSelect value={filters.month} onChange={(v) => setFilters(f => ({ ...f, month: v }))} />
         {sel('บริษัท · Company', filters.company, [{ v: 'HO', l: 'Head Office' }], 'company')}
         {sel('แผนก · Department', filters.dept, deptOpts, 'dept')}
         {sel('หมวด · Category', filters.cat, catOpts, 'cat')}
@@ -1146,6 +1281,10 @@
       if (filters.cat !== 'all') parts.push(splitName(filters.cat));
       if (filters.month !== 'all') {
         if (QUARTERS[filters.month]) parts.push('ไตรมาส ' + filters.month.slice(1));
+        else if (typeof filters.month === 'string' && filters.month.indexOf(',') >= 0) {
+          const ms = filters.month.split(',').map(s => parseInt(s, 10)).filter(n => !isNaN(n)).sort((a, b) => a - b);
+          parts.push(ms.length <= 3 ? ms.map(i => MONTHS_TH[i]).join(', ') : `${ms.length} เดือน`);
+        }
         else parts.push(MONTHS_TH[parseInt(filters.month)]);
       }
       return parts;
