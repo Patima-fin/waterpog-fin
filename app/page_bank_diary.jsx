@@ -141,20 +141,22 @@ function bdNormForecast(e) {
   };
 }
 
-/* Normalize bankTransfers (Payment Voucher / PV) — รายการจ่ายจริงจากบัญชี
- * เอกสารออกแล้ว (มี PL_PV_No) ผูกบัญชีด้วย Bank_AC; ลงการ์ดเป็น outflow ตาม paydate */
+/* Normalize pvVouchers (DATA PV · Payment Voucher) — รายการจ่ายจริงจากบัญชี
+ * เอกสารออกแล้ว (มี PL_PV_No) ผูกบัญชีด้วย Bank_AC; ลงการ์ดเป็น outflow ตาม Pmt_Date
+ * (รองรับ field จาก bankTransfers เดิมด้วย: paydate/remark) */
 function bdNormPV(t) {
   return {
     id:      t.id,
-    date:    bdToISO(t.paydate),
+    date:    bdToISO(t.Pmt_Date || t.paydate),
     amount:  bdNum(t.Net_Amount),     // ยอดจ่าย (บวก) — ลงการ์ดเป็น −outflow
     pvNo:    t.PL_PV_No || '',
+    apNo:    t.AP_No || '',           // เลขที่ AP — ใช้กันนับซ้ำกับ forecast ที่วางแผนจ่าย AP เดียวกัน
     payee:   t.Payee || '',
     docNo:   t.Document_No || '',
     chqNo:   t.Chq_No || '',
     chqDate: bdToISO(t.Chq_Date),
     bankAc:  t.Bank_AC || '',
-    remark:  t.remark || '',
+    remark:  t.Remark || t.cc_remark || t.remark || '',
     raw:     t,
   };
 }
@@ -187,13 +189,17 @@ function bdBuildAccountView(acct, matchedChecks, matchedForecasts, matchedTransf
         title: c.payee || '—', sub: 'เช็ค #' + (c.checkNo || '—'), status: c._st, raw: c,
       });
     });
+  const countedAP = new Set(); // เลขที่ AP ที่นับผ่าน forecast แล้ว — กัน PV ของ AP เดียวกันนับซ้ำ
   matchedForecasts
     .filter(f => f.date && f.date >= asOfRef)
-    .forEach(f => items.push({
-      date: f.date, signed: f.amount, kind: 'forecast',
-      title: f.desc, sub: (f.isActual ? '✓ ' + (f.amount >= 0 ? 'รับจริงแล้ว' : 'จ่ายจริงแล้ว') : 'ประมาณการ') + (f.refDoc ? ' • ' + f.refDoc : ''),
-      status: f.isActual ? 'actual' : 'planned', raw: f,
-    }));
+    .forEach(f => {
+      if (f.refDoc) countedAP.add(String(f.refDoc).trim());
+      items.push({
+        date: f.date, signed: f.amount, kind: 'forecast',
+        title: f.desc, sub: (f.isActual ? '✓ ' + (f.amount >= 0 ? 'รับจริงแล้ว' : 'จ่ายจริงแล้ว') : 'ประมาณการ') + (f.refDoc ? ' • ' + f.refDoc : ''),
+        status: f.isActual ? 'actual' : 'planned', raw: f,
+      });
+    });
   // โอนระหว่างบัญชี: นับเฉพาะที่ "ยังไม่กลืนยอด" = ยังไม่ยืนยัน และลงวันที่ตั้งแต่วัน BALANCE เป็นต้นไป
   // (ยืนยัน = โอนจริง+เอา PV เข้าแล้ว → ถือว่าอยู่ใน BALANCE ที่ sync มาแล้ว จึงไม่นับซ้ำ)
   (matchedTransfers || [])
@@ -204,14 +210,17 @@ function bdBuildAccountView(acct, matchedChecks, matchedForecasts, matchedTransf
       sub: 'โอนระหว่างบัญชี (รอกลืนยอด)' + (e.transferRef ? ' • ' + e.transferRef : ''),
       status: 'pending', raw: e,
     }));
-  // PV (Payment Voucher): เอกสารจ่ายออกแล้วแต่ paydate ยังไม่ถึงวัน asOf → ยังไม่กลืนยอด นับเป็น outflow
-  // (paydate < asOf = จ่ายไปแล้ว อยู่ใน BALANCE ที่ sync มา จึงไม่นับซ้ำ — เหมือนกติกาเช็ค)
+  // PV (Payment Voucher): เอกสารจ่ายออกแล้วแต่ Pmt_Date ยังไม่ถึงวัน asOf → ยังไม่กลืนยอด นับเป็น outflow
+  // (Pmt_Date < asOf = จ่ายไปแล้ว อยู่ใน BALANCE ที่ sync มา จึงไม่นับซ้ำ — เหมือนกติกาเช็ค)
+  // กันนับซ้ำ: ข้าม PV ที่เป็นเช็คใบเดียวกับที่นับแล้ว (chqNo) หรือ AP เดียวกับ forecast ที่นับแล้ว (apNo)
   (matchedPVs || [])
-    .filter(p => p.date && p.date >= asOfRef && !(p.chqNo && countedChq.has(bdDigits(p.chqNo))))
+    .filter(p => p.date && p.date >= asOfRef
+              && !(p.chqNo && countedChq.has(bdDigits(p.chqNo)))
+              && !(p.apNo && countedAP.has(String(p.apNo).trim())))
     .forEach(p => items.push({
       date: p.date, signed: -Math.abs(p.amount), kind: 'pv', ref: p.pvNo,
       title: p.payee || 'จ่ายตาม PV',
-      sub: 'PV ' + (p.pvNo || '—') + (p.chqNo ? ' • เช็ค ' + p.chqNo : (p.docNo ? ' • ' + p.docNo : '')),
+      sub: 'PV ' + (p.pvNo || '—') + (p.apNo ? ' • ' + p.apNo : '') + (p.chqNo ? ' • เช็ค ' + p.chqNo : ''),
       status: 'pv', raw: p,
     }));
   items.sort((a, b) => (a.date || '') < (b.date || '') ? -1 : 1);
@@ -1227,7 +1236,7 @@ function BDApPanel({ apList, plannedRefs, bankAccounts, defaultBank, today, peri
 /* ── Main Page ───────────────────────────────────────────────────────── */
 const BankDiaryPage = ({ data: propData, setData, toast }) => {
   const raw = propData || WTPData.load();
-  const { bankAccounts: rawAccounts = [], bankEntries = [], bankTransfers = [], checks: rawChecks = [], forecastEntries: rawForecast = [], payables: rawPayables = [] } = raw;
+  const { bankAccounts: rawAccounts = [], bankEntries = [], bankTransfers = [], checks: rawChecks = [], forecastEntries: rawForecast = [], payables: rawPayables = [], pvVouchers: rawPvVouchers = [] } = raw;
   const today = new Date().toISOString().slice(0, 10);
   const next7 = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
 
@@ -1284,7 +1293,7 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
   }, [accounts, forecasts]);
 
   /* Normalize PV (bankTransfers) + match → accounts (ด้วย Bank_AC, รองรับเลข 4 ตัวท้าย) */
-  const pvList = React.useMemo(() => bankTransfers.map(bdNormPV), [bankTransfers]);
+  const pvList = React.useMemo(() => rawPvVouchers.map(bdNormPV), [rawPvVouchers]);
   const pvByAccount = React.useMemo(() => {
     const byAcct = {};
     accounts.forEach(a => { byAcct[a.accountNo] = []; });
@@ -1496,7 +1505,7 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
     <div className="page">
       <div className="page-head">
         <div>
-          <div className="page-title">Bank Diary</div>
+          <div className="page-title">Bank Daily</div>
           <div className="page-sub">ยอดเงินจริงแยกตามบัญชี + เช็ค/ประมาณการ เพื่อวางแผนกระแสเงินสดและโอนระหว่างบัญชี • ณ {fmtDate(today)}</div>
         </div>
         <div className="page-head-r">
@@ -1513,8 +1522,8 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
             { key: 'status',     label: 'สถานะ' },
           ]}
           filename="bank_diary_outstanding"
-          sheetName="Bank Diary"
-          title="Bank Diary · เช็คค้างจ่ายแยกตามบัญชี"
+          sheetName="Bank Daily"
+          title="Bank Daily · เช็คค้างจ่ายแยกตามบัญชี"
         />
         <PrintButton />
         {canEdit && (
