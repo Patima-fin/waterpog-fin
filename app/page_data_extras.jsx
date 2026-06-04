@@ -134,27 +134,41 @@ function DataCrudPage({ data, setData, toast, config }) {
     [config.modalFields]
   );
 
-  // Build a "label → key" lookup (also matches plain key)
+  // Full canonical schema keys for this entity (from emptyRow) — so import keeps
+  // EVERY column the file provides, not just the curated edit-modal subset.
+  const schemaKeys = dxMemo(() => Object.keys(config.emptyRow || {}), [config.emptyRow]);
+  // Optional per-config synonym map: { 'หัวคอลัมน์ในไฟล์ (lowercase)': 'canonicalKey' }
+  const headerAliases = dxMemo(() => {
+    const out = {};
+    Object.entries(config.headerAliases || {}).forEach(([k, v]) => { out[String(k).trim().toLowerCase()] = v; });
+    return out;
+  }, [config.headerAliases]);
+
+  // Build a "label → key" lookup (also matches plain key). Returns { map, unmapped }.
+  // map: { colIdx → canonicalKey };  unmapped: [headerText…] that matched nothing (shown to user).
   const buildHeaderMap = (headers) => {
     const map = {};
+    const unmapped = [];
     headers.forEach((h, idx) => {
       const norm = String(h || '').trim();
       if (!norm) return;
-      // 1) exact key match
-      let f = importFields.find(x => x.key === norm);
+      const lc = norm.toLowerCase();
+      // 1) exact key match (curated form field)
+      let key = (importFields.find(x => x.key === norm) || {}).key;
       // 2) exact label match
-      if (!f) f = importFields.find(x => x.label === norm);
-      // 3) label contains norm (e.g. "DATE — วันที่บันทึก" vs "DATE")
-      if (!f) f = importFields.find(x => String(x.label || '').split(/[—\-—:·\(]/)[0].trim() === norm);
-      // 4) startsWith case-insensitive
-      if (!f) {
-        const lc = norm.toLowerCase();
-        f = importFields.find(x => x.key.toLowerCase() === lc
-                                 || String(x.label||'').toLowerCase().startsWith(lc));
-      }
-      if (f) map[idx] = f.key;
+      if (!key) key = (importFields.find(x => x.label === norm) || {}).key;
+      // 3) label prefix before separator (e.g. "DATE — วันที่บันทึก" vs "DATE")
+      if (!key) key = (importFields.find(x => String(x.label || '').split(/[—\-—:·\(]/)[0].trim() === norm) || {}).key;
+      // 4) startsWith case-insensitive (curated form field)
+      if (!key) key = (importFields.find(x => x.key.toLowerCase() === lc
+                                 || String(x.label||'').toLowerCase().startsWith(lc)) || {}).key;
+      // 5) explicit synonym alias for this entity
+      if (!key && headerAliases[lc]) key = headerAliases[lc];
+      // 6) exact canonical schema key (case-insensitive) — passthrough full RAW columns
+      if (!key) key = schemaKeys.find(k => k === norm || k.toLowerCase() === lc);
+      if (key) map[idx] = key; else unmapped.push(norm);
     });
-    return map;
+    return { map, unmapped };
   };
 
   // Detect date format from a column's sample values
@@ -287,11 +301,11 @@ function DataCrudPage({ data, setData, toast, config }) {
       toast('ไม่พบแถวข้อมูล — ต้องมีหัวตาราง + ข้อมูลอย่างน้อย 1 แถว');
       return;
     }
-    const headerMap = buildHeaderMap(headers);
+    const { map: headerMap, unmapped: skippedCols } = buildHeaderMap(headers);
     const mappedCount = Object.keys(headerMap).length;
     if (mappedCount === 0) {
       toast('ไม่พบคอลัมน์ที่ตรงกับฟอร์ม — กรุณาดาวน์โหลด Template ก่อน');
-      setImportStats({ added: 0, skipped: rows.length, errors: ['header ไม่ตรง — ใช้ Template'] });
+      setImportStats({ added: 0, skipped: rows.length, errors: ['header ไม่ตรง — ใช้ Template'], skippedCols });
       return;
     }
     const fieldByKey = Object.fromEntries(importFields.map(f => [f.key, f]));
@@ -334,7 +348,7 @@ function DataCrudPage({ data, setData, toast, config }) {
       if (newRows.length > 0) {
         setData(d => ({ ...d, [config.dataKey]: [...newRows, ...(d[config.dataKey] || [])] }));
       }
-      setImportStats({ added: newRows.length, skipped: blankSkipped, errors: [] });
+      setImportStats({ added: newRows.length, skipped: blankSkipped, errors: [], skippedCols });
       toast(`นำเข้าแล้ว ${newRows.length} รายการ${blankSkipped ? ` · ข้าม ${blankSkipped}` : ''}`);
       return;
     }
@@ -421,6 +435,7 @@ function DataCrudPage({ data, setData, toast, config }) {
 
     cat.blankSkipped = blankSkipped;
     cat.noKeyCount   = noKeyCount;
+    cat.skippedCols  = skippedCols;
     cat.fieldByKey   = fieldByKey;
     cat.dateRange    = (dateLo && dateHi) ? { lo: dateLo, hi: dateHi } : null;
     cat.dedupKeys    = dedupKeys;
@@ -474,6 +489,7 @@ function DataCrudPage({ data, setData, toast, config }) {
       skipped: preview.unchanged.length + (preview.blankSkipped || 0),
       deleted: deleteMissingChoice ? preview.missing.length : 0,
       errors: [],
+      skippedCols: preview.skippedCols || [],
     };
     setImportStats(stats);
     setImportPreview(null);
@@ -830,6 +846,18 @@ function DataCrudPage({ data, setData, toast, config }) {
 
           {/* ── Preview / Diff stage (only when dedupKey set + handleImport ran) ── */}
           {importPreview ? (
+            <>
+            {importPreview.skippedCols?.length > 0 && (
+              <div style={{
+                fontSize: 12, marginBottom: 12, padding: '9px 12px', borderRadius: 7,
+                background: 'color-mix(in oklch, var(--bad) 9%, transparent)',
+                border: '1px solid var(--bad)', borderLeft: '3px solid var(--bad)', color: 'var(--ink-800)', lineHeight: 1.6,
+              }}>
+                ⚠️ มี <strong>{importPreview.skippedCols.length}</strong> คอลัมน์ในไฟล์ที่ไม่ตรงกับฟิลด์ใดเลย จึง <strong>ไม่ถูกนำเข้า</strong>:{' '}
+                <span style={{ fontFamily: 'ui-monospace', color: 'var(--bad)' }}>{importPreview.skippedCols.join(', ')}</span>
+                <div style={{ marginTop: 4, color: 'var(--ink-500)' }}>ถ้าคอลัมน์เหล่านี้ควรเข้าระบบ ให้แก้หัวคอลัมน์ให้ตรงชื่อฟิลด์ (เช่น <code>Bank_AC</code>) หรือแจ้งผมเพื่อเพิ่ม alias</div>
+              </div>
+            )}
             <ImportPreview
               preview={importPreview}
               fieldByKey={importPreview.fieldByKey || {}}
@@ -837,6 +865,7 @@ function DataCrudPage({ data, setData, toast, config }) {
               deleteMissing={deleteMissingChoice}
               setDeleteMissing={setDeleteMissingChoice}
             />
+            </>
           ) : <>
 
           {/* Help callout */}
@@ -989,6 +1018,11 @@ function DataCrudPage({ data, setData, toast, config }) {
               {importStats.errors?.length > 0 && (
                 <div style={{ marginTop: 6, color: 'var(--bad)' }}>
                   ⚠️ {importStats.errors.join('; ')}
+                </div>
+              )}
+              {importStats.skippedCols?.length > 0 && (
+                <div style={{ marginTop: 6, color: 'var(--bad)' }}>
+                  ⚠️ คอลัมน์ที่ไม่ถูกนำเข้า (หัวไม่ตรงฟิลด์): <span style={{ fontFamily: 'ui-monospace' }}>{importStats.skippedCols.join(', ')}</span>
                 </div>
               )}
             </div>

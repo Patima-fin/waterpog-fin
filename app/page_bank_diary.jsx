@@ -141,6 +141,24 @@ function bdNormForecast(e) {
   };
 }
 
+/* Normalize bankTransfers (Payment Voucher / PV) — รายการจ่ายจริงจากบัญชี
+ * เอกสารออกแล้ว (มี PL_PV_No) ผูกบัญชีด้วย Bank_AC; ลงการ์ดเป็น outflow ตาม paydate */
+function bdNormPV(t) {
+  return {
+    id:      t.id,
+    date:    bdToISO(t.paydate),
+    amount:  bdNum(t.Net_Amount),     // ยอดจ่าย (บวก) — ลงการ์ดเป็น −outflow
+    pvNo:    t.PL_PV_No || '',
+    payee:   t.Payee || '',
+    docNo:   t.Document_No || '',
+    chqNo:   t.Chq_No || '',
+    chqDate: bdToISO(t.Chq_Date),
+    bankAc:  t.Bank_AC || '',
+    remark:  t.remark || '',
+    raw:     t,
+  };
+}
+
 /* Normalize payables (AP) — ยอดค้าง = Balance_Amount1 (สำรอง: netpayment/net_new/Amount) */
 function bdNormAP(p) {
   const amount = bdNum(p.Balance_Amount1 != null && p.Balance_Amount1 !== '' ? p.Balance_Amount1
@@ -154,17 +172,21 @@ function bdNormAP(p) {
 
 /* Build the per-account view (เช็คค้างจ่าย + forecast ที่ผูกบัญชี) — base = ยอดเงินจริง (ไม่หัก HOLD)
  * สัญญาณ "เงินไม่พอ" ใช้กรอบ 7 วัน (near-term) เทียบยอดเงินจริง */
-function bdBuildAccountView(acct, matchedChecks, matchedForecasts, matchedTransfers, today, next7) {
+function bdBuildAccountView(acct, matchedChecks, matchedForecasts, matchedTransfers, matchedPVs, today, next7) {
   const asOfRef = (acct.asOf && acct.asOf < today) ? acct.asOf : today;
   const base    = acct.balance; // ยอดเงินจริง
 
   const items = [];
+  const countedChq = new Set(); // เลขเช็คที่นับในการ์ดแล้ว — กัน PV ที่เป็นเช็คใบเดียวกันนับซ้ำ
   matchedChecks
     .filter(c => bdIsOutstanding(c._st) && (c.checkDate || '') >= asOfRef)
-    .forEach(c => items.push({
-      date: c.checkDate, signed: -bdNum(c.amount), kind: 'check',
-      title: c.payee || '—', sub: 'เช็ค #' + (c.checkNo || '—'), status: c._st, raw: c,
-    }));
+    .forEach(c => {
+      const cq = bdDigits(c.checkNo); if (cq) countedChq.add(cq);
+      items.push({
+        date: c.checkDate, signed: -bdNum(c.amount), kind: 'check',
+        title: c.payee || '—', sub: 'เช็ค #' + (c.checkNo || '—'), status: c._st, raw: c,
+      });
+    });
   matchedForecasts
     .filter(f => f.date && f.date >= asOfRef)
     .forEach(f => items.push({
@@ -181,6 +203,16 @@ function bdBuildAccountView(acct, matchedChecks, matchedForecasts, matchedTransf
       title: e.description || 'โอนระหว่างบัญชี',
       sub: 'โอนระหว่างบัญชี (รอกลืนยอด)' + (e.transferRef ? ' • ' + e.transferRef : ''),
       status: 'pending', raw: e,
+    }));
+  // PV (Payment Voucher): เอกสารจ่ายออกแล้วแต่ paydate ยังไม่ถึงวัน asOf → ยังไม่กลืนยอด นับเป็น outflow
+  // (paydate < asOf = จ่ายไปแล้ว อยู่ใน BALANCE ที่ sync มา จึงไม่นับซ้ำ — เหมือนกติกาเช็ค)
+  (matchedPVs || [])
+    .filter(p => p.date && p.date >= asOfRef && !(p.chqNo && countedChq.has(bdDigits(p.chqNo))))
+    .forEach(p => items.push({
+      date: p.date, signed: -Math.abs(p.amount), kind: 'pv', ref: p.pvNo,
+      title: p.payee || 'จ่ายตาม PV',
+      sub: 'PV ' + (p.pvNo || '—') + (p.chqNo ? ' • เช็ค ' + p.chqNo : (p.docNo ? ' • ' + p.docNo : '')),
+      status: 'pv', raw: p,
     }));
   items.sort((a, b) => (a.date || '') < (b.date || '') ? -1 : 1);
 
@@ -614,6 +646,7 @@ function BDDayGroup({ day, today, onItemEdit }) {
             const inflow  = it.signed >= 0;
             const tag = it.kind === 'forecast' ? { t:'ประมาณการ', bg:'#ede9fe', c:'#6b21a8' }
                       : it.kind === 'transfer' ? { t:'โอน',       bg:'#fae8ff', c:'#86198f' }
+                      : it.kind === 'pv'       ? { t:'PV',        bg:'#fef9c3', c:'#854d0e' }
                       : { t:'เช็ค', bg:'#e0f2fe', c:'#075985' };
             const editable = onItemEdit && (it.kind === 'forecast' || it.kind === 'transfer');
             return (
@@ -1250,6 +1283,19 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
     return byAcct;
   }, [accounts, forecasts]);
 
+  /* Normalize PV (bankTransfers) + match → accounts (ด้วย Bank_AC, รองรับเลข 4 ตัวท้าย) */
+  const pvList = React.useMemo(() => bankTransfers.map(bdNormPV), [bankTransfers]);
+  const pvByAccount = React.useMemo(() => {
+    const byAcct = {};
+    accounts.forEach(a => { byAcct[a.accountNo] = []; });
+    pvList.forEach(p => {
+      if (!p.bankAc) return;
+      const hit = accounts.find(a => bdAcctMatchesCheck(a.accountNo, p.bankAc));
+      if (hit) byAcct[hit.accountNo].push(p);
+    });
+    return byAcct;
+  }, [accounts, pvList]);
+
   /* Pair up transfer entries by transferRef (จาก bankEntries ที่บันทึกโอนเอง) */
   const transferPairs = React.useMemo(() => {
     const pairs = {};
@@ -1275,8 +1321,8 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
 
   /* Per-account views (เช็ค + forecast + การโอน + สัญญาณเงินไม่พอ 7 วัน) */
   const accountViews = React.useMemo(
-    () => accounts.map(a => bdBuildAccountView(a, checksByAccount[a.accountNo] || [], forecastByAccount[a.accountNo] || [], transfersByAccount[a.accountNo] || [], today, next7)),
-    [accounts, checksByAccount, forecastByAccount, transfersByAccount, today, next7]
+    () => accounts.map(a => bdBuildAccountView(a, checksByAccount[a.accountNo] || [], forecastByAccount[a.accountNo] || [], transfersByAccount[a.accountNo] || [], pvByAccount[a.accountNo] || [], today, next7)),
+    [accounts, checksByAccount, forecastByAccount, transfersByAccount, pvByAccount, today, next7]
   );
 
   /* ── Totals across all accounts ── */
