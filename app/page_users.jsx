@@ -31,9 +31,14 @@ function UsersPage({ data, setData, toast }) {
   const configUsers  = (window.WTP_CONFIG && window.WTP_CONFIG.USERS) || [];
 
   // Show Sheet users + config users (read-only). Sheet users have actual id.
+  // _source values: 'sheet' (Sheet only) | 'config' (config only) | 'both' (มีทั้งใน Sheet และ config.js — มี bootstrap fallback)
   const combinedRows = uMemo(() => {
     const sheetByName = new Set(sheetUsers.map(u => u.username));
-    const rows = sheetUsers.map(u => ({ ...u, _source: 'sheet' }));
+    const configByName = new Set(configUsers.map(u => u.username));
+    const rows = sheetUsers.map(u => ({
+      ...u,
+      _source: configByName.has(u.username) ? 'both' : 'sheet',
+    }));
     configUsers.forEach(u => {
       if (!sheetByName.has(u.username)) {
         rows.push({ ...u, _source: 'config', id: 'cfg_' + u.username });
@@ -193,9 +198,14 @@ function UsersPage({ data, setData, toast }) {
                       </button>
                     </td>
                     <td>
-                      {isConfig
-                        ? <Badge kind="b-amber" dot={false}>config.js</Badge>
-                        : <Badge kind="b-green" dot={false}>Sheet</Badge>}
+                      {u._source === 'config' && <Badge kind="b-amber" dot={false}>config.js</Badge>}
+                      {u._source === 'sheet'  && <Badge kind="b-green" dot={false}>Sheet</Badge>}
+                      {u._source === 'both' && (
+                        <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>
+                          <Badge kind="b-green" dot={false}>Sheet</Badge>
+                          <Badge kind="b-amber" dot={false} title="มี bootstrap fallback ใน config.js — login ได้ทันทีก่อน sync">config.js</Badge>
+                        </span>
+                      )}
                     </td>
                     <td>
                       {isConfig ? (
@@ -223,6 +233,7 @@ function UsersPage({ data, setData, toast }) {
         <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.6 }}>
           <li>ผู้ใช้ที่อยู่ใน <code>config.js</code> (สีส้ม) แก้ใน UI ไม่ได้ — ใช้เป็น bootstrap account สำหรับ first-time login</li>
           <li>ผู้ใช้ใน Sheet (สีเขียว) สามารถแก้/ลบได้ที่นี่</li>
+          <li>ผู้ใช้ที่มี <b>Sheet + config.js</b> (เขียว+ส้ม) = login ได้แน่นอนทุกเครื่องแม้ Sheet ยังไม่ sync</li>
           <li>การเปลี่ยน password ต้องให้ user logout แล้ว login ใหม่จึง active</li>
           <li>เพื่อความปลอดภัย: Sheet `users` ตั้ง access เป็น Restricted (ไม่ public)</li>
         </ul>
