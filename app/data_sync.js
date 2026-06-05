@@ -687,8 +687,14 @@
       var weChanged   = !_eq(ours[k], base ? base[k] : undefined);
       var theyChanged = !_eq(theirs[k], base ? base[k] : undefined);
       // เราไม่แก้ field นี้ แต่เขาแก้ → เอาค่าสดของเขา
-      if (!weChanged && theyChanged) result[k] = theirs[k];
-      // กรณีอื่น (เราแก้ / ไม่มีใครแก้ / แก้ทั้งคู่) → คงของเรา
+      if (!weChanged && theyChanged) { result[k] = theirs[k]; return; }
+      // ★ ANTI-WIPE: ห้ามให้ "ค่าว่างฝั่งเรา" ลบ "ค่าที่ชีตมีอยู่" (เว้น field ที่ clearable)
+      //   กันบั๊ก: user เติมเลขบัญชีในชีต แล้วแอป push pvVouchers ที่ Bank_AC ว่างทับ → หาย
+      //   หลักการเดียวกับฝั่งอ่าน (mergeRowKeepSheetForEmpty): เซลล์ว่าง = ไม่มีสิทธิ์ลบของจริง
+      var oursEmpty = result[k] == null || result[k] === '';
+      var theirsHas = theirs[k] != null && theirs[k] !== '';
+      if (oursEmpty && theirsHas) result[k] = theirs[k];
+      // กรณีอื่น (เราแก้จริง / ไม่มีใครแก้) → คงของเรา
     });
     return result;
   }
@@ -792,13 +798,18 @@
       // กันงานของ writer คนอื่นถูกเขียนทับ: field ที่เราไม่ได้แก้ ให้ค่าสดจากชีต
       // ชนะ, แถวที่คนอื่นเพิ่งเพิ่มก็คงไว้ไม่ลบทิ้ง (ดู threeWayMergeRows)
       var safeChanges = fetched.map(function (f) {
-        if (!f.sheetRows) return { entity: f.entity, rows: f.currentRows };  // re-fetch fail → push as-is
+        // ★ re-fetch fail (เช่น 429) → ข้าม entity นี้รอบนี้ ไม่ push (กัน push ทับแบบไม่ merge
+        //   ที่อาจลบงานของ writer คนอื่น เช่น เลขบัญชีที่เพิ่งเติมในชีต) — รอ retry รอบหน้า
+        if (!f.sheetRows) {
+          console.warn('[WTP Sync] re-fetch ' + f.entity + ' ล้มเหลว — ข้าม push รอบนี้ retry รอบหน้า (กันทับงานในชีต)');
+          return null;
+        }
         var clearable = {};
         (CLEARABLE_FIELDS[f.entity] || []).forEach(function (k) { clearable[k] = true; });
         var base = preSnapshots[f.entity] || [];
         var merged = threeWayMergeRows(base, f.currentRows, f.sheetRows, clearable);
         return { entity: f.entity, rows: merged };
-      });
+      }).filter(Boolean);
 
       // STEP 3: Update localStorage + notify React with merged data.
       // ★ ยังไม่อัป lastSnapshot ตรงนี้ — รอจน push สำเร็จก่อน (STEP 5)
