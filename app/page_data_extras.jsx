@@ -2172,6 +2172,28 @@ function DataPayablePage({ data, setData, toast }) {
   // Normalise due-date field variants → 'due2' before any filtering / display
   const rows = dxMemo(() => (data.payables || []).map(_normPayableRow), [data.payables]);
 
+  // ── รายการที่ "จ่ายแล้ว" = vchno ตรงกับ AP_No ในหน้า PV
+  //    เกณฑ์เดียวกับ import paidCut (handleImport) และ cashflow isApPaid — จ่ายผ่าน PV แล้ว
+  //    จึงไม่ใช่เจ้าหนี้คงค้าง ไม่ควรอยู่ในชีตนี้ (ผู้ใช้กดล้างได้จาก banner ด้านบน)
+  const paidVchnoSet = dxMemo(() => {
+    const s = new Set();
+    (data.pvVouchers || []).forEach(pv => { const a = String(pv.AP_No || '').trim(); if (a) s.add(a); });
+    return s;
+  }, [data.pvVouchers]);
+  const paidRows = dxMemo(() =>
+    rows.filter(r => { const v = String(r.vchno || '').trim(); return v && paidVchnoSet.has(v); })
+  , [rows, paidVchnoSet]);
+
+  // ล้างรายการที่จ่ายแล้วออกจากชีต — ลบจริงผ่าน sync (replaceAll + baseIds ลบเฉพาะ id ที่ตัดออก)
+  const cleanPaidNow = () => {
+    if (!paidRows.length) return;
+    if (!confirm(`พบ ${paidRows.length} รายการที่จ่ายแล้ว (vchno มีใน PV)\nยืนยันลบออกจากรายการคงค้าง (ชีต payables)?`)) return;
+    const ids = new Set(paidRows.map(r => r.id).filter(Boolean));
+    if (!ids.size) { toast('รายการที่จ่ายแล้วไม่มี id — ลบไม่ได้'); return; }
+    setData(d => ({ ...d, payables: (d.payables || []).filter(r => !ids.has(r.id)) }));
+    toast(`ล้างรายการที่จ่ายแล้ว ${ids.size} รายการออกจากชีตแล้ว`);
+  };
+
   const getDocType = (vchno) => {
     if (!vchno) return 'other';
     const v = String(vchno).toUpperCase();
@@ -2420,6 +2442,27 @@ function DataPayablePage({ data, setData, toast }) {
         </div>
       </div>
 
+      {/* ⚠️ Banner — รายการที่จ่ายแล้ว (มี PV) ยังปนอยู่ในรายการคงค้าง → ล้างออกได้ทันที */}
+      {paidRows.length > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+          margin: '0 0 14px', padding: '11px 16px', borderRadius: 10,
+          background: 'color-mix(in oklch, var(--bad) 9%, var(--surface))',
+          border: '1px solid color-mix(in oklch, var(--bad) 36%, transparent)',
+          borderLeft: '4px solid var(--bad)',
+        }}>
+          <span style={{ fontSize: 20, lineHeight: 1 }}>⚠️</span>
+          <div style={{ flex: 1, minWidth: 220, fontSize: 13, lineHeight: 1.55, color: 'var(--ink-800)' }}>
+            <strong>พบ {paidRows.length} รายการที่จ่ายแล้ว</strong> (vchno ตรงกับ AP_No ในหน้า PV) ปนอยู่ในรายการคงค้าง —
+            จ่ายผ่าน PV ไปแล้วจึงไม่ใช่เจ้าหนี้คงค้าง ควรล้างออกจากชีต
+          </div>
+          <button className="btn btn-primary" onClick={cleanPaidNow}
+            style={{ background: 'var(--bad)', borderColor: 'var(--bad)', flex: '0 0 auto' }}>
+            <Icon name="trash" size={14} /> ล้างออกจากชีต ({paidRows.length})
+          </button>
+        </div>
+      )}
+
       {/* KPI — 4 cards (grid-4, same size as all other data pages, no delta to keep height equal) */}
       <div className="grid grid-4 anim-stagger" style={{ marginBottom: 16 }}>
         <KpiTile label="จำนวนรายการ" value={filtered.length} unit=" รายการ" digits={0} accent="var(--brand-500)" icon="invoice" animate={false} />
@@ -2601,7 +2644,20 @@ function DataPayablePage({ data, setData, toast }) {
 
           {importPreview ? (
             <div style={{ display: 'grid', gap: 10 }}>
-              {(importPreview.summarySkipped > 0 || importPreview.paidCut.length > 0 || importPreview.paidImportSkipped > 0) && (
+              {(importPreview.paidCut.length > 0 || importPreview.paidImportSkipped > 0) && (
+                <div style={{
+                  padding: '10px 13px', borderRadius: 8, fontSize: 12.5, lineHeight: 1.6,
+                  background: 'color-mix(in oklch, var(--bad) 9%, transparent)',
+                  border: '1px solid color-mix(in oklch, var(--bad) 32%, transparent)',
+                  borderLeft: '4px solid var(--bad)',
+                  display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', color: 'var(--ink-800)',
+                }}>
+                  <span style={{ fontWeight: 700, color: 'var(--bad)' }}>💸 จ่ายแล้ว (มี PV):</span>
+                  {importPreview.paidCut.length > 0    && <span>ตัดออกจากรายการคงค้าง <strong>{importPreview.paidCut.length}</strong> รายการ</span>}
+                  {importPreview.paidImportSkipped > 0 && <span>ข้ามในไฟล์นำเข้า <strong>{importPreview.paidImportSkipped}</strong> รายการ</span>}
+                </div>
+              )}
+              {importPreview.summarySkipped > 0 && (
                 <div style={{
                   padding: '9px 12px', borderRadius: 8, fontSize: 12, lineHeight: 1.6,
                   background: 'color-mix(in oklch, var(--good) 8%, transparent)',
@@ -2609,9 +2665,7 @@ function DataPayablePage({ data, setData, toast }) {
                   display: 'flex', gap: 14, flexWrap: 'wrap', color: 'var(--ink-700)',
                 }}>
                   <span style={{ fontWeight: 700, color: 'var(--good)' }}>🧹 จัดการอัตโนมัติ:</span>
-                  {importPreview.summarySkipped > 0   && <span>ตัดแถวสรุปยอด <strong>{importPreview.summarySkipped}</strong> แถว</span>}
-                  {importPreview.paidCut.length > 0   && <span>ตัดของเดิมที่จ่ายแล้ว <strong>{importPreview.paidCut.length}</strong> รายการ</span>}
-                  {importPreview.paidImportSkipped > 0 && <span>ข้ามจ่ายแล้วในไฟล์ <strong>{importPreview.paidImportSkipped}</strong> รายการ</span>}
+                  <span>ตัดแถวสรุปยอด <strong>{importPreview.summarySkipped}</strong> แถว</span>
                 </div>
               )}
               <PayableImportPreview

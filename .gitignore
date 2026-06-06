@@ -17,3 +17,6 @@ Thumbs.db
 *.gdoc
 *.gslides
 *.gform
+
+# Local data backups (contain real vendor names / amounts — never commit)
+backups/
