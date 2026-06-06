@@ -1339,7 +1339,7 @@ function CashFlowDashboard({ data, setData, toast }) {
       />
 
       <div className="card anim-in" style={{ padding: 0, overflow: 'hidden', marginBottom: 22 }}>
-        <table className="tbl cf-plan-tbl" style={{ width: '100%', fontSize: cfScale(15) }}>
+        <table className="tbl cf-plan-tbl" style={{ width: '100%', fontSize: cfScale(17) }}>
           <thead>
             <tr>
               <th style={{ width: 280 }}>รายการ</th>
@@ -1363,7 +1363,7 @@ function CashFlowDashboard({ data, setData, toast }) {
           <tbody>
             {/* ── INFLOW section ───────────────────────────────────────── */}
             <tr style={{ background: 'color-mix(in oklch, var(--good) 8%, transparent)' }}>
-              <td colSpan={4} style={{ fontWeight: 700, color: 'var(--good)', fontSize: cfScale(14), padding: `${cfScale(8)} ${cfScale(14)}` }}>
+              <td colSpan={4} style={{ fontWeight: 700, color: 'var(--good)', fontSize: cfScale(16), padding: `${cfScale(8)} ${cfScale(14)}` }}>
                 1: กระแสเงินสดเข้า (Inflow Details)
               </td>
             </tr>
@@ -1387,7 +1387,7 @@ function CashFlowDashboard({ data, setData, toast }) {
 
             {/* ── OUTFLOW section ─────────────────────────────────────── */}
             <tr style={{ background: 'color-mix(in oklch, var(--bad) 8%, transparent)' }}>
-              <td colSpan={4} style={{ fontWeight: 700, color: 'var(--bad)', fontSize: cfScale(14), padding: `${cfScale(8)} ${cfScale(14)}` }}>
+              <td colSpan={4} style={{ fontWeight: 700, color: 'var(--bad)', fontSize: cfScale(16), padding: `${cfScale(8)} ${cfScale(14)}` }}>
                 2: กระแสเงินสดออก (Outflow Details) · 4 หมวด · 💧 โครงการรวมกลุ่มจ่ายตามสภาพคล่อง (คลิกดู)
               </td>
             </tr>
@@ -1421,7 +1421,7 @@ function CashFlowDashboard({ data, setData, toast }) {
               );
             })}
             <tr style={{ background: 'var(--bad-bg)', fontWeight: 700 }}>
-              <td style={{ textAlign: 'right', paddingRight: 14, fontSize: cfScale(14) }}>รวมรายจ่าย</td>
+              <td style={{ textAlign: 'right', paddingRight: 14, fontSize: cfScale(16) }}>รวมรายจ่าย</td>
               <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--bad)' }}>({fmtNum(totalOutCurrent, 0)})</td>
               <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--bad)' }}>({fmtNum(totalOutRest, 0)})</td>
               <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--bad)' }}>({fmtNum(totalOutAll, 0)})</td>
@@ -1468,7 +1468,7 @@ function CashFlowDashboard({ data, setData, toast }) {
                     สิ้น{weeks[nowWeek]?.label || 'W?'} → {isLastWeekOfMonth ? 'สิ้นเดือนถัดไป' : 'สิ้นเดือน'}
                   </td>
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums',
-                    color: netMonDisp < 0 ? 'var(--bad)' : 'var(--good)', fontSize: cfScale(20) }}>
+                    color: netMonDisp < 0 ? 'var(--bad)' : 'var(--good)', fontSize: cfScale(22) }}>
                     {fmtNum(netMonDisp, 0)}
                   </td>
                 </tr>
@@ -2137,7 +2137,7 @@ function PlanRow({ label, current, rest, total, subtle, negative, carrySigned, o
   };
   return (
     <tr>
-      <td style={{ paddingLeft: 24, fontSize: 12.5, color: subtle ? 'var(--ink-500)' : 'inherit' }}>{label}</td>
+      <td style={{ paddingLeft: cfScale(24), fontSize: cfScale(16), color: subtle ? 'var(--ink-500)' : 'inherit' }}>{label}</td>
       <td
         onClick={() => clickable && current && onCellClick('current')}
         onMouseEnter={e => hover(e, true)}
