@@ -14,6 +14,17 @@
 (function () {
   'use strict';
 
+  // ── Build marker ───────────────────────────────────────────────────
+  // เปิด DevTools Console แล้วดูบรรทัดนี้ เพื่อยืนยันว่าเบราว์เซอร์โหลด "โค้ดใหม่" จริง
+  // (ถ้าไม่เห็น = ยังรัน cache เก่า → hard refresh Ctrl+Shift+R + ปิดแท็บเก่าทุกอัน)
+  // เช็คเร็ว: พิมพ์ WTPData.buildId ใน console
+  var BUILD_ID = '20260606c';
+  try {
+    console.info('%c[WTP Sync] build ' + BUILD_ID + ' — base-reconcile + anti-flip + grace180s',
+                 'color:#2a6fdb;font-weight:bold');
+    if (window.WTPData) WTPData.buildId = BUILD_ID;
+  } catch (_) {}
+
   var cfg = window.WTP_CONFIG || {};
   var SHEET_ID = cfg.SHEET_ID || '';
   var POST_URL = cfg.APPS_SCRIPT_URL || '';
