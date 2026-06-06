@@ -1685,44 +1685,55 @@ function CashFlowDashboard({ data, setData, toast }) {
         const remaining = Math.max(0, grandPlan - grandActual);
         return (
         <div className="card cf-grand-card" style={{
-          padding: 0, overflow: 'hidden', border: 'none', color: '#fff',
-          background: 'linear-gradient(150deg, var(--brand-900) 0%, var(--ink-900) 100%)',
+          padding: 0, overflow: 'hidden', border: 'none', color: '#fff', position: 'relative',
+          background: 'linear-gradient(150deg, var(--brand-500) 0%, var(--brand-800) 100%)',
           display: 'flex', flexDirection: 'column',
         }}>
-          <div style={{ padding: `${cfScale(18)} ${cfScale(20)}`, display: 'flex', flexDirection: 'column', height: '100%' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: cfScale(8) }}>
-              <div style={{ fontSize: cfScale(15), fontWeight: 800, letterSpacing: '.01em', lineHeight: 1.1 }}>Grand Totals Actual</div>
-              <span style={{ color: 'var(--brand-300)', flex: 'none' }}><Icon name="chart" size={22} /></span>
+          {/* แสงเรืองมุมบนขวา — เพิ่มมิติ ไม่ให้ดูแบนจืด */}
+          <div style={{ position: 'absolute', right: cfScale(-40), top: cfScale(-50), width: cfScale(190), height: cfScale(190), borderRadius: '50%', background: 'radial-gradient(circle, rgba(41,197,255,.28), transparent 70%)', pointerEvents: 'none' }} />
+          <div style={{ position: 'relative', padding: `${cfScale(22)} ${cfScale(20)}`, display: 'flex', flexDirection: 'column', height: '100%', justifyContent: 'space-between', gap: cfScale(15) }}>
+            {/* โซนบน — หัวข้อ + ไอคอนในกรอบ */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: cfScale(8) }}>
+              <div>
+                <div style={{ fontSize: cfScale(15.5), fontWeight: 800, letterSpacing: '.01em', lineHeight: 1.15 }}>Grand Totals Actual</div>
+                <div style={{ fontSize: cfScale(11), color: 'rgba(255,255,255,.78)', marginTop: cfScale(3) }}>เทียบกับงบประมาณการรวมทั้งเดือน</div>
+              </div>
+              <span style={{ display: 'grid', placeItems: 'center', width: cfScale(38), height: cfScale(38), borderRadius: cfScale(11), background: 'rgba(255,255,255,.18)', color: '#eaffff', flex: 'none' }}><Icon name="chart" size={20} /></span>
             </div>
-            <div style={{ fontSize: cfScale(11.5), color: 'rgba(255,255,255,.6)', marginTop: cfScale(4) }}>
-              เทียบกับงบประมาณการรวมทั้งเดือน
-            </div>
-            {/* แถบ % เทียบงบรวม */}
-            <div style={{ position: 'relative', height: cfScale(28), background: 'rgba(255,255,255,.12)', borderRadius: cfScale(8), overflow: 'hidden', marginTop: cfScale(16) }}>
-              <div style={{
-                position: 'absolute', inset: 0, width: `${Math.min(100, grandPct)}%`,
-                background: 'linear-gradient(90deg, #29c5ff, #2a6fdb)', transition: 'width 800ms',
-                boxShadow: '0 0 20px color-mix(in oklch, #29c5ff 55%, transparent)',
-              }} />
-              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', paddingLeft: cfScale(12), fontSize: cfScale(13), fontWeight: 800, color: '#fff' }}>
-                {grandPct.toFixed(2)}%
+            {/* โซนกลาง — ยอดจ่ายจริงสะสม (พระเอก) + แถบ % เทียบงบ */}
+            <div>
+              <div style={{ fontSize: cfScale(13), color: 'rgba(255,255,255,.82)', letterSpacing: '.04em' }}>รวมจ่ายจริงสะสม (บาท)</div>
+              <div style={{ fontSize: cfScale(40), fontWeight: 800, fontVariantNumeric: 'tabular-nums', lineHeight: 1.0, letterSpacing: '-.02em', marginTop: cfScale(3), textShadow: '0 2px 22px rgba(0,0,0,.25)' }}>
+                {editMode
+                  ? <span style={{ color: 'var(--ink-900)' }}><EditableNumber ovKey={gaKey} computed={grandActualRaw} editMode={true} digits={0} /></span>
+                  : (<>{fmtNum(grandActual, 0)}{grandActualOver && <span title="แก้มือ" style={{ fontSize: cfScale(15), marginLeft: 6 }}>✏️</span>}</>)}
+              </div>
+              <div style={{ position: 'relative', height: cfScale(30), background: 'rgba(0,0,0,.22)', borderRadius: cfScale(8), overflow: 'hidden', marginTop: cfScale(13) }}>
+                <div style={{
+                  position: 'absolute', inset: 0, width: `${Math.max(2, Math.min(100, grandPct))}%`,
+                  background: 'linear-gradient(90deg, #5fe0ff, #b8f4ff)', transition: 'width 800ms',
+                  boxShadow: '0 0 18px color-mix(in oklch, #5fe0ff 70%, transparent)', borderRadius: cfScale(8),
+                }} />
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: `0 ${cfScale(12)}`, fontSize: cfScale(12.5), fontWeight: 800 }}>
+                  <span style={{ color: '#fff' }}>{grandPct.toFixed(2)}%</span>
+                  <span style={{ color: 'rgba(255,255,255,.85)', fontSize: cfScale(11) }}>ของแผนทั้งเดือน</span>
+                </div>
               </div>
             </div>
-            <div style={{ fontSize: cfScale(13), color: 'var(--brand-300)', fontWeight: 700, marginTop: cfScale(10), display: 'flex', alignItems: 'center', gap: cfScale(5), flexWrap: 'wrap' }}>
-              {grandPct.toFixed(2)}% of {editMode
-                ? <span style={{ color: 'var(--ink-900)' }}><EditableNumber ovKey={gpKey} computed={grandPlanRaw} editMode={true} digits={0} /></span>
-                : <span>{fmtNum(grandPlan / 1e6, 2)}M{grandPlanOver && <span title="แก้มือ" style={{ fontSize: cfScale(9), marginLeft: 3 }}>✏️</span>}</span>} Plan
-            </div>
-            <div style={{ borderTop: '1px solid rgba(255,255,255,.15)', margin: `${cfScale(16)} 0 ${cfScale(12)}` }} />
-            {/* ยอดจ่ายจริงสะสม */}
-            <div style={{ fontSize: cfScale(12), color: 'rgba(255,255,255,.7)', marginBottom: cfScale(5), letterSpacing: '.03em' }}>รวมจ่ายจริงสะสม</div>
-            <div style={{ fontSize: cfScale(27), fontWeight: 800, fontVariantNumeric: 'tabular-nums', lineHeight: 1.0, letterSpacing: '-.01em' }}>
-              {editMode
-                ? <span style={{ color: 'var(--ink-900)' }}><EditableNumber ovKey={gaKey} computed={grandActualRaw} editMode={true} digits={0} /></span>
-                : (<>{fmtNum(grandActual, 0)}{grandActualOver && <span title="แก้มือ" style={{ fontSize: cfScale(13), marginLeft: 6 }}>✏️</span>}</>)}
-            </div>
-            <div style={{ fontSize: cfScale(11), color: 'rgba(255,255,255,.55)', marginTop: 'auto', paddingTop: cfScale(12) }}>
-              คงเหลือต้องจ่าย {fmtNum(remaining, 0)} ฿
+            {/* โซนล่าง — สถิติย่อ: แผนรวม / คงเหลือ */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: cfScale(9) }}>
+              <div style={{ background: 'rgba(255,255,255,.12)', borderRadius: cfScale(11), padding: `${cfScale(12)} ${cfScale(13)}` }}>
+                <div style={{ fontSize: cfScale(11), color: 'rgba(255,255,255,.72)' }}>แผนรวมทั้งเดือน</div>
+                <div style={{ fontSize: cfScale(18), fontWeight: 800, fontVariantNumeric: 'tabular-nums', marginTop: cfScale(3) }}>
+                  {editMode
+                    ? <span style={{ color: 'var(--ink-900)' }}><EditableNumber ovKey={gpKey} computed={grandPlanRaw} editMode={true} digits={0} /></span>
+                    : <>{fmtNum(grandPlan / 1e6, 2)}M{grandPlanOver && <span title="แก้มือ" style={{ fontSize: cfScale(10), marginLeft: 3 }}>✏️</span>}</>}
+                </div>
+              </div>
+              <div style={{ background: 'rgba(255,255,255,.12)', borderRadius: cfScale(11), padding: `${cfScale(12)} ${cfScale(13)}` }}>
+                <div style={{ fontSize: cfScale(11), color: 'rgba(255,255,255,.72)' }}>คงเหลือต้องจ่าย</div>
+                <div style={{ fontSize: cfScale(18), fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: '#cdf3ff', marginTop: cfScale(3) }}>{fmtNum(remaining / 1e6, 2)}M</div>
+              </div>
             </div>
           </div>
         </div>
