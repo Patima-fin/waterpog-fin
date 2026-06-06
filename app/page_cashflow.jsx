@@ -149,6 +149,10 @@ const CATEGORY_LABELS_SHORT = {
   3: 'การเงิน',
   4: 'เบ็ดเตล็ด',
 };
+// Scale helper — ทุกขนาด (ฟอนต์/แถบ/ระยะ) ในการ์ดติดตามรายสัปดาห์เขียนผ่าน cfScale()
+//   ปกติ = ×1 (ค่าตามตัวเลข) · โหมดนำเสนอ = ×var(--cf-k) (CSS set --cf-k บน .cf-week-grid)
+//   → ขยายทั้งหมดพร้อมกันตอนพรีเซนต์โดยไม่ต้องใช้ !important / JS
+const cfScale = (px) => `calc(${px}px * var(--cf-k, 1))`;
 
 // ─── Flexible vendors ("จ่ายตามสภาพคล่อง") ────────────────────────────────
 //   เจ้าหนี้กลุ่มที่ "ไม่จ่ายตามดิว" — เลือกจ่ายตามเงินที่มี
@@ -1335,19 +1339,19 @@ function CashFlowDashboard({ data, setData, toast }) {
       />
 
       <div className="card anim-in" style={{ padding: 0, overflow: 'hidden', marginBottom: 22 }}>
-        <table className="tbl" style={{ width: '100%' }}>
+        <table className="tbl cf-plan-tbl" style={{ width: '100%', fontSize: cfScale(13) }}>
           <thead>
             <tr>
               <th style={{ width: 280 }}>รายการ</th>
               <th style={{ width: 180, textAlign: 'right', background: 'var(--brand-50)' }}>
                 {weeks[nowWeek]?.label || 'W?'} (ปัจจุบัน)
-                <div style={{ fontSize: 10, color: 'var(--ink-500)', fontWeight: 400 }}>
+                <div style={{ fontSize: cfScale(10), color: 'var(--ink-500)', fontWeight: 400 }}>
                   {weeks[nowWeek]?.from}-{weeks[nowWeek]?.to} {monthNames[month - 1]}
                 </div>
               </th>
               <th style={{ width: 180, textAlign: 'right' }}>
                 สัปดาห์ที่เหลือ
-                <div style={{ fontSize: 10, color: 'var(--ink-500)', fontWeight: 400 }}>
+                <div style={{ fontSize: cfScale(10), color: 'var(--ink-500)', fontWeight: 400 }}>
                   รวม {weeks.length - nowWeek - 1} สัปดาห์
                 </div>
               </th>
@@ -1359,7 +1363,7 @@ function CashFlowDashboard({ data, setData, toast }) {
           <tbody>
             {/* ── INFLOW section ───────────────────────────────────────── */}
             <tr style={{ background: 'color-mix(in oklch, var(--good) 8%, transparent)' }}>
-              <td colSpan={4} style={{ fontWeight: 700, color: 'var(--good)', fontSize: 13, padding: '8px 14px' }}>
+              <td colSpan={4} style={{ fontWeight: 700, color: 'var(--good)', fontSize: cfScale(13), padding: `${cfScale(8)} ${cfScale(14)}` }}>
                 1: กระแสเงินสดเข้า (Inflow Details)
               </td>
             </tr>
@@ -1383,7 +1387,7 @@ function CashFlowDashboard({ data, setData, toast }) {
 
             {/* ── OUTFLOW section ─────────────────────────────────────── */}
             <tr style={{ background: 'color-mix(in oklch, var(--bad) 8%, transparent)' }}>
-              <td colSpan={4} style={{ fontWeight: 700, color: 'var(--bad)', fontSize: 13, padding: '8px 14px' }}>
+              <td colSpan={4} style={{ fontWeight: 700, color: 'var(--bad)', fontSize: cfScale(13), padding: `${cfScale(8)} ${cfScale(14)}` }}>
                 2: กระแสเงินสดออก (Outflow Details) · 4 หมวด · 💧 โครงการรวมกลุ่มจ่ายตามสภาพคล่อง (คลิกดู)
               </td>
             </tr>
@@ -1417,7 +1421,7 @@ function CashFlowDashboard({ data, setData, toast }) {
               );
             })}
             <tr style={{ background: 'var(--bad-bg)', fontWeight: 700 }}>
-              <td style={{ textAlign: 'right', paddingRight: 14, fontSize: 12 }}>รวมรายจ่าย</td>
+              <td style={{ textAlign: 'right', paddingRight: 14, fontSize: cfScale(12) }}>รวมรายจ่าย</td>
               <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--bad)' }}>({fmtNum(totalOutCurrent, 0)})</td>
               <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--bad)' }}>({fmtNum(totalOutRest, 0)})</td>
               <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--bad)' }}>({fmtNum(totalOutAll, 0)})</td>
@@ -1430,7 +1434,7 @@ function CashFlowDashboard({ data, setData, toast }) {
               const netMonDisp = WTPOverride.resolve(`${ovPrefix}.s01.netMonth`, netEndOfMonth);
               return (
                 <tr style={{ background: 'var(--warn-bg)', fontWeight: 700 }}>
-                  <td style={{ padding: '10px 14px', color: 'var(--warn)' }}>
+                  <td style={{ padding: `${cfScale(10)} ${cfScale(14)}`, color: 'var(--warn)' }}>
                     💰 คงเหลือรายสัปดาห์ (สิ้นช่วง)
                   </td>
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums',
@@ -1445,7 +1449,7 @@ function CashFlowDashboard({ data, setData, toast }) {
                       ? <EditableNumber ovKey={`${ovPrefix}.s01.netMonth`} computed={netEndOfMonth} editMode={true} digits={0} />
                       : <>{fmtNum(netMonDisp, 0)}{WTPOverride.has(`${ovPrefix}.s01.netMonth`) && <span title="แก้มือ" style={{ fontSize: 9, marginLeft: 3 }}>✏️</span>}</>}
                   </td>
-                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--ink-500)', fontSize: 11 }}>
+                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--ink-500)', fontSize: cfScale(11) }}>
                     {isLastWeekOfMonth ? '(rest = เดือนถัดไป)' : ''}
                   </td>
                 </tr>
@@ -1457,14 +1461,14 @@ function CashFlowDashboard({ data, setData, toast }) {
               const netMonDisp = WTPOverride.resolve(`${ovPrefix}.s01.netMonth`, netEndOfMonth);
               return (
                 <tr style={{ background: 'var(--brand-50)', fontWeight: 800 }}>
-                  <td style={{ padding: '12px 14px', color: 'var(--brand-700)' }}>
+                  <td style={{ padding: `${cfScale(12)} ${cfScale(14)}`, color: 'var(--brand-700)' }}>
                     💼 ยอดคงเหลือสุทธิปลายงวด (Final Net Position)
                   </td>
-                  <td colSpan={2} style={{ textAlign: 'center', fontSize: 11, color: 'var(--ink-500)' }}>
+                  <td colSpan={2} style={{ textAlign: 'center', fontSize: cfScale(11), color: 'var(--ink-500)' }}>
                     สิ้น{weeks[nowWeek]?.label || 'W?'} → {isLastWeekOfMonth ? 'สิ้นเดือนถัดไป' : 'สิ้นเดือน'}
                   </td>
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums',
-                    color: netMonDisp < 0 ? 'var(--bad)' : 'var(--good)', fontSize: 18 }}>
+                    color: netMonDisp < 0 ? 'var(--bad)' : 'var(--good)', fontSize: cfScale(18) }}>
                     {fmtNum(netMonDisp, 0)}
                   </td>
                 </tr>
@@ -1509,42 +1513,47 @@ function CashFlowDashboard({ data, setData, toast }) {
             ? { dot: true,     color: 'var(--brand-600)', bg: 'var(--brand-50)', label: 'ปัจจุบัน' }
             : { icon: 'daily', color: 'var(--ink-400)',   bg: 'var(--ink-50)',   label: 'รอ' };
           return (
-            <div key={i} className="card" style={{
+            <div key={i} className="card cf-week-card" style={{
               padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column',
               borderColor: status === 'now' ? 'var(--brand-400)' : 'var(--line)',
               borderWidth: status === 'now' ? 2 : 1,
-              boxShadow: status === 'now' ? '0 6px 18px rgba(42,111,219,.14)' : 'var(--shadow-sm)',
+              boxShadow: status === 'now' ? '0 10px 30px -8px color-mix(in oklch, var(--brand-500) 45%, transparent)' : 'var(--shadow-sm)',
             }}>
+              {/* แถบ accent สีบนหัว — บ่งบอกสถานะสัปดาห์ */}
+              <div style={{ height: cfScale(4), flex: 'none',
+                background: status === 'now' ? 'linear-gradient(90deg, var(--brand-500), var(--brand-700))'
+                          : status === 'past' ? 'var(--good)' : 'var(--ink-200)' }} />
               {/* หัวการ์ด — WEEK n + ช่วงวันที่ + ป้ายสถานะ */}
               <div style={{
-                padding: '11px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: `${cfScale(11)} ${cfScale(15)}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                 borderBottom: '1px solid var(--line)',
                 background: status === 'now' ? 'linear-gradient(180deg, var(--brand-50), #fff)' : '#fff',
               }}>
                 <div>
-                  <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: '.02em', color: status === 'now' ? 'var(--brand-700)' : 'var(--ink-800)' }}>
+                  <div style={{ fontSize: cfScale(15), fontWeight: 800, letterSpacing: '.03em', lineHeight: 1.05,
+                    color: status === 'now' ? 'var(--brand-700)' : 'var(--ink-900)' }}>
                     WEEK {i + 1}
                   </div>
-                  <div style={{ fontSize: 10.5, color: 'var(--ink-400)', marginTop: 1 }}>
+                  <div style={{ fontSize: cfScale(11), color: 'var(--ink-400)', marginTop: cfScale(2), fontWeight: 500 }}>
                     {w.from}–{w.to} {monthNames[month - 1]}
                   </div>
                 </div>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 700,
-                  color: chip.color, background: chip.bg, padding: '4px 9px', borderRadius: 999 }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: cfScale(4), fontSize: cfScale(10.5), fontWeight: 700,
+                  color: chip.color, background: chip.bg, padding: `${cfScale(4)} ${cfScale(10)}`, borderRadius: 999, whiteSpace: 'nowrap' }}>
                   {chip.dot
-                    ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--brand-500)' }} />
-                    : <Icon name={chip.icon} size={11} />}
+                    ? <span style={{ width: cfScale(7), height: cfScale(7), borderRadius: '50%', background: 'var(--brand-500)' }} />
+                    : <Icon name={chip.icon} size={12} />}
                   {chip.label}
                 </span>
               </div>
               {/* ตาราง List / Forecast / Actual / % */}
-              <table className="tbl" style={{ width: '100%', fontSize: 11.5 }}>
+              <table className="tbl cf-week-tbl" style={{ width: '100%' }}>
                 <thead>
                   <tr>
-                    <th style={{ padding: '6px 10px', textAlign: 'left',  textTransform: 'none' }}>List</th>
-                    <th style={{ padding: '6px 8px',  textAlign: 'right', textTransform: 'none' }}>Forecast</th>
-                    <th style={{ padding: '6px 8px',  textAlign: 'right', textTransform: 'none' }}>Actual</th>
-                    <th style={{ padding: '6px 8px',  textAlign: 'right', textTransform: 'none' }}>%</th>
+                    <th style={{ padding: `${cfScale(6)} ${cfScale(10)}`, textAlign: 'left',  textTransform: 'none', fontSize: cfScale(11) }}>List</th>
+                    <th style={{ padding: `${cfScale(6)} ${cfScale(8)}`,  textAlign: 'right', textTransform: 'none', fontSize: cfScale(11) }}>Forecast</th>
+                    <th style={{ padding: `${cfScale(6)} ${cfScale(8)}`,  textAlign: 'right', textTransform: 'none', fontSize: cfScale(11) }}>Actual</th>
+                    <th style={{ padding: `${cfScale(6)} ${cfScale(8)}`,  textAlign: 'right', textTransform: 'none', fontSize: cfScale(11) }}>%</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1562,37 +1571,42 @@ function CashFlowDashboard({ data, setData, toast }) {
                     if (p > 0)      vpct = Math.round((a - p) / p * 100);
                     else if (a > 0) vpct = 100;
                     const vdir = vpct == null ? 'na' : a > p ? 'up' : a < p ? 'down' : 'flat';
+                    const vCol = vdir === 'up' ? 'var(--bad)' : vdir === 'down' ? 'var(--good)' : 'var(--ink-500)';
+                    const vBg  = vdir === 'up' ? 'var(--bad-bg)' : vdir === 'down' ? 'var(--good-bg)' : 'var(--ink-100)';
                     return (
                       <tr key={cat} title={CATEGORY_LABELS[cat]}>
-                        <td style={{ padding: '5px 10px', fontSize: 10.5, color: 'var(--ink-600)', whiteSpace: 'nowrap' }}>{cat}. {CATEGORY_LABELS_SHORT[cat]}</td>
-                        <td style={{ padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 10.5, color: 'var(--ink-700)' }}>
+                        <td style={{ padding: `${cfScale(6)} ${cfScale(10)}`, fontSize: cfScale(12.5), fontWeight: 600, color: 'var(--ink-700)', whiteSpace: 'nowrap' }}>
+                          <span style={{ color: 'var(--ink-400)' }}>{cat}.</span> {CATEGORY_LABELS_SHORT[cat]}
+                        </td>
+                        <td style={{ padding: `${cfScale(6)} ${cfScale(8)}`, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: cfScale(13.5), color: 'var(--ink-700)' }}>
                           {editMode
                             ? <EditableNumber ovKey={`${cellOv}.plan`} computed={pRaw} editMode={true} digits={0} />
                             : (<>
-                                {p > 0 ? fmtNum(p, 2) : <span style={{ color: 'var(--ink-300)' }}>-</span>}
-                                {pOver && <span title="แก้มือ" style={{ fontSize: 8, marginLeft: 2, color: 'var(--brand-500)' }}>✏️</span>}
+                                {p > 0 ? fmtNum(p, 0) : <span style={{ color: 'var(--ink-300)' }}>-</span>}
+                                {pOver && <span title="แก้มือ" style={{ fontSize: cfScale(8), marginLeft: 2, color: 'var(--brand-500)' }}>✏️</span>}
                               </>)}
                         </td>
-                        <td style={{ padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 10.5, fontWeight: 600,
-                          color: a > 0 ? 'var(--ink-800)' : 'var(--ink-300)' }}>
+                        <td style={{ padding: `${cfScale(6)} ${cfScale(8)}`, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: cfScale(13.5), fontWeight: 700,
+                          color: a > 0 ? 'var(--ink-900)' : 'var(--ink-300)' }}>
                           {editMode
                             ? <EditableNumber ovKey={`${cellOv}.actual`} computed={aRaw} editMode={true} digits={0} />
                             : (a > 0
                                 ? (<span
                                      onClick={() => openActualDrill(i, cat, `จ่ายจริง · WEEK ${i + 1} · ${CATEGORY_LABELS_SHORT[cat]}`)}
                                      title="คลิกดูรายการจ่ายจริงของหมวดนี้"
-                                     style={{ cursor: 'pointer', borderBottom: '1px dashed var(--ink-300)' }}>
-                                    {fmtNum(a, 2)}
-                                    {aOver && <span title="แก้มือ" style={{ fontSize: 8, marginLeft: 2, color: 'var(--brand-500)' }}>✏️</span>}
+                                     style={{ cursor: 'pointer', borderBottom: '1.5px dashed var(--brand-300)' }}>
+                                    {fmtNum(a, 0)}
+                                    {aOver && <span title="แก้มือ" style={{ fontSize: cfScale(8), marginLeft: 2, color: 'var(--brand-500)' }}>✏️</span>}
                                   </span>)
                                 : <span style={{ color: 'var(--ink-300)' }}>-</span>)}
                         </td>
-                        <td style={{ padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 10, whiteSpace: 'nowrap' }}>
-                          {vdir === 'na'   ? <span style={{ color: 'var(--ink-300)' }}>—</span>
-                           : vdir === 'flat' ? <span style={{ color: 'var(--ink-400)' }}>0%</span>
-                           : <span style={{ color: vdir === 'up' ? 'var(--bad)' : 'var(--good)', fontWeight: 700 }}>
-                               {vdir === 'up' ? '▲' : '▼'}{Math.abs(vpct)}%
-                             </span>}
+                        <td style={{ padding: `${cfScale(6)} ${cfScale(8)}`, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          {vdir === 'na'
+                            ? <span style={{ color: 'var(--ink-300)', fontSize: cfScale(10.5) }}>—</span>
+                            : <span style={{ display: 'inline-flex', alignItems: 'center', gap: cfScale(1), fontSize: cfScale(10.5), fontWeight: 800,
+                                color: vCol, background: vBg, padding: `${cfScale(2)} ${cfScale(7)}`, borderRadius: 999, fontVariantNumeric: 'tabular-nums' }}>
+                                {vdir === 'up' ? '▲' : vdir === 'down' ? '▼' : ''}{Math.abs(vpct)}%
+                              </span>}
                         </td>
                       </tr>
                     );
@@ -1600,31 +1614,32 @@ function CashFlowDashboard({ data, setData, toast }) {
                 </tbody>
                 <tfoot>
                   <tr>
-                    <td style={{ padding: '6px 10px', fontSize: 10, color: 'var(--ink-500)', fontWeight: 600, background: 'var(--ink-50)' }}>รวมแผน</td>
-                    <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700, fontSize: 11, color: 'var(--ink-800)', background: 'var(--ink-50)' }}>
+                    <td style={{ padding: `${cfScale(7)} ${cfScale(10)}`, fontSize: cfScale(10.5), color: 'var(--ink-500)', fontWeight: 700, background: 'var(--ink-50)' }}>รวมแผน</td>
+                    <td style={{ padding: `${cfScale(7)} ${cfScale(8)}`, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 800, fontSize: cfScale(13.5), color: 'var(--ink-900)', background: 'var(--ink-50)' }}>
                       {editMode
                         ? <EditableNumber ovKey={`${cellOvWeek}.total.plan`}   computed={planTotalRaw}   editMode={true} digits={0} />
-                        : (<>{fmtNum(planTotal, 2)}{planTotalOver && <span title="แก้มือ" style={{ fontSize: 8, marginLeft: 2, color: 'var(--brand-500)' }}>✏️</span>}</>)}
+                        : (<>{fmtNum(planTotal, 0)}{planTotalOver && <span title="แก้มือ" style={{ fontSize: cfScale(8), marginLeft: 2, color: 'var(--brand-500)' }}>✏️</span>}</>)}
                     </td>
                     <td colSpan={2} style={{ background: 'var(--ink-50)' }} />
                   </tr>
                 </tfoot>
               </table>
               {/* แถบความคืบหน้า (Actual/Plan) + Total Paid */}
-              <div style={{ padding: '11px 14px 13px', marginTop: 'auto' }}>
-                <div style={{ position: 'relative', height: 22, background: 'var(--ink-100)', borderRadius: 7, overflow: 'hidden' }}>
+              <div style={{ padding: `${cfScale(12)} ${cfScale(15)} ${cfScale(14)}`, marginTop: 'auto' }}>
+                <div style={{ position: 'relative', height: cfScale(22), background: 'var(--ink-100)', borderRadius: cfScale(7), overflow: 'hidden' }}>
                   <div style={{
                     position: 'absolute', inset: 0, width: `${Math.min(100, pct)}%`,
-                    background: pct >= 100 ? 'linear-gradient(90deg, var(--brand-600), var(--brand-500))' : 'linear-gradient(90deg, var(--brand-500), var(--brand-400))',
+                    background: pct >= 100 ? 'linear-gradient(90deg, var(--brand-700), var(--brand-500))' : 'linear-gradient(90deg, var(--brand-500), var(--brand-400))',
                     transition: 'width 600ms',
                   }} />
-                  <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', paddingLeft: 10, fontSize: 11, fontWeight: 700, color: pct >= 12 ? '#fff' : 'var(--ink-400)' }}>
+                  <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', paddingLeft: cfScale(10),
+                    fontSize: cfScale(11), fontWeight: 800, letterSpacing: '.02em', color: pct >= 12 ? '#fff' : 'var(--ink-500)' }}>
                     {pct.toFixed(2)}%
                   </div>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 10 }}>
-                  <span style={{ fontSize: 11.5, color: 'var(--ink-500)', fontWeight: 600 }}>Total Paid :</span>
-                  <span style={{ fontSize: 16, fontWeight: 800, color: 'var(--brand-600)', fontVariantNumeric: 'tabular-nums' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: cfScale(11), gap: cfScale(6) }}>
+                  <span style={{ fontSize: cfScale(11.5), color: 'var(--ink-500)', fontWeight: 600, whiteSpace: 'nowrap' }}>Total Paid :</span>
+                  <span style={{ fontSize: cfScale(17), fontWeight: 800, color: 'var(--brand-600)', fontVariantNumeric: 'tabular-nums', letterSpacing: '-.01em' }}>
                     {editMode
                       ? <EditableNumber ovKey={`${cellOvWeek}.total.actual`} computed={actualTotalRaw} editMode={true} digits={0} />
                       : (actualTotal > 0
@@ -1632,8 +1647,8 @@ function CashFlowDashboard({ data, setData, toast }) {
                                onClick={() => openActualDrill(i, null, `จ่ายจริง · WEEK ${i + 1} · ทุกหมวด`)}
                                title="คลิกดูรายการจ่ายจริงทั้งสัปดาห์"
                                style={{ cursor: 'pointer', borderBottom: '2px dashed var(--brand-300)' }}>
-                              {fmtNum(actualTotal, 2)}
-                              {actualTotalOver && <span title="แก้มือ" style={{ fontSize: 9, marginLeft: 3, color: 'var(--brand-500)' }}>✏️</span>}
+                              {fmtNum(actualTotal, 0)}
+                              {actualTotalOver && <span title="แก้มือ" style={{ fontSize: cfScale(9), marginLeft: 3, color: 'var(--brand-500)' }}>✏️</span>}
                             </span>)
                           : <span style={{ color: 'var(--ink-300)', fontWeight: 700 }}>–</span>)}
                   </span>
@@ -1674,39 +1689,40 @@ function CashFlowDashboard({ data, setData, toast }) {
           background: 'linear-gradient(150deg, var(--brand-900) 0%, var(--ink-900) 100%)',
           display: 'flex', flexDirection: 'column',
         }}>
-          <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', height: '100%' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <div style={{ fontSize: 16, fontWeight: 800, letterSpacing: '.01em' }}>Grand Totals Actual</div>
-              <span style={{ color: 'var(--brand-300)' }}><Icon name="chart" size={20} /></span>
+          <div style={{ padding: `${cfScale(18)} ${cfScale(20)}`, display: 'flex', flexDirection: 'column', height: '100%' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: cfScale(8) }}>
+              <div style={{ fontSize: cfScale(15), fontWeight: 800, letterSpacing: '.01em', lineHeight: 1.1 }}>Grand Totals Actual</div>
+              <span style={{ color: 'var(--brand-300)', flex: 'none' }}><Icon name="chart" size={22} /></span>
             </div>
-            <div style={{ fontSize: 11.5, color: 'rgba(255,255,255,.6)', marginTop: 4 }}>
+            <div style={{ fontSize: cfScale(11.5), color: 'rgba(255,255,255,.6)', marginTop: cfScale(4) }}>
               เทียบกับงบประมาณการรวมทั้งเดือน
             </div>
             {/* แถบ % เทียบงบรวม */}
-            <div style={{ position: 'relative', height: 26, background: 'rgba(255,255,255,.12)', borderRadius: 8, overflow: 'hidden', marginTop: 16 }}>
+            <div style={{ position: 'relative', height: cfScale(28), background: 'rgba(255,255,255,.12)', borderRadius: cfScale(8), overflow: 'hidden', marginTop: cfScale(16) }}>
               <div style={{
                 position: 'absolute', inset: 0, width: `${Math.min(100, grandPct)}%`,
                 background: 'linear-gradient(90deg, #29c5ff, #2a6fdb)', transition: 'width 800ms',
+                boxShadow: '0 0 20px color-mix(in oklch, #29c5ff 55%, transparent)',
               }} />
-              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', paddingLeft: 12, fontSize: 12, fontWeight: 800, color: '#fff' }}>
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', paddingLeft: cfScale(12), fontSize: cfScale(13), fontWeight: 800, color: '#fff' }}>
                 {grandPct.toFixed(2)}%
               </div>
             </div>
-            <div style={{ fontSize: 12, color: 'var(--brand-300)', fontWeight: 600, marginTop: 9, display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+            <div style={{ fontSize: cfScale(13), color: 'var(--brand-300)', fontWeight: 700, marginTop: cfScale(10), display: 'flex', alignItems: 'center', gap: cfScale(5), flexWrap: 'wrap' }}>
               {grandPct.toFixed(2)}% of {editMode
                 ? <span style={{ color: 'var(--ink-900)' }}><EditableNumber ovKey={gpKey} computed={grandPlanRaw} editMode={true} digits={0} /></span>
-                : <span>{fmtNum(grandPlan / 1e6, 2)}M{grandPlanOver && <span title="แก้มือ" style={{ fontSize: 9, marginLeft: 3 }}>✏️</span>}</span>} Plan
+                : <span>{fmtNum(grandPlan / 1e6, 2)}M{grandPlanOver && <span title="แก้มือ" style={{ fontSize: cfScale(9), marginLeft: 3 }}>✏️</span>}</span>} Plan
             </div>
-            <div style={{ borderTop: '1px solid rgba(255,255,255,.15)', margin: '15px 0 12px' }} />
+            <div style={{ borderTop: '1px solid rgba(255,255,255,.15)', margin: `${cfScale(16)} 0 ${cfScale(12)}` }} />
             {/* ยอดจ่ายจริงสะสม */}
-            <div style={{ fontSize: 12, color: 'rgba(255,255,255,.7)', marginBottom: 4 }}>รวมจ่ายจริงสะสม</div>
-            <div style={{ fontSize: 30, fontWeight: 800, fontVariantNumeric: 'tabular-nums', lineHeight: 1.05 }}>
+            <div style={{ fontSize: cfScale(12), color: 'rgba(255,255,255,.7)', marginBottom: cfScale(5), letterSpacing: '.03em' }}>รวมจ่ายจริงสะสม</div>
+            <div style={{ fontSize: cfScale(27), fontWeight: 800, fontVariantNumeric: 'tabular-nums', lineHeight: 1.0, letterSpacing: '-.01em' }}>
               {editMode
                 ? <span style={{ color: 'var(--ink-900)' }}><EditableNumber ovKey={gaKey} computed={grandActualRaw} editMode={true} digits={0} /></span>
-                : (<>{fmtNum(grandActual, 2)}{grandActualOver && <span title="แก้มือ" style={{ fontSize: 12, marginLeft: 6 }}>✏️</span>}</>)}
+                : (<>{fmtNum(grandActual, 0)}{grandActualOver && <span title="แก้มือ" style={{ fontSize: cfScale(13), marginLeft: 6 }}>✏️</span>}</>)}
             </div>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,.55)', marginTop: 'auto', paddingTop: 12 }}>
-              คงเหลือต้องจ่าย {fmtNum(remaining, 2)} ฿
+            <div style={{ fontSize: cfScale(11), color: 'rgba(255,255,255,.55)', marginTop: 'auto', paddingTop: cfScale(12) }}>
+              คงเหลือต้องจ่าย {fmtNum(remaining, 0)} ฿
             </div>
           </div>
         </div>
@@ -1922,11 +1938,11 @@ function CashFlowDashboard({ data, setData, toast }) {
 // ─── Helpers (presentational) ─────────────────────────────────────────────
 function SectionTitle({ num, title, subtitle }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '8px 0 14px' }}>
-      <div style={{ width: 38, height: 38, borderRadius: 10, background: 'linear-gradient(135deg, var(--brand-500), var(--brand-700))', color: 'white', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: 14 }}>{num}</div>
+    <div style={{ display: 'flex', alignItems: 'center', gap: cfScale(14), padding: `${cfScale(8)} 0 ${cfScale(14)}` }}>
+      <div style={{ width: cfScale(38), height: cfScale(38), borderRadius: cfScale(10), background: 'linear-gradient(135deg, var(--brand-500), var(--brand-700))', color: 'white', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: cfScale(14), flex: 'none' }}>{num}</div>
       <div>
-        <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: 'var(--ink-900)' }}>{title}</h2>
-        <div style={{ fontSize: 12, color: 'var(--ink-500)', marginTop: 2 }}>{subtitle}</div>
+        <h2 style={{ margin: 0, fontSize: cfScale(17), fontWeight: 700, color: 'var(--ink-900)' }}>{title}</h2>
+        <div style={{ fontSize: cfScale(12), color: 'var(--ink-500)', marginTop: 2 }}>{subtitle}</div>
       </div>
     </div>
   );
@@ -1943,13 +1959,13 @@ function BalanceCard({ tone, label, value, hint, icon, editMode, ovKey, big, sty
   const displayValue = ovKey ? WTPOverride.resolve(ovKey, value) : value;
   useOverrideSub(ovKey || '_');
   return (
-    <div className="card" style={{ background: t.bg, color: t.text, borderColor: 'transparent', padding: big ? 28 : 22, position: 'relative', overflow: 'hidden', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: big ? 'center' : 'flex-start', ...style }}>
+    <div className="card" style={{ background: t.bg, color: t.text, borderColor: 'transparent', padding: big ? cfScale(28) : cfScale(22), position: 'relative', overflow: 'hidden', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: big ? 'center' : 'flex-start', ...style }}>
       <div style={{ position: 'absolute', right: -40, top: -40, width: big ? 220 : 160, height: big ? 220 : 160, borderRadius: '50%', background: 'rgba(255,255,255,0.1)' }} />
       <div style={{ position: 'relative' }}>
-        <div style={{ fontSize: big ? 15 : 13, opacity: 0.9, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ fontSize: big ? cfScale(15) : cfScale(13), opacity: 0.9, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
           {icon && <Icon name={icon} size={big ? 17 : 14} />} {label}
         </div>
-        <div style={{ fontSize: big ? 52 : 36, fontWeight: 800, fontVariantNumeric: 'tabular-nums', marginTop: 6, letterSpacing: '-.02em', lineHeight: 1.05 }}>
+        <div style={{ fontSize: big ? cfScale(52) : cfScale(36), fontWeight: 800, fontVariantNumeric: 'tabular-nums', marginTop: 6, letterSpacing: '-.02em', lineHeight: 1.05 }}>
           {editMode && ovKey ? (
             <EditableNumber ovKey={ovKey} computed={value} editMode={true} digits={0} />
           ) : (
@@ -1959,7 +1975,7 @@ function BalanceCard({ tone, label, value, hint, icon, editMode, ovKey, big, sty
             </>
           )}
         </div>
-        {hint && <div style={{ fontSize: big ? 13 : 12, opacity: 0.85, marginTop: big ? 10 : 4 }}>{hint}</div>}
+        {hint && <div style={{ fontSize: big ? cfScale(13) : cfScale(12), opacity: 0.85, marginTop: big ? 10 : 4 }}>{hint}</div>}
       </div>
     </div>
   );
@@ -1981,10 +1997,10 @@ function PlanVsActualCard({ tone, icon, label, plan, actual, hint, editMode, ovK
   };
   const t = tones[tone] || tones.info;
   return (
-    <div className="card" style={{ padding: 18, position: 'relative' }}>
+    <div className="card" style={{ padding: cfScale(18), position: 'relative' }}>
       <div className="kpi-accent" style={{ background: t.accent }} />
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--ink-700)', fontWeight: 600 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: cfScale(13), color: 'var(--ink-700)', fontWeight: 600 }}>
           {icon && <Icon name={icon} size={15} />}{label}
         </div>
         <Badge kind={pct >= 100 ? 'b-green' : pct >= 50 ? 'b-blue' : 'b-amber'} dot={false}>{pct.toFixed(1)}%</Badge>
@@ -2003,25 +2019,25 @@ function PlanVsActualCard({ tone, icon, label, plan, actual, hint, editMode, ovK
           )}
         </div>
       )}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: cfScale(14) }}>
         <div>
-          <div style={{ fontSize: 11, color: 'var(--ink-500)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>Plan</div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--ink-700)', fontVariantNumeric: 'tabular-nums' }}>
+          <div style={{ fontSize: cfScale(11), color: 'var(--ink-500)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>Plan</div>
+          <div style={{ fontSize: cfScale(18), fontWeight: 700, color: 'var(--ink-700)', fontVariantNumeric: 'tabular-nums' }}>
             {planK ? <EditableNumber ovKey={planK} computed={plan} editMode={editMode} digits={0} /> : fmtNum(planV, 0)}
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: 11, color: 'var(--ink-500)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>Actual</div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: t.accent, fontVariantNumeric: 'tabular-nums' }}>
+          <div style={{ fontSize: cfScale(11), color: 'var(--ink-500)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>Actual</div>
+          <div style={{ fontSize: cfScale(18), fontWeight: 700, color: t.accent, fontVariantNumeric: 'tabular-nums' }}>
             {actualK ? <EditableNumber ovKey={actualK} computed={actual} editMode={editMode} digits={0} /> : fmtNum(actualV, 0)}
           </div>
         </div>
       </div>
-      <div style={{ marginTop: 14 }}>
-        <div style={{ height: 8, background: 'var(--ink-100)', borderRadius: 6, overflow: 'hidden' }}>
+      <div style={{ marginTop: cfScale(14) }}>
+        <div style={{ height: cfScale(8), background: 'var(--ink-100)', borderRadius: 6, overflow: 'hidden' }}>
           <div style={{ width: `${Math.min(100, pct)}%`, height: '100%', background: t.accent, borderRadius: 6, transition: 'width 800ms cubic-bezier(.2,.7,.2,1)' }} />
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, color: 'var(--ink-500)', marginTop: 6, fontVariantNumeric: 'tabular-nums' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: cfScale(11.5), color: 'var(--ink-500)', marginTop: 6, fontVariantNumeric: 'tabular-nums' }}>
           <span>{hint}</span>
           <span style={{ color: gap >= 0 ? (tone === 'bad' ? 'var(--bad)' : 'var(--good)') : (tone === 'bad' ? 'var(--good)' : 'var(--bad)'), fontWeight: 600 }}>
             {gap >= 0 ? '+' : ''}{fmtNum(gap, 0)}

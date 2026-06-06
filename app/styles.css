@@ -623,6 +623,21 @@ body.present-mode .page-title { font-size: 26px; }
 /* ซ่อนปุ่มเครื่องมือ (ส่งออก/พิมพ์/แก้ไข/sync/ฯลฯ) — เก็บปุ่มนำทางไว้ */
 body.present-mode .no-present { display: none !important; }
 
+/* ── หน้า Cash Flow — ขยายทั้งหน้าให้เด่นตอนพรีเซนต์ ─────────────────────────
+   ขนาด (ฟอนต์/แถบ/ระยะ) ในการ์ด/ตาราง เขียนเป็น calc(<px> * var(--cf-k,1)) ⇒ ปกติ ×1
+   present mode ตั้ง --cf-k บน .cf-page แล้ว cascade ลงทุกส่วน (Section A/B/C)
+   → ทุกอย่างใหญ่ขึ้นพร้อมกัน อ่านง่ายบนโปรเจกเตอร์ · ปรับตามความกว้างจอ */
+body.present-mode .cf-page { --cf-k: 1.28; }
+@media (min-width: 1600px) { body.present-mode .cf-page { --cf-k: 1.4;  } }
+@media (min-width: 1850px) { body.present-mode .cf-page { --cf-k: 1.52; } }
+/* ตาราง Plan (Section B): padding + หัวตาราง มาจาก .tbl (CSS) จึง override ด้วย CSS ได้ */
+body.present-mode .cf-page .cf-plan-tbl tbody td,
+body.present-mode .cf-page .cf-plan-tbl thead th { padding: calc(10px * var(--cf-k, 1)) calc(14px * var(--cf-k, 1)); }
+body.present-mode .cf-page .cf-plan-tbl thead th { font-size: calc(11.5px * var(--cf-k, 1)); }
+/* Section C grid — ลดจำนวนคอลัมน์เมื่อจอแคบ กันตารางในการ์ดล้น (override inline 3 คอลัมน์) */
+@media (max-width: 1100px) { .cf-week-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; } }
+@media (max-width: 660px)  { .cf-week-grid { grid-template-columns: 1fr !important; } }
+
 /* Dense layout option */
 .dense .card, .dense .kpi { padding: 14px; }
 .dense .tbl tbody td { padding: 9px 12px; }
