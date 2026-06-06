@@ -713,6 +713,48 @@ const WTPOverride = {
     window.dispatchEvent(new CustomEvent('wtp-override-change', { detail: { key } }));
   },
 
+  // ── Batch write — เขียนหลาย key ในครั้งเดียว (1 setData → push sync รอบเดียว)
+  //   entries = { key: value, ... } · value === null/''/undefined = ลบคีย์นั้น
+  //   ใช้ตอน freeze baseline ราย IV (หลายสิบคีย์) จะได้ไม่ยิง setData ทีละตัว
+  setMany(entries) {
+    if (_wtpRoleIsReadOnly()) {
+      console.warn('WTPOverride.setMany blocked — role is read-only');
+      return;
+    }
+    if (!entries || typeof entries !== 'object') return;
+    const keys = Object.keys(entries);
+    if (keys.length === 0) return;
+    const isClearing = (v) => v === null || v === '' || v === undefined;
+
+    // 1) Local cache
+    const local = this._loadLocal();
+    keys.forEach(k => { if (isClearing(entries[k])) delete local[k]; else local[k] = entries[k]; });
+    this._saveLocal(local);
+
+    // 2) Push to cloud (one setData update for the whole batch)
+    if (typeof window.__wtpSetData === 'function') {
+      let updatedBy = '';
+      try { updatedBy = (JSON.parse(localStorage.getItem('wtp-session') || 'null') || {}).username || ''; } catch (_) {}
+      const updatedAt = new Date().toISOString();
+      window.__wtpSetData(d => {
+        const arr = Array.isArray(d.manualOverrides) ? d.manualOverrides.slice() : [];
+        keys.forEach(key => {
+          const idx = arr.findIndex(r => r && r.key === key);   // recompute each iter (arr mutates)
+          if (isClearing(entries[key])) {
+            if (idx >= 0) arr.splice(idx, 1);
+          } else {
+            const id = idx >= 0 ? arr[idx].id : `ov_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}_${String(key).slice(0, 8)}`;
+            const row = { id, key, value: Number(entries[key]), updatedBy, updatedAt };
+            if (idx >= 0) arr[idx] = row; else arr.push(row);
+          }
+        });
+        return { ...d, manualOverrides: arr };
+      });
+    }
+
+    window.dispatchEvent(new CustomEvent('wtp-override-change', { detail: { key: '*' } }));
+  },
+
   clear(key) { this.set(key, null); },
 
   clearAll() {

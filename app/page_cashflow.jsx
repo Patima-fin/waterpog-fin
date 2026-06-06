@@ -217,6 +217,64 @@ function ivActualReceiveDate(iv) {
   return null;
 }
 
+// ─── IV PLAN lock — freeze "คาดรับ" baseline ตั้งแต่วันที่ 1 ของเดือน ─────────
+//   ปัญหาเดิม: forecast คำนวณสด + ตัด IV ที่ paid ออก → ยอด PLAN หดลงเรื่อยๆ
+//   แก้: จับ baseline ราย IV ตอนต้นเดือน (net + สัปดาห์คาดรับ) แล้ว freeze ไว้
+//        เก็บลง WTPOverride (manualOverrides — numeric KV, sync ข้าม user, ไม่ต้องแตะ backend)
+//   คีย์:  {ovPrefix}.ivPlan.<ivNo>.net   = ยอดสุทธิที่ freeze
+//          {ovPrefix}.ivPlan.<ivNo>.wk    = สัปดาห์คาดรับ (0..4) ที่ freeze
+//          {ovPrefix}.ivPlan.__lockedAt   = วันที่ล็อก (YYYYMMDD เป็นตัวเลข)
+const IVPLAN_SEG = 'ivPlan';
+const IVPLAN_LOCKED_AT = '__lockedAt';
+// ivNo อาจมีอักขระแปลก — sanitize ให้ปลอดภัย (ใช้ '.' เป็นตัวคั่นใน key)
+function sanitizeIvKey(ivNo) {
+  return String(ivNo || '').trim().replace(/[^A-Za-z0-9_-]/g, '_');
+}
+// อ่าน baseline ที่ล็อกของเดือน → { locked, lockedAt, items: [{ safe, net, wk }] }
+function readIvPlanLock(ovPrefix) {
+  const prefix = `${ovPrefix}.${IVPLAN_SEG}.`;
+  const all = (typeof WTPOverride !== 'undefined') ? WTPOverride._load() : {};
+  const byIv = {};
+  let lockedAt = null;
+  Object.keys(all).forEach(k => {
+    if (!k.startsWith(prefix)) return;
+    const rest = k.slice(prefix.length);          // 'IV2026-077.net' | '...wk' | '__lockedAt'
+    if (rest === IVPLAN_LOCKED_AT) { lockedAt = Number(all[k]) || null; return; }
+    const mNet = rest.match(/^(.+)\.net$/);
+    const mWk  = rest.match(/^(.+)\.wk$/);
+    if (mNet)      { (byIv[mNet[1]] = byIv[mNet[1]] || {}).net = Number(all[k]) || 0; }
+    else if (mWk)  { (byIv[mWk[1]]  = byIv[mWk[1]]  || {}).wk  = Number(all[k]) || 0; }
+  });
+  const items = Object.keys(byIv).map(safe => ({ safe, net: byIv[safe].net || 0, wk: byIv[safe].wk || 0 }));
+  return { locked: lockedAt != null, lockedAt, items };
+}
+// รวม baseline ที่ freeze เป็น bucket รายสัปดาห์ (ป้อนแทน forecast สด)
+function ivPlanBucketsFromLock(items, weekCount) {
+  const arr = [];
+  for (let i = 0; i < weekCount; i++) arr.push(0);
+  (items || []).forEach(it => { if (it.wk >= 0 && it.wk < weekCount) arr[it.wk] += (it.net || 0); });
+  return arr;
+}
+// YYYYMMDD (int) → 'DD/MM/YYYY' (ค.ศ.) สำหรับแสดงผล badge
+function fmtLockedAtInt(n) {
+  const s = String(n || '');
+  if (!/^\d{8}$/.test(s)) return '';
+  return `${s.slice(6, 8)}/${s.slice(4, 6)}/${s.slice(0, 4)}`;
+}
+// วันนี้ → YYYYMMDD (int)
+function todayYmdInt() {
+  const t = new Date();
+  return t.getFullYear() * 10000 + (t.getMonth() + 1) * 100 + t.getDate();
+}
+// role ที่เขียน override ไม่ได้ (owner/viewer) — ใช้ gate auto-capture + ปุ่มล็อก
+function cfIsReadOnly() {
+  try {
+    const s = JSON.parse(localStorage.getItem('wtp-session') || 'null');
+    const role = (s && s.role) || 'viewer';
+    return role === 'owner' || role === 'viewer';
+  } catch (_) { return false; }
+}
+
 // ─── AP-PV match (filter out paid AP) ─────────────────────────────────────
 function buildPaidVchnoSet(pvVouchers) {
   const set = new Set();
@@ -471,29 +529,35 @@ function CashFlowDashboard({ data, setData, toast }) {
     return grid;
   }, [pvVouchers, payables, forecastEntries, manualPaidSet, weeks, year, month, flexVendors]);
 
+  // ── IV PLAN lock — baseline "คาดรับ" ที่ freeze ตั้งแต่วันที่ 1 ของเดือน ──
+  //   ovTick กระตุ้น recompute เมื่อ override (จาก cloud/user อื่น) เปลี่ยน
+  const ivPlanLock = cfMemo(() => readIvPlanLock(ovPrefix), [ovPrefix, ovTick, year, month]);
+
   // ── Inflow: IV project receipts (forecast + actual) ───────────────────
   const ivInflowByWeek = cfMemo(() => {
-    const forecast = weeks.map(() => 0);
-    const actual   = weeks.map(() => 0);
+    const liveForecast = weeks.map(() => 0);
+    const actual       = weeks.map(() => 0);
     invoices.forEach(iv => {
       const net = ivNetExpected(iv, financeByCode);
-      // Plan bucket — เฉพาะ IV ที่ "ยังไม่ได้รับเงิน" และมี expectedReceive ตกในเดือนนี้
-      //   ตัด IV ที่จ่าย/รับเงินไปแล้วออก (เงินเข้าแล้ว ไม่ใช่ "คาดรับ" อีกต่อไป)
-      //   ใช้เกณฑ์เดียวกับ drill-down (ivIsPaid) → การ์ด/ตาราง/รายละเอียดตรงกันเป๊ะ
-      //   กันเคส IV ที่คาดรับเดือนนี้ แต่รับเงินจริงไปแล้วตั้งแต่เดือนก่อน (ยอดพองเกินจริง)
+      // Live forecast (fallback เมื่อเดือนยังไม่ถูกล็อก) — IV ที่ยังไม่รับเงิน + คาดรับเดือนนี้
       if (!ivIsPaid(iv) && iv.expectedReceive && inMonth(iv.expectedReceive, year, month)) {
         const w = findWeekIdx(iv.expectedReceive, weeks);
-        if (w >= 0) forecast[w] += net;
+        if (w >= 0) liveForecast[w] += net;
       }
-      // Actual bucket — เฉพาะ IV ที่มี actualReceive.date ตกในเดือนนี้
+      // Actual bucket — เฉพาะ IV ที่มี actualReceive.date ตกในเดือนนี้ (เปลี่ยนตามจริงเสมอ)
       const ad = ivActualReceiveDate(iv);
       if (ad && inMonth(ad, year, month)) {
         const w = findWeekIdx(ad, weeks);
         if (w >= 0) actual[w] += net;
       }
     });
-    return { forecast, actual };
-  }, [invoices, weeks, year, month]);
+    // PLAN = baseline ที่ freeze ถ้าเดือนนี้ถูกล็อกแล้ว (นิ่ง ไม่หดเมื่อ IV ถูกรับเงิน)
+    //   ไม่งั้น fallback = forecast สด (เดือนเก่าที่ไม่เคยล็อก / ก่อนมีฟีเจอร์)
+    const forecast = ivPlanLock.locked
+      ? ivPlanBucketsFromLock(ivPlanLock.items, weeks.length)
+      : liveForecast;
+    return { forecast, actual, liveForecast };
+  }, [invoices, weeks, year, month, ivPlanLock, financeByCode]);
 
   // ── Loan inflow (forecast + actual) — from forecastEntries CATEGORY=LOAN
   //   Plan   = baseline ที่คาดไว้ — นับทุกแถวที่ไม่ใช่ CANCELED (รวม ACTUAL/BOOKED ด้วย)
@@ -529,6 +593,72 @@ function CashFlowDashboard({ data, setData, toast }) {
     });
     return { forecast, actual };
   }, [forecastEntries, weeks, year, month]);
+
+  // ── Lock / re-lock IV plan baseline (freeze ยอดคาดรับของเดือนที่ดูอยู่) ────
+  //   เก็บ net + week ราย IV ทุกใบที่ expectedReceive ตกในเดือนนี้ (ไม่กรอง paid —
+  //   ใบที่เก็บได้ต้นเดือนก็เคยเป็นส่วนของแผน) แบบ batch ลง WTPOverride
+  const doLockIvPlan = (opts) => {
+    const auto = !!(opts && opts.auto);
+    if (cfIsReadOnly()) { if (!auto && typeof toast === 'function') toast('สิทธิ์นี้ดูได้อย่างเดียว — ล็อกแผนไม่ได้'); return; }
+    if (typeof WTPOverride === 'undefined' || typeof WTPOverride.setMany !== 'function') return;
+    const prefix = `${ovPrefix}.${IVPLAN_SEG}.`;
+    const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
+    const entries = {};
+    let count = 0;
+    invoices.forEach(iv => {
+      if (!iv.expectedReceive || !inMonth(iv.expectedReceive, year, month)) return;
+      // ตัด IV ที่ "รับเงินจริงไปแล้วก่อนเดือนนี้" — เป็นเงินของเดือนก่อน ไม่ใช่แผนเดือนนี้
+      //   (ใบที่รับเงินภายในเดือนนี้ยังคงไว้ — เคยเป็นแผน + เกิดจริงในเดือนเดียวกัน)
+      const ad = ivActualReceiveDate(iv);
+      if (ad && toISODate(ad) < monthStart) return;
+      const net = ivNetExpected(iv, financeByCode);
+      if (!(net >= 1)) return;                 // net ≈ 0 (หนี้กลบหมด) — ไม่มีอะไรให้รับ ข้าม
+      const safe = sanitizeIvKey(iv.ivNo || iv.IV_NO || iv.invoiceNo);
+      if (!safe) return;
+      const w = findWeekIdx(iv.expectedReceive, weeks);
+      if (w < 0) return;
+      entries[`${prefix}${safe}.net`] = net;
+      entries[`${prefix}${safe}.wk`]  = w;
+      count++;
+    });
+    // เคลียร์คีย์เก่าของเดือนนี้ที่ไม่อยู่ในชุดใหม่ (IV ที่ถูกลบ/เปลี่ยนเลขที่ไปแล้ว)
+    const all = WTPOverride._load();
+    Object.keys(all).forEach(k => {
+      if (!k.startsWith(prefix)) return;
+      if (k === `${prefix}${IVPLAN_LOCKED_AT}`) return;   // marker ตั้งใหม่ด้านล่าง
+      if (!(k in entries)) entries[k] = null;             // null = ลบ
+    });
+    entries[`${prefix}${IVPLAN_LOCKED_AT}`] = todayYmdInt();
+    WTPOverride.setMany(entries);
+    if (typeof toast === 'function') {
+      toast(auto
+        ? `📌 ล็อกแผนรับเงิน IV เดือนนี้ไว้แล้ว (อัตโนมัติ) · ${count} ใบ`
+        : `🔒 ล็อกแผนรับเงิน IV ใหม่แล้ว · ${count} ใบ`);
+    }
+  };
+
+  // ปุ่ม "ล็อกแผน/ล็อกใหม่" — ถ้าล็อกอยู่แล้วถามยืนยันก่อนทับ
+  const handleLockClick = () => {
+    if (ivPlanLock.locked &&
+        !window.confirm('ล็อกแผนรับเงิน IV ของเดือนนี้ใหม่?\nยอดแผนเดิมที่จับไว้จะถูกแทนที่ด้วยยอด "คาดรับ" ณ ตอนนี้')) return;
+    doLockIvPlan({});
+  };
+
+  // ── Auto-capture: ล็อกแผนอัตโนมัติครั้งแรกที่เปิดหน้าในเดือนปัจจุบัน ──────────
+  //   ใครเปิดก่อนเป็นคนจับ · idempotent ด้วย __lockedAt · role read-only ข้าม
+  //   รอ manualOverrides (cloud) + invoices โหลดก่อน — กัน double-capture/จับยอดว่าง
+  const autoLockRef = React.useRef('');
+  cfEffect(() => {
+    const isCurrentMonth = (today.getFullYear() === year) && ((today.getMonth() + 1) === month);
+    if (!isCurrentMonth) return;
+    if (autoLockRef.current === ovPrefix) return;            // ลองแล้วใน session นี้
+    if (cfIsReadOnly()) return;
+    if (!Array.isArray(data.manualOverrides)) return;        // รอ cloud overrides โหลด
+    if (!Array.isArray(invoices) || invoices.length === 0) return;  // รอ invoices โหลด
+    if (ivPlanLock.locked) { autoLockRef.current = ovPrefix; return; }  // ล็อกอยู่แล้ว
+    autoLockRef.current = ovPrefix;
+    doLockIvPlan({ auto: true });
+  }, [ovPrefix, year, month, ivPlanLock.locked, data.manualOverrides, invoices.length]);
 
   // ── Month totals ──────────────────────────────────────────────────────
   const sumArr = arr => arr.reduce((s, v) => s + (v || 0), 0);
@@ -682,34 +812,99 @@ function CashFlowDashboard({ data, setData, toast }) {
     const items = [];
 
     if (row === 'iv') {
-      invoices.forEach(iv => {
-        // ลูกหนี้คงค้างทุกใบที่ยังไม่ได้รับเงิน — เดียวกับ logic main
-        if (ivIsPaid(iv)) return;
-        const d = iv.expectedReceive;
-        if (!d || !inPeriod(d)) return;
-        const ivStatusShort = window.WTPData?.IV_STATUS_META?.[iv.status]?.short || iv.status || '—';
-        items.push({
-          source: 'IV',
-          date: d,
-          name: iv.projectName || iv.PROJECT_NAME || iv.customer || '—',
-          ref: iv.ivNo || iv.IV_NO || iv.invoiceNo || '',
-          amount: ivNetExpected(iv, financeByCode),
-          note: ivStatusShort + (iv.note ? ' · ' + iv.note : ''),
-          detail: [
-            ['โครงการ', iv.projectName || iv.PROJECT_NAME || '—'],
-            ['ลูกค้า', iv.customer || '—'],
-            ['เลขที่ IV', iv.ivNo || iv.IV_NO || iv.invoiceNo || '—'],
-            ['วันคาดรับ', fmtDate(d) || d],
-            ['ยอดคงค้าง', fmtNum(Number(iv.balance) || 0, 0) + ' ฿'],
-            ['คาดรับสุทธิ (หัก WHT/หนี้)', fmtNum(ivNetExpected(iv, financeByCode), 0) + ' ฿'],
-            ['สถานะ', ivStatusShort],
-            ['หมายเหตุ', iv.note || '—'],
-          ],
+      if (ivPlanLock.locked) {
+        // ── โหมดล็อก: แสดง baseline ราย IV ที่ freeze + เทียบกับสถานะจริงตอนนี้ ──
+        const isLastWk = nowWeek === weeks.length - 1;
+        const wkInPeriod = (wk) => {
+          if (period === 'current') return wk === nowWeek;
+          if (period === 'rest')    return !isLastWk && wk > nowWeek;
+          return wk >= nowWeek;   // total = สัปดาห์ปัจจุบันเป็นต้นไป (ตรงกับตาราง Plan)
+        };
+        // index IV สดด้วย sanitized ivNo เพื่อจับคู่กับ baseline
+        const liveBySafe = {};
+        invoices.forEach(iv => {
+          const s = sanitizeIvKey(iv.ivNo || iv.IV_NO || iv.invoiceNo);
+          if (s) liveBySafe[s] = iv;
         });
-      });
-      forecastEntries.forEach(fe => {
-        // Non-LOAN inflow (rare but possible)
-      });
+        ivPlanLock.items.forEach(it => {
+          if (!wkInPeriod(it.wk)) return;
+          const iv = liveBySafe[it.safe] || null;
+          const paid = iv ? ivIsPaid(iv) : false;
+          const ad   = iv ? ivActualReceiveDate(iv) : null;
+          const liveNet = iv ? ivNetExpected(iv, financeByCode) : 0;
+          let statusTxt;
+          if (!iv)            statusTxt = '⚠️ ไม่พบ IV (ถูกลบ/แก้เลขที่)';
+          else if (paid && ad) statusTxt = `✅ รับเงินแล้ว ${fmtDate(ad)}`;
+          else                statusTxt = window.WTPData?.IV_STATUS_META?.[iv.status]?.short || iv.status || 'ยังไม่รับ';
+          items.push({
+            source: 'IV',
+            date: weeks[it.wk]?.fromISO || '',
+            name: iv ? (iv.projectName || iv.PROJECT_NAME || iv.customer || '—') : it.safe,
+            ref: iv ? (iv.ivNo || iv.IV_NO || iv.invoiceNo || it.safe) : it.safe,
+            amount: it.net,                                   // ยอดแผนที่ freeze (ไม่ใช่ค่าสด)
+            note: `${weeks[it.wk]?.label || 'W?'} · แผน ${fmtNum(it.net, 0)}` + (paid ? ' · ✅ รับแล้ว' : ''),
+            detail: [
+              ['โครงการ', iv ? (iv.projectName || iv.PROJECT_NAME || '—') : '—'],
+              ['เลขที่ IV', iv ? (iv.ivNo || iv.IV_NO || iv.invoiceNo || '—') : it.safe],
+              ['สัปดาห์ที่วางแผนรับ', weeks[it.wk]?.label || '—'],
+              ['ยอดแผน (freeze ต้นเดือน)', fmtNum(it.net, 0) + ' ฿'],
+              ['คาดรับสุทธิ ณ ตอนนี้', iv ? fmtNum(liveNet, 0) + ' ฿' : '—'],
+              ['รับจริงแล้ว', (paid && ad) ? `${fmtNum(liveNet, 0)} ฿ (${fmtDate(ad)})` : 'ยังไม่รับ'],
+              ['สถานะปัจจุบัน', statusTxt],
+            ],
+          });
+        });
+        // สัปดาห์สุดท้าย: คอลัมน์ "ที่เหลือ/TOTAL" โชว์ตัวอย่างเดือนถัดไป (ยังไม่ถูกล็อก)
+        if (isLastWk && (period === 'rest' || period === 'total')) {
+          const nyY = month === 12 ? year + 1 : year;
+          const nyM = month === 12 ? 1 : month + 1;
+          invoices.forEach(iv => {
+            if (ivIsPaid(iv)) return;
+            if (!iv.expectedReceive || !inMonth(iv.expectedReceive, nyY, nyM)) return;
+            items.push({
+              source: 'IV',
+              date: toISODate(iv.expectedReceive),
+              name: iv.projectName || iv.PROJECT_NAME || iv.customer || '—',
+              ref: iv.ivNo || iv.IV_NO || iv.invoiceNo || '',
+              amount: ivNetExpected(iv, financeByCode),
+              note: 'เดือนถัดไป (ยังไม่ล็อก)',
+              detail: [
+                ['เลขที่ IV', iv.ivNo || iv.IV_NO || iv.invoiceNo || '—'],
+                ['วันคาดรับ', fmtDate(iv.expectedReceive) || '—'],
+                ['คาดรับสุทธิ', fmtNum(ivNetExpected(iv, financeByCode), 0) + ' ฿'],
+                ['หมายเหตุ', 'แผนเดือนถัดไป — ยังไม่ถูกล็อก'],
+              ],
+            });
+          });
+        }
+      } else {
+        // ── โหมดสด (เดือนที่ยังไม่เคยล็อก / ก่อนมีฟีเจอร์) — ตามเดิม ──
+        invoices.forEach(iv => {
+          // ลูกหนี้คงค้างทุกใบที่ยังไม่ได้รับเงิน — เดียวกับ logic main
+          if (ivIsPaid(iv)) return;
+          const d = iv.expectedReceive;
+          if (!d || !inPeriod(d)) return;
+          const ivStatusShort = window.WTPData?.IV_STATUS_META?.[iv.status]?.short || iv.status || '—';
+          items.push({
+            source: 'IV',
+            date: d,
+            name: iv.projectName || iv.PROJECT_NAME || iv.customer || '—',
+            ref: iv.ivNo || iv.IV_NO || iv.invoiceNo || '',
+            amount: ivNetExpected(iv, financeByCode),
+            note: ivStatusShort + (iv.note ? ' · ' + iv.note : ''),
+            detail: [
+              ['โครงการ', iv.projectName || iv.PROJECT_NAME || '—'],
+              ['ลูกค้า', iv.customer || '—'],
+              ['เลขที่ IV', iv.ivNo || iv.IV_NO || iv.invoiceNo || '—'],
+              ['วันคาดรับ', fmtDate(d) || d],
+              ['ยอดคงค้าง', fmtNum(Number(iv.balance) || 0, 0) + ' ฿'],
+              ['คาดรับสุทธิ (หัก WHT/หนี้)', fmtNum(ivNetExpected(iv, financeByCode), 0) + ' ฿'],
+              ['สถานะ', ivStatusShort],
+              ['หมายเหตุ', iv.note || '—'],
+            ],
+          });
+        });
+      }
     }
 
     if (row === 'loan') {
@@ -982,7 +1177,12 @@ function CashFlowDashboard({ data, setData, toast }) {
               actual={ivActual}
               editMode={editMode}
               ovKey={`${ovPrefix}.iv`}
-              hint={`คาดรับ ${fmtNum(ivForecast, 0)} · รับจริง ${fmtNum(ivActual, 0)}`}
+              hint={ivPlanLock.locked
+                ? `แผนล็อก ${fmtNum(ivForecast, 0)} · รับจริง ${fmtNum(ivActual, 0)}`
+                : `คาดรับ ${fmtNum(ivForecast, 0)} · รับจริง ${fmtNum(ivActual, 0)}`}
+              lockedAt={ivPlanLock.lockedAt}
+              lockEditable={editMode && !cfIsReadOnly()}
+              onLock={handleLockClick}
             />
             <PlanVsActualCard
               tone="info"
@@ -1564,7 +1764,7 @@ function BalanceCard({ tone, label, value, hint, icon, editMode, ovKey, big, sty
   );
 }
 
-function PlanVsActualCard({ tone, icon, label, plan, actual, hint, editMode, ovKey }) {
+function PlanVsActualCard({ tone, icon, label, plan, actual, hint, editMode, ovKey, lockedAt, onLock, lockEditable }) {
   const planK   = ovKey ? `${ovKey}.plan`   : null;
   const actualK = ovKey ? `${ovKey}.actual` : null;
   useOverrideSub(planK || '_');
@@ -1588,6 +1788,20 @@ function PlanVsActualCard({ tone, icon, label, plan, actual, hint, editMode, ovK
         </div>
         <Badge kind={pct >= 100 ? 'b-green' : pct >= 50 ? 'b-blue' : 'b-amber'} dot={false}>{pct.toFixed(1)}%</Badge>
       </div>
+      {(lockedAt || lockEditable) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, fontSize: 11, color: 'var(--ink-500)' }}>
+          <span title="ยอด Plan ถูกจับไว้ตั้งแต่ต้นเดือน — ไม่เปลี่ยนเมื่อรับเงินจริง">
+            {lockedAt ? `🔒 ล็อกแผน ${fmtLockedAtInt(lockedAt)}` : '🔓 ยังไม่ได้ล็อกแผนเดือนนี้'}
+          </span>
+          {lockEditable && onLock && (
+            <button className="btn btn-ghost no-present"
+              style={{ padding: '1px 8px', fontSize: 11, lineHeight: 1.6 }}
+              onClick={onLock}>
+              {lockedAt ? 'ล็อกใหม่' : 'ล็อกแผนเดือนนี้'}
+            </button>
+          )}
+        </div>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 14 }}>
         <div>
           <div style={{ fontSize: 11, color: 'var(--ink-500)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>Plan</div>
