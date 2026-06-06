@@ -1022,6 +1022,110 @@ function CashFlowDashboard({ data, setData, toast }) {
     setDrillDown({ title: label, period, row, items });
   };
 
+  // ─── Drill-down ฝั่ง "จ่ายจริง" (Actual) ราย week×cat ──────────────────────
+  //   แสดงรายการจริงที่ประกอบเป็นยอด Actual ของช่องนั้น — mirror logic ของ
+  //   pvActualByWeekCat เป๊ะ (PV + Forecast ACTUAL/BOOKED + AP ที่ทำเครื่องหมายจ่ายเอง)
+  //   เพื่อให้ผลรวมในรายการ = ตัวเลขในช่องเสมอ
+  //   cat = null → รวมทุกหมวดในสัปดาห์นั้น (ใช้กับยอด "Total Paid")
+  const openActualDrill = (weekIdx, cat, label) => {
+    const wantCat = (c) => cat == null || c === cat;
+    const items = [];
+    // 1) PV vouchers — เงินออกจริงตาม Pmt_Date
+    pvVouchers.forEach(pv => {
+      const date = pv.Pmt_Date;
+      if (!inMonth(date, year, month)) return;
+      if (findWeekIdx(date, weeks) !== weekIdx) return;
+      let c = 1, ap = null;
+      if (pv.AP_No) { ap = payables.find(p => p.vchno === pv.AP_No) || null; if (ap) c = categorizePayable(ap); }
+      if (!wantCat(c)) return;
+      const amt = Number(pv.Net_Amount || pv.Amount || 0);
+      items.push({
+        source: 'PV', date,
+        name: pv.Payee || (ap && (ap.cust_name || ap.vendor)) || '—',
+        ref: pv.PL_PV_No || pv.AP_No || '',
+        amount: -Math.abs(amt), isPaid: true,
+        note: `จ่ายจริง · ${CATEGORY_LABELS_SHORT[c]}` + (pv.Ref_Code ? ' · ' + pv.Ref_Code : ''),
+        detail: [
+          ['ผู้รับเงิน', pv.Payee || '—'],
+          ['เลขที่ PV', pv.PL_PV_No || '—'],
+          ['เลขที่ AP (อ้างอิง)', pv.AP_No || '—'],
+          ['วันที่จ่าย', fmtDate(date) || date],
+          ['หมวด', `${c} · ${CATEGORY_LABELS_SHORT[c] || '—'}`],
+          ['ยอดก่อนหัก', fmtNum(Number(pv.Amount) || 0, 2) + ' ฿'],
+          ['WHT', fmtNum(Number(pv.WHT) || 0, 2) + ' ฿'],
+          ['VAT', fmtNum(Number(pv.Vat) || 0, 2) + ' ฿'],
+          ['ยอดจ่ายสุทธิ', fmtNum(Math.abs(amt), 2) + ' ฿'],
+          ['บัญชีธนาคาร', pv.Bank_AC || '—'],
+          ['ประเภทการจ่าย', pv.Type_of_Pmt || '—'],
+          ['หมายเหตุ', pv.cc_remark || '—'],
+        ],
+      });
+    });
+    // 2) forecastEntries STATUS=ACTUAL/BOOKED — ประมาณการที่เกิดจริงแล้ว
+    forecastEntries.forEach(fe => {
+      const status = String(fe.STATUS || fe.status || '').toUpperCase();
+      if (status !== 'ACTUAL' && status !== 'BOOKED') return;
+      const isLoan = String(fe.EXPENSE_TYPE || fe.CATEGORY || '').toUpperCase() === 'LOAN';
+      if (isLoan) return;
+      const amt = Number(fe.ACTUAL_AMOUNT || fe.AMOUNT || fe.amount || 0);
+      if (amt >= 0) return;
+      const date = fe.ACTUAL_DATE || fe.PAYMENT_DATE || fe.DATE;
+      if (!inMonth(date, year, month)) return;
+      if (findWeekIdx(date, weeks) !== weekIdx) return;
+      const c = categorizeForecastEntry(fe);
+      if (!wantCat(c)) return;
+      items.push({
+        source: 'Forecast', date,
+        name: fe.DESCRIPTION || '—',
+        ref: fe.JOB_NO || '',
+        amount: -Math.abs(amt), isPaid: true,
+        note: `จ่ายจริง (${status}) · ${CATEGORY_LABELS_SHORT[c]}`,
+        detail: [
+          ['รายการ', fe.DESCRIPTION || '—'],
+          ['Job No.', fe.JOB_NO || '—'],
+          ['โครงการ', fe.PROJECT_NAME || '—'],
+          ['วันที่จ่ายจริง', fmtDate(date) || date],
+          ['หมวด', `${c} · ${CATEGORY_LABELS_SHORT[c] || '—'}`],
+          ['ยอดจ่ายจริง', fmtNum(Math.abs(amt), 2) + ' ฿'],
+          ['สถานะ', status],
+          ['บัญชี', fe.Bank_AC || '—'],
+          ['หมายเหตุ', fe.NOTE || '—'],
+        ],
+      });
+    });
+    // 3) AP ที่ทำเครื่องหมาย "จ่ายแล้ว" เอง (ยังไม่มี PV) — นับตามวันครบกำหนด
+    payables.forEach(ap => {
+      if (isFlexAp(ap)) return;
+      if (!manualPaidSet.has(ap.vchno)) return;
+      const due = ap.due2 || ap.due || ap.vchdate;
+      if (!inMonth(due, year, month)) return;
+      if (findWeekIdx(due, weeks) !== weekIdx) return;
+      const c = categorizePayable(ap);
+      if (!wantCat(c)) return;
+      const amt = Number(ap.netpayment || ap.Amount || 0);
+      items.push({
+        source: 'AP', date: due,
+        name: ap.cust_name || ap.vendor || '—',
+        ref: ap.vchno || ap.docno || '',
+        amount: -Math.abs(amt), isPaid: true, isManualPaid: true, vchno: ap.vchno,
+        note: `✅ จ่ายแล้ว (ทำเครื่องหมายเอง) · ${CATEGORY_LABELS_SHORT[c]}`,
+        detail: [
+          ['ผู้ขาย', ap.cust_name || ap.vendor || '—'],
+          ['เลขที่เอกสาร', ap.vchno || ap.docno || '—'],
+          ['Job', ap.jobcode || ap.jobname || '—'],
+          ['แผนก', ap.dpt_code || '—'],
+          ['วันครบกำหนด', fmtDate(due) || due],
+          ['หมวด', `${c} · ${CATEGORY_LABELS_SHORT[c] || '—'}`],
+          ['ยอดจ่ายสุทธิ', fmtNum(Math.abs(amt), 2) + ' ฿'],
+          ['สถานะ', '✅ จ่ายแล้ว (ทำเครื่องหมายเอง — ยังไม่มี PV)'],
+          ['หมายเหตุ', ap.remark || '—'],
+        ],
+      });
+    });
+    items.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    setDrillDown({ title: label, mode: 'actual', row: 'actual', weekIdx, cat, items });
+  };
+
   // ─── Toggle manual "paid" flag on AP item ────────────────────────────────
   const toggleManualPaid = (vchno) => {
     if (!vchno) return;
@@ -1379,9 +1483,9 @@ function CashFlowDashboard({ data, setData, toast }) {
         subtitle="Weekly Actual Tracking · เปรียบเทียบ Plan vs Actual ทั้ง 5 สัปดาห์ของเดือน"
       />
 
-      <div className="grid anim-in" style={{
-        gridTemplateColumns: `repeat(${weeks.length}, minmax(160px, 1fr))`,
-        gap: 10, marginBottom: 18, overflowX: 'auto',
+      <div className="grid anim-in cf-week-grid" style={{
+        gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+        gap: 14, marginBottom: 18,
       }}>
         {weeks.map((w, i) => {
           // ดึงค่าหลัง override สำหรับ Plan/Actual ของแต่ละหมวดในสัปดาห์นี้
@@ -1398,29 +1502,49 @@ function CashFlowDashboard({ data, setData, toast }) {
           const actualTotalOver= WTPOverride.has(`${cellOvWeek}.total.actual`);
           const pct = planTotal > 0 ? (actualTotal / planTotal) * 100 : 0;
           const status = i < nowWeek ? 'past' : i === nowWeek ? 'now' : 'future';
+          // ป้ายสถานะหัวการ์ด — ผ่านแล้ว / ปัจจุบัน / รอ
+          const chip = status === 'past'
+            ? { icon: 'check', color: 'var(--good)',     bg: 'var(--good-bg)',  label: 'จ่ายแล้ว' }
+            : status === 'now'
+            ? { dot: true,     color: 'var(--brand-600)', bg: 'var(--brand-50)', label: 'ปัจจุบัน' }
+            : { icon: 'daily', color: 'var(--ink-400)',   bg: 'var(--ink-50)',   label: 'รอ' };
           return (
             <div key={i} className="card" style={{
-              padding: 0, overflow: 'hidden',
-              borderColor: status === 'now' ? 'var(--brand-500)' : 'var(--line)',
+              padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column',
+              borderColor: status === 'now' ? 'var(--brand-400)' : 'var(--line)',
               borderWidth: status === 'now' ? 2 : 1,
-              opacity: status === 'past' ? 0.85 : 1,
+              boxShadow: status === 'now' ? '0 6px 18px rgba(42,111,219,.14)' : 'var(--shadow-sm)',
             }}>
+              {/* หัวการ์ด — WEEK n + ช่วงวันที่ + ป้ายสถานะ */}
               <div style={{
-                padding: '8px 12px',
-                background: status === 'now' ? 'var(--brand-500)' : status === 'past' ? 'var(--ink-100)' : 'var(--ink-50)',
-                color: status === 'now' ? '#fff' : 'var(--ink-700)',
-                fontWeight: 700, fontSize: 12,
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '11px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                borderBottom: '1px solid var(--line)',
+                background: status === 'now' ? 'linear-gradient(180deg, var(--brand-50), #fff)' : '#fff',
               }}>
-                <span>{w.label}{status === 'now' && ' · ปัจจุบัน'}</span>
-                <span style={{ fontSize: 10, fontWeight: 500 }}>{w.from}-{w.to}</span>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: '.02em', color: status === 'now' ? 'var(--brand-700)' : 'var(--ink-800)' }}>
+                    WEEK {i + 1}
+                  </div>
+                  <div style={{ fontSize: 10.5, color: 'var(--ink-400)', marginTop: 1 }}>
+                    {w.from}–{w.to} {monthNames[month - 1]}
+                  </div>
+                </div>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 700,
+                  color: chip.color, background: chip.bg, padding: '4px 9px', borderRadius: 999 }}>
+                  {chip.dot
+                    ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--brand-500)' }} />
+                    : <Icon name={chip.icon} size={11} />}
+                  {chip.label}
+                </span>
               </div>
-              <table className="tbl" style={{ width: '100%', fontSize: 11 }}>
+              {/* ตาราง List / Forecast / Actual / % */}
+              <table className="tbl" style={{ width: '100%', fontSize: 11.5 }}>
                 <thead>
                   <tr>
-                    <th style={{ padding: '4px 6px' }}>หมวด</th>
-                    <th style={{ padding: '4px 6px', textAlign: 'right' }}>Plan</th>
-                    <th style={{ padding: '4px 6px', textAlign: 'right' }}>Actual</th>
+                    <th style={{ padding: '6px 10px', textAlign: 'left',  textTransform: 'none' }}>List</th>
+                    <th style={{ padding: '6px 8px',  textAlign: 'right', textTransform: 'none' }}>Forecast</th>
+                    <th style={{ padding: '6px 8px',  textAlign: 'right', textTransform: 'none' }}>Actual</th>
+                    <th style={{ padding: '6px 8px',  textAlign: 'right', textTransform: 'none' }}>%</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1433,58 +1557,94 @@ function CashFlowDashboard({ data, setData, toast }) {
                     const cellOv = `${cellOvWeek}.cat${cat}`;
                     const pOver = WTPOverride.has(`${cellOv}.plan`);
                     const aOver = WTPOverride.has(`${cellOv}.actual`);
+                    // % เบี่ยงเบน Actual เทียบ Forecast — เกินงบ = แดง▲ / ต่ำกว่า = เขียว▼
+                    let vpct = null;
+                    if (p > 0)      vpct = Math.round((a - p) / p * 100);
+                    else if (a > 0) vpct = 100;
+                    const vdir = vpct == null ? 'na' : a > p ? 'up' : a < p ? 'down' : 'flat';
                     return (
                       <tr key={cat} title={CATEGORY_LABELS[cat]}>
-                        <td style={{ padding: '3px 6px', fontSize: 10, color: 'var(--ink-600)' }}>{cat}. {CATEGORY_LABELS_SHORT[cat]}</td>
-                        <td style={{ padding: '3px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--ink-500)' }}>
+                        <td style={{ padding: '5px 10px', fontSize: 10.5, color: 'var(--ink-600)', whiteSpace: 'nowrap' }}>{cat}. {CATEGORY_LABELS_SHORT[cat]}</td>
+                        <td style={{ padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 10.5, color: 'var(--ink-700)' }}>
                           {editMode
                             ? <EditableNumber ovKey={`${cellOv}.plan`} computed={pRaw} editMode={true} digits={0} />
                             : (<>
-                                {p > 0 ? fmtNum(p, 0) : '—'}
+                                {p > 0 ? fmtNum(p, 2) : <span style={{ color: 'var(--ink-300)' }}>-</span>}
                                 {pOver && <span title="แก้มือ" style={{ fontSize: 8, marginLeft: 2, color: 'var(--brand-500)' }}>✏️</span>}
                               </>)}
                         </td>
-                        <td style={{ padding: '3px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums',
-                          color: a > 0 ? 'var(--bad)' : 'var(--ink-300)', fontWeight: 600 }}>
+                        <td style={{ padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 10.5, fontWeight: 600,
+                          color: a > 0 ? 'var(--ink-800)' : 'var(--ink-300)' }}>
                           {editMode
                             ? <EditableNumber ovKey={`${cellOv}.actual`} computed={aRaw} editMode={true} digits={0} />
-                            : (<>
-                                {a > 0 ? fmtNum(a, 0) : '—'}
-                                {aOver && <span title="แก้มือ" style={{ fontSize: 8, marginLeft: 2, color: 'var(--brand-500)' }}>✏️</span>}
-                              </>)}
+                            : (a > 0
+                                ? (<span
+                                     onClick={() => openActualDrill(i, cat, `จ่ายจริง · WEEK ${i + 1} · ${CATEGORY_LABELS_SHORT[cat]}`)}
+                                     title="คลิกดูรายการจ่ายจริงของหมวดนี้"
+                                     style={{ cursor: 'pointer', borderBottom: '1px dashed var(--ink-300)' }}>
+                                    {fmtNum(a, 2)}
+                                    {aOver && <span title="แก้มือ" style={{ fontSize: 8, marginLeft: 2, color: 'var(--brand-500)' }}>✏️</span>}
+                                  </span>)
+                                : <span style={{ color: 'var(--ink-300)' }}>-</span>)}
+                        </td>
+                        <td style={{ padding: '5px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 10, whiteSpace: 'nowrap' }}>
+                          {vdir === 'na'   ? <span style={{ color: 'var(--ink-300)' }}>—</span>
+                           : vdir === 'flat' ? <span style={{ color: 'var(--ink-400)' }}>0%</span>
+                           : <span style={{ color: vdir === 'up' ? 'var(--bad)' : 'var(--good)', fontWeight: 700 }}>
+                               {vdir === 'up' ? '▲' : '▼'}{Math.abs(vpct)}%
+                             </span>}
                         </td>
                       </tr>
                     );
                   })}
                 </tbody>
                 <tfoot>
-                  <tr style={{ background: 'var(--ink-50)', fontWeight: 700 }}>
-                    <td style={{ padding: '4px 6px' }}>รวม</td>
-                    <td style={{ padding: '4px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize: 11 }}>
+                  <tr>
+                    <td style={{ padding: '6px 10px', fontSize: 10, color: 'var(--ink-500)', fontWeight: 600, background: 'var(--ink-50)' }}>รวมแผน</td>
+                    <td style={{ padding: '6px 8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700, fontSize: 11, color: 'var(--ink-800)', background: 'var(--ink-50)' }}>
                       {editMode
                         ? <EditableNumber ovKey={`${cellOvWeek}.total.plan`}   computed={planTotalRaw}   editMode={true} digits={0} />
-                        : (<>{fmtNum(planTotal, 0)}{planTotalOver && <span title="แก้มือ" style={{ fontSize: 8, marginLeft: 2, color: 'var(--brand-500)' }}>✏️</span>}</>)}
+                        : (<>{fmtNum(planTotal, 2)}{planTotalOver && <span title="แก้มือ" style={{ fontSize: 8, marginLeft: 2, color: 'var(--brand-500)' }}>✏️</span>}</>)}
                     </td>
-                    <td style={{ padding: '4px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--bad)', fontSize: 11 }}>
-                      {editMode
-                        ? <EditableNumber ovKey={`${cellOvWeek}.total.actual`} computed={actualTotalRaw} editMode={true} digits={0} />
-                        : (<>{fmtNum(actualTotal, 0)}{actualTotalOver && <span title="แก้มือ" style={{ fontSize: 8, marginLeft: 2, color: 'var(--brand-500)' }}>✏️</span>}</>)}
-                    </td>
+                    <td colSpan={2} style={{ background: 'var(--ink-50)' }} />
                   </tr>
                 </tfoot>
               </table>
-              <div style={{ padding: '6px 12px', fontSize: 11, textAlign: 'center', fontWeight: 600,
-                background: pct >= 100 ? 'var(--bad-bg)' : pct >= 50 ? 'var(--warn-bg)' : 'var(--good-bg)',
-                color: pct >= 100 ? 'var(--bad)' : pct >= 50 ? 'var(--warn)' : 'var(--good)' }}>
-                Paid {pct.toFixed(1)}%
+              {/* แถบความคืบหน้า (Actual/Plan) + Total Paid */}
+              <div style={{ padding: '11px 14px 13px', marginTop: 'auto' }}>
+                <div style={{ position: 'relative', height: 22, background: 'var(--ink-100)', borderRadius: 7, overflow: 'hidden' }}>
+                  <div style={{
+                    position: 'absolute', inset: 0, width: `${Math.min(100, pct)}%`,
+                    background: pct >= 100 ? 'linear-gradient(90deg, var(--brand-600), var(--brand-500))' : 'linear-gradient(90deg, var(--brand-500), var(--brand-400))',
+                    transition: 'width 600ms',
+                  }} />
+                  <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', paddingLeft: 10, fontSize: 11, fontWeight: 700, color: pct >= 12 ? '#fff' : 'var(--ink-400)' }}>
+                    {pct.toFixed(2)}%
+                  </div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 10 }}>
+                  <span style={{ fontSize: 11.5, color: 'var(--ink-500)', fontWeight: 600 }}>Total Paid :</span>
+                  <span style={{ fontSize: 16, fontWeight: 800, color: 'var(--brand-600)', fontVariantNumeric: 'tabular-nums' }}>
+                    {editMode
+                      ? <EditableNumber ovKey={`${cellOvWeek}.total.actual`} computed={actualTotalRaw} editMode={true} digits={0} />
+                      : (actualTotal > 0
+                          ? (<span
+                               onClick={() => openActualDrill(i, null, `จ่ายจริง · WEEK ${i + 1} · ทุกหมวด`)}
+                               title="คลิกดูรายการจ่ายจริงทั้งสัปดาห์"
+                               style={{ cursor: 'pointer', borderBottom: '2px dashed var(--brand-300)' }}>
+                              {fmtNum(actualTotal, 2)}
+                              {actualTotalOver && <span title="แก้มือ" style={{ fontSize: 9, marginLeft: 3, color: 'var(--brand-500)' }}>✏️</span>}
+                            </span>)
+                          : <span style={{ color: 'var(--ink-300)', fontWeight: 700 }}>–</span>)}
+                  </span>
+                </div>
               </div>
             </div>
           );
         })}
-      </div>
 
-      {/* Grand Total */}
-      {(() => {
+        {/* Grand Total — การ์ดสรุปสีกรมท่า (เซลล์สุดท้ายของกริด) */}
+        {(() => {
         // คำนวณ Grand Total โดยรวมยอด "รวม" ของแต่ละ week (เคารพ override total ของ week ด้วย)
         let grandPlanRaw = 0, grandActualRaw = 0;
         weeks.forEach((_, i) => {
@@ -1507,56 +1667,52 @@ function CashFlowDashboard({ data, setData, toast }) {
         const grandPlanOver   = WTPOverride.has(gpKey);
         const grandActualOver = WTPOverride.has(gaKey);
         const grandPct = grandPlan > 0 ? (grandActual / grandPlan) * 100 : 0;
-        const pctColor = grandPct >= 100 ? 'var(--bad)' : grandPct >= 70 ? 'var(--warn)' : 'var(--good)';
+        const remaining = Math.max(0, grandPlan - grandActual);
         return (
-        <div className="card anim-in" style={{
-          padding: '14px 18px', marginBottom: 22,
-          background: 'linear-gradient(135deg, var(--brand-50), white)',
-          borderColor: 'var(--brand-200)',
+        <div className="card cf-grand-card" style={{
+          padding: 0, overflow: 'hidden', border: 'none', color: '#fff',
+          background: 'linear-gradient(150deg, var(--brand-900) 0%, var(--ink-900) 100%)',
+          display: 'flex', flexDirection: 'column',
         }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 18 }}>
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-600)' }}>Grand Total Plan</div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink-700)', fontVariantNumeric: 'tabular-nums' }}>
-                {editMode
-                  ? <EditableNumber ovKey={gpKey} computed={grandPlanRaw} editMode={true} digits={0} />
-                  : (<>{fmtNum(grandPlan, 0)}{grandPlanOver && <span title="แก้มือ" style={{ fontSize: 10, marginLeft: 4, color: 'var(--brand-500)' }}>✏️</span>}</>)}
+          <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', height: '100%' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div style={{ fontSize: 16, fontWeight: 800, letterSpacing: '.01em' }}>Grand Totals Actual</div>
+              <span style={{ color: 'var(--brand-300)' }}><Icon name="chart" size={20} /></span>
+            </div>
+            <div style={{ fontSize: 11.5, color: 'rgba(255,255,255,.6)', marginTop: 4 }}>
+              เทียบกับงบประมาณการรวมทั้งเดือน
+            </div>
+            {/* แถบ % เทียบงบรวม */}
+            <div style={{ position: 'relative', height: 26, background: 'rgba(255,255,255,.12)', borderRadius: 8, overflow: 'hidden', marginTop: 16 }}>
+              <div style={{
+                position: 'absolute', inset: 0, width: `${Math.min(100, grandPct)}%`,
+                background: 'linear-gradient(90deg, #29c5ff, #2a6fdb)', transition: 'width 800ms',
+              }} />
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', paddingLeft: 12, fontSize: 12, fontWeight: 800, color: '#fff' }}>
+                {grandPct.toFixed(2)}%
               </div>
             </div>
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-600)' }}>Grand Total Actual</div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--bad)', fontVariantNumeric: 'tabular-nums' }}>
-                {editMode
-                  ? <EditableNumber ovKey={gaKey} computed={grandActualRaw} editMode={true} digits={0} />
-                  : (<>{fmtNum(grandActual, 0)}{grandActualOver && <span title="แก้มือ" style={{ fontSize: 10, marginLeft: 4, color: 'var(--brand-500)' }}>✏️</span>}</>)}
-              </div>
+            <div style={{ fontSize: 12, color: 'var(--brand-300)', fontWeight: 600, marginTop: 9, display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+              {grandPct.toFixed(2)}% of {editMode
+                ? <span style={{ color: 'var(--ink-900)' }}><EditableNumber ovKey={gpKey} computed={grandPlanRaw} editMode={true} digits={0} /></span>
+                : <span>{fmtNum(grandPlan / 1e6, 2)}M{grandPlanOver && <span title="แก้มือ" style={{ fontSize: 9, marginLeft: 3 }}>✏️</span>}</span>} Plan
             </div>
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-600)' }}>% of Plan</div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: pctColor, fontVariantNumeric: 'tabular-nums' }}>
-                {grandPct.toFixed(1)}%
-              </div>
-              <div style={{ fontSize: 10, color: 'var(--ink-500)' }}>
-                จ่ายแล้ว {fmtNum(grandActual, 0)} / แผน {fmtNum(grandPlan, 0)}
-              </div>
+            <div style={{ borderTop: '1px solid rgba(255,255,255,.15)', margin: '15px 0 12px' }} />
+            {/* ยอดจ่ายจริงสะสม */}
+            <div style={{ fontSize: 12, color: 'rgba(255,255,255,.7)', marginBottom: 4 }}>รวมจ่ายจริงสะสม</div>
+            <div style={{ fontSize: 30, fontWeight: 800, fontVariantNumeric: 'tabular-nums', lineHeight: 1.05 }}>
+              {editMode
+                ? <span style={{ color: 'var(--ink-900)' }}><EditableNumber ovKey={gaKey} computed={grandActualRaw} editMode={true} digits={0} /></span>
+                : (<>{fmtNum(grandActual, 2)}{grandActualOver && <span title="แก้มือ" style={{ fontSize: 12, marginLeft: 6 }}>✏️</span>}</>)}
             </div>
-            <div style={{ flex: 1, minWidth: 180 }}>
-              <div style={{ height: 12, background: 'var(--ink-100)', borderRadius: 6, overflow: 'hidden' }}>
-                <div style={{
-                  width: `${Math.min(100, grandPct)}%`,
-                  height: '100%',
-                  background: grandPct >= 100 ? 'var(--bad)' : 'linear-gradient(90deg, var(--brand-500), var(--brand-700))',
-                  transition: 'width 600ms',
-                }} />
-              </div>
-              <div style={{ fontSize: 10, color: 'var(--ink-500)', marginTop: 4, textAlign: 'right' }}>
-                คงเหลือต้องจ่าย {fmtNum(Math.max(0, grandPlan - grandActual), 0)} ฿
-              </div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,.55)', marginTop: 'auto', paddingTop: 12 }}>
+              คงเหลือต้องจ่าย {fmtNum(remaining, 2)} ฿
             </div>
           </div>
         </div>
         );
       })()}
+      </div>{/* end weekly grid (week cards + grand total cell) */}
       </div>{/* end data-print-page wrapper for Section 02 */}
 
       {/* Footer hints — พับเก็บไว้ (default ซ่อน) กดหัวข้อเพื่อกาง */}
@@ -1597,6 +1753,51 @@ function CashFlowDashboard({ data, setData, toast }) {
             <div style={{ padding: drillDown.row === 'out2' ? '12px 0 0' : 30, textAlign: 'center', color: 'var(--ink-500)', fontSize: 12.5 }}>
               {drillDown.row === 'out2' ? '— ไม่มีรายการตามดิว (นอกกลุ่มสภาพคล่อง) ในช่วงนี้ —' : 'ไม่มีรายการในช่วงนี้'}
             </div>
+          ) : drillDown.mode === 'actual' ? (
+            <>
+              {/* ── โหมด "จ่ายจริง" — รายการจริง (PV/Forecast/AP mark เอง) ที่ประกอบเป็นยอด Actual ── */}
+              <div style={{
+                display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12,
+                padding: 12, background: 'var(--brand-50)', borderRadius: 8,
+              }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 11.5, color: 'var(--ink-500)' }}>จำนวนรายการจ่ายจริง</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--brand-700)' }}>{drillDown.items.length}</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 11.5, color: 'var(--ink-500)' }}>ยอดจ่ายจริงรวม</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--brand-700)', fontVariantNumeric: 'tabular-nums' }}>
+                    {fmtNum(Math.abs(drillDown.items.reduce((s, x) => s + x.amount, 0)), 2)} ฿
+                  </div>
+                </div>
+              </div>
+              <div style={{ maxHeight: '60vh', overflow: 'auto' }}>
+                <table className="tbl" style={{ width: '100%', fontSize: 12.5 }}>
+                  <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
+                    <tr>
+                      <th style={{ width: 64, textAlign: 'left' }}>ที่มา</th>
+                      <th style={{ width: 96 }}>วันที่</th>
+                      <th style={{ width: 120 }}>เลขที่</th>
+                      <th>ผู้รับเงิน/รายการ</th>
+                      <th style={{ width: 130, textAlign: 'right' }}>จ่ายจริง (฿)</th>
+                      <th style={{ width: 90, textAlign: 'center' }}>ดู</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {drillDown.items.map((it, i) => (
+                      <DrillRow key={i} item={it} onCommit={commitForecastEdit} onView={setDetailItem} onTogglePaid={toggleManualPaid} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ marginTop: 10, fontSize: 11, color: 'var(--ink-500)', lineHeight: 1.6 }}>
+                💡 <strong>PV</strong> = ใบจ่ายเงินจริง (Payment Voucher) ·
+                <strong> Forecast</strong> = ประมาณการที่บันทึกว่าจ่ายจริงแล้ว ·
+                <strong> AP</strong> = เจ้าหนี้ที่ทำเครื่องหมายจ่ายเอง (ยังไม่มี PV)<br />
+                👆 <strong>คลิกที่บรรทัด</strong> เพื่อดูรายละเอียด · ยอดรวมตรงกับช่องในการ์ดสัปดาห์ ·
+                ดูข้อมูลต้นทางได้ที่ <a href="#data_pv" style={{ color: 'var(--brand-600)' }}>รายการจ่าย (PV)</a>
+              </div>
+            </>
           ) : (
             <>
               <div style={{

@@ -1074,11 +1074,16 @@ body.present-mode .no-present { display: none !important; }
     break-inside: avoid;
     page-break-inside: avoid;
   }
-  /* Grand Total card stays whole */
-  body.cf-print-mode .cf-page > .card[style*="linear-gradient(135deg, var(--brand-50)"] {
+  /* Grand Totals (dark navy) card — keep readable + whole when printed */
+  body.cf-print-mode .cf-page .cf-grand-card {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    background: #0f244d !important;
+    color: #fff !important;
     break-inside: avoid;
     page-break-inside: avoid;
   }
+  body.cf-print-mode .cf-page .cf-grand-card * { color: #fff !important; }
   /* Plan table card — allow internal break if necessary (it's the only long one) */
   body.cf-print-mode .cf-page > .card:not([style*="linear-gradient"]) {
     break-inside: auto;
