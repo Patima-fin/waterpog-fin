@@ -94,7 +94,7 @@ function doPost(e) {
       case 'add':        result = addRow(entity, payload);         break;
       case 'update':     result = updateRow(entity, id, payload);  break;
       case 'delete':     result = deleteRow(entity, id);           break;
-      case 'replaceAll': result = replaceAll(entity, payload);     break;
+      case 'replaceAll': result = replaceAll(entity, payload, body.baseIds, { allowShrink: body.allowShrink === true }); break;
       case 'setKV':      result = setKV(entity, payload);          break;
       default: result = { error: 'unknown action: ' + action };
     }
@@ -555,12 +555,55 @@ function deleteRow(entity, id) {
   throw new Error('ไม่พบ id ' + id + ' ใน ' + entity);
 }
 
-function replaceAll(entity, rows) {
+/* replaceAll — เขียนทับทั้งตาราง พร้อม "เกราะกันข้อมูลหาย" (base reconcile, 2026-06-06)
+ * ดูคำอธิบายเต็มใน Code.standalone.gs — สรุป: client ส่ง baseIds (id ที่เคยเห็น) มาด้วย
+ *   - แถวในชีตที่ client ไม่รู้จัก (ไม่อยู่ทั้งใน payload และ baseIds) → เก็บไว้ ไม่ลบ
+ *   - แถวที่ client เคยเห็นแล้วตัดออกจาก payload → ลบจริง
+ * กัน seed-wipe / อ่านช้ากว่าเขียนแล้วทับ / clobber ข้ามผู้ใช้ ไม่ให้ข้อมูลหายเงียบ ๆ
+ */
+function replaceAll(entity, rows, baseIds, opts) {
   var e = _entitySheet(entity);
   if (!Array.isArray(rows)) rows = [];
+  opts = opts || {};
   rows.forEach(function (r) { if (!r.id) r.id = newId_(); });
-  writeTable(e.name, e.headers, rows);
-  return rows;
+
+  var sh = _ss().getSheetByName(e.name);
+  var currentRows = sh ? readTable(e.name) : [];
+  var payloadIds = {};
+  rows.forEach(function (r) { payloadIds[String(r.id)] = true; });
+  var baseKnown = Array.isArray(baseIds);
+  var baseSet = {};
+  if (baseKnown) baseIds.forEach(function (id) { baseSet[String(id)] = true; });
+
+  var preserved = [];
+  for (var i = 0; i < currentRows.length; i++) {
+    var r = currentRows[i];
+    var idStr = (r && r.id != null) ? String(r.id) : '';
+    if (!idStr) continue;
+    if (payloadIds[idStr]) continue;
+    if (baseKnown && baseSet[idStr]) continue;
+    preserved.push(r);
+  }
+  var finalRows = rows.concat(preserved);
+
+  if (!opts.allowShrink && currentRows.length > 0 && finalRows.length === 0) {
+    return { error: 'guard_block_empty: ปฏิเสธการล้างตาราง ' + entity +
+                    ' (' + currentRows.length + '→0). ส่ง allowShrink=true ถ้าตั้งใจ' };
+  }
+
+  var headers = e.headers.slice();
+  if (sh && sh.getLastColumn() > 0) {
+    var sheetHeaders = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0]
+      .map(function (h) { return h == null ? '' : String(h).trim(); })
+      .filter(function (h) { return h !== ''; });
+    if (sheetHeaders.length) {
+      headers = sheetHeaders.slice();
+      e.headers.forEach(function (h) { if (headers.indexOf(h) < 0) headers.push(h); });
+    }
+  }
+
+  writeTable(e.name, headers, finalRows);
+  return finalRows;
 }
 
 /* ── 8. WIPE ────────────────────────────────────────────────────── */

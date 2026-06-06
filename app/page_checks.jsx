@@ -27,7 +27,7 @@ function normStatus(s) {
   return 'pending';
 }
 
-const ChecksPage = ({ data: propData }) => {
+const ChecksPage = ({ data: propData, setData, toast }) => {
   const data = propData || WTPData.load();
   const rawChecks = data.checks || [];
   // Normalize status so existing tabs/filters work with imported Thai-status data
@@ -107,14 +107,30 @@ const ChecksPage = ({ data: propData }) => {
       return next;
     });
   };
+  // ── persist เช็คผ่าน React state (setData) แทน WTPData.load/save ตรง ๆ ──
+  // เดิมหน้านี้ทำ load → แก้ d.checks → save → window.location.reload() ซึ่ง
+  //   (1) ไม่ผ่าน React state จริง  (2) reload ตัดจังหวะ debounce push 3 วิ ทิ้ง
+  //   → แก้/ลบเช็คแล้วบางทีหายเพราะ push ไม่ทันยิง.
+  // ตอนนี้ใช้ setData + forceSyncNow เหมือนหน้าอื่น (push ทันที ไม่ reload)
+  const persistChecks = (mutate) => {
+    if (setData) {
+      let updated;
+      setData(d => { updated = { ...d, checks: mutate(d.checks || []) }; return updated; });
+      if (updated && WTPData.forceSyncNow) setTimeout(() => WTPData.forceSyncNow(updated), 0);
+    } else {
+      const d = WTPData.load();           // fallback (ไม่ส่ง setData) — อย่างน้อยไม่ reload ตัด push
+      d.checks = mutate(d.checks || []);
+      WTPData.save(d);
+    }
+  };
+
   const bulkRemove = () => {
     if (selected.size === 0) return;
-    if (!window.confirm(`ลบเช็ค ${selected.size} ฉบับที่เลือก?`)) return;
-    const d = WTPData.load();
-    d.checks = (d.checks || []).filter(c => !selected.has(c.id));
-    WTPData.save(d);
+    const n = selected.size;
+    if (!window.confirm(`ลบเช็ค ${n} ฉบับที่เลือก?`)) return;
+    persistChecks(rows => rows.filter(c => !selected.has(c.id)));
     setSelected(new Set());
-    window.location.reload();
+    toast && toast(`ลบเช็ค ${n} ฉบับแล้ว`);
   };
 
   /* KPIs */
@@ -124,38 +140,32 @@ const ChecksPage = ({ data: propData }) => {
                               .reduce((s,c) => s+(parseFloat(c.amount)||0), 0);
   const overdueCount  = checks.filter(c => c.status === 'pending' && c.checkDate < today).length;
 
-  /* Save to localStorage */
-  const saveChecks = (rows) => {
-    const d = WTPData.load();
-    d.checks = rows;
-    WTPData.save(d);
-  };
-
   const openNew  = () => { setForm(emptyForm); setEdit({}); };
   const openEdit = (c)  => { setForm({ ...c }); setEdit(c); };
   const closeEdit= ()   => setEdit(null);
 
   const handleSave = () => {
     if (!form.checkDate || !form.payee || !form.amount) return;
-    const d = WTPData.load();
-    const rows = [...(d.checks || [])];
-    if (edit && edit.id) {
-      const idx = rows.findIndex(r => r.id === edit.id);
-      if (idx >= 0) rows[idx] = { ...form, id: edit.id };
-    } else {
-      rows.push({ ...form, id: WTPData.newId() });
-    }
-    saveChecks(rows);
+    const isEdit = !!(edit && edit.id);
+    persistChecks(rows => {
+      const next = [...rows];
+      if (isEdit) {
+        const idx = next.findIndex(r => r.id === edit.id);
+        if (idx >= 0) next[idx] = { ...form, id: edit.id };
+        else next.push({ ...form, id: edit.id });
+      } else {
+        next.push({ ...form, id: WTPData.newId() });
+      }
+      return next;
+    });
     closeEdit();
-    window.location.reload();
+    toast && toast(isEdit ? 'บันทึกการแก้ไขแล้ว' : 'เพิ่มเช็คแล้ว');
   };
 
   const handleDelete = (id) => {
     if (!window.confirm('ลบรายการนี้?')) return;
-    const d = WTPData.load();
-    d.checks = (d.checks || []).filter(c => c.id !== id);
-    WTPData.save(d);
-    window.location.reload();
+    persistChecks(rows => rows.filter(c => c.id !== id));
+    toast && toast('ลบเช็คแล้ว');
   };
 
   const SortTh = ({ col, children }) => (

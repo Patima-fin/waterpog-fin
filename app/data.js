@@ -588,19 +588,37 @@
     ],
   });
 
+  // CRUD entities ที่ sync กับ Sheet — ใน "online mode" (ตั้ง SHEET_ID แล้ว) ห้ามใช้
+  // seed mock เป็นค่าตั้งต้น เพราะ mock อาจหลุดขึ้น push ทับข้อมูลจริงบนชีต (seed-wipe).
+  // ปล่อยเป็น [] แล้วรอ data_sync ดึงของจริงมาแทน. (offline = ไม่มี SHEET_ID → ใช้ mock ได้)
+  const CRUD_KEYS = ['projects','invoices','forecastEntries','bankAccounts','pvVouchers',
+    'payables','debtLedger','receipts','bankEntries','checks','debtMaster','bankTransfers',
+    'stsServiceFee','stsPendingCalc','stsCalcResult','debtEvents','users',
+    'cashflowSnapshots','followUpsLog','manualOverrides'];
+  const isOnline = () => !!(window.WTP_CONFIG && window.WTP_CONFIG.SHEET_ID);
+  // ค่าตั้งต้นเมื่อ localStorage ว่าง:
+  //   offline → seed mock เต็ม (โหมดสาธิต)
+  //   online  → โครงสร้าง seed แต่ CRUD ทุกตัว = [] (กัน mock ขึ้น push ทับชีต)
+  function freshState() {
+    const s = seed();
+    if (isOnline()) CRUD_KEYS.forEach(function (k) { s[k] = []; });
+    return s;
+  }
+
   function load() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return seed();
+      if (!raw) return freshState();
       const loaded = JSON.parse(raw);
-      /* Auto-merge any new top-level keys from seed (e.g. debtLedger, receipts, bankEntries
-         added after this user's localStorage was first written) so older sessions don't break. */
-      const fresh = seed();
+      /* Auto-merge any new top-level keys (e.g. debtLedger, receipts, bankEntries
+         added after this user's localStorage was first written) so older sessions don't break.
+         ★ online: คีย์ CRUD ที่ขาด/null เติมเป็น [] (ไม่ใช่ mock) กัน seed หลุด push ทับชีต */
+      const fresh = freshState();
       Object.keys(fresh).forEach(function(k){
         if (!(k in loaded) || loaded[k] == null) loaded[k] = fresh[k];
       });
       return loaded;
-    } catch (_) { return seed(); }
+    } catch (_) { return freshState(); }
   }
   function save(data) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (_) {} }
   function reset() { localStorage.removeItem(STORAGE_KEY); return seed(); }

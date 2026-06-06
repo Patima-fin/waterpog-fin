@@ -83,7 +83,7 @@ function doPost(e) {
       case 'add':        result = addRow(entity, payload);         break;
       case 'update':     result = updateRow(entity, id, payload);  break;
       case 'delete':     result = deleteRow(entity, id);           break;
-      case 'replaceAll': result = replaceAll(entity, payload);     break;
+      case 'replaceAll': result = replaceAll(entity, payload, body.baseIds, { allowShrink: body.allowShrink === true }); break;
       case 'setKV':      result = setKV(entity, payload);          break;
       case 'plImportMonth': result = plImportMonth(body);          break;  // P&L add-on (ดู PnL.additions.gs)
       case 'budgetImportMonth': result = budgetImportMonth(body);  break;  // Budget Control Center add-on (ดู Budget.additions.gs)
@@ -641,13 +641,76 @@ function deleteRow(entity, id) {
   throw new Error('ไม่พบ id ' + id + ' ใน ' + entity);
 }
 
-function replaceAll(entity, rows) {
+/* replaceAll — เขียนทับทั้งตาราง แต่มี "เกราะกันข้อมูลหาย" (added 2026-06-06)
+ *
+ * ปัญหาเดิม: replaceAll สั่ง sh.clear() แล้วเขียน payload ทับทั้งหมด โดยเซิร์ฟเวอร์
+ * ไม่ตรวจอะไรเลย — ถ้า client ส่งข้อมูลค้าง/ว่าง/seed/ผิดชุดมา (จาก race หรือ
+ * อ่าน gviz ช้ากว่าเขียน) ข้อมูลจริงในชีตหายถาวรทันที
+ *
+ * เกราะใหม่ (base reconcile): client ส่ง baseIds = ชุด id ที่ "เคยเห็นบนชีตตอน
+ * โหลดล่าสุด" มาด้วย แล้วเซิร์ฟเวอร์ตัดสินรายแถว:
+ *   - แถวในชีตที่ client ไม่รู้จัก (id ไม่อยู่ทั้งใน payload และ baseIds)
+ *       = คนอื่นเพิ่ง add หลัง client โหลด หรือ client มีสำเนาค้าง → ★ เก็บไว้ ไม่ลบ
+ *   - แถวที่ client เคยเห็น (อยู่ใน baseIds) แต่ตัดออกจาก payload = ตั้งใจลบ → ลบจริง
+ *   - payload = ค่าล่าสุด (add/update) → เขียนตามนั้น
+ * ผล: ข้อมูลที่ client "ไม่เคยเห็น" จะไม่มีวันถูก replaceAll ลบทิ้งเงียบ ๆ อีก
+ *     (กันทั้ง seed-wipe, อ่านช้ากว่าเขียนแล้วทับ, และ clobber ข้ามผู้ใช้)
+ *
+ * baseIds ไม่ถูกส่งมา (client เก่า) → ถือว่า client ไม่รู้จักแถวไหนเลย = เก็บทุกแถว
+ * ที่ไม่อยู่ใน payload (เวอร์ชันเก่าจะลบผ่าน replaceAll ไม่ได้ชั่วคราว แต่ข้อมูลไม่หาย)
+ *
+ * header: ใช้ header จริงของชีต (รวมคอลัมน์ที่ผู้ใช้เพิ่มเอง) + เติม canonical ที่ขาด
+ * → กันบั๊ก seed/ตัวพิมพ์ไม่ตรงที่เขียน canonical ทับแล้วคอลัมน์กลายเป็นค่าว่าง
+ */
+function replaceAll(entity, rows, baseIds, opts) {
   var e = _entitySheet(entity);
   if (!Array.isArray(rows)) rows = [];
+  opts = opts || {};
   rows.forEach(function (r) { if (!r.id) r.id = newId_(); });
-  // Use canonical ENTITY_HEADERS for replaceAll (writes full schema)
-  writeTable(e.name, e.headers, rows);
-  return rows;
+
+  var sh = _ss().getSheetByName(e.name);
+
+  // ── อ่านสถานะปัจจุบันของชีตก่อนเขียนทับ (ใช้ทำ base reconcile) ──
+  var currentRows = sh ? readTable(e.name) : [];
+  var payloadIds = {};
+  rows.forEach(function (r) { payloadIds[String(r.id)] = true; });
+  var baseKnown = Array.isArray(baseIds);
+  var baseSet = {};
+  if (baseKnown) baseIds.forEach(function (id) { baseSet[String(id)] = true; });
+
+  // แถวในชีตที่ไม่อยู่ใน payload → เก็บไว้ เว้นแต่ client เคยเห็นแล้วตั้งใจลบ
+  var preserved = [];
+  for (var i = 0; i < currentRows.length; i++) {
+    var r = currentRows[i];
+    var idStr = (r && r.id != null) ? String(r.id) : '';
+    if (!idStr) continue;                       // แถวขยะไม่มี id → ปล่อยหาย
+    if (payloadIds[idStr]) continue;            // อยู่ใน payload อยู่แล้ว
+    if (baseKnown && baseSet[idStr]) continue;  // client เคยเห็นแล้วตัดออก → ลบจริง
+    preserved.push(r);                          // client ไม่รู้จัก → เก็บไว้ กันข้อมูลหาย
+  }
+
+  var finalRows = rows.concat(preserved);
+
+  // ── เกราะสุดท้าย: ห้ามล้างตารางที่มีของอยู่ให้เหลือศูนย์ เว้นแต่สั่งชัดเจน ──
+  if (!opts.allowShrink && currentRows.length > 0 && finalRows.length === 0) {
+    return { error: 'guard_block_empty: ปฏิเสธการล้างตาราง ' + entity +
+                    ' (' + currentRows.length + '→0). ส่ง allowShrink=true ถ้าตั้งใจ' };
+  }
+
+  // ── header: ของจริงในชีต + เติม canonical ที่ขาด (กันคอลัมน์ผู้ใช้หาย) ──
+  var headers = e.headers.slice();
+  if (sh && sh.getLastColumn() > 0) {
+    var sheetHeaders = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0]
+      .map(function (h) { return h == null ? '' : String(h).trim(); })
+      .filter(function (h) { return h !== ''; });
+    if (sheetHeaders.length) {
+      headers = sheetHeaders.slice();
+      e.headers.forEach(function (h) { if (headers.indexOf(h) < 0) headers.push(h); });
+    }
+  }
+
+  writeTable(e.name, headers, finalRows);
+  return finalRows;
 }
 
 /* ── 8. TEST HELPER ─────────────────────────────────────────────── */

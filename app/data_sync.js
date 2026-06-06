@@ -75,7 +75,11 @@
   // หลัง push สำเร็จ gviz CSV อาจยังเสิร์ฟค่าเก่าได้อีกหลายสิบวินาที
   // (read-after-write lag). ในช่วงนี้ห้ามเอา CSV เก่ามาทับค่าที่เพิ่ง push
   // ไม่งั้นจอจะ "เด้งกลับ" เป็นค่าเดิม → user นึกว่าไม่บันทึก เลยแก้ซ้ำ
-  var GRACE_MS = 60000;                 // 60 วินาที
+  // 180s — ขยายจาก 60s (2026-06-06): เซิร์ฟเวอร์มี base-reconcile กันข้อมูลหายถาวรแล้ว
+  // เหลือแค่อาการ "วูบชั่วคราว" ตอน gviz CSV อ่านช้ากว่าเขียน (read-after-write lag).
+  // ผู้ใช้ไม่ต้องการ real-time → กันค่าที่เพิ่ง push ไม่ให้ CSV เก่าทับนานขึ้น = วูบน้อยลง.
+  // ผลข้างเคียงน้อย: เห็น edit ของคนอื่นช้าลง "เฉพาะตาราง+ช่วงที่ตัวเองเพิ่งแก้" เท่านั้น
+  var GRACE_MS = 180000;                // 180 วินาที (3 นาที)
 
   // ── Hot vs Cold polling ───────────────────────────────────────────
   // HOT  = entity ที่ user แก้บ่อย (CRUD) — poll ทุกรอบ
@@ -585,10 +589,16 @@
   }
 
   function pushEntity(entity, rows, oldRows) {
+    // baseIds = id ที่ "เคยเห็นบนชีตตอนโหลดล่าสุด" (จาก snapshot ก่อนแก้) — ส่งไปให้
+    // เซิร์ฟเวอร์ทำ base reconcile: แถวในชีตที่ไม่อยู่ทั้งใน payload และ baseIds จะถูก
+    // เก็บไว้ ไม่ลบ → กันข้อมูลที่ client ยังไม่เห็นถูก replaceAll ลบทิ้ง (ดู Code.standalone.gs)
+    var baseIds = (oldRows || []).map(function (r) { return r && r.id; })
+                                 .filter(function (x) { return x != null && x !== ''; });
     return postToServer({
       action: 'replaceAll',
       entity: entity,
       payload: rows,
+      baseIds: baseIds,
       meta: _currentMeta(entity, oldRows, rows),
     }).then(function (resp) {
       if (resp && resp.error) throw new Error(entity + ': ' + resp.error);
@@ -732,6 +742,10 @@
 
     var changes = [];
     CRUD_ENTITIES.forEach(function (entity) {
+      // ★ gate รายตาราง: ห้าม push entity ที่ "ยังไม่เคยโหลดจากเซิร์ฟเวอร์สำเร็จ"
+      //   (lastSnapshot ยัง undefined) — กันการดันสำเนา local/seed ทับชีตทั้งที่ยังไม่รู้
+      //   ของจริง. พอโหลดสำเร็จแม้เป็น [] snapshot จะเป็น '[]' (ไม่ใช่ undefined) แล้ว
+      if (lastSnapshot[entity] === undefined) return;
       var curr = JSON.stringify(data[entity] || []);
       if (curr !== lastSnapshot[entity]) {
         changes.push({ entity: entity, currentRows: data[entity] || [] });
