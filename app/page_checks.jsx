@@ -21,6 +21,10 @@ const CHECKS_STATUS_META = {
 // Normalize Thai status values (imported from RAW) → internal status codes
 function normStatus(s) {
   if (!s) return 'pending';
+  // already an internal code (e.g. set/edited in-app) → keep as-is.
+  // ถ้าไม่ผ่านบรรทัดนี้ การแก้สถานะในแอป (cleared/clearing/cancelled) จะถูก
+  // map กลับเป็น 'pending' ทุกครั้งที่ render → กดเปลี่ยนสถานะแล้วเด้งกลับ.
+  if (CHECKS_STATUS_META[s]) return s;
   if (s === 'จ่ายแล้ว' || s === 'ขึ้นเงินแล้ว' || s.indexOf('ได้รับคืน') >= 0 || s.indexOf('ได้รับเช็คคืน') >= 0) return 'cleared';
   if (s.indexOf('รอ') >= 0) return 'clearing';
   if (s.indexOf('ยกเลิก') >= 0 || s.indexOf('เด้ง') >= 0) return 'cancelled';
