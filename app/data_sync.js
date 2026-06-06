@@ -71,6 +71,20 @@
   var recentPushAt     = {};            // entity → ts(ms) ของ push ล่าสุดที่สำเร็จ (anti-bounce)
   var cycleCount       = 0;             // นับรอบ auto-refresh (ใช้ตัดสิน hot vs full)
 
+  // ── Anti-flip (กันยอด "เด้งไปเด้งมา") ──────────────────────────────
+  // gviz CSV มีหลาย cache edge ที่ไม่ sync กัน → บางรอบ poll คืนค่าเก่า บางรอบค่าใหม่
+  // → ค่าบนจอสลับเก่า↔ใหม่ทุกรอบ (อาการ "กระพริบ"). เกราะฝั่งเขียน (base-reconcile)
+  // ไม่ช่วยเพราะนี่คือฝั่ง "อ่าน". กฎ: auto-poll จะ "รับ" ค่าที่เปลี่ยนก็ต่อเมื่ออ่านได้
+  // ค่าเดิมซ้ำ 2 รอบติด (นิ่งแล้ว) เท่านั้น — ค่าที่ flap ไปมาจะถูกข้าม คงค่าที่แสดงอยู่.
+  // trusted (เปิดแอป / กด ↻ / กลับ tab) ไม่ติดเงื่อนไข — รับทันที + ตั้ง baseline ให้ auto รอบถัดไป.
+  var lastAutoRead = {};                // entity → JSON ของ sheet rows ที่ auto อ่านได้รอบก่อน
+  function autoReadGate(entity, sheetJSON, isAuto) {
+    if (!isAuto) { lastAutoRead[entity] = sheetJSON; return true; }   // trusted → รับทันที
+    var prev = lastAutoRead[entity];
+    lastAutoRead[entity] = sheetJSON;
+    return prev === undefined || sheetJSON === prev;                   // รับเมื่อนิ่ง (ตรงรอบก่อน)
+  }
+
   // ── Anti-bounce grace window ──────────────────────────────────────
   // หลัง push สำเร็จ gviz CSV อาจยังเสิร์ฟค่าเก่าได้อีกหลายสิบวินาที
   // (read-after-write lag). ในช่วงนี้ห้ามเอา CSV เก่ามาทับค่าที่เพิ่ง push
@@ -130,7 +144,8 @@
         if (document.hidden) return;
         cycleCount++;
         // ทุก COLD_EVERY รอบ → full load (ดึงแท็บ cold ด้วย); รอบอื่น → hot เท่านั้น
-        if (cycleCount % COLD_EVERY === 0) loadFromServer();
+        // ★ ส่ง isAuto=true → ติดกฎ anti-flip (รับค่าใหม่เฉพาะที่นิ่ง) กันยอดเด้ง
+        if (cycleCount % COLD_EVERY === 0) loadFromServer(true);
         else refreshHotEntities();
       }, currentInterval);
     }
@@ -283,8 +298,10 @@
     });
   }
 
-  /* ── load all sheets in parallel + assemble data structure ───────── */
-  function loadFromServer() {
+  /* ── load all sheets in parallel + assemble data structure ─────────
+   * isAuto=true  → เรียกจาก auto-timer (cold cycle) → ติดกฎ anti-flip (รับเฉพาะค่าที่นิ่ง)
+   * isAuto=false → เปิดแอป / กด ↻ / กลับ tab → trusted, รับค่าทันที */
+  function loadFromServer(isAuto) {
     setSyncStatus('syncing');
 
     var sheetOrder = [
@@ -472,11 +489,18 @@
         var localData = WTPData.load();
         CRUD_ENTITIES.forEach(function (e) {
           if (!Array.isArray(data[e])) return;
+          // anti-flip: ใน auto-load จะรับค่า server ก็ต่อเมื่อ "นิ่ง" (อ่านได้ซ้ำรอบก่อน)
+          var stable = autoReadGate(e, JSON.stringify(data[e]), isAuto);
           var g = applyEntityGuard(e, data[e], localData);
+          if (g.accepted && !stable) {
+            // server อยากให้รับค่าใหม่ แต่ค่ายังไม่นิ่ง (cache flap) + ไม่มี edit ค้าง
+            // → คงค่าที่แสดงอยู่รอบก่อน กัน "ยอดเด้ง" (ไม่ขยับ snapshot, รอยืนยันรอบหน้า)
+            if (cachedServerData && cachedServerData[e] !== undefined) data[e] = cachedServerData[e];
+            return;
+          }
           data[e] = g.rows;
           if (g.accepted) lastSnapshot[e] = JSON.stringify(g.rows);
-          // ถ้า !accepted (มี edit ค้าง/เพิ่ง push) → ไม่ขยับ snapshot
-          // เพื่อให้ syncDiff ยัง detect diff แล้ว push ต่อ (กันงานหาย + กันเด้งกลับ)
+          // ถ้า !accepted (มี edit ค้าง/เพิ่ง push) → ไม่ขยับ snapshot + คงค่า local (กันงานหาย)
         });
       } catch (_) {
         // fallback: localStorage parse พัง → ตั้ง snapshot ตามชีตแบบเดิม
@@ -547,7 +571,10 @@
         if (settled[idx].status !== 'fulfilled') return;  // ★ ชีตนี้พัง → คงค่าเดิม (ไม่ทับ)
         var jsonFields = ENTITY_JSON_FIELDS[e] || null;
         var sheetRows = rowsToObjects(settled[idx].value, jsonFields);
+        // anti-flip: hot poll รับค่า server ก็ต่อเมื่อ "นิ่ง" (อ่านได้ซ้ำรอบก่อน) — กันยอดเด้งจาก gviz cache ไม่ sync
+        var stable = autoReadGate(e, JSON.stringify(sheetRows), true);
         var g = applyEntityGuard(e, sheetRows, localData);
+        if (g.accepted && !stable) return;  // ค่ายังไม่นิ่ง + ไม่มี edit ค้าง → คงค่าเดิม (data[e] = cache)
         data[e] = g.rows;
         if (g.accepted) lastSnapshot[e] = JSON.stringify(g.rows);
       });

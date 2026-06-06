@@ -213,16 +213,34 @@ function bdBuildAccountView(acct, matchedChecks, matchedForecasts, matchedTransf
   // PV (Payment Voucher): เอกสารจ่ายออกแล้วแต่ Pmt_Date ยังไม่ถึงวัน asOf → ยังไม่กลืนยอด นับเป็น outflow
   // (Pmt_Date < asOf = จ่ายไปแล้ว อยู่ใน BALANCE ที่ sync มา จึงไม่นับซ้ำ — เหมือนกติกาเช็ค)
   // กันนับซ้ำ: ข้าม PV ที่เป็นเช็คใบเดียวกับที่นับแล้ว (chqNo) หรือ AP เดียวกับ forecast ที่นับแล้ว (apNo)
+  // รวมหลายแถว AP ย่อยที่อยู่ใน PV ใบเดียวกัน → แสดงเป็นรายการเดียว ยอดรวม (ไม่แตกราย AP)
+  const pvGroups = {};
   (matchedPVs || [])
     .filter(p => p.date && p.date >= asOfRef
               && !(p.chqNo && countedChq.has(bdDigits(p.chqNo)))
               && !(p.apNo && countedAP.has(String(p.apNo).trim())))
-    .forEach(p => items.push({
-      date: p.date, signed: -Math.abs(p.amount), kind: 'pv', ref: p.pvNo,
-      title: p.payee || 'จ่ายตาม PV',
-      sub: 'PV ' + (p.pvNo || '—') + (p.apNo ? ' • ' + p.apNo : '') + (p.chqNo ? ' • เช็ค ' + p.chqNo : ''),
-      status: 'pv', raw: p,
-    }));
+    .forEach(p => {
+      const key = (p.pvNo || p.id || '') + '@' + p.date;
+      const g = pvGroups[key] || (pvGroups[key] = { pvNo: p.pvNo, date: p.date, payee: '', amount: 0, aps: [], chqs: [], raws: [] });
+      g.amount += Math.abs(p.amount);
+      if (!g.payee && p.payee) g.payee = p.payee;
+      if (p.apNo) g.aps.push(p.apNo);
+      if (p.chqNo && g.chqs.indexOf(p.chqNo) < 0) g.chqs.push(p.chqNo);
+      g.raws.push(p);
+    });
+  Object.keys(pvGroups).forEach(key => {
+    const g = pvGroups[key];
+    // sub: ไม่ใส่คำว่า "PV" นำหน้า — มีป้าย PV + เลขที่ขึ้นต้นด้วย PV อยู่แล้ว (กันคำซ้ำ)
+    const sub = (g.pvNo || '—')
+              + (g.aps.length > 1 ? ' • รวม ' + g.aps.length + ' รายการ' : (g.aps[0] ? ' • ' + g.aps[0] : ''))
+              + (g.chqs.length ? ' • เช็ค ' + g.chqs.join(', ') : '');
+    items.push({
+      date: g.date, signed: -Math.abs(g.amount), kind: 'pv', ref: g.pvNo,
+      title: g.payee || 'จ่ายตาม PV',
+      sub,
+      status: 'pv', raw: g.raws.length === 1 ? g.raws[0] : { _pvGroup: true, pvNo: g.pvNo, date: g.date, amount: g.amount, items: g.raws },
+    });
+  });
   items.sort((a, b) => (a.date || '') < (b.date || '') ? -1 : 1);
 
   // กลุ่มตามวัน + ยอดคงเหลือสะสม (running = base + Σ signed)
