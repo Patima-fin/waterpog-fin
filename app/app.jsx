@@ -174,6 +174,26 @@ function App() {
     return () => { unsub(); window.removeEventListener('wtpSyncStatus', onStatus); };
   }, []);
 
+  // ── แจ้งเตือนผู้ใช้เมื่อ sync ถูกบล็อก/รีซิงค์ (เดิมขึ้นแค่ใน console ผู้ใช้ไม่เห็น
+  //    เลยนึกว่า "เพิ่มแล้วไม่ติด" → ทำซ้ำหลายรอบ). data_sync.js dispatch event เหล่านี้.
+  aEffect(() => {
+    const onBlocked = (e) => {
+      const list = ((e.detail && e.detail.blocked) || [])
+        .map(b => `${b.entity} (${b.prev}→${b.now})`).join(', ');
+      pushToast(`⚠️ ระบบกันข้อมูลหายไม่บันทึกการเปลี่ยนแปลงที่ทำให้จำนวนแถวลดผิดปกติ${list ? ' — ' + list : ''} · กำลังดึงข้อมูลล่าสุดจากชีตมาให้ใหม่`);
+    };
+    const onRecovered = (e) => {
+      const d = e.detail || {};
+      pushToast(`🔄 ซิงค์ข้อมูลใหม่จากชีต (${d.entity || ''}: ${d.from}→${d.to} รายการ) — หน้าจอแสดงไม่ครบจึงดึงของจริงมาแทน แล้วลองอีกครั้งได้เลย`);
+    };
+    window.addEventListener('wtpSyncBlocked', onBlocked);
+    window.addEventListener('wtpSyncRecovered', onRecovered);
+    return () => {
+      window.removeEventListener('wtpSyncBlocked', onBlocked);
+      window.removeEventListener('wtpSyncRecovered', onRecovered);
+    };
+  }, []);
+
   // ── Global auto-backfill: paid IV ที่ยังไม่มี receipt → สร้างให้ ─────────
   // CRITICAL: ต้องอ่าน d.receipts ใน updater (ไม่ใช่ closure) — closure อาจ
   // stale ถ้า server data update มาระหว่าง effect run กับ setData fire →

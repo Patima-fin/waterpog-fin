@@ -18,9 +18,9 @@
   // เปิด DevTools Console แล้วดูบรรทัดนี้ เพื่อยืนยันว่าเบราว์เซอร์โหลด "โค้ดใหม่" จริง
   // (ถ้าไม่เห็น = ยังรัน cache เก่า → hard refresh Ctrl+Shift+R + ปิดแท็บเก่าทุกอัน)
   // เช็คเร็ว: พิมพ์ WTPData.buildId ใน console
-  var BUILD_ID = '20260606c';
+  var BUILD_ID = '20260608a';
   try {
-    console.info('%c[WTP Sync] build ' + BUILD_ID + ' — base-reconcile + anti-flip + grace180s',
+    console.info('%c[WTP Sync] build ' + BUILD_ID + ' — base-reconcile + anti-flip + grace180s + anti-wedge',
                  'color:#2a6fdb;font-weight:bold');
     if (window.WTPData) WTPData.buildId = BUILD_ID;
   } catch (_) {}
@@ -503,9 +503,10 @@
           // anti-flip: ใน auto-load จะรับค่า server ก็ต่อเมื่อ "นิ่ง" (อ่านได้ซ้ำรอบก่อน)
           var stable = autoReadGate(e, JSON.stringify(data[e]), isAuto);
           var g = applyEntityGuard(e, data[e], localData);
-          if (g.accepted && !stable) {
+          if (g.accepted && !stable && !g.recovered) {
             // server อยากให้รับค่าใหม่ แต่ค่ายังไม่นิ่ง (cache flap) + ไม่มี edit ค้าง
             // → คงค่าที่แสดงอยู่รอบก่อน กัน "ยอดเด้ง" (ไม่ขยับ snapshot, รอยืนยันรอบหน้า)
+            // ★ ยกเว้น recovered (anti-wedge) → ต้องรับทันที ไม่ต้องรอนิ่ง กันค้าง
             if (cachedServerData && cachedServerData[e] !== undefined) data[e] = cachedServerData[e];
             return;
           }
@@ -548,6 +549,31 @@
     var hasPending = snap !== undefined &&
                      JSON.stringify(Array.isArray(localRows) ? localRows : []) !== snap;
     var inGrace = recentPushAt[entity] && (Date.now() - recentPushAt[entity] < GRACE_MS);
+
+    // ── ANTI-WEDGE: local เล็กกว่า server มากผิดปกติ (>50%) → local "เพี้ยน" ไม่ใช่ edit จริง ──
+    // อาการ wedge: ครั้งหนึ่ง state ถูกตั้งค่าแถวน้อยผิดปกติ (truncated read / stale-closure ทับ /
+    // หน้าจอ crash ค้างค่าเก่า) แล้ว hasPending ทำให้ "คงค่า local" ตลอด (ไม่ยอมรับ server ที่ครบ)
+    // + ฝั่ง push เจอ SAFETY GUARD บล็อก (rows ลด >50%) → วนค้าง: ผู้ใช้เพิ่มอะไรก็ไม่ติด เด้งกลับทุกครั้ง.
+    // เซิร์ฟเวอร์เป็น source of truth (replaceAll มี base-reconcile กันชีตหาย >50% อยู่แล้ว) →
+    // ทิ้ง local ที่เพี้ยน รับค่า server ทันที (recovered=true ให้ caller ข้าม anti-flip ด้วย) กันค้าง.
+    var corruptLocal = Array.isArray(localRows) && localRows.length > 0 &&
+                       Array.isArray(sheetRows) && sheetRows.length >= 10 &&
+                       localRows.length < sheetRows.length * 0.5;
+    if (corruptLocal) {
+      console.warn('[WTP Sync] ⚠ anti-wedge: local ' + entity + ' (' + localRows.length +
+        ' แถว) เล็กกว่า server (' + sheetRows.length + ' แถว) มากผิดปกติ — ถือว่า local เพี้ยน, ' +
+        'รับค่าจากชีตแทน (กันค้าง wedge)');
+      try {
+        window.dispatchEvent(new CustomEvent('wtpSyncRecovered', {
+          detail: { entity: entity, from: localRows.length, to: sheetRows.length }
+        }));
+      } catch (_) {}
+      return {
+        rows: preserveAppOnlyFields(sheetRows, localRows, clearableOf(entity)),
+        accepted: true, recovered: true,
+      };
+    }
+
     if ((hasPending || inGrace) && Array.isArray(localRows)) {
       // protected → คงค่า local ที่กำลังจะ/เพิ่ง push ไว้ ไม่ให้ stale CSV ทับ
       return { rows: localRows, accepted: false };
@@ -585,7 +611,7 @@
         // anti-flip: hot poll รับค่า server ก็ต่อเมื่อ "นิ่ง" (อ่านได้ซ้ำรอบก่อน) — กันยอดเด้งจาก gviz cache ไม่ sync
         var stable = autoReadGate(e, JSON.stringify(sheetRows), true);
         var g = applyEntityGuard(e, sheetRows, localData);
-        if (g.accepted && !stable) return;  // ค่ายังไม่นิ่ง + ไม่มี edit ค้าง → คงค่าเดิม (data[e] = cache)
+        if (g.accepted && !stable && !g.recovered) return;  // ค่ายังไม่นิ่ง + ไม่มี edit ค้าง → คงค่าเดิม (recovered=anti-wedge รับทันที)
         data[e] = g.rows;
         if (g.accepted) lastSnapshot[e] = JSON.stringify(g.rows);
       });
@@ -812,7 +838,13 @@
       console.error('[WTP Sync] 🛑 ห้าม push: ตรวจพบจะลด rows มากผิดปกติ — น่าจะเป็น race condition',
         blocked.map(function(b){ return b.entity + ': ' + b.prev + ' → ' + b.now; }).join(' · '));
       setSyncStatus('error');
-      if (!allowed.length) return;
+      // ★ แจ้งผู้ใช้ให้เห็น (เดิมขึ้นแค่ console → ผู้ใช้นึกว่าบันทึกไม่ติด เลยทำซ้ำหลายรอบ)
+      try {
+        window.dispatchEvent(new CustomEvent('wtpSyncBlocked', { detail: { blocked: blocked.slice() } }));
+      } catch (_) {}
+      // ★ auto-recover: ถ้า "ทั้งรอบ" ถูกบล็อก → ดึงของจริงจากชีตมาตั้งต้นใหม่ (anti-wedge ใน
+      //   applyEntityGuard จะทิ้ง local ที่เพี้ยนเล็กผิดปกติ แล้วรับ server) กันค้าง "เพิ่มอะไรก็ไม่ติด"
+      if (!allowed.length) { setTimeout(function () { loadFromServer(); }, 0); return; }
     }
     changes = allowed;
     if (!changes.length) return;
