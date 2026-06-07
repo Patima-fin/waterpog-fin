@@ -315,10 +315,17 @@ function AddTransferModal({ bankAccounts, onSave, onClose, initialTo, initialFro
     const toAcct   = bankAccounts.find(function(a){ return a.accountNo === form.toAccountNo; });
     const noteText = form.note.trim();
     const ts       = Date.now();
+    // ★ ตอนแก้ไข: ใช้ id เดิมของขา out/in (ห้ามสร้าง id ใหม่) — ไม่งั้น sync จะมองว่าเป็น
+    //   "ลบแถวเก่า + เพิ่มแถวใหม่" ซึ่ง base-reconcile/3-way-merge (กันข้อมูลหาย) อาจ
+    //   ปกป้องแถวเก่าไว้ไม่ให้ถูกลบ → กลายเป็นรายการซ้ำในแบงค์ (ดู [[bank-diary-live-fields]]).
+    //   การคง id เดิมไว้ = อัปเดตแถวเดิมในที่ จึงกันซ้ำได้ชัวร์ (และยังกวาดแถวซ้ำเก่าทิ้งด้วย
+    //   เพราะ handleSaveTransfer ลบทุกขาตาม transferRef ก่อน แล้วเขียนกลับแค่ 2 ขา id เดิม)
+    const outId = (isEdit && initial && initial.outId) || ('be-'+ts+'-out');
+    const inId  = (isEdit && initial && initial.inId)  || ('be-'+ts+'-in');
 
     onSave([
-      { id:'be-'+ts+'-out', accountNo:form.fromAccountNo, bankName:(fromAcct ? fromAcct.bankName : ''), entryDate:form.date, entryType:'outflow_transfer', amount:-amt, description:noteText || ('โอนเงินไป '+(toAcct ? toAcct.bankName : '')+' '+form.toAccountNo), transferRef:ref, reconciled:false },
-      { id:'be-'+ts+'-in',  accountNo:form.toAccountNo,   bankName:(toAcct  ? toAcct.bankName  : ''), entryDate:form.date, entryType:'inflow_transfer',  amount: amt, description:noteText || ('รับโอนจาก '+(fromAcct ? fromAcct.bankName : '')+' '+form.fromAccountNo), transferRef:ref, reconciled:false },
+      { id:outId, accountNo:form.fromAccountNo, bankName:(fromAcct ? fromAcct.bankName : ''), entryDate:form.date, entryType:'outflow_transfer', amount:-amt, description:noteText || ('โอนเงินไป '+(toAcct ? toAcct.bankName : '')+' '+form.toAccountNo), transferRef:ref, reconciled:false },
+      { id:inId,  accountNo:form.toAccountNo,   bankName:(toAcct  ? toAcct.bankName  : ''), entryDate:form.date, entryType:'inflow_transfer',  amount: amt, description:noteText || ('รับโอนจาก '+(fromAcct ? fromAcct.bankName : '')+' '+form.fromAccountNo), transferRef:ref, reconciled:false },
     ], isEdit);
   };
 
@@ -1428,6 +1435,9 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
         amount: Math.abs(parseFloat((outEntry || inEntry || {}).amount) || 0),
         date: (outEntry || inEntry || {}).entryDate || today,
         ref: it.ref,
+        // ★ ส่ง id เดิมของแต่ละขาไปให้ modal reuse ตอน save → อัปเดตในที่ กันรายการซ้ำ
+        outId: (outEntry && outEntry.id) || '',
+        inId:  (inEntry && inEntry.id) || '',
         note: (outEntry && outEntry.description) || (inEntry && inEntry.description) || '',
       });
     }
