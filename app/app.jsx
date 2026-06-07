@@ -262,9 +262,9 @@ function App() {
     if (!isLoggedIn || !window.WTPAuth) return;
     if (!window.WTPAuth.canViewPage(route)) {
       // Pull routes object below — at this point it's not defined yet, fallback inline
-      const order = ['daily','warroom1','warroom2','cashflow','debt','debt_ledger',
+      const order = ['daily','warroom1','warroom2','cashflow','pnl','budget','debt','debt_ledger',
                      'iv_report','receipts','bank_diary','interest_calc','sts_calc','sts_workflow',
-                     'projects','invoices','checks','data_forecast','data_bank','data_pv','data_payable','pnl','budget'];
+                     'projects','invoices','checks','data_forecast','data_bank','data_pv','data_payable'];
       const allowed = window.WTPAuth.firstAllowedPage(order);
       if (allowed !== route) {
         window.location.hash = '#' + allowed;
@@ -580,6 +580,8 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
             ['warroom1', 'War Room · รายรับ',       'receivables'],
             ['warroom2', 'War Room · รายปี',        'forecast'],
             ['cashflow', 'กระแสเงินสดรายสัปดาห์', 'chart'],
+            ['pnl',      'งบกำไรขาดทุน (P&L)',     'forecast'],
+            ['budget',   'Budget Control Center',  'projects'],
           ])}
         </div>
 
@@ -596,8 +598,6 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
             ['interest_calc', 'คำนวณดอกเบี้ย',         'money'],
             ['sts_calc',      'STS Calculator',         'money'],
             ['sts_workflow',  'STS Workflow',           'invoice'],
-            ['pnl',           'งบกำไรขาดทุน (P&L)',     'forecast'],
-            ['budget',        'Budget Control Center',  'projects'],
           ])}
         </div>
 
