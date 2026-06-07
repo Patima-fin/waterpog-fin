@@ -194,10 +194,12 @@ function bdBuildAccountView(acct, matchedChecks, matchedForecasts, matchedTransf
     .filter(f => f.date && f.date >= asOfRef)
     .forEach(f => {
       if (f.refDoc) countedAP.add(String(f.refDoc).trim());
+      // group = ชื่อผู้ขาย (ตัด " (เลขที่ AP)" ท้าย desc) เพื่อจับกลุ่มหลายใบของผู้ขายเดียวกันในวันเดียว
+      const vendorName = (f.desc || '').replace(/\s*\([^)]*\)\s*$/, '').trim() || (f.desc || '');
       items.push({
         date: f.date, signed: f.amount, kind: 'forecast',
         title: f.desc, sub: (f.isActual ? '✓ ' + (f.amount >= 0 ? 'รับจริงแล้ว' : 'จ่ายจริงแล้ว') : 'ประมาณการ') + (f.refDoc ? ' • ' + f.refDoc : ''),
-        status: f.isActual ? 'actual' : 'planned', raw: f,
+        status: f.isActual ? 'actual' : 'planned', raw: f, group: vendorName, refDoc: f.refDoc || '',
       });
     });
   // โอนระหว่างบัญชี: นับเฉพาะที่ "ยังไม่กลืนยอด" = ยังไม่ยืนยัน และลงวันที่ตั้งแต่วัน BALANCE เป็นต้นไป
@@ -638,6 +640,72 @@ function ReconcilePanel({ transferPairs, bankAccounts, onReconcile, onEdit, canE
   );
 }
 
+/* ป้ายชนิดรายการ (ประมาณการ / โอน / PV / เช็ค) */
+function bdItemTag(kind) {
+  return kind === 'forecast' ? { t:'ประมาณการ', bg:'#ede9fe', c:'#6b21a8' }
+       : kind === 'transfer' ? { t:'โอน',       bg:'#fae8ff', c:'#86198f' }
+       : kind === 'pv'       ? { t:'PV',        bg:'#fef9c3', c:'#854d0e' }
+       : { t:'เช็ค', bg:'#e0f2fe', c:'#075985' };
+}
+
+/* แถวรายการเดี่ยวในการ์ดบัญชี (ใช้ทั้งแบบเดี่ยวและรายย่อยในกลุ่มผู้ขาย) */
+function BDItemRow({ it, top, onItemEdit, label, sub }) {
+  const inflow   = it.signed >= 0;
+  const tag      = bdItemTag(it.kind);
+  const editable = onItemEdit && (it.kind === 'forecast' || it.kind === 'transfer');
+  return (
+    <div onClick={editable ? () => onItemEdit(it) : undefined}
+         title={editable ? 'กดเพื่อแก้ไขรายการ' : undefined}
+         style={{ display:'grid', gridTemplateColumns:'1fr auto', gap:'0 8px', padding:'5px 0', borderTop: top ? '1px dashed #e9e9f3' : 'none', cursor: editable ? 'pointer' : 'default', borderRadius: editable ? 6 : 0 }}>
+      <div style={{ minWidth:0 }}>
+        <div style={{ fontSize:12, color:'#1e293b' }}>
+          <span style={{ display:'inline-block', fontSize:9, fontWeight:700, borderRadius:4, padding:'0 5px', marginRight:5, background:tag.bg, color:tag.c }}>{tag.t}</span>
+          {label != null ? label : it.title}
+          {editable && <span style={{ marginLeft:6, fontSize:10, color:'#a5b4fc' }}>✏️</span>}
+        </div>
+        <div style={{ fontSize:10, color:'#94a3b8' }}>{sub != null ? sub : it.sub}</div>
+      </div>
+      <div style={{ textAlign:'right', fontWeight:600, fontSize:12, color: inflow ? '#276749' : '#c53030', fontVariantNumeric:'tabular-nums', whiteSpace:'nowrap' }}>
+        {inflow ? '+' : '−'}{fmtMoney(Math.abs(it.signed))}
+      </div>
+    </div>
+  );
+}
+
+/* กลุ่มรายการผู้ขายเดียวกันในวันเดียว (ย่อ=ชื่อ+ยอดรวม, กาง=รายย่อยเป็นเลขที่ AP + ยอด) */
+function BDDayItemGroup({ group, top, onItemEdit }) {
+  const [open, setOpen] = React.useState(false);
+  const tag    = bdItemTag(group.kind);
+  const inflow = group.total >= 0;
+  return (
+    <div style={{ borderTop: top ? '1px dashed #e9e9f3' : 'none' }}>
+      {/* group header */}
+      <div onClick={() => setOpen(o => !o)}
+           style={{ display:'grid', gridTemplateColumns:'1fr auto', gap:'0 8px', padding:'5px 0', cursor:'pointer', alignItems:'center' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:6, minWidth:0 }}>
+          <span style={{ fontSize:9, color:'#94a3b8', transform: open ? 'rotate(90deg)' : 'none', transition:'transform .15s' }}>▶</span>
+          <span style={{ display:'inline-block', fontSize:9, fontWeight:700, borderRadius:4, padding:'0 5px', background:tag.bg, color:tag.c, whiteSpace:'nowrap' }}>{tag.t}</span>
+          <span style={{ fontSize:12, fontWeight:600, color:'#1e293b', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{group.name}</span>
+          <span style={{ fontSize:10, color:'#94a3b8', whiteSpace:'nowrap' }}>· {group.items.length} ใบ</span>
+        </div>
+        <div style={{ textAlign:'right', fontWeight:700, fontSize:12, color: inflow ? '#276749' : '#c53030', fontVariantNumeric:'tabular-nums', whiteSpace:'nowrap' }}>
+          {inflow ? '+' : '−'}{fmtMoney(Math.abs(group.total))}
+        </div>
+      </div>
+      {/* details — เลขที่ AP + ยอด ของแต่ละใบ */}
+      {open && (
+        <div style={{ paddingLeft:20 }}>
+          {group.items.map((it, i) => (
+            <BDItemRow key={i} it={it} top={i > 0} onItemEdit={onItemEdit}
+              label={it.refDoc || it.title}
+              sub={it.status === 'actual' ? '✓ จ่าย/รับจริงแล้ว' : 'ประมาณการ'} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Day group row (expandable) — เช็คที่ครบกำหนดในวันเดียวกัน ────────── */
 function BDDayGroup({ day, today, onItemEdit }) {
   const [open, setOpen] = React.useState(false);
@@ -673,38 +741,24 @@ function BDDayGroup({ day, today, onItemEdit }) {
         </div>
       </div>
 
-      {/* Items — shown when open */}
+      {/* Items — shown when open: จับกลุ่ม forecast ผู้ขายเดียวกันในวันเดียว → ย่อเป็น 1 บรรทัด (ชื่อ+ยอดรวม), ชนิดอื่นแสดงเดี่ยวเหมือนเดิม */}
       {open && (
         <div style={{ background:'#fafbff', padding:'2px 14px 8px 34px' }}>
-          {day.items.map((it, i) => {
-            const inflow  = it.signed >= 0;
-            const tag = it.kind === 'forecast' ? { t:'ประมาณการ', bg:'#ede9fe', c:'#6b21a8' }
-                      : it.kind === 'transfer' ? { t:'โอน',       bg:'#fae8ff', c:'#86198f' }
-                      : it.kind === 'pv'       ? { t:'PV',        bg:'#fef9c3', c:'#854d0e' }
-                      : { t:'เช็ค', bg:'#e0f2fe', c:'#075985' };
-            const editable = onItemEdit && (it.kind === 'forecast' || it.kind === 'transfer');
-            return (
-              <div key={i}
-                   onClick={editable ? () => onItemEdit(it) : undefined}
-                   title={editable ? 'กดเพื่อแก้ไขรายการ' : undefined}
-                   style={{ display:'grid', gridTemplateColumns:'1fr auto', gap:'0 8px', padding:'5px 0', borderTop: i ? '1px dashed #e9e9f3' : 'none', cursor: editable ? 'pointer' : 'default', borderRadius: editable ? 6 : 0 }}>
-                <div>
-                  <div style={{ fontSize:12, color:'#1e293b' }}>
-                    <span style={{ display:'inline-block', fontSize:9, fontWeight:700, borderRadius:4, padding:'0 5px', marginRight:5,
-                      background: tag.bg, color: tag.c }}>
-                      {tag.t}
-                    </span>
-                    {it.title}
-                    {editable && <span style={{ marginLeft:6, fontSize:10, color:'#a5b4fc' }}>✏️</span>}
-                  </div>
-                  <div style={{ fontSize:10, color:'#94a3b8' }}>{it.sub}</div>
-                </div>
-                <div style={{ textAlign:'right', fontWeight:600, fontSize:12, color: inflow ? '#276749' : '#c53030', fontVariantNumeric:'tabular-nums', whiteSpace:'nowrap' }}>
-                  {inflow ? '+' : '−'}{fmtMoney(Math.abs(it.signed))}
-                </div>
-              </div>
-            );
-          })}
+          {(() => {
+            const order = [];
+            const map = {};
+            day.items.forEach((it, i) => {
+              const key = it.group ? ('g:' + it.kind + ':' + it.group) : ('i:' + i);
+              if (!map[key]) { map[key] = { key, name: it.group || it.title, kind: it.kind, items: [], total: 0 }; order.push(map[key]); }
+              map[key].items.push(it);
+              map[key].total += it.signed;
+            });
+            return order.map((g, gi) => (
+              g.items.length === 1
+                ? <BDItemRow key={g.key} it={g.items[0]} top={gi > 0} onItemEdit={onItemEdit} />
+                : <BDDayItemGroup key={g.key} group={g} top={gi > 0} onItemEdit={onItemEdit} />
+            ));
+          })()}
         </div>
       )}
     </div>
