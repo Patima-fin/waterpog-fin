@@ -18,9 +18,9 @@
   // เปิด DevTools Console แล้วดูบรรทัดนี้ เพื่อยืนยันว่าเบราว์เซอร์โหลด "โค้ดใหม่" จริง
   // (ถ้าไม่เห็น = ยังรัน cache เก่า → hard refresh Ctrl+Shift+R + ปิดแท็บเก่าทุกอัน)
   // เช็คเร็ว: พิมพ์ WTPData.buildId ใน console
-  var BUILD_ID = '20260608e';
+  var BUILD_ID = '20260609a';
   try {
-    console.info('%c[WTP Sync] build ' + BUILD_ID + ' — row-level(applyDiff) + read-your-writes + mass-delete-guard + server-ping',
+    console.info('%c[WTP Sync] build ' + BUILD_ID + ' — row-level + anti-empty-push + server-guard + read-your-writes',
                  'color:#2a6fdb;font-weight:bold');
     if (window.WTPData) WTPData.buildId = BUILD_ID;
   } catch (_) {}
@@ -872,15 +872,18 @@
       // ทีละน้อยเสมอ → ระงับเฉพาะ "การลบ" (ยังส่ง upsert ปกติ) แล้วดึงของจริงมา resync
       // เมื่อ: ลบเยอะผิดปกติ (> max(40, 20% ของ base)) หรือ ours เล็กกว่า base >30% + มีลบ >10.
       // เอียงไป "ไม่ลบเกินจำเป็น" เด็ดขาด — เก็บข้อมูลไว้ก่อน ผู้ใช้ลบซ้ำทีละน้อยได้.
-      var massDel     = d.deletes.length > Math.max(40, Math.floor(base.length * 0.2));
-      var wedgeShaped = ours.length < base.length * 0.7 && d.deletes.length > 10;
-      if (d.deletes.length > 0 && (massDel || wedgeShaped)) {
-        console.error('[WTP Sync] 🛑 row-level: ' + entity + ' จะลบ ' + d.deletes.length +
-          ' แถวรวด (base ' + base.length + ' → ours ' + ours.length + ') — ผิดปกติ, ระงับการลบ' +
-          'รอบนี้ + ดึงของจริงจากชีตมา resync (กันข้อมูลหายจาก state เพี้ยน/wedge)');
+      // ★ emptying: ours ว่างทั้งที่ base มีของ = เกือบแน่ว่า seed/localStorage ถูกล้าง
+      //   (เคสลบ bankAccounts/users 7→0) → ห้าม push เด็ดขาด ดึงของจริงมาแทน
+      var emptying    = base.length > 0 && ours.length === 0;
+      // floor 8 (เดิม 40 ป้องตารางเล็กไม่ถึง) + threshold 50% → จับการล้างตารางเล็กได้
+      var massDel     = d.deletes.length > Math.max(8, Math.floor(base.length * 0.5));
+      var wedgeShaped = base.length > 0 && ours.length < base.length * 0.7 && d.deletes.length > 3;
+      if (emptying || (d.deletes.length > 0 && (massDel || wedgeShaped))) {
+        console.error('[WTP Sync] 🛑 row-level: ' + entity + ' ' + base.length + '→' + ours.length +
+          ' ผิดปกติ — ระงับการลบรอบนี้ + ดึงของจริงจากชีตมา resync (กันข้อมูลหายจาก state เพี้ยน/seed)');
         try { window.dispatchEvent(new CustomEvent('wtpSyncBlocked',
           { detail: { blocked: [{ entity: entity, prev: base.length, now: ours.length }] } })); } catch (_) {}
-        d.deletes = [];          // ★ ทิ้งการลบ — เก็บข้อมูลไว้ก่อน (upsert ยังไปปกติ)
+        d.deletes = [];          // ★ ทิ้งการลบ — เก็บข้อมูลไว้ก่อน (upsert ยังไปปกติ ถ้ามี)
         recovered = true;
       }
 

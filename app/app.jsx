@@ -177,14 +177,23 @@ function App() {
   // ── แจ้งเตือนผู้ใช้เมื่อ sync ถูกบล็อก/รีซิงค์ (เดิมขึ้นแค่ใน console ผู้ใช้ไม่เห็น
   //    เลยนึกว่า "เพิ่มแล้วไม่ติด" → ทำซ้ำหลายรอบ). data_sync.js dispatch event เหล่านี้.
   aEffect(() => {
+    // throttle: กัน toast เด้งรัวตอน wedge วน (โชว์ได้ไม่เกิน 1 ครั้ง/12 วิ)
+    let lastGuardToast = 0;
+    const guardThrottled = () => {
+      const now = Date.now();
+      if (now - lastGuardToast < 12000) return false;
+      lastGuardToast = now; return true;
+    };
     const onBlocked = (e) => {
+      if (!guardThrottled()) return;
       const list = ((e.detail && e.detail.blocked) || [])
         .map(b => `${b.entity} (${b.prev}→${b.now})`).join(', ');
-      pushToast(`⚠️ ระบบกันข้อมูลหายไม่บันทึกการเปลี่ยนแปลงที่ทำให้จำนวนแถวลดผิดปกติ${list ? ' — ' + list : ''} · กำลังดึงข้อมูลล่าสุดจากชีตมาให้ใหม่`);
+      pushToast(`⚠️ ระบบกันข้อมูลหาย — ข้ามการเปลี่ยนแปลงที่ผิดปกติ${list ? ' (' + list + ')' : ''} · กำลังดึงข้อมูลจริงจากชีตมาให้`);
     };
     const onRecovered = (e) => {
+      if (!guardThrottled()) return;
       const d = e.detail || {};
-      pushToast(`🔄 ซิงค์ข้อมูลใหม่จากชีต (${d.entity || ''}: ${d.from}→${d.to} รายการ) — หน้าจอแสดงไม่ครบจึงดึงของจริงมาแทน แล้วลองอีกครั้งได้เลย`);
+      pushToast(`🔄 ดึงข้อมูลจริงจากชีตมาแล้ว (${d.entity || ''})`);
     };
     // ยืนยันให้ผู้ใช้เห็นว่า "งานขึ้นเซิร์ฟเวอร์จริงแล้ว" (row-level/applyDiff) — ดับความกลัว
     // "บันทึกแล้วมั้ยไม่รู้/หายเงียบ". อ่านกลับจากเซิร์ฟเวอร์ที่เพิ่งเขียน = read-your-writes.
