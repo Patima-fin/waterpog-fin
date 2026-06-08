@@ -18,9 +18,9 @@
   // เปิด DevTools Console แล้วดูบรรทัดนี้ เพื่อยืนยันว่าเบราว์เซอร์โหลด "โค้ดใหม่" จริง
   // (ถ้าไม่เห็น = ยังรัน cache เก่า → hard refresh Ctrl+Shift+R + ปิดแท็บเก่าทุกอัน)
   // เช็คเร็ว: พิมพ์ WTPData.buildId ใน console
-  var BUILD_ID = '20260608d';
+  var BUILD_ID = '20260608e';
   try {
-    console.info('%c[WTP Sync] build ' + BUILD_ID + ' — row-level(applyDiff) + read-your-writes + server-ping (replaceAll fallback)',
+    console.info('%c[WTP Sync] build ' + BUILD_ID + ' — row-level(applyDiff) + read-your-writes + mass-delete-guard + server-ping',
                  'color:#2a6fdb;font-weight:bold');
     if (window.WTPData) WTPData.buildId = BUILD_ID;
   } catch (_) {}
@@ -864,24 +864,32 @@
       var base = [];
       try { base = JSON.parse(lastSnapshot[entity] || '[]'); } catch (_) {}
 
-      // ── anti-truncation: ours เล็กกว่า base มากผิดปกติ → state เพี้ยน/wedge ไม่ใช่ลบจริง →
-      //    อย่าสร้าง delete จำนวนมาก, ดึงของจริงมา resync แทน (กันลบทั้งตารางจาก state เพี้ยน)
-      if (base.length >= 10 && ours.length < base.length * 0.5) {
-        console.error('[WTP Sync] 🛑 row-level: ' + entity + ' local (' + ours.length +
-          ') << base (' + base.length + ') — น่าจะ state เพี้ยน, ข้าม + ดึงของจริงมา resync');
+      var d = diffEntityRows(base, ours);
+
+      // ── เกราะกัน MASS-DELETE (สำคัญสุดสำหรับงานเงิน) ───────────────────────────
+      // deletes = base id ที่ ours ไม่มี. ถ้า ours เพี้ยน/ค้างค่าเก่า (wedge เช่นจอค้าง
+      // 291 ทั้งที่ชีตมี 565) diff จะสั่งลบหลายร้อยแถวรวด = หายยับ. ลบจริงของผู้ใช้เป็น
+      // ทีละน้อยเสมอ → ระงับเฉพาะ "การลบ" (ยังส่ง upsert ปกติ) แล้วดึงของจริงมา resync
+      // เมื่อ: ลบเยอะผิดปกติ (> max(40, 20% ของ base)) หรือ ours เล็กกว่า base >30% + มีลบ >10.
+      // เอียงไป "ไม่ลบเกินจำเป็น" เด็ดขาด — เก็บข้อมูลไว้ก่อน ผู้ใช้ลบซ้ำทีละน้อยได้.
+      var massDel     = d.deletes.length > Math.max(40, Math.floor(base.length * 0.2));
+      var wedgeShaped = ours.length < base.length * 0.7 && d.deletes.length > 10;
+      if (d.deletes.length > 0 && (massDel || wedgeShaped)) {
+        console.error('[WTP Sync] 🛑 row-level: ' + entity + ' จะลบ ' + d.deletes.length +
+          ' แถวรวด (base ' + base.length + ' → ours ' + ours.length + ') — ผิดปกติ, ระงับการลบ' +
+          'รอบนี้ + ดึงของจริงจากชีตมา resync (กันข้อมูลหายจาก state เพี้ยน/wedge)');
         try { window.dispatchEvent(new CustomEvent('wtpSyncBlocked',
           { detail: { blocked: [{ entity: entity, prev: base.length, now: ours.length }] } })); } catch (_) {}
+        d.deletes = [];          // ★ ทิ้งการลบ — เก็บข้อมูลไว้ก่อน (upsert ยังไปปกติ)
         recovered = true;
-        return;
       }
 
-      var d = diffEntityRows(base, ours);
       if (!d.upserts.length && !d.deletes.length) return;
       jobs.push({ entity: entity, upserts: d.upserts, deletes: d.deletes,
                   baseCount: base.length, oursCount: ours.length });
     });
 
-    if (recovered) { setTimeout(function () { loadFromServer(); }, 0); }
+    if (recovered) { setTimeout(function () { loadFromServer(); }, 1500); }  // resync หลัง push เสร็จ
     if (!jobs.length) return;
 
     inSyncDiff = true;
