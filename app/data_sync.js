@@ -18,9 +18,9 @@
   // เปิด DevTools Console แล้วดูบรรทัดนี้ เพื่อยืนยันว่าเบราว์เซอร์โหลด "โค้ดใหม่" จริง
   // (ถ้าไม่เห็น = ยังรัน cache เก่า → hard refresh Ctrl+Shift+R + ปิดแท็บเก่าทุกอัน)
   // เช็คเร็ว: พิมพ์ WTPData.buildId ใน console
-  var BUILD_ID = '20260608a';
+  var BUILD_ID = '20260608b';
   try {
-    console.info('%c[WTP Sync] build ' + BUILD_ID + ' — base-reconcile + anti-flip + grace180s + anti-wedge',
+    console.info('%c[WTP Sync] build ' + BUILD_ID + ' — base-reconcile + anti-flip + grace180s + anti-wedge + anti-clobber',
                  'color:#2a6fdb;font-weight:bold');
     if (window.WTPData) WTPData.buildId = BUILD_ID;
   } catch (_) {}
@@ -804,15 +804,30 @@
     if (!POST_URL) return;
     if (inSyncDiff) return;
 
+    // ★ ANTI-CLOBBER: `data` ที่ส่งเข้ามาอาจเป็น "สำเนาเก่า" (ถ่ายไว้ก่อนที่ server sync รอบใหม่
+    //   จะเติมแถวเข้า localStorage เช่นมีคน/แท็บอื่นเพิ่งเพิ่มแถว). ถ้า push ตรงๆ = เอาตารางเวอร์ชัน
+    //   ที่แถวหายไปทับของใหม่ (clobber → แถวที่เพิ่งเพิ่มหายจากชีต — บั๊กที่ทำ PV หาย 475→465).
+    //   กันโดยเทียบกับ localStorage ล่าสุดราย entity แล้วใช้เวอร์ชันที่ "แถวมากกว่า" — เอียงไปทาง
+    //   "ไม่ทำข้อมูลหาย" (ปลอดภัยสุดสำหรับงานเงิน). ถ้าผู้ใช้ตั้งใจลบแล้วบังเอิญชนกับ add ของคนอื่น
+    //   พอดี การลบจะถูกเลื่อนไปรอบถัดไป (ดีกว่าทำ add ของคนอื่นหาย).
+    var latest = {};
+    try { latest = WTPData.load() || {}; } catch (_) {}
+    function freshestRows(entity) {
+      var passed = Array.isArray(data[entity]) ? data[entity] : [];
+      var fresh  = Array.isArray(latest[entity]) ? latest[entity] : [];
+      return (fresh.length > passed.length) ? fresh : passed;
+    }
+
     var changes = [];
     CRUD_ENTITIES.forEach(function (entity) {
       // ★ gate รายตาราง: ห้าม push entity ที่ "ยังไม่เคยโหลดจากเซิร์ฟเวอร์สำเร็จ"
       //   (lastSnapshot ยัง undefined) — กันการดันสำเนา local/seed ทับชีตทั้งที่ยังไม่รู้
       //   ของจริง. พอโหลดสำเร็จแม้เป็น [] snapshot จะเป็น '[]' (ไม่ใช่ undefined) แล้ว
       if (lastSnapshot[entity] === undefined) return;
-      var curr = JSON.stringify(data[entity] || []);
+      var rows = freshestRows(entity);
+      var curr = JSON.stringify(rows);
       if (curr !== lastSnapshot[entity]) {
-        changes.push({ entity: entity, currentRows: data[entity] || [] });
+        changes.push({ entity: entity, currentRows: rows });
       }
     });
     if (!changes.length) return;
@@ -899,7 +914,11 @@
       // ★ ยังไม่อัป lastSnapshot ตรงนี้ — รอจน push สำเร็จก่อน (STEP 5)
       //   ไม่งั้นถ้า push ล้มเหลว snapshot จะเลื่อนทั้งที่ขึ้นชีตไม่สำเร็จ →
       //   syncDiff รอบหน้าเห็นว่า "ไม่มีอะไรเปลี่ยน" → ไม่ retry → ข้อมูลเด้งกลับ
-      var mergedData = Object.assign({}, data);
+      // ★ ฐานต้องเป็น localStorage ล่าสุด (ไม่ใช่ `data` ที่อาจเก่า) — กันการเขียน state เก่าทับ
+      //   entity ที่เราไม่ได้แตะ (เช่น server เพิ่งเติมแถวมาระหว่างทาง) แล้วค่อย overlay เฉพาะที่ push
+      var freshBase = {};
+      try { freshBase = WTPData.load() || {}; } catch (_) {}
+      var mergedData = Object.assign({}, data, freshBase);
       safeChanges.forEach(function (c) {
         mergedData[c.entity] = c.rows;
       });
