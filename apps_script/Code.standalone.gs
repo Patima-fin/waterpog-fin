@@ -22,7 +22,7 @@ var SHEET_ID = '1Q0enboLihOYiYCn7otK9zXBlk6Yy8oHfoAXaFnGujwA';
 // client จะ ping ค่านี้ตอนเปิดแอป แล้ว log คู่กับ build ฝั่งหน้าเว็บ → เห็นชัดว่า
 // "โค้ดเซิร์ฟเวอร์ที่รันจริง" เป็นเวอร์ชันไหน (กันกรณีลืม redeploy แล้วไม่รู้ตัว =
 // LockService/applyDiff ไม่ทำงานแต่เงียบ จนข้อมูลหายแล้วงงว่าทำไม)
-var SERVER_VERSION = '20260608c-lock+applyDiff';
+var SERVER_VERSION = '20260609a-serverguard';
 
 var SHEETS = {
   META:          'meta',
@@ -104,7 +104,7 @@ function doPost(e) {
       case 'update':     result = updateRow(entity, id, payload);  break;
       case 'delete':     result = deleteRow(entity, id);           break;
       case 'replaceAll': result = replaceAll(entity, payload, body.baseIds, { allowShrink: body.allowShrink === true }); break;
-      case 'applyDiff':  result = applyDiff(entity, body.upserts, body.deletes, body.baseIds); break;  // ★ row-level: แก้เฉพาะแถวที่เปลี่ยน
+      case 'applyDiff':  result = applyDiff(entity, body.upserts, body.deletes, body.baseIds, { allowShrink: body.allowShrink === true }); break;  // ★ row-level + server guard
       case 'setKV':      result = setKV(entity, payload);          break;
       case 'plImportMonth': result = plImportMonth(body);          break;  // P&L add-on (ดู PnL.additions.gs)
       case 'budgetImportMonth': result = budgetImportMonth(body);  break;  // Budget Control Center add-on (ดู Budget.additions.gs)
@@ -687,8 +687,9 @@ function deleteRow(entity, id) {
  * ★ ปลอดภัยกว่า replaceAll: ลบเฉพาะ id ใน deletes ที่สั่งชัดเจน — ไม่ต้องเดารายแถว
  *   ด้วย baseIds เหมือน replaceAll (baseIds รับไว้เผื่ออนาคต ปัจจุบันยังไม่ใช้ตัดสินลบ)
  */
-function applyDiff(entity, upserts, deletes, baseIds) {
+function applyDiff(entity, upserts, deletes, baseIds, opts) {
   var e = _entitySheet(entity);
+  opts = opts || {};
   upserts = Array.isArray(upserts) ? upserts : [];
   deletes = Array.isArray(deletes) ? deletes : [];
   upserts.forEach(function (r) { if (r && !r.id) r.id = newId_(); });
@@ -724,6 +725,18 @@ function applyDiff(entity, upserts, deletes, baseIds) {
     if (sheetHeaders.length) {
       headers = sheetHeaders.slice();
       e.headers.forEach(function (h) { if (headers.indexOf(h) < 0) headers.push(h); });
+    }
+  }
+
+  // ── เกราะเซิร์ฟเวอร์: ปฏิเสธการล้าง/ลดตารางรุนแรง (กันแท็บค้าง/ค่าว่างลบข้อมูล) ──
+  // เซิร์ฟเวอร์ตัดสินเองจากจำนวนจริงในชีต ไม่พึ่ง client guard. เคส localStorage ถูกล้าง
+  // แล้ว client ดัน [] มาลบทั้งตาราง (เล็กแค่ไหนก็ตาม) จะถูกปฏิเสธที่นี่.
+  if (!opts.allowShrink) {
+    if (current.length > 0 && out.length === 0) {
+      return { error: 'guard_block_empty: ปฏิเสธล้างตาราง ' + entity + ' (' + current.length + '→0). ส่ง allowShrink=true ถ้าตั้งใจจริง' };
+    }
+    if (current.length >= 10 && out.length < current.length * 0.5) {
+      return { error: 'guard_block_shrink: ปฏิเสธลด ' + entity + ' ' + current.length + '→' + out.length + ' (เกินครึ่ง — น่าจะ state เพี้ยน). ส่ง allowShrink=true ถ้าตั้งใจ' };
     }
   }
 
@@ -794,6 +807,10 @@ function replaceAll(entity, rows, baseIds, opts) {
   if (!opts.allowShrink && currentRows.length > 0 && finalRows.length === 0) {
     return { error: 'guard_block_empty: ปฏิเสธการล้างตาราง ' + entity +
                     ' (' + currentRows.length + '→0). ส่ง allowShrink=true ถ้าตั้งใจ' };
+  }
+  if (!opts.allowShrink && currentRows.length >= 10 && finalRows.length < currentRows.length * 0.5) {
+    return { error: 'guard_block_shrink: ปฏิเสธลด ' + entity + ' ' + currentRows.length + '→' +
+                    finalRows.length + ' (เกินครึ่ง — น่าจะ state เพี้ยน). ส่ง allowShrink=true ถ้าตั้งใจ' };
   }
 
   // ── header: ของจริงในชีต + เติม canonical ที่ขาด (กันคอลัมน์ผู้ใช้หาย) ──

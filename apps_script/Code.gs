@@ -41,7 +41,7 @@ var SHEETS = {
 
 // ── เวอร์ชันเซิร์ฟเวอร์ — bump ทุกครั้งที่ deploy (ดูคำอธิบายใน Code.standalone.gs) ──
 // client ping ค่านี้ตอนเปิดแอป → เห็นชัดว่าเซิร์ฟเวอร์เวอร์ชันไหนรันจริง (กันลืม redeploy)
-var SERVER_VERSION = '20260608c-lock+applyDiff';
+var SERVER_VERSION = '20260609a-serverguard';
 
 /* ── 1. MENU ────────────────────────────────────────────────────── */
 function onOpen() {
@@ -111,7 +111,7 @@ function doPost(e) {
       case 'update':     result = updateRow(entity, id, payload);  break;
       case 'delete':     result = deleteRow(entity, id);           break;
       case 'replaceAll': result = replaceAll(entity, payload, body.baseIds, { allowShrink: body.allowShrink === true }); break;
-      case 'applyDiff':  result = applyDiff(entity, body.upserts, body.deletes, body.baseIds); break;  // ★ row-level
+      case 'applyDiff':  result = applyDiff(entity, body.upserts, body.deletes, body.baseIds, { allowShrink: body.allowShrink === true }); break;  // ★ row-level + server guard
       case 'setKV':      result = setKV(entity, payload);          break;
       default: result = { error: 'unknown action: ' + action };
     }
@@ -587,8 +587,9 @@ function deleteRow(entity, id) {
  * แถวอื่นคงไว้เป๊ะตามชีต → สำเนาเก่าของ client ทับงานแถวอื่นไม่ได้ (ยาแก้ clobber).
  * คืน { entity, rows } = สถานะจริงหลังเขียน → client ใช้เป็น read-your-writes.
  */
-function applyDiff(entity, upserts, deletes, baseIds) {
+function applyDiff(entity, upserts, deletes, baseIds, opts) {
   var e = _entitySheet(entity);
+  opts = opts || {};
   upserts = Array.isArray(upserts) ? upserts : [];
   deletes = Array.isArray(deletes) ? deletes : [];
   upserts.forEach(function (r) { if (r && !r.id) r.id = newId_(); });
@@ -622,6 +623,16 @@ function applyDiff(entity, upserts, deletes, baseIds) {
     if (sheetHeaders.length) {
       headers = sheetHeaders.slice();
       e.headers.forEach(function (h) { if (headers.indexOf(h) < 0) headers.push(h); });
+    }
+  }
+
+  // ── เกราะเซิร์ฟเวอร์: ปฏิเสธการล้าง/ลดตารางรุนแรง (ดูคำอธิบายใน Code.standalone.gs) ──
+  if (!opts.allowShrink) {
+    if (current.length > 0 && out.length === 0) {
+      return { error: 'guard_block_empty: ปฏิเสธล้างตาราง ' + entity + ' (' + current.length + '→0). ส่ง allowShrink=true ถ้าตั้งใจจริง' };
+    }
+    if (current.length >= 10 && out.length < current.length * 0.5) {
+      return { error: 'guard_block_shrink: ปฏิเสธลด ' + entity + ' ' + current.length + '→' + out.length + ' (เกินครึ่ง). ส่ง allowShrink=true ถ้าตั้งใจ' };
     }
   }
 
@@ -670,6 +681,10 @@ function replaceAll(entity, rows, baseIds, opts) {
   if (!opts.allowShrink && currentRows.length > 0 && finalRows.length === 0) {
     return { error: 'guard_block_empty: ปฏิเสธการล้างตาราง ' + entity +
                     ' (' + currentRows.length + '→0). ส่ง allowShrink=true ถ้าตั้งใจ' };
+  }
+  if (!opts.allowShrink && currentRows.length >= 10 && finalRows.length < currentRows.length * 0.5) {
+    return { error: 'guard_block_shrink: ปฏิเสธลด ' + entity + ' ' + currentRows.length + '→' +
+                    finalRows.length + ' (เกินครึ่ง). ส่ง allowShrink=true ถ้าตั้งใจ' };
   }
 
   var headers = e.headers.slice();
