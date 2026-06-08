@@ -18,9 +18,9 @@
   // เปิด DevTools Console แล้วดูบรรทัดนี้ เพื่อยืนยันว่าเบราว์เซอร์โหลด "โค้ดใหม่" จริง
   // (ถ้าไม่เห็น = ยังรัน cache เก่า → hard refresh Ctrl+Shift+R + ปิดแท็บเก่าทุกอัน)
   // เช็คเร็ว: พิมพ์ WTPData.buildId ใน console
-  var BUILD_ID = '20260608b';
+  var BUILD_ID = '20260608d';
   try {
-    console.info('%c[WTP Sync] build ' + BUILD_ID + ' — base-reconcile + anti-flip + grace180s + anti-wedge + anti-clobber',
+    console.info('%c[WTP Sync] build ' + BUILD_ID + ' — row-level(applyDiff) + read-your-writes + server-ping (replaceAll fallback)',
                  'color:#2a6fdb;font-weight:bold');
     if (window.WTPData) WTPData.buildId = BUILD_ID;
   } catch (_) {}
@@ -77,6 +77,7 @@
   var syncTimer        = null;          // debounce timer for syncDiff
   var inSyncDiff       = false;         // re-entry guard for syncDiff
   var AUTO_MS          = cfg.AUTO_REFRESH_MS || 0;
+  var ROW_LEVEL        = cfg.ROW_LEVEL_SYNC === true;   // ใช้ applyDiff (row-level) แทน replaceAll
   var currentInterval  = AUTO_MS;       // may grow via backoff
   var autoTimer        = null;          // setInterval handle (so we can restart)
   var recentPushAt     = {};            // entity → ts(ms) ของ push ล่าสุดที่สำเร็จ (anti-bounce)
@@ -800,7 +801,132 @@
     return out;
   }
 
+  /* ── dispatcher: row-level (applyDiff) ถ้าเปิด flag + เซิร์ฟเวอร์รองรับ ──────────
+   * ถ้า flag ปิด หรือเซิร์ฟเวอร์ยังเก่า (ไม่มี serverVersion = ไม่มี applyDiff) →
+   * fallback ไป replaceAll เดิมอัตโนมัติ (ปลอดภัย ไม่พังถ้าลืม deploy) */
   function syncDiff(data) {
+    if (ROW_LEVEL && WTPData.serverVersion && WTPData.serverVersion !== 'unknown') {
+      return syncDiffRowLevel(data);
+    }
+    return syncDiffReplaceAll(data);
+  }
+
+  /* ── ROW-LEVEL diff: คืน { upserts:[{id,...changedFields}], deletes:[id] } ──────
+   * • แถวใหม่ (ไม่มี id / id ไม่อยู่ใน base) → ส่งทั้งแถว
+   * • แถวเดิมที่แก้ → ส่งเฉพาะ "ฟิลด์ที่เปลี่ยน" (field-level patch) → เซิร์ฟเวอร์ overlay
+   *   ทับเฉพาะฟิลด์นั้น = ฟิลด์ที่เราไม่แตะ คงค่าเดิมบนชีต (กันทับงานคนอื่นแถวเดียวกัน
+   *   คนละฟิลด์ ฟรี — เลิกต้องใช้ 3-way merge / mergeRowKeepSheetForEmpty / CLEARABLE)
+   * • ฟิลด์ที่ "หาย" จาก ours (ไม่มี key) → ไม่แตะ (ไม่ถือว่าตั้งใจล้าง — กันลบของชีตพลาด)
+   *   การล้างตั้งใจ = ฟิลด์มีอยู่แต่ค่าว่าง ('') → เข้าเงื่อนไข "เปลี่ยน" ปกติ */
+  function diffEntityRows(baseRows, ourRows) {
+    var baseById = {};
+    (baseRows || []).forEach(function (r) { if (r && r.id != null) baseById[String(r.id)] = r; });
+    var ourIds = {};
+    var upserts = [];
+    (ourRows || []).forEach(function (r) {
+      if (r == null) return;
+      if (r.id == null) { upserts.push(r); return; }            // แถวใหม่ไม่มี id
+      ourIds[String(r.id)] = true;
+      var b = baseById[String(r.id)];
+      if (!b) { upserts.push(r); return; }                      // แถวใหม่ (id ไม่อยู่ใน base)
+      var patch = null;
+      Object.keys(r).forEach(function (k) {
+        if (!_eq(r[k], b[k])) { if (!patch) patch = { id: r.id }; patch[k] = r[k]; }
+      });
+      if (patch) upserts.push(patch);                           // มีฟิลด์เปลี่ยน → ส่ง patch
+    });
+    var deletes = [];
+    (baseRows || []).forEach(function (r) {
+      if (r && r.id != null && !ourIds[String(r.id)]) deletes.push(r.id);  // base มี ours ไม่มี = ลบ
+    });
+    return { upserts: upserts, deletes: deletes };
+  }
+
+  /* ── ROW-LEVEL sync: ส่งเฉพาะ diff ผ่าน applyDiff (แก้เฉพาะแถว/ฟิลด์ที่เปลี่ยน) ──
+   * เซิร์ฟเวอร์แตะเฉพาะแถวที่ส่งไป แถวอื่นอ่านสดจากชีตใต้ lock → clobber ทั้งตาราง
+   * เกิดไม่ได้ (PV 475→465 ตาย). applyDiff คืน rows จริง → ใช้เป็น read-your-writes
+   * (อัป snapshot+state จากของจริง ไม่ต้องรอ gviz → ไม่เด้งกลับ) */
+  function syncDiffRowLevel(data) {
+    if (!POST_URL) return;
+    if (inSyncDiff) return;
+
+    var latest = {};
+    try { latest = WTPData.load() || {}; } catch (_) {}
+
+    var jobs = [];
+    var recovered = false;
+    CRUD_ENTITIES.forEach(function (entity) {
+      if (lastSnapshot[entity] === undefined) return;          // ยังไม่เคยโหลด server → ข้าม (กัน seed)
+      var ours = Array.isArray(latest[entity]) ? latest[entity]
+               : (Array.isArray(data[entity]) ? data[entity] : null);
+      if (!ours) return;
+      if (JSON.stringify(ours) === lastSnapshot[entity]) return;   // ไม่เปลี่ยน
+      var base = [];
+      try { base = JSON.parse(lastSnapshot[entity] || '[]'); } catch (_) {}
+
+      // ── anti-truncation: ours เล็กกว่า base มากผิดปกติ → state เพี้ยน/wedge ไม่ใช่ลบจริง →
+      //    อย่าสร้าง delete จำนวนมาก, ดึงของจริงมา resync แทน (กันลบทั้งตารางจาก state เพี้ยน)
+      if (base.length >= 10 && ours.length < base.length * 0.5) {
+        console.error('[WTP Sync] 🛑 row-level: ' + entity + ' local (' + ours.length +
+          ') << base (' + base.length + ') — น่าจะ state เพี้ยน, ข้าม + ดึงของจริงมา resync');
+        try { window.dispatchEvent(new CustomEvent('wtpSyncBlocked',
+          { detail: { blocked: [{ entity: entity, prev: base.length, now: ours.length }] } })); } catch (_) {}
+        recovered = true;
+        return;
+      }
+
+      var d = diffEntityRows(base, ours);
+      if (!d.upserts.length && !d.deletes.length) return;
+      jobs.push({ entity: entity, upserts: d.upserts, deletes: d.deletes,
+                  baseCount: base.length, oursCount: ours.length });
+    });
+
+    if (recovered) { setTimeout(function () { loadFromServer(); }, 0); }
+    if (!jobs.length) return;
+
+    inSyncDiff = true;
+    setSyncStatus('syncing');
+
+    Promise.all(jobs.map(function (j) {
+      return postToServer({
+        action: 'applyDiff',
+        entity: j.entity,
+        upserts: j.upserts,
+        deletes: j.deletes,
+        meta: _currentMeta(j.entity, { length: j.baseCount }, { length: j.oursCount }),
+      }).then(function (resp) {
+        if (resp && resp.error) throw new Error(j.entity + ': ' + resp.error);
+        var serverRows = (resp && Array.isArray(resp.rows)) ? resp.rows : null;
+        return { entity: j.entity, rows: serverRows, upserts: j.upserts.length, deletes: j.deletes.length };
+      });
+    })).then(function (results) {
+      // read-your-writes: อัป snapshot + localStorage + React จาก rows จริงที่เซิร์ฟเวอร์คืนมา
+      // ★ ฐาน = localStorage ล่าสุด (กันทับ entity ที่ไม่ได้แตะ) แล้ว overlay เฉพาะที่ push
+      var fresh = {};
+      try { fresh = WTPData.load() || {}; } catch (_) {}
+      var merged = Object.assign({}, data, fresh);
+      var confirmed = [];
+      results.forEach(function (r) {
+        if (r.rows) {
+          merged[r.entity] = r.rows;                          // serverRows = ความจริงหลังเขียน
+          lastSnapshot[r.entity] = JSON.stringify(r.rows);    // snapshot ตรงกับ localStorage → diff รอบหน้าสะอาด
+        } else {
+          lastSnapshot[r.entity] = JSON.stringify(Array.isArray(merged[r.entity]) ? merged[r.entity] : []);
+        }
+        recentPushAt[r.entity] = Date.now();
+        confirmed.push({ entity: r.entity, upserts: r.upserts, deletes: r.deletes });
+      });
+      origSave(merged);
+      subscribers.forEach(function (cb) { cb(merged); });
+      setSyncStatus('ok');
+      try { window.dispatchEvent(new CustomEvent('wtpSyncConfirmed', { detail: { confirmed: confirmed } })); } catch (_) {}
+    }).catch(function (err) {
+      console.warn('[WTP Sync] row-level push ล้มเหลว:', err);
+      setSyncStatus('error');
+    }).then(function () { inSyncDiff = false; }, function () { inSyncDiff = false; });
+  }
+
+  function syncDiffReplaceAll(data) {
     if (!POST_URL) return;
     if (inSyncDiff) return;
 
@@ -1007,8 +1133,37 @@
     }
   });
 
+  // ── Ping backend: log ว่า "เซิร์ฟเวอร์ที่รันจริง" เป็นเวอร์ชันไหน ──────────────
+  // กันกรณีลืม redeploy Apps Script แล้วไม่รู้ตัว (โค้ดใหม่ไม่ทำงานแต่เงียบ → ข้อมูล
+  // ยังหายเหมือนเดิมแล้วงงว่าทำไมแก้แล้วไม่หาย). อ่านอย่างเดียว ไม่เขียนอะไร.
+  // เปิด DevTools Console จะเห็นบรรทัด "[WTP Sync] server <version>" — ถ้าไม่เห็น
+  // version หรือขึ้นเตือน = ยังไม่ได้ deploy โค้ดเซิร์ฟเวอร์ใหม่.
+  WTPData.serverVersion = null;
+  function pingServerVersion() {
+    if (!POST_URL) return;
+    fetch(POST_URL + '?action=ping', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (resp) {
+        var sv = (resp && resp.serverVersion) || null;
+        WTPData.serverVersion = sv || 'unknown';
+        if (sv) {
+          console.info('%c[WTP Sync] server ' + sv, 'color:#0a7d3c;font-weight:bold');
+        } else {
+          console.warn('[WTP Sync] ⚠ เซิร์ฟเวอร์ยังไม่มี serverVersion — น่าจะยังไม่ได้ ' +
+            'redeploy Apps Script เวอร์ชันใหม่ (LockService/applyDiff ยังไม่ทำงาน)');
+        }
+        try {
+          window.dispatchEvent(new CustomEvent('wtpServerVersion', {
+            detail: { serverVersion: WTPData.serverVersion }
+          }));
+        } catch (_) {}
+      })
+      .catch(function (err) { console.warn('[WTP Sync] ping เซิร์ฟเวอร์ไม่สำเร็จ:', err && err.message); });
+  }
+
   // First load
   loadFromServer();
+  pingServerVersion();
 
   // Auto-refresh (ใช้ restartAutoTimer เพื่อให้ adaptive backoff ทำงานได้)
   if (AUTO_MS > 0) {

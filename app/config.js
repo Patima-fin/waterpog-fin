@@ -23,6 +23,13 @@ window.WTP_CONFIG = {
   // และ tab idle (ไม่ได้มอง) จะหยุด sync ผ่าน Page Visibility API
   AUTO_REFRESH_MS: 45000,  // 45 วินาที
 
+  // ── Row-level sync ────────────────────────────────────────────────
+  // true  = แก้เฉพาะแถว/ฟิลด์ที่เปลี่ยน ผ่าน applyDiff (กัน clobber ทั้งตาราง + read-your-writes)
+  // false = กลับไปใช้ replaceAll เดิม (เขียนทั้งตาราง) — ใช้ถอยกลับทันทีถ้าพบปัญหา
+  // ต้อง deploy Apps Script ที่มี serverVersion (>= 20260608c) ก่อน; ถ้าเซิร์ฟเวอร์ยังเก่า
+  // client จะ fallback เป็น replaceAll ให้อัตโนมัติ (ปลอดภัย)
+  ROW_LEVEL_SYNC: true,
+
   // ผู้ใช้ระบบ — แก้ไข username/password/role ได้ตามต้องการ
   //
   // Roles (เลือก 1 ใน 4):

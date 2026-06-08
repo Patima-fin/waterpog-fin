@@ -186,11 +186,20 @@ function App() {
       const d = e.detail || {};
       pushToast(`🔄 ซิงค์ข้อมูลใหม่จากชีต (${d.entity || ''}: ${d.from}→${d.to} รายการ) — หน้าจอแสดงไม่ครบจึงดึงของจริงมาแทน แล้วลองอีกครั้งได้เลย`);
     };
+    // ยืนยันให้ผู้ใช้เห็นว่า "งานขึ้นเซิร์ฟเวอร์จริงแล้ว" (row-level/applyDiff) — ดับความกลัว
+    // "บันทึกแล้วมั้ยไม่รู้/หายเงียบ". อ่านกลับจากเซิร์ฟเวอร์ที่เพิ่งเขียน = read-your-writes.
+    const onConfirmed = (e) => {
+      const list = (e.detail && e.detail.confirmed) || [];
+      const n = list.reduce((s, c) => s + (c.upserts || 0) + (c.deletes || 0), 0);
+      if (n > 0) pushToast(`✓ บันทึกขึ้นเซิร์ฟเวอร์แล้ว (${n} รายการ)`);
+    };
     window.addEventListener('wtpSyncBlocked', onBlocked);
     window.addEventListener('wtpSyncRecovered', onRecovered);
+    window.addEventListener('wtpSyncConfirmed', onConfirmed);
     return () => {
       window.removeEventListener('wtpSyncBlocked', onBlocked);
       window.removeEventListener('wtpSyncRecovered', onRecovered);
+      window.removeEventListener('wtpSyncConfirmed', onConfirmed);
     };
   }, []);
 

@@ -18,6 +18,12 @@
 // ID ของ Google Sheet — copy จาก URL: /spreadsheets/d/{THIS_PART}/edit
 var SHEET_ID = '1Q0enboLihOYiYCn7otK9zXBlk6Yy8oHfoAXaFnGujwA';
 
+// ── เวอร์ชันเซิร์ฟเวอร์ — bump ทุกครั้งที่ deploy ใหม่ ─────────────────────────
+// client จะ ping ค่านี้ตอนเปิดแอป แล้ว log คู่กับ build ฝั่งหน้าเว็บ → เห็นชัดว่า
+// "โค้ดเซิร์ฟเวอร์ที่รันจริง" เป็นเวอร์ชันไหน (กันกรณีลืม redeploy แล้วไม่รู้ตัว =
+// LockService/applyDiff ไม่ทำงานแต่เงียบ จนข้อมูลหายแล้วงงว่าทำไม)
+var SERVER_VERSION = '20260608c-lock+applyDiff';
+
 var SHEETS = {
   META:          'meta',
   PIPELINE:      'pipeline',
@@ -59,7 +65,8 @@ var SHEETS = {
 function doGet(e) {
   try {
     var action = (e && e.parameter && e.parameter.action) || 'getAll';
-    var result = (action === 'getAll') ? getAll()
+    var result = (action === 'ping')   ? { ok: true }
+               : (action === 'getAll') ? getAll()
                : (action === 'get')    ? getEntity(e.parameter.entity)
                : { error: 'unknown action: ' + action };
     return respond(result, e);
@@ -69,6 +76,7 @@ function doGet(e) {
 }
 
 function doPost(e) {
+  var lock = null;
   try {
     var body    = e.postData && e.postData.contents ? JSON.parse(e.postData.contents) : {};
     var action  = body.action;
@@ -77,6 +85,18 @@ function doPost(e) {
     var id      = body.id;
     // Audit metadata sent by client — best-effort, doesn't block on error
     var meta    = body.meta || {};   // { user, displayName, role, diffSummary }
+
+    // ── เข้าคิวกันเขียนชนกัน (LockService) ──────────────────────────────────
+    // action ที่ "เขียน" ต้องถือ lock ก่อนเสมอ → write สองอันวิ่งพร้อมกันไม่ได้ =
+    // ฆ่าบั๊ก lost-update (อ่าน→แก้→เขียน ของสองคนสลับกันจนงานอีกคนหายเงียบ).
+    // อ่าน (getAll/get/ping) ไม่ lock — กัน poll ช้า. waitLock = เวลารอ "คิว" ไม่ใช่เวลาถือ.
+    var MUTATING = { add:1, update:1, 'delete':1, replaceAll:1, applyDiff:1,
+                     setKV:1, plImportMonth:1, budgetImportMonth:1 };
+    if (MUTATING[action]) {
+      lock = LockService.getScriptLock();
+      lock.waitLock(30000);   // รอคิวสูงสุด 30 วิ (เกินนั้น = throw → client เห็น error แล้ว retry)
+    }
+
     var result;
     switch (action) {
       case 'getAll':     result = getAll();                        break;
@@ -84,6 +104,7 @@ function doPost(e) {
       case 'update':     result = updateRow(entity, id, payload);  break;
       case 'delete':     result = deleteRow(entity, id);           break;
       case 'replaceAll': result = replaceAll(entity, payload, body.baseIds, { allowShrink: body.allowShrink === true }); break;
+      case 'applyDiff':  result = applyDiff(entity, body.upserts, body.deletes, body.baseIds); break;  // ★ row-level: แก้เฉพาะแถวที่เปลี่ยน
       case 'setKV':      result = setKV(entity, payload);          break;
       case 'plImportMonth': result = plImportMonth(body);          break;  // P&L add-on (ดู PnL.additions.gs)
       case 'budgetImportMonth': result = budgetImportMonth(body);  break;  // Budget Control Center add-on (ดู Budget.additions.gs)
@@ -92,7 +113,8 @@ function doPost(e) {
     // Append audit log entry for mutating actions (skip on error result)
     if (!result || !result.error) {
       try {
-        if (action === 'add' || action === 'update' || action === 'delete' || action === 'replaceAll') {
+        if (action === 'add' || action === 'update' || action === 'delete' ||
+            action === 'replaceAll' || action === 'applyDiff') {
           appendAuditLog_({
             timestamp: new Date(),
             user: meta.user || 'unknown',
@@ -100,7 +122,9 @@ function doPost(e) {
             role: meta.role || '',
             entity: entity || '',
             action: action,
-            rowsAffected: Array.isArray(payload) ? payload.length : (id ? 1 : 0),
+            rowsAffected: (action === 'applyDiff')
+              ? ((body.upserts || []).length + (body.deletes || []).length)
+              : (Array.isArray(payload) ? payload.length : (id ? 1 : 0)),
             summary: meta.diffSummary || '',
           });
         }
@@ -109,6 +133,8 @@ function doPost(e) {
     return respond(result, e);
   } catch (err) {
     return respond({ error: String(err && err.message || err) }, e);
+  } finally {
+    if (lock) { try { lock.releaseLock(); } catch (_) {} }
   }
 }
 
@@ -129,6 +155,11 @@ function appendAuditLog_(entry) {
 }
 
 function respond(obj, e) {
+  // stamp serverVersion บน response ที่เป็น object (ไม่แตะ array เช่น row list ของ replaceAll
+  // ที่ client เช็คแค่ .error) → client เห็นว่าเซิร์ฟเวอร์เวอร์ชันไหนกำลังรันจริง
+  if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+    try { obj.serverVersion = SERVER_VERSION; } catch (_) {}
+  }
   var cb = e && e.parameter && e.parameter.callback;
   var out = ContentService.createTextOutput(
     cb ? cb + '(' + JSON.stringify(obj) + ')' : JSON.stringify(obj)
@@ -639,6 +670,74 @@ function deleteRow(entity, id) {
     }
   }
   throw new Error('ไม่พบ id ' + id + ' ใน ' + entity);
+}
+
+/* applyDiff — ROW-LEVEL sync: แก้เฉพาะแถวที่เปลี่ยน ไม่เขียนทับทั้งตาราง (2026-06-08)
+ * ────────────────────────────────────────────────────────────────────────────
+ * ใช้แทน replaceAll สำหรับการแก้ปกติ (เพิ่ม/แก้/ลบ ทีละน้อย). client ส่งมาแค่:
+ *   upserts = แถวที่เพิ่ม/แก้ (จับคู่ด้วย id)   ·   deletes = id ที่ลบ
+ * เซิร์ฟเวอร์อ่านชีต "สดใต้ lock" แล้วแตะเฉพาะแถวที่ระบุ — แถวที่ไม่ถูกพูดถึงคงไว้
+ * เป๊ะตามชีตปัจจุบัน (ไม่ใช่สำเนาเก่าของ client) → สำเนาเก่าของ client ทับ/ลบงาน
+ * ของแถวอื่นไม่ได้อีกเลย. นี่คือ "ยา" แก้ clobber ทั้งตาราง (เคส PV 475→465:
+ * แถวที่ client ไม่ได้แตะ จะไม่ถูกส่งมา จึงหายไม่ได้).
+ *
+ * คืน { entity, rows } = สถานะจริงหลังเขียน → client เอาไปเป็น read-your-writes
+ * (เห็นงานตัวเองทันทีจากแหล่งเดียวกับที่เขียน ไม่ต้องรอ gviz CSV ที่ช้ากว่า).
+ *
+ * ★ ปลอดภัยกว่า replaceAll: ลบเฉพาะ id ใน deletes ที่สั่งชัดเจน — ไม่ต้องเดารายแถว
+ *   ด้วย baseIds เหมือน replaceAll (baseIds รับไว้เผื่ออนาคต ปัจจุบันยังไม่ใช้ตัดสินลบ)
+ */
+function applyDiff(entity, upserts, deletes, baseIds) {
+  var e = _entitySheet(entity);
+  upserts = Array.isArray(upserts) ? upserts : [];
+  deletes = Array.isArray(deletes) ? deletes : [];
+  upserts.forEach(function (r) { if (r && !r.id) r.id = newId_(); });
+
+  var sh = _ss().getSheetByName(e.name);
+  var current = sh ? readTable(e.name) : [];   // ★ อ่านสดใต้ lock = ความจริงล่าสุด
+
+  var deleteSet = {};
+  deletes.forEach(function (idv) { if (idv != null) deleteSet[String(idv)] = true; });
+  var upsertById = {};
+  upserts.forEach(function (r) { if (r && r.id != null) upsertById[String(r.id)] = r; });
+
+  var out = [];
+  current.forEach(function (r) {
+    var idStr = (r && r.id != null) ? String(r.id) : '';
+    if (idStr && deleteSet[idStr]) return;                  // ★ ลบเฉพาะที่สั่งชัดเจน
+    if (idStr && upsertById[idStr]) {                        // ★ แก้: overlay ฟิลด์ client ทับแถวจริง
+      out.push(_overlayRow(r, upsertById[idStr]));
+      delete upsertById[idStr];
+      return;
+    }
+    out.push(r);                                            // ★ ไม่ถูกแตะ → คงไว้เป๊ะตามชีต
+  });
+  // upsert ที่ id ยังไม่มีในชีต = แถวใหม่ → ต่อท้าย
+  Object.keys(upsertById).forEach(function (k) { out.push(upsertById[k]); });
+
+  // header: ของจริงในชีต + เติม canonical ที่ขาด (เหมือน replaceAll — กันคอลัมน์ผู้ใช้หาย)
+  var headers = e.headers.slice();
+  if (sh && sh.getLastColumn() > 0) {
+    var sheetHeaders = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0]
+      .map(function (h) { return h == null ? '' : String(h).trim(); })
+      .filter(function (h) { return h !== ''; });
+    if (sheetHeaders.length) {
+      headers = sheetHeaders.slice();
+      e.headers.forEach(function (h) { if (headers.indexOf(h) < 0) headers.push(h); });
+    }
+  }
+
+  writeTable(e.name, headers, out);
+  return { entity: entity, rows: out };
+}
+
+// overlay: เริ่มจากแถวจริงในชีต แล้วทับด้วยฟิลด์ที่ client ส่งมา (client merge มาแล้ว)
+// → คอลัมน์ที่ client ไม่รู้จัก (เช่นผู้ใช้เพิ่มเองในชีต) ยังคงอยู่ ไม่ถูกล้าง
+function _overlayRow(sheetRow, patch) {
+  var out = {};
+  Object.keys(sheetRow).forEach(function (k) { out[k] = sheetRow[k]; });
+  Object.keys(patch).forEach(function (k) { out[k] = patch[k]; });
+  return out;
 }
 
 /* replaceAll — เขียนทับทั้งตาราง แต่มี "เกราะกันข้อมูลหาย" (added 2026-06-06)
