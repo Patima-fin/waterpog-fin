@@ -18,8 +18,78 @@ const CATEGORY_META = {
   'อื่นๆ':       { color: '#525252', bg: '#f5f5f5', label: 'อื่นๆ' },
 };
 const DEBT_CATEGORIES = Object.keys(CATEGORY_META);
+// กลุ่มใหญ่ BANK / NON-BANK (ผู้ใช้เคาะ: BANK = ธนาคารอย่างเดียว · ที่เหลือทั้งหมด = NON-BANK)
+const DEBT_BANK_CATS = ['ธนาคาร'];
+const isDebtBankCat = (cat) => DEBT_BANK_CATS.includes(cat);
 function metaFor(cat) {
   return CATEGORY_META[cat] || { color: '#525252', bg: '#f5f5f5', label: cat || '—' };
+}
+
+/* การ์ดเล็กรายหมวด (ใช้เป็น "รายละเอียด" ที่กางออกในกลุ่ม BANK/NON-BANK) */
+function DebtCategoryMiniCard({ cat, rawRows }) {
+  const m = metaFor(cat);
+  const catRows = rawRows.filter(r => r.debtCategory === cat);
+  const activeCnt = catRows.filter(r => r.status === 'Active').length;
+  const activeBal = catRows.filter(r => r.status === 'Active')
+    .reduce((s, r) => s + (Number(r.balance || r.principalAmount) || 0), 0);
+  const isUSD = catRows.some(r => r.currency === 'USD');
+  return (
+    <div className="card" style={{ flex: '1 1 200px', padding: '10px 14px', borderLeft: `4px solid ${m.color}` }}>
+      <div style={{ fontWeight: 700, fontSize: 12, color: m.color, marginBottom: 6 }}>{m.label}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--ink-400)' }}>สัญญา</div>
+          <div style={{ fontWeight: 700, fontSize: 16 }}>{catRows.length}</div>
+          <div style={{ fontSize: 10, color: 'var(--ink-400)' }}>Active {activeCnt}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--ink-400)' }}>คงเหลือ</div>
+          <div style={{ fontWeight: 700, fontSize: 13, fontVariantNumeric: 'tabular-nums',
+                       color: activeBal > 0 ? 'var(--bad)' : 'var(--ink-300)' }}>
+            {fmtNum(activeBal, 0)} {isUSD && <span style={{ fontSize: 9, color: 'var(--ink-400)' }}>USD</span>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* การ์ดกลุ่มใหญ่ BANK / NON-BANK — ย่อ=ยอดรวม Active (THB + USD แยก) · กดกางดูการ์ดรายหมวดข้างใน */
+function DebtGroupCard({ label, color, cats, rawRows, defaultOpen }) {
+  const [open, setOpen] = React.useState(!!defaultOpen);
+  const present = cats.filter(c => rawRows.some(r => r.debtCategory === c));
+  const active  = rawRows.filter(r => cats.includes(r.debtCategory) && r.status === 'Active');
+  const thbBal  = active.filter(r => r.currency !== 'USD').reduce((s, r) => s + (Number(r.balance || r.principalAmount) || 0), 0);
+  const usdBal  = active.filter(r => r.currency === 'USD').reduce((s, r) => s + (Number(r.balance || r.principalAmount) || 0), 0);
+  return (
+    <div className="card" style={{ flex: '1 1 360px', padding: 0, overflow: 'hidden', borderLeft: `5px solid ${color}` }}>
+      <div onClick={() => setOpen(o => !o)}
+        style={{ cursor: 'pointer', padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+          <span style={{ fontSize: 13, color, transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>▶</span>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 15, color }}>{label}</div>
+            <div style={{ fontSize: 11, color: 'var(--ink-500)', marginTop: 2 }}>
+              {present.length} หมวด · {active.length} สัญญา Active · กดเพื่อดูรายละเอียด
+            </div>
+          </div>
+        </div>
+        <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+          <div style={{ fontSize: 10, color: 'var(--ink-400)' }}>คงเหลือ Active</div>
+          <div style={{ fontWeight: 800, fontSize: 20, fontVariantNumeric: 'tabular-nums',
+                       color: thbBal > 0 ? 'var(--bad)' : 'var(--ink-300)' }}>{fmtNum(thbBal, 0)}</div>
+          {usdBal > 0 && <div style={{ fontSize: 11, color: 'var(--ink-500)', fontVariantNumeric: 'tabular-nums' }}>+ {fmtNum(usdBal, 0)} USD</div>}
+        </div>
+      </div>
+      {open && (
+        present.length === 0
+          ? <div style={{ padding: '0 16px 14px', fontSize: 12, color: 'var(--ink-400)' }}>— ไม่มีรายการในกลุ่มนี้ —</div>
+          : <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', padding: '0 14px 14px' }}>
+              {present.map(cat => <DebtCategoryMiniCard key={cat} cat={cat} rawRows={rawRows} />)}
+            </div>
+      )}
+    </div>
+  );
 }
 
 // Schedule popup opens inline (no page jump). Implemented via state below.
@@ -648,41 +718,21 @@ function DebtPage({ data, setData, toast }) {
         />
       </div>
 
-      {/* ── Summary by category ──────────────────────────────────────────── */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-        {categoriesPresent.map(cat => {
-          const m = metaFor(cat);
-          const catRows = rawRows.filter(r => r.debtCategory === cat);
-          const activeCnt = catRows.filter(r => r.status === 'Active').length;
-          const activeBal = catRows.filter(r => r.status === 'Active')
-            .reduce((s, r) => s + (Number(r.balance || r.principalAmount) || 0), 0);
-          const isUSD = catRows.some(r => r.currency === 'USD');
-          return (
-            <div key={cat} className="card" style={{
-              flex: '1 1 200px', padding: '10px 14px',
-              borderLeft: `4px solid ${m.color}`,
-            }}>
-              <div style={{ fontWeight: 700, fontSize: 12, color: m.color, marginBottom: 6 }}>
-                {m.label}
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                <div>
-                  <div style={{ fontSize: 10, color: 'var(--ink-400)' }}>สัญญา</div>
-                  <div style={{ fontWeight: 700, fontSize: 16 }}>{catRows.length}</div>
-                  <div style={{ fontSize: 10, color: 'var(--ink-400)' }}>Active {activeCnt}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, color: 'var(--ink-400)' }}>คงเหลือ</div>
-                  <div style={{ fontWeight: 700, fontSize: 13, fontVariantNumeric: 'tabular-nums',
-                               color: activeBal > 0 ? 'var(--bad)' : 'var(--ink-300)' }}>
-                    {fmtNum(activeBal, 0)} {isUSD && <span style={{ fontSize: 9, color: 'var(--ink-400)' }}>USD</span>}
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      {/* ── Summary by group (BANK / NON-BANK) — ย่อ=ยอดรวม · กดกางดูรายหมวด ── */}
+      {/* NON-BANK = "ทุกหมวดที่ไม่ใช่ธนาคาร" ดึงจากหมวดจริงในข้อมูล (รวมหมวดนอก list เช่น WCI-Project) กันยอดหาย */}
+      {(() => {
+        const allCats   = [...new Set(rawRows.map(r => String(r.debtCategory || '').trim()).filter(Boolean))];
+        const bankCats  = allCats.filter(isDebtBankCat);
+        const otherCats = allCats.filter(c => !isDebtBankCat(c));
+        return (
+          <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+            <DebtGroupCard label="BANK · ธนาคาร" color="#475569"
+              cats={bankCats.length ? bankCats : DEBT_BANK_CATS} rawRows={rawRows} />
+            <DebtGroupCard label="NON-BANK · นอกธนาคาร" color="#7c3aed"
+              cats={otherCats} rawRows={rawRows} />
+          </div>
+        );
+      })()}
 
       {/* ── Filter bar ───────────────────────────────────────────────────── */}
       <div className="card" style={{ padding: '10px 14px', marginBottom: 12, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>

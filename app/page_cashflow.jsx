@@ -106,10 +106,53 @@ function inMonth(dateISO, year, month) {
 //   3. jobcode/jobname present → cat 2 (project)
 //   4. dpt_code = FIN by itself is NOT enough for cat 3 (FIN dept also has operating costs)
 //   5. Default → cat 1 (operating)
+// ── Per-PV manual category override (cf.pvCat.<PL_PV_No> = 1-4) ──────────────
+const cfPvCatKey = (pvNo) => 'cf.pvCat.' + String(pvNo || '').trim();
+// ── Vendor → หมวด mapping (เจ้าหนี้กลุ่มการเงิน/ลีสซิ่ง → หมวด 3) · แก้รายชื่อใน localStorage ได้
+const CF_VENDOR_CAT_LS_KEY = 'wtp-cf-vendor-cat';
+const CF_VENDOR_CAT_DEFAULTS = [
+  { frag: 'ลีซ อิท', cat: 3 }, { frag: 'ลีสซิ่ง', cat: 3 }, { frag: 'ลิสซิ่ง', cat: 3 },
+  { frag: 'แคปปิตอล', cat: 3 }, { frag: 'capital', cat: 3 }, { frag: 'leasing', cat: 3 },
+];
+let _cfVendorCatCache = null;
+function cfLoadVendorCat() {
+  if (_cfVendorCatCache) return _cfVendorCatCache;
+  try { const v = JSON.parse(localStorage.getItem(CF_VENDOR_CAT_LS_KEY) || 'null'); _cfVendorCatCache = Array.isArray(v) ? v : CF_VENDOR_CAT_DEFAULTS.slice(); }
+  catch (_) { _cfVendorCatCache = CF_VENDOR_CAT_DEFAULTS.slice(); }
+  return _cfVendorCatCache;
+}
+function cfSaveVendorCat(list) { _cfVendorCatCache = Array.isArray(list) ? list : []; try { localStorage.setItem(CF_VENDOR_CAT_LS_KEY, JSON.stringify(_cfVendorCatCache)); } catch (_) {} }
+function cfVendorCat(name) {
+  const n = String(name || '').toLowerCase();
+  if (!n) return 0;
+  const list = cfLoadVendorCat();
+  for (let i = 0; i < list.length; i++) {
+    const e = list[i];
+    if (e && e.frag && n.includes(String(e.frag).toLowerCase())) { const c = parseInt(e.cat, 10); if (c >= 1 && c <= 4) return c; }
+  }
+  return 0;
+}
+// จัดหมวดรายการจ่ายจริง (PV): override ราย PV > AP ที่ผูก > vendor mapping/keyword บนชื่อผู้รับเงิน
+function resolvePvCategory(pv, ap) {
+  const pvNo = pv.PL_PV_No || '';
+  if (pvNo && typeof WTPOverride !== 'undefined' && WTPOverride.has && WTPOverride.has(cfPvCatKey(pvNo))) {
+    const ov = parseInt(WTPOverride.resolve(cfPvCatKey(pvNo), 0), 10);
+    if (ov >= 1 && ov <= 4) return ov;
+  }
+  if (ap) return categorizePayable(ap);
+  const vc = cfVendorCat(pv.Payee);
+  if (vc) return vc;
+  const text = (String(pv.Payee || '') + ' ' + String(pv.cc_remark || pv.Remark || '')).toLowerCase();
+  if (/ดอกเบี้ย|interest|ค่าธรรมเนียม|bank fee|wht|leasing|ลีสซิ่ง/i.test(text)) return 3;
+  return 1;
+}
 function categorizePayable(ap) {
   // Layer 1: manual override
   const override = parseInt(ap.cf_category || '0', 10);
   if (override >= 1 && override <= 4) return override;
+  // Layer 1.5: vendor → หมวด mapping (เจ้าหนี้กลุ่มการเงิน/ลีสซิ่ง เช่น ลีซ อิท → หมวด 3)
+  const vc = cfVendorCat(ap.cust_name || ap.vendor);
+  if (vc) return vc;
   // Layer 2: finance-cost keyword match (cat 3)
   const text = (
     String(ap.cust_name || '') + ' ' +
@@ -541,8 +584,10 @@ function CashFlowDashboard({ data, setData, toast }) {
   const ivInflowByWeek = cfMemo(() => {
     const liveForecast = weeks.map(() => 0);
     const actual       = weeks.map(() => 0);
+    const bySafe       = {};   // sanitized ivNo → live IV (ไว้เช็คสถานะรับเงิน)
     invoices.forEach(iv => {
       const net = ivNetExpected(iv, financeByCode);
+      const s = sanitizeIvKey(iv.ivNo || iv.IV_NO || iv.invoiceNo); if (s) bySafe[s] = iv;
       // Live forecast (fallback เมื่อเดือนยังไม่ถูกล็อก) — IV ที่ยังไม่รับเงิน + คาดรับเดือนนี้
       if (!ivIsPaid(iv) && iv.expectedReceive && inMonth(iv.expectedReceive, year, month)) {
         const w = findWeekIdx(iv.expectedReceive, weeks);
@@ -555,12 +600,25 @@ function CashFlowDashboard({ data, setData, toast }) {
         if (w >= 0) actual[w] += net;
       }
     });
-    // PLAN = baseline ที่ freeze ถ้าเดือนนี้ถูกล็อกแล้ว (นิ่ง ไม่หดเมื่อ IV ถูกรับเงิน)
+    // PLAN เต็ม = baseline ที่ freeze (สำหรับการ์ด KPI — นิ่ง ไม่หดเมื่อ IV ถูกรับเงิน)
     //   ไม่งั้น fallback = forecast สด (เดือนเก่าที่ไม่เคยล็อก / ก่อนมีฟีเจอร์)
     const forecast = ivPlanLock.locked
       ? ivPlanBucketsFromLock(ivPlanLock.items, weeks.length)
       : liveForecast;
-    return { forecast, actual, liveForecast };
+    // PLAN ที่เหลือ = baseline เต็ม − IV ที่รับเงินแล้ว (สำหรับ "ตารางประมาณการรายสัปดาห์" → ยอดที่ยังคาดจะรับ)
+    //   เหตุผล: เงินที่รับแล้วอยู่ในยอดยกมา (เงินสดคงเหลือ) แล้ว — ถ้านับซ้ำ Final Net Position บวมเกินจริง
+    let forecastRemaining;
+    if (ivPlanLock.locked) {
+      forecastRemaining = weeks.map(() => 0);
+      ivPlanLock.items.forEach(it => {
+        const iv = bySafe[it.safe];
+        if (iv && ivIsPaid(iv)) return;   // รับแล้ว → ไม่นับในยอดคาดที่เหลือ
+        if (it.wk >= 0 && it.wk < weeks.length) forecastRemaining[it.wk] += (it.net || 0);
+      });
+    } else {
+      forecastRemaining = liveForecast.slice();   // ยังไม่ล็อก → liveForecast ตัด paid อยู่แล้ว
+    }
+    return { forecast, actual, liveForecast, forecastRemaining };
   }, [invoices, weeks, year, month, ivPlanLock, financeByCode]);
 
   // ── Loan inflow (forecast + actual) — from forecastEntries CATEGORY=LOAN
@@ -736,7 +794,7 @@ function CashFlowDashboard({ data, setData, toast }) {
   //   ACTUAL items at their planned date). Drill-down popup shows breakdown.
   //   Note: an entry that landed on a different week than planned will only
   //   appear at its planned week in the Plan table — that's intentional.
-  const ivCombinedByWeek   = ivInflowByWeek.forecast;
+  const ivCombinedByWeek   = ivInflowByWeek.forecastRemaining;  // ตารางประมาณการ = แผนล็อก − IV ที่รับแล้ว (KPI ยังใช้ .forecast เต็ม)
   const loanCombinedByWeek = loanByWeek.forecast;
 
   const planIv   = currentRestSplit(ivCombinedByWeek,   nextMonthInflow.iv);
@@ -842,6 +900,7 @@ function CashFlowDashboard({ data, setData, toast }) {
           else                statusTxt = window.WTPData?.IV_STATUS_META?.[iv.status]?.short || iv.status || 'ยังไม่รับ';
           items.push({
             source: 'IV',
+            isPaid: paid,                                     // รับแล้ว → ไปกลุ่ม "✅ จ่ายแล้ว" (ตัดจากยอดคาดที่เหลือ ให้ตรงกับตาราง)
             date: weeks[it.wk]?.fromISO || '',
             name: iv ? (iv.projectName || iv.PROJECT_NAME || iv.customer || '—') : it.safe,
             ref: iv ? (iv.ivNo || iv.IV_NO || iv.invoiceNo || it.safe) : it.safe,
@@ -964,6 +1023,7 @@ function CashFlowDashboard({ data, setData, toast }) {
         if (ap.dpt_code) noteParts.push(ap.dpt_code);
         items.push({
           source: 'AP',
+          cat,
           date: d,
           name: ap.cust_name || ap.vendor || '—',
           ref: ap.vchno || ap.docno || '',
@@ -1000,6 +1060,7 @@ function CashFlowDashboard({ data, setData, toast }) {
         items.push({
           source: 'Forecast',
           feId: fe.id,
+          cat,
           editable: !isRealized,   // แก้ได้เฉพาะ PLANNED (ยังไม่เกิดจริง)
           date: d,
           name: fe.DESCRIPTION || '—',
@@ -1039,12 +1100,12 @@ function CashFlowDashboard({ data, setData, toast }) {
       const date = pv.Pmt_Date;
       if (!inMonth(date, year, month)) return;
       if (findWeekIdx(date, weeks) !== weekIdx) return;
-      let c = 1, ap = null;
-      if (pv.AP_No) { ap = payables.find(p => p.vchno === pv.AP_No) || null; if (ap) c = categorizePayable(ap); }
+      const ap = pv.AP_No ? (payables.find(p => p.vchno === pv.AP_No) || null) : null;
+      const c = resolvePvCategory(pv, ap);
       if (!wantCat(c)) return;
       const amt = Number(pv.Net_Amount || pv.Amount || 0);
       items.push({
-        source: 'PV', date,
+        source: 'PV', date, pvNo: pv.PL_PV_No || '', cat: c,
         name: pv.Payee || (ap && (ap.cust_name || ap.vendor)) || '—',
         ref: pv.PL_PV_No || pv.AP_No || '',
         amount: -Math.abs(amt), isPaid: true,
@@ -1178,6 +1239,47 @@ function CashFlowDashboard({ data, setData, toast }) {
       items: prev.items.map(x => x.feId === feId ? { ...x, amount: signedAmount } : x),
     });
     if (typeof toast === 'function') toast('แก้ไขประมาณการแล้ว — กำลังซิงค์');
+  };
+
+  // ─── แก้ "หมวด" ของรายการใน drill-down ─────────────────────────────────────
+  //   PV → override ราย PV (cf.pvCat) · Forecast → fe.CATEGORY · AP → cf_category — แล้วย้ายออกจากหมวดเดิม
+  const setItemCategory = (item, cat) => {
+    cat = parseInt(cat, 10);
+    if (!item || !(cat >= 1 && cat <= 4)) return;
+    if (item.source === 'Forecast' && item.feId) {
+      setData(d => ({ ...d, forecastEntries: (d.forecastEntries || []).map(fe => fe.id === item.feId ? { ...fe, CATEGORY: cat } : fe) }));
+    } else if (item.source === 'PV' && item.pvNo) {
+      WTPOverride.set(cfPvCatKey(item.pvNo), cat);
+    } else if (item.source === 'AP' && item.vchno) {
+      setData(d => ({ ...d, payables: (d.payables || []).map(p => p.vchno === item.vchno ? { ...p, cf_category: String(cat) } : p) }));
+    } else { return; }
+    // ย้ายไปหมวดอื่นแล้ว → เอาออกจากรายการในป๊อปอัปปัจจุบัน + ปิด detail
+    setDrillDown(prev => prev && { ...prev, items: prev.items.filter(x => x !== item) });
+    setDetailItem(null);
+    if (typeof toast === 'function') toast('ย้าย "' + (item.name || '') + '" → หมวด ' + cat + ' · ' + (CATEGORY_LABELS_SHORT[cat] || ''));
+  };
+
+  // เปลี่ยนหมวด "ทั้งกลุ่ม" (ทุกใบในกลุ่มชื่อ+วันเดียวกัน) ทีเดียว — batch เขียนกลับ
+  const setGroupCategory = (items, cat) => {
+    cat = parseInt(cat, 10);
+    if (!Array.isArray(items) || !items.length || !(cat >= 1 && cat <= 4)) return;
+    const feIds = new Set(), vchnos = new Set(), pvNos = [];
+    items.forEach(it => {
+      if (it.source === 'Forecast' && it.feId) feIds.add(it.feId);
+      else if (it.source === 'PV' && it.pvNo) pvNos.push(it.pvNo);
+      else if (it.source === 'AP' && it.vchno) vchnos.add(it.vchno);
+    });
+    if (feIds.size || vchnos.size) {
+      setData(d => ({
+        ...d,
+        forecastEntries: feIds.size ? (d.forecastEntries || []).map(fe => feIds.has(fe.id) ? { ...fe, CATEGORY: cat } : fe) : (d.forecastEntries || []),
+        payables:        vchnos.size ? (d.payables || []).map(p => vchnos.has(p.vchno) ? { ...p, cf_category: String(cat) } : p) : (d.payables || []),
+      }));
+    }
+    pvNos.forEach(pvNo => WTPOverride.set(cfPvCatKey(pvNo), cat));
+    const itemSet = new Set(items);
+    setDrillDown(prev => prev && { ...prev, items: prev.items.filter(x => !itemSet.has(x)) });
+    if (typeof toast === 'function') toast('ย้าย ' + items.length + ' รายการ → หมวด ' + cat + ' · ' + (CATEGORY_LABELS_SHORT[cat] || ''));
   };
 
   const monthNames = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
@@ -1388,7 +1490,7 @@ function CashFlowDashboard({ data, setData, toast }) {
             {/* ── OUTFLOW section ─────────────────────────────────────── */}
             <tr style={{ background: 'color-mix(in oklch, var(--bad) 8%, transparent)' }}>
               <td colSpan={4} style={{ fontWeight: 700, color: 'var(--bad)', fontSize: cfScale(16), padding: `${cfScale(8)} ${cfScale(14)}` }}>
-                2: กระแสเงินสดออก (Outflow Details) · 4 หมวด · 💧 โครงการรวมกลุ่มจ่ายตามสภาพคล่อง (คลิกดู)
+                2: กระแสเงินสดออก (Outflow Details) · 4 หมวด
               </td>
             </tr>
             {[1, 2, 3, 4].map(cat => {
@@ -1464,9 +1566,7 @@ function CashFlowDashboard({ data, setData, toast }) {
                   <td style={{ padding: `${cfScale(12)} ${cfScale(14)}`, color: 'var(--brand-700)' }}>
                     💼 ยอดคงเหลือสุทธิปลายงวด (Final Net Position)
                   </td>
-                  <td colSpan={2} style={{ textAlign: 'center', fontSize: cfScale(11), color: 'var(--ink-500)' }}>
-                    สิ้น{weeks[nowWeek]?.label || 'W?'} → {isLastWeekOfMonth ? 'สิ้นเดือนถัดไป' : 'สิ้นเดือน'}
-                  </td>
+                  <td colSpan={2}></td>
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums',
                     color: netMonDisp < 0 ? 'var(--bad)' : 'var(--good)', fontSize: cfScale(22) }}>
                     {fmtNum(netMonDisp, 0)}
@@ -1715,7 +1815,7 @@ function CashFlowDashboard({ data, setData, toast }) {
                   boxShadow: '0 0 18px color-mix(in oklch, #5fe0ff 70%, transparent)', borderRadius: cfScale(8),
                 }} />
                 <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: `0 ${cfScale(12)}`, fontSize: cfScale(12.5), fontWeight: 800 }}>
-                  <span style={{ color: '#fff' }}>{grandPct.toFixed(2)}%</span>
+                  <span style={{ color: '#fff', textShadow: '0 1px 3px rgba(0,0,0,.6), 0 0 2px rgba(0,0,0,.55)' }}>{grandPct.toFixed(2)}%</span>
                   <span style={{ color: 'rgba(255,255,255,.85)', fontSize: cfScale(11) }}>ของแผนทั้งเดือน</span>
                 </div>
               </div>
@@ -1811,8 +1911,10 @@ function CashFlowDashboard({ data, setData, toast }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {drillDown.items.map((it, i) => (
-                      <DrillRow key={i} item={it} onCommit={commitForecastEdit} onView={setDetailItem} onTogglePaid={toggleManualPaid} />
+                    {groupDrillItems(drillDown.items).map((g) => (
+                      g.items.length > 1
+                        ? <DrillGroupRow key={g.key} group={g} onCommit={commitForecastEdit} onView={setDetailItem} onTogglePaid={toggleManualPaid} onSetGroupCat={setGroupCategory} />
+                        : <DrillRow key={g.key} item={g.items[0]} onCommit={commitForecastEdit} onView={setDetailItem} onTogglePaid={toggleManualPaid} />
                     ))}
                   </tbody>
                 </table>
@@ -1859,8 +1961,10 @@ function CashFlowDashboard({ data, setData, toast }) {
                       </tr>
                     </thead>
                     <tbody>
-                      {rows.map((it, i) => (
-                        <DrillRow key={i} item={it} onCommit={commitForecastEdit} onView={setDetailItem} onTogglePaid={toggleManualPaid} />
+                      {groupDrillItems(rows).map((g) => (
+                        g.items.length > 1
+                          ? <DrillGroupRow key={g.key} group={g} onCommit={commitForecastEdit} onView={setDetailItem} onTogglePaid={toggleManualPaid} onSetGroupCat={setGroupCategory} />
+                          : <DrillRow key={g.key} item={g.items[0]} onCommit={commitForecastEdit} onView={setDetailItem} onTogglePaid={toggleManualPaid} />
                       ))}
                     </tbody>
                   </table>
@@ -1920,6 +2024,18 @@ function CashFlowDashboard({ data, setData, toast }) {
               {fmtNum(detailItem.amount, Number.isInteger(detailItem.amount) ? 0 : 2)} ฿
             </span>
           </div>
+          {(detailItem.pvNo || detailItem.feId || (detailItem.source === 'AP' && detailItem.vchno)) && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', marginBottom: 12, borderRadius: 8, background: 'var(--warn-bg)', border: '1px solid var(--line)' }}>
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink-700)', whiteSpace: 'nowrap' }}>✏️ แก้หมวด:</span>
+              <select value={detailItem.cat || ''}
+                disabled={typeof _wtpRoleIsReadOnly === 'function' && _wtpRoleIsReadOnly()}
+                onChange={(e) => setItemCategory(detailItem, e.target.value)}
+                className="select input" style={{ flex: 1, fontSize: 12.5, padding: '6px 10px' }}>
+                <option value="" disabled>— เลือกหมวด —</option>
+                {[1, 2, 3, 4].map(n => <option key={n} value={n}>{n} · {CATEGORY_LABELS[n]}</option>)}
+              </select>
+            </div>
+          )}
           <table className="tbl" style={{ width: '100%', fontSize: 13 }}>
             <tbody>
               {(detailItem.detail || []).map(([k, v], j) => (
@@ -2181,6 +2297,64 @@ function PlanRow({ label, current, rest, total, subtle, negative, carrySigned, o
 //   AP/IV/รายการที่เกิดจริง = ดูอย่างเดียว · Forecast (PLANNED) = กดแก้ยอดได้
 //   แก้ = กรอก "ขนาด" (magnitude) คงเครื่องหมายเดิม (จ่าย = ลบ, รับ = บวก)
 //   ช่องแก้เป็น text + comma (ไม่มีลูกศรเพิ่ม/ลด) พิมพ์เองได้เร็ว
+// จัดกลุ่มรายการ drill-down "ชื่อเดียวกัน + วันเดียวกัน" → ย่อเป็น 1 แถว กดกางดูรายย่อย
+function groupDrillItems(items) {
+  const order = [], map = {};
+  (items || []).forEach((it) => {
+    const full = String(it.name || '—').trim();
+    // ตัด " (เลขที่ AP)" ท้ายชื่อออกก่อนจับกลุ่ม → forecast ของผู้ขายเดียวกันจะรวมกลุ่มได้เหมือน AP
+    const groupName = full.replace(/\s*\([^)]*\)\s*$/, '').trim() || full;
+    const key = (it.date || '') + '|' + groupName;
+    if (!map[key]) { map[key] = { key, name: groupName, date: it.date, items: [] }; order.push(map[key]); }
+    map[key].items.push(it);
+  });
+  return order;
+}
+
+/* แถวกลุ่ม (ชื่อ+วันเดียวกัน) ใน drill-down — ย่อ=ยอดรวม · กดกางดูรายย่อย (DrillRow เดิม) */
+function DrillGroupRow({ group, onCommit, onView, onTogglePaid, onSetGroupCat }) {
+  const [open, setOpen] = cfState(false);
+  const total = group.items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
+  const src = group.items[0] && group.items[0].source;
+  const srcStyle = {
+    display: 'inline-block', padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600,
+    background: src === 'AP' ? 'color-mix(in oklch, var(--bad) 14%, transparent)' :
+                src === 'IV' ? 'color-mix(in oklch, var(--good) 14%, transparent)' :
+                'color-mix(in oklch, var(--brand-500) 14%, transparent)',
+    color: src === 'AP' ? 'var(--bad)' : src === 'IV' ? 'var(--good)' : 'var(--brand-700)',
+  };
+  return (
+    <React.Fragment>
+      <tr onClick={() => setOpen(o => !o)} title="กดดูรายการย่อย"
+        style={{ cursor: 'pointer', background: 'color-mix(in oklch, var(--brand-500) 5%, transparent)' }}>
+        <td><span style={srcStyle}>{src}</span></td>
+        <td style={{ whiteSpace: 'nowrap', color: 'var(--ink-600)' }}>{fmtDate(group.date) || group.date}</td>
+        <td style={{ color: 'var(--ink-400)', fontSize: 11 }}>{group.items.length} ใบ</td>
+        <td>
+          <span style={{ fontSize: 9, color: 'var(--ink-400)', display: 'inline-block', width: 11, transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>▶</span>
+          <b>{group.name}</b>
+        </td>
+        <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: total < 0 ? 'var(--bad)' : 'var(--good)' }}>
+          {fmtNum(total, Number.isInteger(total) ? 0 : 2)}
+        </td>
+        <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
+          {onSetGroupCat && group.items.some(it => it.feId || it.pvNo || (it.source === 'AP' && it.vchno)) ? (
+            <select value={(group.items[0] && group.items[0].cat) || ''} title="เปลี่ยนหมวดทั้งกลุ่มทีเดียว"
+              disabled={typeof _wtpRoleIsReadOnly === 'function' && _wtpRoleIsReadOnly()}
+              onChange={(e) => { e.stopPropagation(); onSetGroupCat(group.items, e.target.value); }}
+              style={{ fontSize: 11, padding: '2px 6px', borderRadius: 5, borderWidth: 1, borderStyle: 'solid', borderColor: 'var(--brand-400)', background: 'color-mix(in oklch, var(--brand-500) 6%, white)', maxWidth: 116, fontFamily: 'inherit', cursor: 'pointer' }}>
+              {[1, 2, 3, 4].map(n => <option key={n} value={n}>หมวด {n} · {CATEGORY_LABELS_SHORT[n]}</option>)}
+            </select>
+          ) : (open ? '▴' : '▾')}
+        </td>
+      </tr>
+      {open && group.items.map((it, i) => (
+        <DrillRow key={i} item={it} onCommit={onCommit} onView={onView} onTogglePaid={onTogglePaid} />
+      ))}
+    </React.Fragment>
+  );
+}
+
 function DrillRow({ item, onCommit, onView, onTogglePaid }) {
   const readOnly = typeof _wtpRoleIsReadOnly === 'function' && _wtpRoleIsReadOnly();
   const editable = item.editable && !readOnly && item.feId;

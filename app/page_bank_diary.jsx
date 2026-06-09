@@ -175,8 +175,10 @@ function bdNormAP(p) {
 /* Build the per-account view (เช็คค้างจ่าย + forecast ที่ผูกบัญชี) — base = ยอดเงินจริง (ไม่หัก HOLD)
  * สัญญาณ "เงินไม่พอ" ใช้กรอบ 7 วัน (near-term) เทียบยอดเงินจริง */
 function bdBuildAccountView(acct, matchedChecks, matchedForecasts, matchedTransfers, matchedPVs, today, next7) {
-  const asOfRef = (acct.asOf && acct.asOf < today) ? acct.asOf : today;
-  const base    = acct.balance; // ยอดเงินจริง
+  // ใช้วันที่ของยอดที่บันทึก (acct.asOf = DATE) เป็นจุดเริ่ม — รวมกรณีอนาคต (เช่นบันทึก "ยอดยกไปพรุ่งนี้")
+  //   ไม่ cap ที่ today อีกต่อไป → พอบันทึกยอดพรุ่งนี้ รายการของวันนี้ (จ่าย/สะท้อนในยอดแล้ว) จะหลุดออกเอง ไม่หักซ้ำ
+  const asOfRef = acct.asOf || today;
+  const base    = acct.balance; // ยอดเงินจริง (= ยอดใช้ได้ที่บันทึกล่าสุด)
 
   const items = [];
   const countedChq = new Set(); // เลขเช็คที่นับในการ์ดแล้ว — กัน PV ที่เป็นเช็คใบเดียวกันนับซ้ำ
@@ -199,7 +201,7 @@ function bdBuildAccountView(acct, matchedChecks, matchedForecasts, matchedTransf
       items.push({
         date: f.date, signed: f.amount, kind: 'forecast',
         title: f.desc, sub: (f.isActual ? '✓ ' + (f.amount >= 0 ? 'รับจริงแล้ว' : 'จ่ายจริงแล้ว') : 'ประมาณการ') + (f.refDoc ? ' • ' + f.refDoc : ''),
-        status: f.isActual ? 'actual' : 'planned', raw: f, group: vendorName, refDoc: f.refDoc || '',
+        status: f.isActual ? 'actual' : 'planned', raw: f, group: vendorName, refDoc: f.refDoc || '', remark: f.remark || '',
       });
     });
   // โอนระหว่างบัญชี: นับเฉพาะที่ "ยังไม่กลืนยอด" = ยังไม่ยืนยัน และลงวันที่ตั้งแต่วัน BALANCE เป็นต้นไป
@@ -268,7 +270,11 @@ function bdBuildAccountView(acct, matchedChecks, matchedForecasts, matchedTransf
 
   const dueToday    = items.filter(i => i.date === today);
   const dueTodayOut = dueToday.filter(i => i.signed < 0).reduce((s, i) => s - i.signed, 0);
-  const overdue     = items.filter(i => i.kind === 'check' && (i.date || '') < today);
+  // เช็คค้างขึ้นเงิน (outstanding, ลงวันที่ก่อน asOf) — *ไม่* หักจากยอดในการ์ด แต่เก็บเป็นลิสต์ให้กดดู/ไปแก้ไข
+  const overdue     = matchedChecks
+    .filter(c => bdIsOutstanding(c._st) && (c.checkDate || '') !== '' && (c.checkDate || '') < asOfRef)
+    .map(c => ({ checkNo: c.checkNo || '', payee: c.payee || '—', amount: bdNum(c.amount), checkDate: c.checkDate || '', status: c._st, raw: c }))
+    .sort((a, b) => (a.checkDate < b.checkDate ? -1 : 1));
 
   return { acct, base, items, dayGroups, outTotal, inTotal,
            near, nearNet, afterNear, shortNear, shortBy, dueToday, dueTodayOut, overdue };
@@ -664,6 +670,7 @@ function BDItemRow({ it, top, onItemEdit, label, sub }) {
           {editable && <span style={{ marginLeft:6, fontSize:10, color:'#a5b4fc' }}>✏️</span>}
         </div>
         <div style={{ fontSize:10, color:'#94a3b8' }}>{sub != null ? sub : it.sub}</div>
+        {it.remark ? <div style={{ fontSize:10, color:'#64748b', marginTop:1 }}>📝 {it.remark}</div> : null}
       </div>
       <div style={{ textAlign:'right', fontWeight:600, fontSize:12, color: inflow ? '#276749' : '#c53030', fontVariantNumeric:'tabular-nums', whiteSpace:'nowrap' }}>
         {inflow ? '+' : '−'}{fmtMoney(Math.abs(it.signed))}
@@ -754,9 +761,10 @@ function BDDayGroup({ day, today, onItemEdit }) {
               map[key].total += it.signed;
             });
             return order.map((g, gi) => (
-              g.items.length === 1
-                ? <BDItemRow key={g.key} it={g.items[0]} top={gi > 0} onItemEdit={onItemEdit} />
-                : <BDDayItemGroup key={g.key} group={g} top={gi > 0} onItemEdit={onItemEdit} />
+              // forecast (รวม 1 ใบ) → ย่อเป็นกลุ่มเหมือนกันให้สวยงาม · เช็ค/PV/โอน เดี่ยว → แถวเดียวตามเดิม
+              (g.items.length > 1 || g.kind === 'forecast')
+                ? <BDDayItemGroup key={g.key} group={g} top={gi > 0} onItemEdit={onItemEdit} />
+                : <BDItemRow key={g.key} it={g.items[0]} top={gi > 0} onItemEdit={onItemEdit} />
             ));
           })()}
         </div>
@@ -766,9 +774,76 @@ function BDDayGroup({ day, today, onItemEdit }) {
 }
 
 /* ── Account Card — ยอดเงินจริง + เช็ค/ประมาณการแยกตามวัน ───────────── */
-function BankAccountCard({ view, today, periodEnd, periodLabel, onQuickTransfer, onItemEdit, canEdit }) {
+/* Modal — เช็คเลยกำหนดที่ยังไม่ขึ้นเงิน (ไม่หักจากยอดในการ์ด) → ดูรายการ + ไปหน้าจัดการเช็คเพื่อแก้ */
+function BDOverdueChecksModal({ acctLabel, checks, canEdit, onSetStatus, onClose }) {
+  const total = (checks || []).reduce((s, c) => s + (c.amount || 0), 0);
+  const editable = !!(canEdit && onSetStatus);
+  const apply = (c, status) => {
+    if (!onSetStatus) return;
+    if (!window.confirm('ยืนยัน: เช็ค #' + (c.checkNo || '—') + ' (' + (c.payee || '') + ') → "' + status + '"?')) return;
+    onSetStatus(c.raw, status);
+  };
+  return (
+    <div onClick={onClose}
+      style={{ position:'fixed', inset:0, background:'rgba(15,23,42,0.5)', zIndex:1000, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ background:'#fff', borderRadius:14, maxWidth:660, width:'100%', maxHeight:'80vh', overflow:'hidden', display:'flex', flexDirection:'column', boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+        <div style={{ padding:'14px 18px', borderBottom:'1px solid #f0f4f8', display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:10 }}>
+          <div>
+            <div style={{ fontWeight:800, fontSize:15, color:'#86198f' }}>⏰ เช็คเลยกำหนด · ยังไม่ขึ้นเงิน — {acctLabel}</div>
+            <div style={{ fontSize:12, color:'#64748b', marginTop:2 }}>{(checks || []).length} ฉบับ · รวม {fmtMoney(total)} · <b>ไม่ได้หักจากยอดในการ์ด</b></div>
+          </div>
+          <button onClick={onClose} style={{ border:'none', background:'transparent', fontSize:20, cursor:'pointer', color:'#94a3b8', lineHeight:1 }}>✕</button>
+        </div>
+        <div style={{ overflow:'auto' }}>
+          <table className="tbl" style={{ width:'100%', fontSize:12.5 }}>
+            <thead style={{ position:'sticky', top:0, background:'#fff' }}>
+              <tr>
+                <th style={{ width:92 }}>ลงวันที่</th>
+                <th>ผู้รับเงิน</th>
+                <th style={{ width:96 }}>เลขที่เช็ค</th>
+                <th style={{ textAlign:'right', width:108 }}>จำนวน</th>
+                {editable && <th style={{ textAlign:'center', width:170 }}>แก้สถานะ</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {(checks || []).length === 0 ? (
+                <tr><td colSpan={editable ? 5 : 4} style={{ textAlign:'center', color:'#16a34a', padding:'18px 0', fontWeight:600 }}>✓ ไม่มีเช็คค้างขึ้นเงินแล้ว</td></tr>
+              ) : (checks || []).map((c, i) => (
+                <tr key={i}>
+                  <td style={{ whiteSpace:'nowrap', color:'#c026d3' }}>{fmtDate(c.checkDate) || c.checkDate || '—'}</td>
+                  <td>{c.payee}</td>
+                  <td style={{ fontFamily:'ui-monospace', fontSize:11 }}>{c.checkNo || '—'}</td>
+                  <td style={{ textAlign:'right', fontVariantNumeric:'tabular-nums', color:'#c53030', fontWeight:600 }}>−{fmtMoney(c.amount)}</td>
+                  {editable && (
+                    <td style={{ textAlign:'center', whiteSpace:'nowrap' }}>
+                      <button onClick={() => apply(c, 'ขึ้นเงินแล้ว')} title="ทำเครื่องหมายว่าเช็คขึ้นเงินแล้ว — ตัดออกจากรายการค้าง"
+                        style={{ background:'#16a34a', color:'#fff', border:'none', borderRadius:6, padding:'4px 9px', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'inherit', marginRight:5 }}>✓ ขึ้นเงินแล้ว</button>
+                      <button onClick={() => apply(c, 'ยกเลิก')} title="ยกเลิกเช็คใบนี้"
+                        style={{ background:'#fff', color:'#dc2626', border:'1px solid #fecaca', borderRadius:6, padding:'4px 9px', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>ยกเลิก</button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ padding:'12px 18px', borderTop:'1px solid #f0f4f8', display:'flex', justifyContent:'space-between', alignItems:'center', gap:10 }}>
+          <span style={{ fontSize:11, color:'#94a3b8' }}>{editable ? 'กด "✓ ขึ้นเงินแล้ว" เพื่อตัดออก (บันทึก+ซิงค์ขึ้นชีต)' : 'ลงวันที่ก่อนยอดยกมา · ไม่ได้หักจากยอดในการ์ด'}</span>
+          <button onClick={() => { onClose(); location.hash = 'checks'; }}
+            style={{ background:'#fff', color:'#4338ca', border:'1px solid #c7d2fe', borderRadius:8, padding:'8px 14px', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'inherit', whiteSpace:'nowrap' }}>
+            จัดการเช็คทั้งหมด →
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BankAccountCard({ view, today, periodEnd, periodLabel, onQuickTransfer, onItemEdit, onCheckStatus, canEdit }) {
   const [expanded, setExpanded] = React.useState(true);
   const [showAll, setShowAll]   = React.useState(false);
+  const [showOverdue, setShowOverdue] = React.useState(false);
   const { acct, base, dayGroups, near, afterNear, shortNear, shortBy, dueToday, dueTodayOut, overdue } = view;
 
   const visibleGroups = showAll ? dayGroups : dayGroups.filter(g => g.date <= periodEnd);
@@ -809,8 +884,8 @@ function BankAccountCard({ view, today, periodEnd, periodLabel, onQuickTransfer,
               <span style={{ fontWeight:800, fontSize:16, letterSpacing:0.5, textShadow:'0 1px 2px rgba(0,0,0,0.18)' }}>{brand.label}</span>
               {isShort && <span style={{ fontSize:10, fontWeight:800, background:'#fff', color:'#dc2626', borderRadius:5, padding:'2px 7px', whiteSpace:'nowrap', boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }}>⚠ {shortNear ? 'ไม่พอใน 7 วัน' : 'ไม่พอในช่วงนี้'}</span>}
             </div>
-            <div title={acct.accountNo} style={{ fontFamily:'ui-monospace', fontWeight:700, fontSize:16, letterSpacing:2.5, marginTop:8, color:'rgba(255,255,255,0.96)' }}>
-              <span style={{ opacity:0.55 }}>••••</span> {last4 || '—'}
+            <div title={acct.accountNo} style={{ fontFamily:'ui-monospace', fontWeight:800, fontSize:24, letterSpacing:2, marginTop:8, color:'#fff', textShadow:'0 1px 4px rgba(0,0,0,0.30)' }}>
+              <span style={{ opacity:0.5, fontSize:16 }}>••••</span> {last4 || '—'}
             </div>
             {(acct.accountName || acct.note || acct.type) && (
               <div style={{ fontSize:11, color:'rgba(255,255,255,0.78)', marginTop:4, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:175 }}>
@@ -819,14 +894,8 @@ function BankAccountCard({ view, today, periodEnd, periodLabel, onQuickTransfer,
             )}
           </div>
           <div style={{ textAlign:'right', whiteSpace:'nowrap' }}>
-            <div style={{ fontSize:9.5, color:'rgba(255,255,255,0.8)', textTransform:'uppercase', letterSpacing:0.6 }}>ยอดเงินจริง</div>
-            <div style={{ fontWeight:800, fontSize:19, color:'#fff', fontVariantNumeric:'tabular-nums', textShadow:'0 1px 3px rgba(0,0,0,0.18)' }}>{fmtMoney(base)}</div>
-            {acct.available != null && acct.available !== acct.balance && (
-              <div style={{ fontSize:10, color:'rgba(255,255,255,0.78)', marginTop:2 }}>ใช้ได้ {fmtMoney(acct.available)}</div>
-            )}
-            {acct.hold != null && acct.hold > 0 && (
-              <div style={{ fontSize:10, color:'rgba(255,255,255,0.92)' }}>อายัด/ค้ำ {fmtMoney(acct.hold)}</div>
-            )}
+            <div style={{ fontSize:9.5, color:'rgba(255,255,255,0.8)', textTransform:'uppercase', letterSpacing:0.6 }}>ยอดใช้ได้จริง</div>
+            <div style={{ fontWeight:800, fontSize:20, color:'#fff', fontVariantNumeric:'tabular-nums', textShadow:'0 1px 3px rgba(0,0,0,0.18)' }}>{fmtMoney(base)}</div>
           </div>
         </div>
       </div>
@@ -845,11 +914,17 @@ function BankAccountCard({ view, today, periodEnd, periodLabel, onQuickTransfer,
             </span>
           )}
           {overdue.length > 0 && (
-            <span style={{ background:'#fae8ff', color:'#86198f', fontSize:11, fontWeight:700, borderRadius:6, padding:'3px 9px' }}>
-              ⏰ เลยกำหนดยังไม่เคลียร์ {overdue.length} ฉบับ
+            <span onClick={(e) => { e.stopPropagation(); setShowOverdue(true); }}
+              title="กดดู / ไปแก้ไขเช็คที่ยังไม่ขึ้นเงิน"
+              style={{ background:'#fae8ff', color:'#86198f', fontSize:11, fontWeight:700, borderRadius:6, padding:'3px 9px', cursor:'pointer' }}>
+              ⏰ เลยกำหนดยังไม่เคลียร์ {overdue.length} ฉบับ ›
             </span>
           )}
         </div>
+      )}
+
+      {showOverdue && (
+        <BDOverdueChecksModal acctLabel={brand.label + ' •••• ' + last4} checks={overdue} canEdit={canEdit} onSetStatus={onCheckStatus} onClose={() => setShowOverdue(false)} />
       )}
 
       {/* Body */}
@@ -1025,12 +1100,87 @@ function ForecastModal({ bankAccounts, today, initial, prefill, onSave, onClose,
 }
 
 /* ── Forecast Panel — ประมาณการกระแสเงินสด (รวมทุกบัญชี) ───────────── */
+/* แถวประมาณการเดี่ยว (ใช้ทั้งแบบเดี่ยว และเป็นรายย่อยใต้กลุ่ม) */
+function BDForecastRow({ r, canEdit, onEdit, sub }) {
+  return (
+    <tr onClick={canEdit ? () => onEdit(r) : undefined}
+        style={{ cursor: canEdit ? 'pointer' : 'default', background: sub ? '#fcfdff' : undefined }}
+        title={canEdit ? 'กดเพื่อแก้ไข / เปลี่ยนบัญชี' : undefined}>
+      <td style={{ whiteSpace:'nowrap', color: sub ? '#cbd5e1' : undefined }}>{sub ? '↳' : fmtDate(r.date)}</td>
+      <td style={{ paddingLeft: sub ? 22 : undefined }}>
+        {sub && r.refDoc ? <span style={{ fontFamily:'ui-monospace', fontSize:11, color:'#6366f1', marginRight:6 }}>{r.refDoc}</span> : null}
+        {r.desc}
+        {r.isActual && r.actualAmount != null && r.actualAmount !== Math.abs(r.planAmount) && (
+          <span style={{ marginLeft:6, fontSize:10, color:'#94a3b8' }}>(ประมาณการ {fmtMoney(Math.abs(r.planAmount))})</span>
+        )}
+        {r.remark ? <div style={{ fontSize:10, color:'#64748b', marginTop:1 }}>📝 {r.remark}</div> : null}
+      </td>
+      <td style={{ fontFamily:'ui-monospace', fontSize:11, color: r.bankAc ? '#64748b' : '#cbd5e1' }}>{r.bankAc || 'ไม่ระบุ'}</td>
+      <td>
+        {r.isActual
+          ? <span style={{ background:'#c6f6d5', color:'#276749', fontSize:11, fontWeight:600, borderRadius:12, padding:'2px 9px' }}>✓ จ่าย/รับจริง</span>
+          : <span style={{ background:'#e9d8fd', color:'#6b21a8', fontSize:11, fontWeight:600, borderRadius:12, padding:'2px 9px' }}>ประมาณการ</span>
+        }
+      </td>
+      <td style={{ textAlign:'right', fontVariantNumeric:'tabular-nums', fontWeight:700, color: r.amount >= 0 ? '#276749' : '#c53030', whiteSpace:'nowrap' }}>
+        {r.amount >= 0 ? '+' : '−'}{fmtMoney(Math.abs(r.amount))}
+      </td>
+      {canEdit && (
+        <td style={{ textAlign:'center', color:'#6366f1' }}><span style={{ fontSize:14 }}>✏️</span></td>
+      )}
+    </tr>
+  );
+}
+
+/* กลุ่มประมาณการ "ชื่อเดียวกัน + วันเดียวกัน" — ย่อ=ยอดรวม · กดกางดูรายย่อย (เลขที่ AP + remark) */
+function BDForecastGroupRow({ group, canEdit, onEdit }) {
+  const [open, setOpen] = React.useState(false);
+  const total = group.items.reduce((s, r) => s + r.amount, 0);
+  const allActual = group.items.every(r => r.isActual);
+  const anyActual = group.items.some(r => r.isActual);
+  return (
+    <React.Fragment>
+      <tr onClick={() => setOpen(o => !o)} style={{ cursor:'pointer', background:'#f5f7ff' }} title="กดดูรายการย่อย">
+        <td style={{ whiteSpace:'nowrap', fontWeight:600 }}>{fmtDate(group.date)}</td>
+        <td>
+          <span style={{ fontSize:10, color:'#6366f1', display:'inline-block', width:12, transform: open ? 'rotate(90deg)' : 'none', transition:'transform .15s' }}>▶</span>
+          <b>{group.name}</b> <span style={{ fontSize:11, color:'#94a3b8' }}>· {group.items.length} ใบ</span>
+        </td>
+        <td style={{ fontFamily:'ui-monospace', fontSize:11, color: group.bankAc ? '#64748b' : '#cbd5e1' }}>{group.bankAc || 'ไม่ระบุ'}</td>
+        <td>
+          {allActual
+            ? <span style={{ background:'#c6f6d5', color:'#276749', fontSize:11, fontWeight:600, borderRadius:12, padding:'2px 9px' }}>✓ จ่าย/รับจริง</span>
+            : anyActual
+              ? <span style={{ background:'#fef3c7', color:'#92400e', fontSize:11, fontWeight:600, borderRadius:12, padding:'2px 9px' }}>บางส่วนจ่ายแล้ว</span>
+              : <span style={{ background:'#e9d8fd', color:'#6b21a8', fontSize:11, fontWeight:600, borderRadius:12, padding:'2px 9px' }}>ประมาณการ</span>}
+        </td>
+        <td style={{ textAlign:'right', fontVariantNumeric:'tabular-nums', fontWeight:700, color: total >= 0 ? '#276749' : '#c53030', whiteSpace:'nowrap' }}>
+          {total >= 0 ? '+' : '−'}{fmtMoney(Math.abs(total))}
+        </td>
+        {canEdit && <td style={{ textAlign:'center', color:'#94a3b8', fontSize:11 }}>{open ? '▴' : '▾'}</td>}
+      </tr>
+      {open && group.items.map((r, i) => <BDForecastRow key={r.id || i} r={r} canEdit={canEdit} onEdit={onEdit} sub />)}
+    </React.Fragment>
+  );
+}
+
 function BDForecastPanel({ forecasts, periodEnd, periodLabel, today, totalRealBalance, onAdd, onEdit, canEdit }) {
   const [collapsed, setCollapsed] = React.useState(true);   // ย่อไว้ก่อน — กดหัวการ์ดเพื่อกาง
   const rows = React.useMemo(
     () => forecasts.filter(f => f.date && f.date >= today && f.date <= periodEnd).sort((a, b) => a.date < b.date ? -1 : 1),
     [forecasts, periodEnd, today]
   );
+  // จัดกลุ่ม "ชื่อเดียวกัน + วันเดียวกัน" (ตัด " (เลขที่ AP)" ท้าย desc) เพื่อย่อรายการยาวๆ
+  const groupedRows = React.useMemo(() => {
+    const order = [], map = {};
+    rows.forEach(r => {
+      const name = (r.desc || '').replace(/\s*\([^)]*\)\s*$/, '').trim() || (r.desc || '');
+      const key = r.date + '|' + name;
+      if (!map[key]) { map[key] = { key, name, date: r.date, bankAc: r.bankAc, items: [] }; order.push(map[key]); }
+      map[key].items.push(r);
+    });
+    return order;
+  }, [rows]);
   const inflow  = rows.filter(r => r.amount > 0).reduce((s, r) => s + r.amount, 0);
   const outflow = rows.filter(r => r.amount < 0).reduce((s, r) => s - r.amount, 0);
   const net     = inflow - outflow;
@@ -1095,34 +1245,10 @@ function BDForecastPanel({ forecasts, periodEnd, periodLabel, today, totalRealBa
           <tbody>
             {rows.length === 0 ? (
               <tr><td colSpan={canEdit ? 6 : 5} style={{ textAlign:'center', color:'#a0aec0', padding:'16px 0' }}>ไม่มีรายการประมาณการในช่วงนี้</td></tr>
-            ) : rows.map(r => (
-              <tr key={r.id}
-                  onClick={canEdit ? () => onEdit(r) : undefined}
-                  style={{ cursor: canEdit ? 'pointer' : 'default' }}
-                  title={canEdit ? 'กดเพื่อแก้ไข / เปลี่ยนบัญชี' : undefined}>
-                <td style={{ whiteSpace:'nowrap' }}>{fmtDate(r.date)}</td>
-                <td>
-                  {r.desc}
-                  {r.isActual && r.actualAmount != null && r.actualAmount !== Math.abs(r.planAmount) && (
-                    <span style={{ marginLeft:6, fontSize:10, color:'#94a3b8' }}>(ประมาณการ {fmtMoney(Math.abs(r.planAmount))})</span>
-                  )}
-                </td>
-                <td style={{ fontFamily:'ui-monospace', fontSize:11, color: r.bankAc ? '#64748b' : '#cbd5e1' }}>{r.bankAc || 'ไม่ระบุ'}</td>
-                <td>
-                  {r.isActual
-                    ? <span style={{ background:'#c6f6d5', color:'#276749', fontSize:11, fontWeight:600, borderRadius:12, padding:'2px 9px' }}>✓ จ่าย/รับจริง</span>
-                    : <span style={{ background:'#e9d8fd', color:'#6b21a8', fontSize:11, fontWeight:600, borderRadius:12, padding:'2px 9px' }}>ประมาณการ</span>
-                  }
-                </td>
-                <td style={{ textAlign:'right', fontVariantNumeric:'tabular-nums', fontWeight:700, color: r.amount >= 0 ? '#276749' : '#c53030', whiteSpace:'nowrap' }}>
-                  {r.amount >= 0 ? '+' : '−'}{fmtMoney(Math.abs(r.amount))}
-                </td>
-                {canEdit && (
-                  <td style={{ textAlign:'center', color:'#6366f1' }}>
-                    <span style={{ fontSize:14 }}>✏️</span>
-                  </td>
-                )}
-              </tr>
+            ) : groupedRows.map(g => (
+              g.items.length > 1
+                ? <BDForecastGroupRow key={g.key} group={g} canEdit={canEdit} onEdit={onEdit} />
+                : <BDForecastRow key={g.key} r={g.items[0]} canEdit={canEdit} onEdit={onEdit} />
             ))}
           </tbody>
         </table>
@@ -1444,16 +1570,26 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
   // AP (เจ้าหนี้คงค้าง) + เซ็ตเลขที่ที่วางแผนจ่ายแล้ว (มี forecast อ้างถึง REF_DOC) กันวางซ้ำ
   const apList     = React.useMemo(() => rawPayables.map(bdNormAP), [rawPayables]);
   const plannedRefs = React.useMemo(() => new Set(forecasts.filter(f => f.refDoc).map(f => f.refDoc)), [forecasts]);
+  // แนบ remark ให้ forecast (จาก AP ผ่าน refDoc → fallback NOTE ของ forecast เอง) เพื่อโชว์ในรายการ/กลุ่ม
+  const apRemarkByRef = React.useMemo(() => {
+    const m = {};
+    apList.forEach(a => { if (a.vchno) m[String(a.vchno).trim()] = a.remark; });
+    return m;
+  }, [apList]);
+  const forecastsRich = React.useMemo(
+    () => forecasts.map(f => ({ ...f, remark: (f.refDoc && apRemarkByRef[String(f.refDoc).trim()]) || (f.raw && f.raw.NOTE) || '' })),
+    [forecasts, apRemarkByRef]
+  );
   const forecastByAccount = React.useMemo(() => {
     const byAcct = {};
     accounts.forEach(a => { byAcct[a.accountNo] = []; });
-    forecasts.forEach(f => {
+    forecastsRich.forEach(f => {
       if (!f.bankAc) return;
       const hit = accounts.find(a => bdAcctMatchesCheck(a.accountNo, f.bankAc));
       if (hit) byAcct[hit.accountNo].push(f);
     });
     return byAcct;
-  }, [accounts, forecasts]);
+  }, [accounts, forecastsRich]);
 
   /* Normalize PV (bankTransfers) + match → accounts (ด้วย Bank_AC, รองรับเลข 4 ตัวท้าย) */
   const pvList = React.useMemo(() => rawPvVouchers.map(bdNormPV), [rawPvVouchers]);
@@ -1692,6 +1828,20 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
     if (toast) toast(code ? ('ตั้งประเภท: ' + code + '. ' + bdCatLabel(code)) : 'ล้างประเภทแล้ว');
   };
 
+  /* แก้สถานะเช็คจาก modal เช็คค้าง (มาร์ค "ขึ้นเงินแล้ว" / ยกเลิก) → เขียนกลับ data.checks (push ขึ้น Sheet) */
+  const handleSetCheckStatus = (checkRaw, newStatus) => {
+    if (!setData || !checkRaw) return;
+    setData(prev => ({
+      ...prev,
+      checks: (prev.checks || []).map(ch => {
+        const hit = checkRaw.id ? ch.id === checkRaw.id
+                  : (ch.checkNo === checkRaw.checkNo && ch.checkDate === checkRaw.checkDate);
+        return hit ? { ...ch, status: newStatus } : ch;
+      }),
+    }));
+    if (toast) toast('เช็ค ' + (checkRaw.checkNo || '') + ' → ' + newStatus);
+  };
+
   /* Delete a forecast row */
   const handleDeleteForecast = (id) => {
     if (!window.confirm('ลบรายการประมาณการนี้?')) return;
@@ -1807,6 +1957,7 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
             periodLabel={periodLabel}
             onQuickTransfer={openQuickTransfer}
             onItemEdit={canEdit ? handleItemEdit : null}
+            onCheckStatus={canEdit ? handleSetCheckStatus : null}
             canEdit={canEdit}
           />
         ))}
@@ -1814,7 +1965,7 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
 
       {/* Forecast panel — ประมาณการกระแสเงินสด (รวมทุกบัญชี) */}
       <BDForecastPanel
-        forecasts={forecasts}
+        forecasts={forecastsRich}
         periodEnd={periodEnd}
         periodLabel={periodLabel}
         today={today}
