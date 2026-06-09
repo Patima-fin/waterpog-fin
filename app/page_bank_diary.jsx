@@ -161,11 +161,12 @@ function bdNormPV(t) {
   };
 }
 
-/* Normalize payables (AP) — ยอดค้าง = Balance_Amount1 (สำรอง: netpayment/net_new/Amount) */
+/* Normalize payables (AP) — ยอดสุทธิ = netpayment (ให้ตรงกับ Cash Flow: Number(ap.netpayment || ap.Amount))
+ *   fallback: Amount → net_new → Balance_Amount1 (กรณีข้อมูลเก่าไม่มี netpayment) */
 function bdNormAP(p) {
-  const amount = bdNum(p.Balance_Amount1 != null && p.Balance_Amount1 !== '' ? p.Balance_Amount1
-               : (p.netpayment != null && p.netpayment !== '' ? p.netpayment
-               : (p.net_new != null && p.net_new !== '' ? p.net_new : p.Amount)));
+  const amount = bdNum(p.netpayment != null && p.netpayment !== '' ? p.netpayment
+               : (p.Amount != null && p.Amount !== '' ? p.Amount
+               : (p.net_new != null && p.net_new !== '' ? p.net_new : p.Balance_Amount1)));
   return {
     id: p.id, vendor: p.cust_name || '—', due: bdToISO(p.due), amount: amount,
     vchno: p.vchno || p.docno || '', remark: p.remark || '', cfCategory: p.cf_category != null ? String(p.cf_category) : '', raw: p,
@@ -204,7 +205,7 @@ function bdBuildAccountView(acct, matchedChecks, matchedForecasts, matchedTransf
       const vendorName = (f.desc || '').replace(/\s*\([^)]*\)\s*$/, '').trim() || (f.desc || '');
       items.push({
         date: f.date, signed: f.amount, kind: 'forecast',
-        title: f.desc, sub: (f.isActual ? '✓ ' + (f.amount >= 0 ? 'รับจริงแล้ว' : 'จ่ายจริงแล้ว') : 'ประมาณการ') + (f.refDoc ? ' • ' + f.refDoc : ''),
+        title: f.desc, sub: (f.isActual ? '✓ ' + (f.amount >= 0 ? 'รับจริงแล้ว' : 'จ่ายจริงแล้ว') + (f.refDoc ? ' • ' + f.refDoc : '') : (f.refDoc || '')),
         status: f.isActual ? 'actual' : 'planned', raw: f, group: vendorName, refDoc: f.refDoc || '', remark: f.remark || '',
       });
     });
@@ -542,6 +543,33 @@ function ReconcilePanel({ transferPairs, bankAccounts, onReconcile, onEdit, canE
   }, [bankAccounts]);
 
   const pairs = Object.entries(transferPairs);
+
+  // ── Sort (กดหัวคอลัมน์) ──────────────────────────────────────────────
+  const [sort, setSort] = React.useState({ key: 'date', dir: 'desc' });
+  const toggleSort = (k) => setSort(s => s.key === k
+    ? { key: k, dir: s.dir === 'asc' ? 'desc' : 'asc' }
+    : { key: k, dir: (k === 'amount' || k === 'date') ? 'desc' : 'asc' });
+  const sortArrow = (k) => sort.key === k ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : '';
+  const thStyle = (align, sortable) => ({ padding:'7px 10px', textAlign:align, fontWeight:600, color:'#6b46c1', borderBottom:'1px solid #e9d8fd', whiteSpace:'nowrap', fontSize:11, cursor: sortable ? 'pointer' : 'default', userSelect:'none' });
+  const pairInfo = ([ref, entries]) => {
+    const o = entries.find(e => e.entryType === 'outflow_transfer');
+    const n = entries.find(e => e.entryType === 'inflow_transfer');
+    return {
+      date:   (o && o.entryDate) || (n && n.entryDate) || '',
+      from:   (acctMap[o && o.accountNo] && acctMap[o.accountNo].bankName) || (o && o.bankName) || '',
+      to:     (acctMap[n && n.accountNo] && acctMap[n.accountNo].bankName) || (n && n.bankName) || '',
+      amount: Math.abs(parseFloat((o && o.amount) || (n && n.amount) || 0)),
+      ref:    ref || '',
+      status: entries.every(e => e.reconciled) ? 1 : 0,
+    };
+  };
+  const sortedPairs = pairs.slice().sort((A, B) => {
+    const a = pairInfo(A)[sort.key], b = pairInfo(B)[sort.key];
+    const dir = sort.dir === 'asc' ? 1 : -1;
+    const av = a == null ? '' : a, bv = b == null ? '' : b;
+    return av < bv ? -dir : av > bv ? dir : 0;
+  });
+
   if (pairs.length === 0) return null;
 
   const pendingCount = pairs.filter(([, entries]) => entries.some(e => !e.reconciled)).length;
@@ -575,15 +603,19 @@ function ReconcilePanel({ transferPairs, bankAccounts, onReconcile, onEdit, canE
         <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
           <thead>
             <tr style={{ background:'#faf5ff' }}>
-              {['วันที่', 'จากบัญชี', '', 'ไปบัญชี', 'จำนวนเงิน', 'เลขอ้างอิง', 'หมายเหตุ', 'สถานะ', ''].map((h, i) => (
-                <th key={i} style={{ padding:'7px 10px', textAlign: h==='จำนวนเงิน' ? 'right' : 'left', fontWeight:600, color:'#6b46c1', borderBottom:'1px solid #e9d8fd', whiteSpace:'nowrap', fontSize:11 }}>
-                  {h}
-                </th>
-              ))}
+              <th onClick={() => toggleSort('date')}   style={thStyle('left', true)}>วันที่{sortArrow('date')}</th>
+              <th onClick={() => toggleSort('from')}   style={thStyle('left', true)}>จากบัญชี{sortArrow('from')}</th>
+              <th style={thStyle('center', false)}></th>
+              <th onClick={() => toggleSort('to')}     style={thStyle('left', true)}>ไปบัญชี{sortArrow('to')}</th>
+              <th onClick={() => toggleSort('amount')} style={thStyle('right', true)}>จำนวนเงิน{sortArrow('amount')}</th>
+              <th onClick={() => toggleSort('ref')}    style={thStyle('left', true)}>เลขอ้างอิง{sortArrow('ref')}</th>
+              <th style={thStyle('left', false)}>หมายเหตุ</th>
+              <th onClick={() => toggleSort('status')} style={thStyle('left', true)}>สถานะ{sortArrow('status')}</th>
+              <th style={thStyle('left', false)}></th>
             </tr>
           </thead>
           <tbody>
-            {pairs.map(([ref, entries]) => {
+            {sortedPairs.map(([ref, entries]) => {
               const outEntry    = entries.find(e => e.entryType === 'outflow_transfer');
               const inEntry     = entries.find(e => e.entryType === 'inflow_transfer');
               const isReconciled= entries.every(e => e.reconciled);
@@ -659,7 +691,7 @@ function bdItemTag(kind) {
 }
 
 /* แถวรายการเดี่ยวในการ์ดบัญชี (ใช้ทั้งแบบเดี่ยวและรายย่อยในกลุ่มผู้ขาย) */
-function BDItemRow({ it, top, onItemEdit, label, sub }) {
+function BDItemRow({ it, top, onItemEdit, label, sub, hideTag }) {
   const inflow   = it.signed >= 0;
   const tag      = bdItemTag(it.kind);
   const editable = onItemEdit && (it.kind === 'forecast' || it.kind === 'transfer');
@@ -669,7 +701,7 @@ function BDItemRow({ it, top, onItemEdit, label, sub }) {
          style={{ display:'grid', gridTemplateColumns:'1fr auto', gap:'0 8px', padding:'5px 0', borderTop: top ? '1px dashed #e9e9f3' : 'none', cursor: editable ? 'pointer' : 'default', borderRadius: editable ? 6 : 0 }}>
       <div style={{ minWidth:0 }}>
         <div style={{ fontSize:12, color:'#1e293b' }}>
-          <span style={{ display:'inline-block', fontSize:9, fontWeight:700, borderRadius:4, padding:'0 5px', marginRight:5, background:tag.bg, color:tag.c }}>{tag.t}</span>
+          {!hideTag && <span style={{ display:'inline-block', fontSize:9, fontWeight:700, borderRadius:4, padding:'0 5px', marginRight:5, background:tag.bg, color:tag.c }}>{tag.t}</span>}
           {label != null ? label : it.title}
           {editable && <span style={{ marginLeft:6, fontSize:10, color:'#a5b4fc' }}>✏️</span>}
         </div>
@@ -707,9 +739,9 @@ function BDDayItemGroup({ group, top, onItemEdit }) {
       {open && (
         <div style={{ paddingLeft:20 }}>
           {group.items.map((it, i) => (
-            <BDItemRow key={i} it={it} top={i > 0} onItemEdit={onItemEdit}
+            <BDItemRow key={i} it={it} top={i > 0} onItemEdit={onItemEdit} hideTag
               label={it.refDoc || it.title}
-              sub={it.status === 'actual' ? '✓ จ่าย/รับจริงแล้ว' : 'ประมาณการ'} />
+              sub={it.status === 'actual' ? '✓ จ่าย/รับจริงแล้ว' : ''} />
           ))}
         </div>
       )}
@@ -779,9 +811,25 @@ function BDDayGroup({ day, today, onItemEdit }) {
 
 /* ── Account Card — ยอดเงินจริง + เช็ค/ประมาณการแยกตามวัน ───────────── */
 /* Modal — เช็คเลยกำหนดที่ยังไม่ขึ้นเงิน (ไม่หักจากยอดในการ์ด) → ดูรายการ + ไปหน้าจัดการเช็คเพื่อแก้ */
+// ป้ายชื่อฟิลด์เช็ค (raw) → ไทย สำหรับแผงรายละเอียด
+const BD_CHECK_FIELD_LABELS = {
+  checkNo:'เลขที่เช็ค', checkDate:'ลงวันที่', payee:'ผู้รับเงิน', amount:'จำนวนเงิน',
+  accountNo:'เลขบัญชี', bankName:'ธนาคาร', status:'สถานะ', issueDate:'วันที่ออกเช็ค',
+  dueDate:'ครบกำหนด', remark:'หมายเหตุ', note:'หมายเหตุ', refDoc:'เอกสารอ้างอิง',
+  docNo:'เลขที่เอกสาร', vchno:'เลขที่', cust_name:'ผู้รับเงิน', description:'รายละเอียด',
+};
+function bdCheckDetailPairs(raw) {
+  if (!raw || typeof raw !== 'object') return [];
+  const skip = new Set(['id', '_st']);
+  return Object.keys(raw)
+    .filter(k => !skip.has(k) && raw[k] != null && raw[k] !== '')
+    .map(k => [BD_CHECK_FIELD_LABELS[k] || k, String(raw[k])]);
+}
+
 function BDOverdueChecksModal({ acctLabel, checks, canEdit, onSetStatus, onClose }) {
   const total = (checks || []).reduce((s, c) => s + (c.amount || 0), 0);
   const editable = !!(canEdit && onSetStatus);
+  const [openRow, setOpenRow] = React.useState(null);
   const apply = (c, status) => {
     if (!onSetStatus) return;
     if (!window.confirm('ยืนยัน: เช็ค #' + (c.checkNo || '—') + ' (' + (c.payee || '') + ') → "' + status + '"?')) return;
@@ -813,14 +861,22 @@ function BDOverdueChecksModal({ acctLabel, checks, canEdit, onSetStatus, onClose
             <tbody>
               {(checks || []).length === 0 ? (
                 <tr><td colSpan={editable ? 5 : 4} style={{ textAlign:'center', color:'#16a34a', padding:'18px 0', fontWeight:600 }}>✓ ไม่มีเช็คค้างขึ้นเงินแล้ว</td></tr>
-              ) : (checks || []).map((c, i) => (
-                <tr key={i}>
-                  <td style={{ whiteSpace:'nowrap', color:'#c026d3' }}>{fmtDate(c.checkDate) || c.checkDate || '—'}</td>
+              ) : (checks || []).map((c, i) => {
+                const open  = openRow === i;
+                const pairs = bdCheckDetailPairs(c.raw);
+                return (
+                <React.Fragment key={i}>
+                <tr onClick={() => setOpenRow(o => o === i ? null : i)} title="กดดูรายละเอียดเพิ่มเติม"
+                    style={{ cursor:'pointer', background: open ? '#faf5ff' : 'transparent' }}>
+                  <td style={{ whiteSpace:'nowrap', color:'#c026d3' }}>
+                    <span style={{ display:'inline-block', width:12, fontSize:9, transform: open ? 'rotate(90deg)' : 'none', transition:'transform .15s' }}>▶</span>
+                    {fmtDate(c.checkDate) || c.checkDate || '—'}
+                  </td>
                   <td>{c.payee}</td>
                   <td style={{ fontFamily:'ui-monospace', fontSize:11 }}>{c.checkNo || '—'}</td>
                   <td style={{ textAlign:'right', fontVariantNumeric:'tabular-nums', color:'#c53030', fontWeight:600 }}>−{fmtMoney(c.amount)}</td>
                   {editable && (
-                    <td style={{ textAlign:'center', whiteSpace:'nowrap' }}>
+                    <td style={{ textAlign:'center', whiteSpace:'nowrap' }} onClick={e => e.stopPropagation()}>
                       <button onClick={() => apply(c, 'ขึ้นเงินแล้ว')} title="ทำเครื่องหมายว่าเช็คขึ้นเงินแล้ว — ตัดออกจากรายการค้าง"
                         style={{ background:'#16a34a', color:'#fff', border:'none', borderRadius:6, padding:'4px 9px', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'inherit', marginRight:5 }}>✓ ขึ้นเงินแล้ว</button>
                       <button onClick={() => apply(c, 'ยกเลิก')} title="ยกเลิกเช็คใบนี้"
@@ -828,7 +884,27 @@ function BDOverdueChecksModal({ acctLabel, checks, canEdit, onSetStatus, onClose
                     </td>
                   )}
                 </tr>
-              ))}
+                {open && (
+                  <tr>
+                    <td colSpan={editable ? 5 : 4} style={{ background:'#faf5ff', padding:'10px 16px', borderBottom:'2px solid #f0e6fb' }}>
+                      {pairs.length === 0 ? (
+                        <span style={{ fontSize:12, color:'#94a3b8' }}>ไม่มีข้อมูลเพิ่มเติม</span>
+                      ) : (
+                        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(180px, 1fr))', gap:'6px 16px' }}>
+                          {pairs.map(([k, v], j) => (
+                            <div key={j} style={{ fontSize:12, minWidth:0 }}>
+                              <span style={{ color:'#94a3b8' }}>{k}: </span>
+                              <span style={{ color:'#334155', fontWeight:600, wordBreak:'break-word' }}>{v}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -858,6 +934,8 @@ function BankAccountCard({ view, today, periodEnd, periodLabel, onQuickTransfer,
   const visCount = visItems.length;
   const visIn    = visItems.filter(i => i.signed > 0).reduce((s, i) => s + i.signed, 0);
   const visOut   = visItems.filter(i => i.signed < 0).reduce((s, i) => s - i.signed, 0);
+  // ยอดเงินคงเหลือสุทธิ "ตามรายการที่เปิดดู" = ยอดใช้ได้จริง + รับ − จ่าย ในช่วงที่กำลังแสดง
+  const netEnding = base + visIn - visOut;
 
   // เงินขาดในช่วงที่ดู: ยอดคงเหลือสะสม "ต่ำสุด" ภายในช่วง periodEnd ติดลบไหม (ไม่ใช่แค่ 7 วัน)
   const periodGroups = dayGroups.filter(g => g.date <= periodEnd);
@@ -958,15 +1036,15 @@ function BankAccountCard({ view, today, periodEnd, periodLabel, onQuickTransfer,
             </button>
           )}
 
-          {/* Footer — ยอดคงเหลือต่ำสุดในช่วงที่ดู (เห็นว่าเงินขาดหรือไม่) */}
+          {/* Footer — ยอดเงินคงเหลือสุทธิ ตามรายการที่เปิดดู (ยอดใช้ได้ + รับ − จ่าย ในช่วง) */}
           <div style={{
             display:'flex', justifyContent:'space-between', alignItems:'center', padding:'9px 14px',
-            background: isShort ? '#fff5f5' : '#f0fdf4',
-            borderTop:'2px solid ' + (isShort ? '#fc8181' : '#68d391'),
+            background: netEnding < 0 ? '#fff5f5' : '#f0fdf4',
+            borderTop:'2px solid ' + (netEnding < 0 ? '#fc8181' : '#68d391'),
             fontWeight:700, fontSize:13,
           }}>
-            <span>{periodGroups.length > 0 ? 'ยอดคงเหลือต่ำสุด (ช่วง “' + periodLabel + '”)' : 'ไม่มีรายการในช่วงนี้'}</span>
-            {periodGroups.length > 0 && <span style={{ color: shortInPeriod ? '#e53e3e' : '#276749' }}>{fmtMoney(minRunPeriod)}</span>}
+            <span>ยอดเงินคงเหลือสุทธิ{showAll ? ' (ทั้งหมด)' : ' (ช่วง “' + periodLabel + '”)'}</span>
+            <span style={{ color: netEnding < 0 ? '#e53e3e' : '#276749' }}>{fmtMoney(netEnding)}</span>
           </div>
 
           {/* Quick transfer when short (7 วัน หรือ ติดลบในช่วง) */}
@@ -1168,11 +1246,14 @@ function BDForecastGroupRow({ group, canEdit, onEdit }) {
   );
 }
 
-function BDForecastPanel({ forecasts, periodEnd, periodLabel, today, totalRealBalance, onAdd, onEdit, canEdit }) {
+function BDForecastPanel({ forecasts, periodEnd, periodLabel, today, totalRealBalance, onAdd, onEdit, canEdit, paidApSet }) {
   const [collapsed, setCollapsed] = React.useState(true);   // ย่อไว้ก่อน — กดหัวการ์ดเพื่อกาง
   const rows = React.useMemo(
-    () => forecasts.filter(f => f.date && f.date >= today && f.date <= periodEnd).sort((a, b) => a.date < b.date ? -1 : 1),
-    [forecasts, periodEnd, today]
+    // ตัด AP ที่จ่ายจริงผ่าน PV แล้ว (refDoc ∈ paidApSet) — เหมือนการ์ดบัญชี ไม่ให้แผนเก่าค้าง
+    () => forecasts.filter(f => f.date && f.date >= today && f.date <= periodEnd
+                            && !(paidApSet && f.refDoc && paidApSet.has(String(f.refDoc).trim())))
+                   .sort((a, b) => a.date < b.date ? -1 : 1),
+    [forecasts, periodEnd, today, paidApSet]
   );
   // จัดกลุ่ม "ชื่อเดียวกัน + วันเดียวกัน" (ตัด " (เลขที่ AP)" ท้าย desc) เพื่อย่อรายการยาวๆ
   const groupedRows = React.useMemo(() => {
@@ -1268,8 +1349,11 @@ function BDApPanel({ apList, plannedRefs, bankAccounts, defaultBank, today, peri
   const [query, setQuery]     = React.useState('');
   const [showAll, setShowAll] = React.useState(false);
   const [statusFilter, setStatusFilter] = React.useState('all'); // all | unplanned | planned
-  const [sortKey, setSortKey] = React.useState('due');   // due | amount | vendor
+  const [sortKey, setSortKey] = React.useState('due');   // due | vendor | vchno | cfCategory | amount | remark
   const [sortDir, setSortDir] = React.useState('asc');
+  const [colFilters, setColFilters] = React.useState({});  // { colKey: Set<displayVal> } — filter รายคอลัมน์
+  const [openCol, setOpenCol]       = React.useState(null);
+  const AP_COL_LABELS = { due:'ครบกำหนด', vendor:'ผู้ขาย', vchno:'เลขที่ (AP)', cfCategory:'ประเภท (CF)', amount:'ยอดสุทธิ', remark:'REMARK' };
   const [dueFrom, setDueFrom] = React.useState('');      // filter ครบกำหนด ตั้งแต่
   const [dueTo, setDueTo]     = React.useState('');      // ถึง
   const [selected, setSelected] = React.useState(() => new Set());
@@ -1285,25 +1369,49 @@ function BDApPanel({ apList, plannedRefs, bankAccounts, defaultBank, today, peri
   };
   const arrow = (k) => sortKey === k ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
 
-  const rows = React.useMemo(() => {
+  // ค่าที่ใช้แสดง/จับคู่ filter รายคอลัมน์ (ต้องเป็น (row, key) ตาม convention ColFilterDropdown)
+  const apGetValue = (a, key) => {
+    if (key === 'due')        return fmtDate(a.due) || '—';
+    if (key === 'vendor')     return a.vendor || '—';
+    if (key === 'vchno')      return a.vchno || '—';
+    if (key === 'cfCategory') return a.cfCategory ? (a.cfCategory + '. ' + bdCatLabel(a.cfCategory)) : '—';
+    if (key === 'amount')     return fmtMoney(a.amount);
+    if (key === 'remark')     return a.remark || '—';
+    return '';
+  };
+
+  // base = หลัง search/สถานะ/ช่วงวันที่ (ก่อน filter รายคอลัมน์) — เป็น allRows ของ dropdown กรอง
+  const baseRows = React.useMemo(() => {
     let r = apList.filter(a => a.amount > 0);
     if (query.trim()) {
       const q = query.trim().toLowerCase();
-      r = r.filter(a => (a.vendor || '').toLowerCase().includes(q) || (a.vchno || '').toLowerCase().includes(q));
+      r = r.filter(a => (a.vendor || '').toLowerCase().includes(q) || (a.vchno || '').toLowerCase().includes(q) || (a.remark || '').toLowerCase().includes(q));
     }
     if (dueFrom) r = r.filter(a => a.due && a.due >= dueFrom);
     if (dueTo)   r = r.filter(a => a.due && a.due <= dueTo);
     if (statusFilter === 'planned')   r = r.filter(a => plannedRefs.has(a.vchno));
     if (statusFilter === 'unplanned') r = r.filter(a => !plannedRefs.has(a.vchno));
+    return r;
+  }, [apList, query, dueFrom, dueTo, statusFilter, plannedRefs]);
+
+  const rows = React.useMemo(() => {
+    let r = baseRows;
+    for (const key of Object.keys(colFilters)) {
+      const vals = colFilters[key];
+      if (vals && vals.size > 0) r = r.filter(a => vals.has(apGetValue(a, key)));
+    }
     const dir = sortDir === 'asc' ? 1 : -1;
     return r.slice().sort((a, b) => {
       let av, bv;
-      if (sortKey === 'amount')      { av = a.amount; bv = b.amount; }
-      else if (sortKey === 'vendor') { av = a.vendor || ''; bv = b.vendor || ''; }
-      else                           { av = a.due || ''; bv = b.due || ''; }
+      if (sortKey === 'amount')          { av = a.amount; bv = b.amount; }
+      else if (sortKey === 'vendor')     { av = a.vendor || ''; bv = b.vendor || ''; }
+      else if (sortKey === 'vchno')      { av = a.vchno || ''; bv = b.vchno || ''; }
+      else if (sortKey === 'cfCategory') { av = a.cfCategory || ''; bv = b.cfCategory || ''; }
+      else if (sortKey === 'remark')     { av = a.remark || ''; bv = b.remark || ''; }
+      else                               { av = a.due || ''; bv = b.due || ''; }
       return av < bv ? -dir : av > bv ? dir : 0;
     });
-  }, [apList, query, dueFrom, dueTo, statusFilter, plannedRefs, sortKey, sortDir]);
+  }, [baseRows, colFilters, sortKey, sortDir]);
 
   // สรุปรวมทั้งหมด (ไม่ขึ้นกับตัวกรอง) — โชว์บนหัวการ์ดตอนย่อ
   const apAll        = React.useMemo(() => apList.filter(a => a.amount > 0), [apList]);
@@ -1346,7 +1454,7 @@ function BDApPanel({ apList, plannedRefs, bankAccounts, defaultBank, today, peri
     setSelected(new Set());
   };
 
-  const colCount = canEdit ? 7 : 6;
+  const colCount = canEdit ? 8 : 7;
 
   return (
     <div className="card" style={{ padding:0, overflow:'hidden', marginBottom:20 }}>
@@ -1452,16 +1560,33 @@ function BDApPanel({ apList, plannedRefs, bankAccounts, defaultBank, today, peri
         </div>
       )}
 
+      {/* แถบ filter รายคอลัมน์ที่ใช้งานอยู่ — กดล้างได้ */}
+      {Object.keys(colFilters).some(k => colFilters[k] && colFilters[k].size > 0) && (
+        <div style={{ display:'flex', flexWrap:'wrap', alignItems:'center', gap:8, padding:'7px 16px', borderBottom:'1px solid #fef0e0', background:'#fff7ed' }}>
+          <span style={{ fontSize:11, fontWeight:600, color:'#9a3412' }}>กรองคอลัมน์:</span>
+          {Object.keys(colFilters).filter(k => colFilters[k] && colFilters[k].size > 0).map(k => (
+            <span key={k} style={{ display:'inline-flex', alignItems:'center', gap:5, background:'#fff', border:'1px solid #fed7aa', borderRadius:12, padding:'2px 4px 2px 9px', fontSize:11, color:'#c2410c' }}>
+              {AP_COL_LABELS[k] || k} · {colFilters[k].size}
+              <button onClick={() => setColFilters(p => { const n = { ...p }; delete n[k]; return n; })}
+                style={{ border:'none', background:'none', color:'#9a3412', cursor:'pointer', fontSize:13, lineHeight:1, padding:'0 3px' }}>✕</button>
+            </span>
+          ))}
+          <button onClick={() => setColFilters({})}
+            style={{ marginLeft:'auto', padding:'3px 10px', borderRadius:12, fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'inherit', border:'1px solid #e2e8f0', background:'#fff', color:'#64748b' }}>ล้างกรองคอลัมน์ทั้งหมด</button>
+        </div>
+      )}
+
       <div style={{ overflowX:'auto' }}>
         <table className="tbl" style={{ minWidth:800, fontSize:12 }}>
           <thead>
             <tr>
               {canEdit && <th style={{ width:34, textAlign:'center' }}><input type="checkbox" checked={allChecked} onChange={toggleAll} title="เลือกทั้งหมดที่เห็น" /></th>}
-              <th style={{ width:96, cursor:'pointer', userSelect:'none' }} onClick={() => toggleSort('due')}>ครบกำหนด{arrow('due')}</th>
-              <th style={{ cursor:'pointer', userSelect:'none' }} onClick={() => toggleSort('vendor')}>ผู้ขาย{arrow('vendor')}</th>
-              <th style={{ width:130 }}>เลขที่ (AP)</th>
-              <th style={{ width:170 }}>ประเภท (CF)</th>
-              <th style={{ textAlign:'right', width:120, cursor:'pointer', userSelect:'none' }} onClick={() => toggleSort('amount')}>ยอดค้าง{arrow('amount')}</th>
+              <FilterableColHeader label="ครบกำหนด"   sortKey="due"        colKey="due"        sort={{ key:sortKey, dir:sortDir }} sortToggle={toggleSort} align="center" width={104} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={baseRows} getValue={apGetValue} />
+              <FilterableColHeader label="ผู้ขาย"      sortKey="vendor"     colKey="vendor"     sort={{ key:sortKey, dir:sortDir }} sortToggle={toggleSort} align="center" colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={baseRows} getValue={apGetValue} />
+              <FilterableColHeader label="เลขที่ (AP)" sortKey="vchno"      colKey="vchno"      sort={{ key:sortKey, dir:sortDir }} sortToggle={toggleSort} align="center" width={140} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={baseRows} getValue={apGetValue} />
+              <FilterableColHeader label="ประเภท (CF)" sortKey="cfCategory" colKey="cfCategory" sort={{ key:sortKey, dir:sortDir }} sortToggle={toggleSort} align="center" width={180} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={baseRows} getValue={apGetValue} />
+              <FilterableColHeader label="ยอดสุทธิ"    sortKey="amount"     colKey="amount"     sort={{ key:sortKey, dir:sortDir }} sortToggle={toggleSort} align="right"  width={120} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={baseRows} getValue={apGetValue} />
+              <FilterableColHeader label="REMARK"      sortKey="remark"     colKey="remark"     sort={{ key:sortKey, dir:sortDir }} sortToggle={toggleSort} align="center" width={170} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={baseRows} getValue={apGetValue} />
               <th style={{ width:120 }}></th>
             </tr>
           </thead>
@@ -1497,6 +1622,7 @@ function BDApPanel({ apList, plannedRefs, bankAccounts, defaultBank, today, peri
                     )}
                   </td>
                   <td style={{ textAlign:'right', fontVariantNumeric:'tabular-nums', fontWeight:700, color:'#c53030', whiteSpace:'nowrap' }}>{fmtMoney(a.amount)}</td>
+                  <td style={{ fontSize:11, color:'#64748b', maxWidth:170, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} title={a.remark || ''}>{a.remark || '—'}</td>
                   <td style={{ textAlign:'right', whiteSpace:'nowrap' }}>
                     {planned ? (
                       <span style={{ display:'inline-flex', alignItems:'center', gap:6, justifyContent:'flex-end' }}>
@@ -1977,6 +2103,7 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
       {/* Forecast panel — ประมาณการกระแสเงินสด (รวมทุกบัญชี) */}
       <BDForecastPanel
         forecasts={forecastsRich}
+        paidApSet={paidApSet}
         periodEnd={periodEnd}
         periodLabel={periodLabel}
         today={today}
