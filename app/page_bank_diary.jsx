@@ -174,7 +174,7 @@ function bdNormAP(p) {
 
 /* Build the per-account view (เช็คค้างจ่าย + forecast ที่ผูกบัญชี) — base = ยอดเงินจริง (ไม่หัก HOLD)
  * สัญญาณ "เงินไม่พอ" ใช้กรอบ 7 วัน (near-term) เทียบยอดเงินจริง */
-function bdBuildAccountView(acct, matchedChecks, matchedForecasts, matchedTransfers, matchedPVs, today, next7) {
+function bdBuildAccountView(acct, matchedChecks, matchedForecasts, matchedTransfers, matchedPVs, today, next7, paidApSet) {
   // ใช้วันที่ของยอดที่บันทึก (acct.asOf = DATE) เป็นจุดเริ่ม — รวมกรณีอนาคต (เช่นบันทึก "ยอดยกไปพรุ่งนี้")
   //   ไม่ cap ที่ today อีกต่อไป → พอบันทึกยอดพรุ่งนี้ รายการของวันนี้ (จ่าย/สะท้อนในยอดแล้ว) จะหลุดออกเอง ไม่หักซ้ำ
   const asOfRef = acct.asOf || today;
@@ -191,9 +191,13 @@ function bdBuildAccountView(acct, matchedChecks, matchedForecasts, matchedTransf
         title: c.payee || '—', sub: 'เช็ค #' + (c.checkNo || '—'), status: c._st, raw: c,
       });
     });
+  // AP ที่จ่ายจริงผ่าน PV แล้ว → ตัด forecast (ประมาณการ) ทิ้ง ให้รายการ PV จริงเป็นตัวแทน
+  //   กันแผนเก่าค้าง + กันนับซ้ำกับยอดเงินที่จ่าย PV ไปแล้ว (PV จ่ายไปแล้ว = อยู่ในยอด BALANCE)
+  //   กติกาเดียวกับหน้า Cash Flow (buildPaidVchnoSet/isApPaid: payable.vchno == pvVouchers.AP_No = จ่ายแล้ว)
   const countedAP = new Set(); // เลขที่ AP ที่นับผ่าน forecast แล้ว — กัน PV ของ AP เดียวกันนับซ้ำ
   matchedForecasts
-    .filter(f => f.date && f.date >= asOfRef)
+    .filter(f => f.date && f.date >= asOfRef
+              && !(paidApSet && f.refDoc && paidApSet.has(String(f.refDoc).trim())))
     .forEach(f => {
       if (f.refDoc) countedAP.add(String(f.refDoc).trim());
       // group = ชื่อผู้ขาย (ตัด " (เลขที่ AP)" ท้าย desc) เพื่อจับกลุ่มหลายใบของผู้ขายเดียวกันในวันเดียว
@@ -1593,6 +1597,13 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
 
   /* Normalize PV (bankTransfers) + match → accounts (ด้วย Bank_AC, รองรับเลข 4 ตัวท้าย) */
   const pvList = React.useMemo(() => rawPvVouchers.map(bdNormPV), [rawPvVouchers]);
+  // เลขที่ AP ที่ "จ่ายจริงผ่าน PV แล้ว" (PV.AP_No) — ใช้ตัด forecast ที่กลายเป็นแผนเก่าค้าง
+  //   global ทุกบัญชี (จับคู่ด้วยเลข AP ล้วน) ให้เหมือนหน้า Cash Flow แม้ AP วางแผนคนละบัญชีกับที่จ่าย
+  const paidApSet = React.useMemo(() => {
+    const s = new Set();
+    pvList.forEach(p => { if (p.apNo) s.add(String(p.apNo).trim()); });
+    return s;
+  }, [pvList]);
   const pvByAccount = React.useMemo(() => {
     const byAcct = {};
     accounts.forEach(a => { byAcct[a.accountNo] = []; });
@@ -1629,8 +1640,8 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
 
   /* Per-account views (เช็ค + forecast + การโอน + สัญญาณเงินไม่พอ 7 วัน) */
   const accountViews = React.useMemo(
-    () => accounts.map(a => bdBuildAccountView(a, checksByAccount[a.accountNo] || [], forecastByAccount[a.accountNo] || [], transfersByAccount[a.accountNo] || [], pvByAccount[a.accountNo] || [], today, next7)),
-    [accounts, checksByAccount, forecastByAccount, transfersByAccount, pvByAccount, today, next7]
+    () => accounts.map(a => bdBuildAccountView(a, checksByAccount[a.accountNo] || [], forecastByAccount[a.accountNo] || [], transfersByAccount[a.accountNo] || [], pvByAccount[a.accountNo] || [], today, next7, paidApSet)),
+    [accounts, checksByAccount, forecastByAccount, transfersByAccount, pvByAccount, today, next7, paidApSet]
   );
 
   /* ── Totals across all accounts ── */

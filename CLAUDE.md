@@ -44,6 +44,7 @@ Live at **https://patima-fin.github.io/waterpog-fin/** — GitHub Pages serves t
 - Some date fields are **DD/MM/YYYY (Thai)** — normalize to ISO before `new Date()` or months flip.
 - Cashflow categories (หมวด 1-4): `categorizePayable(ap)` / `categorizeForecastEntry(fe)`, plus vendor→category map `cfVendorCat` (localStorage `wtp-cf-vendor-cat`, e.g. ลีซ อิท → 3) and per-PV override `cf.pvCat.<PL_PV_No>`.
 - Cashflow IV forecast excludes already-received IVs (`ivIsPaid`); a day-1 "plan lock" freezes the monthly baseline so PLAN doesn't shrink as IVs get paid.
+- **AP paid via PV ⇒ drop its forecast.** An AP whose number matches a `pvVouchers.AP_No` is "paid". Cashflow uses `buildPaidVchnoSet`/`isApPaid`; **Bank Diary** mirrors this via a global `paidApSet` passed into `bdBuildAccountView`, which filters out any forecast (ประมาณการ) whose `REF_DOC ∈ paidApSet` so the real PV row represents the outflow (else the plan lingers / double-counts vs the already-reduced BALANCE). Keep the two pages consistent when touching forecast logic.
 
 ## Repo rule: keep CLAUDE.md current
 **Every time you `git push`, update this `CLAUDE.md`** to reflect anything that changed (architecture, conventions, new pages, gotchas). Treat it as part of the push, like the `?v=` bump.
