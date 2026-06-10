@@ -925,6 +925,52 @@ function BankAccountCard({ view, today, periodEnd, periodLabel, onQuickTransfer,
   const [showAll, setShowAll]   = React.useState(false);
   const [showOverdue, setShowOverdue] = React.useState(false);
   const { acct, base, dayGroups, near, afterNear, shortNear, shortBy, dueToday, dueTodayOut, overdue } = view;
+  const cardRef = React.useRef(null);
+  const [saving, setSaving] = React.useState(false);
+
+  // บันทึกการ์ดเป็นรูป PNG (html2canvas-pro) — ตัดปุ่มเอง (data-no-capture) ออกจากภาพ
+  const handleSaveImage = async (e) => {
+    if (e) e.stopPropagation();
+    if (typeof window.html2canvas !== 'function') { alert('ตัวช่วยบันทึกรูปยังโหลดไม่เสร็จ — ลองใหม่อีกครั้ง'); return; }
+    const node = cardRef.current; if (!node) return;
+    setSaving(true);
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    try {
+      const SCALE = 2;
+      const full = await window.html2canvas(node, {
+        backgroundColor: '#ffffff', scale: SCALE, useCORS: true, logging: false,
+        ignoreElements: (el) => el.getAttribute && el.getAttribute('data-no-capture') === '1',
+      });
+      // ตัดให้รูป "จบที่บรรทัดยอดเงินคงเหลือสุทธิ" + ปิดท้ายด้วยช่องว่าง+เส้นสี (กันดูเหมือนรูปขาด)
+      let out = full;
+      const endEl = node.querySelector('[data-capture-end="1"]');
+      if (endEl) {
+        const cropH = Math.round((endEl.getBoundingClientRect().bottom - node.getBoundingClientRect().top) * SCALE);
+        if (cropH > 0 && cropH < full.height - 2) {
+          const accent   = netEnding < 0 ? '#e53e3e' : '#276749';   // แดงเมื่อติดลบ / เขียวเมื่อบวก
+          const footerBg = netEnding < 0 ? '#fff5f5' : '#f0fdf4';
+          const pad  = Math.round(5 * SCALE);   // ช่องว่างใต้บรรทัดก่อนเส้น
+          const line = Math.round(3 * SCALE);   // เส้นปิดท้าย
+          out = document.createElement('canvas');
+          out.width = full.width;
+          out.height = cropH + pad + line;
+          const ctx = out.getContext('2d');
+          ctx.drawImage(full, 0, 0, full.width, cropH, 0, 0, full.width, cropH);
+          ctx.fillStyle = footerBg; ctx.fillRect(0, cropH, full.width, pad + line);
+          ctx.fillStyle = accent;   ctx.fillRect(0, cropH + pad, full.width, line);
+        }
+      }
+      const a = document.createElement('a');
+      a.download = (bdBrand(acct.bankName).label || 'bank') + '-' + (bdLast4(acct.accountNo) || '') + '-' + String(today).replace(/-/g, '') + '.png';
+      a.href = out.toDataURL('image/png');
+      a.click();
+    } catch (err) {
+      console.error('save card image failed', err);
+      alert('บันทึกรูปไม่สำเร็จ: ' + (err && err.message ? err.message : err));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const visibleGroups = showAll ? dayGroups : dayGroups.filter(g => g.date <= periodEnd);
   const hiddenCount   = dayGroups.length - visibleGroups.length;
@@ -941,8 +987,14 @@ function BankAccountCard({ view, today, periodEnd, periodLabel, onQuickTransfer,
   const periodGroups = dayGroups.filter(g => g.date <= periodEnd);
   const minRunPeriod = periodGroups.reduce((m, g) => Math.min(m, g.running), base);
   const shortInPeriod = minRunPeriod < 0;
-  const isShort   = shortNear || shortInPeriod;
-  const coverAmt  = Math.max(shortNear ? shortBy : 0, shortInPeriod ? -minRunPeriod : 0);
+  // แจ้งเตือน "เงินไม่พอ" (กรอบแดง/ป้าย) อิงเฉพาะ "ช่วงที่เลือกดู" — ไม่ใช้กรอบ 7 วันตายตัว
+  //   ที่ทะลุข้ามช่วง (เช่น ดู "สัปดาห์นี้" แต่เด้งแดงเพราะรายการสัปดาห์หน้าใน 7 วัน)
+  const isShort   = shortInPeriod;
+  const coverAmt  = shortInPeriod ? -minRunPeriod : 0;
+  // ป้าย "📆 ภายใน 7 วัน" โผล่เฉพาะตอนกรอบ 7 วันยังอยู่ในช่วงที่เลือกดู
+  //   (ดูช่วงสั้นกว่า 7 วัน เช่น "สัปดาห์นี้" → ป้ายจะเกินช่วง จึงไม่โชว์)
+  const next7Card = bdISO(new Date(new Date(today + 'T00:00:00').getTime() + 7 * 86400000));
+  const showNear  = near.length > 0 && next7Card <= periodEnd;
 
   const brand = bdBrand(acct.bankName);
   const last4 = bdLast4(acct.accountNo);
@@ -950,7 +1002,7 @@ function BankAccountCard({ view, today, periodEnd, periodLabel, onQuickTransfer,
   const headerGrad = 'linear-gradient(135deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0) 38%), linear-gradient(135deg, ' + brand.color + ' 0%, rgba(0,0,0,0.28) 165%)';
 
   return (
-    <div className="card" style={{
+    <div className="card" ref={cardRef} style={{
       padding:0, overflow:'hidden',
       border: isShort ? '2px solid #fc8181' : '1px solid #e6eaf0',
       boxShadow: isShort ? '0 0 0 3px rgba(252,129,129,0.18), 0 8px 20px ' + brand.color + '22' : '0 6px 16px ' + brand.color + '1f, 0 1px 3px rgba(16,24,40,0.08)',
@@ -964,7 +1016,7 @@ function BankAccountCard({ view, today, periodEnd, periodLabel, onQuickTransfer,
           <div style={{ minWidth:0 }}>
             <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
               <span style={{ fontWeight:800, fontSize:16, letterSpacing:0.5, textShadow:'0 1px 2px rgba(0,0,0,0.18)' }}>{brand.label}</span>
-              {isShort && <span style={{ fontSize:10, fontWeight:800, background:'#fff', color:'#dc2626', borderRadius:5, padding:'2px 7px', whiteSpace:'nowrap', boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }}>⚠ {shortNear ? 'ไม่พอใน 7 วัน' : 'ไม่พอในช่วงนี้'}</span>}
+              {isShort && <span style={{ fontSize:10, fontWeight:800, background:'#fff', color:'#dc2626', borderRadius:5, padding:'2px 7px', whiteSpace:'nowrap', boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }}>⚠ ไม่พอในช่วง “{periodLabel}”</span>}
             </div>
             <div title={acct.accountNo} style={{ fontFamily:'ui-monospace', fontWeight:800, fontSize:24, letterSpacing:2, marginTop:8, color:'#fff', textShadow:'0 1px 4px rgba(0,0,0,0.30)' }}>
               <span style={{ opacity:0.5, fontSize:16 }}>••••</span> {last4 || '—'}
@@ -979,18 +1031,26 @@ function BankAccountCard({ view, today, periodEnd, periodLabel, onQuickTransfer,
             <div style={{ fontSize:9.5, color:'rgba(255,255,255,0.8)', textTransform:'uppercase', letterSpacing:0.6 }}>ยอดใช้ได้จริง</div>
             <div style={{ fontWeight:800, fontSize:20, color:'#fff', fontVariantNumeric:'tabular-nums', textShadow:'0 1px 3px rgba(0,0,0,0.18)' }}>{fmtMoney(base)}</div>
           </div>
+          <button data-no-capture="1" onClick={handleSaveImage} disabled={saving}
+            title="บันทึกการ์ดนี้เป็นรูป (PNG)"
+            style={{ position:'absolute', bottom:10, right:12, display:'flex', alignItems:'center', gap:5,
+                     background:'rgba(255,255,255,0.20)', color:'#fff', border:'1px solid rgba(255,255,255,0.4)',
+                     borderRadius:8, padding:'4px 10px', fontSize:11, fontWeight:700, cursor: saving ? 'wait' : 'pointer',
+                     fontFamily:'inherit', whiteSpace:'nowrap' }}>
+            {saving ? '⏳ กำลังบันทึก…' : '📷 บันทึกรูป'}
+          </button>
         </div>
       </div>
 
       {/* Alert strip */}
-      {(dueToday.length > 0 || overdue.length > 0 || near.length > 0) && (
+      {(dueToday.length > 0 || overdue.length > 0 || showNear) && (
         <div style={{ display:'flex', flexWrap:'wrap', gap:6, padding:'8px 14px', background:'#fff', borderBottom:'1px solid #f0f4f8' }}>
           {dueToday.length > 0 && (
             <span style={{ background:'#fee2e2', color:'#991b1b', fontSize:11, fontWeight:700, borderRadius:6, padding:'3px 9px' }}>
               📅 ครบกำหนดวันนี้ {dueToday.length} รายการ · {fmtMoney(dueTodayOut)}
             </span>
           )}
-          {near.length > 0 && (
+          {showNear && (
             <span style={{ background:'#fef3c7', color:'#92400e', fontSize:11, fontWeight:700, borderRadius:6, padding:'3px 9px' }}>
               📆 ภายใน 7 วัน {near.length} รายการ
             </span>
@@ -1036,8 +1096,8 @@ function BankAccountCard({ view, today, periodEnd, periodLabel, onQuickTransfer,
             </button>
           )}
 
-          {/* Footer — ยอดเงินคงเหลือสุทธิ ตามรายการที่เปิดดู (ยอดใช้ได้ + รับ − จ่าย ในช่วง) */}
-          <div style={{
+          {/* Footer — ยอดเงินคงเหลือสุทธิ ตามรายการที่เปิดดู (ยอดใช้ได้ + รับ − จ่าย ในช่วง) · จุดสิ้นสุดของรูปที่เซฟ */}
+          <div data-capture-end="1" style={{
             display:'flex', justifyContent:'space-between', alignItems:'center', padding:'9px 14px',
             background: netEnding < 0 ? '#fff5f5' : '#f0fdf4',
             borderTop:'2px solid ' + (netEnding < 0 ? '#fc8181' : '#68d391'),
@@ -1774,7 +1834,7 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
   const totalBalance     = accounts.reduce((s, a) => s + a.balance, 0);
   const totalAvailable   = accounts.reduce((s, a) => s + (a.available != null ? a.available : a.balance), 0);
   const shortAccounts    = accountViews.filter(v => {
-    if (v.shortNear) return true;
+    // อิงเฉพาะช่วงที่เลือกดู (ไม่ใช้กรอบ 7 วันตายตัว) ให้ตรงกับกรอบเตือนบนการ์ด
     const min = v.dayGroups.filter(g => g.date <= periodEnd).reduce((m, g) => Math.min(m, g.running), v.base);
     return min < 0;  // ยอดคงเหลือสะสมติดลบภายในช่วงที่เลือก
   }).length;
