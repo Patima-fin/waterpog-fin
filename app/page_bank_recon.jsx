@@ -54,13 +54,26 @@ function brNum(v) {
   const n = parseFloat(String(v).replace(/,/g, '').replace(/[฿\s]/g, ''));
   return isNaN(n) ? 0 : n;
 }
-// แปลงค่าวันที่ใดๆ → ISO 'YYYY-MM-DD' (รองรับ Date จาก XLSX, DD/MM/YYYY แบบไทย, พ.ศ., ISO)
+// เดือนไทย (ย่อ/เต็ม) → เลขเดือน — รองรับ statement เช่น "01-มิ.ย.-2569" (KBANK) / "04 มิ.ย. 2569" (BBL)
+const BR_THAI_MONTH = {
+  'มค': '01', 'กพ': '02', 'มีค': '03', 'เมย': '04', 'พค': '05', 'มิย': '06',
+  'กค': '07', 'สค': '08', 'กย': '09', 'ตค': '10', 'พย': '11', 'ธค': '12',
+  'มกราคม': '01', 'กุมภาพันธ์': '02', 'มีนาคม': '03', 'เมษายน': '04', 'พฤษภาคม': '05', 'มิถุนายน': '06',
+  'กรกฎาคม': '07', 'สิงหาคม': '08', 'กันยายน': '09', 'ตุลาคม': '10', 'พฤศจิกายน': '11', 'ธันวาคม': '12',
+};
+// แปลงค่าวันที่ใดๆ → ISO 'YYYY-MM-DD' (รองรับ Date จาก XLSX, DD/MM/YYYY, เดือนไทย, พ.ศ., ISO)
 function brToISO(v) {
   if (v == null || v === '') return '';
   if (v instanceof Date && !isNaN(v)) return bdISO(v);
   const s = String(v).trim();
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
-  const m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);   // DD/MM/YYYY (ไทย)
+  // เดือนไทย: "01-มิ.ย.-2569" | "04 มิ.ย. 2569 05:01"
+  const tm = s.match(/(\d{1,2})[-\s]+([ก-๙.]{2,})[-\s]+(\d{4})/);
+  if (tm) {
+    const mm = BR_THAI_MONTH[tm[2].replace(/\./g, '')];
+    if (mm) { let y = Number(tm[3]); if (y > 2400) y -= 543; return `${y}-${mm}-${String(Number(tm[1])).padStart(2, '0')}`; }
+  }
+  const m = s.match(/(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);   // DD/MM/YYYY
   if (m) {
     let [, dd, mm, yy] = m;
     if (yy.length === 2) yy = '20' + yy;
@@ -83,29 +96,42 @@ function brFmtMonth(ym) {
   return `${BR_MONTHS_TH[m - 1]} ${y + 543}`;
 }
 
-// ─── ไฟล์ → AOA (รองรับ CSV + Excel ผ่าน global XLSX) ─────────────────────────
+// decode text/CSV → string · ลอง UTF-8 ก่อน (SCB) ถ้าไม่ใช่ fallback windows-874/TIS-620 (KBANK/BBL ภาษาไทยเก่า)
+function brDecodeText(buf) {
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); }
+  catch (_) {
+    try { return new TextDecoder('windows-874').decode(buf); }
+    catch (_2) { return new TextDecoder('utf-8').decode(buf); }
+  }
+}
+// ─── ไฟล์ → AOA (CSV decode เอง · Excel ผ่าน global XLSX) ─────────────────────
 function brParseFile(file) {
   return file.arrayBuffer().then(buf => {
-    const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+    const name = (file.name || '').toLowerCase();
+    let wb;
+    if (/\.(csv|txt)$/.test(name)) {
+      wb = XLSX.read(brDecodeText(buf), { type: 'string', raw: true });        // decode เอง กัน mojibake ไทย
+    } else {
+      wb = XLSX.read(buf, { type: 'array', cellDates: true });                 // .xls/.xlsx binary (อาจ throw ถ้ามีรหัสผ่าน เช่น KTB)
+    }
     const sheets = {};
-    wb.SheetNames.forEach(name => {
-      sheets[name] = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, blankrows: false, defval: '' });
-    });
+    wb.SheetNames.forEach(n => { sheets[n] = XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, blankrows: false, defval: '' }); });
     return { sheetNames: wb.SheetNames, sheets };
   });
 }
-// เดาแถว header — แถวแรกที่มี cell ไม่ว่าง ≥3 และมี token คล้าย วันที่/ยอด/รายการ
+// เดาแถว header — เลือกแถวที่มี "หัวคอลัมน์" มากสุด (กัน false-positive กับแถวสรุปที่มี "วันที่" คำเดียว)
+//   จำเป็นเพราะ blankrows:false ตัดแถวว่างทิ้ง → index header ขยับ (เช่น KBANK/BBL มีบล็อกสรุปด้านบน)
 function brGuessHeaderRow(aoa) {
-  const KEY = /(date|วันที่|debit|credit|เดบิต|เครดิต|amount|จำนวน|ยอด|balance|คงเหลือ|description|รายการ|รายละเอียด|cheque|เช็ค|ref)/i;
-  for (let i = 0; i < Math.min(aoa.length, 25); i++) {
+  const KEY = /(date|วันที่|debit|credit|เดบิต|เครดิต|amount|จำนวน|ยอด|balance|คงเหลือ|description|รายการ|รายละเอียด|คำอธิบาย|cheque|เช็ค|withdraw|deposit|ถอน|ฝาก|หักบัญชี)/i;
+  let best = -1, bestScore = 1;
+  for (let i = 0; i < Math.min(aoa.length, 30); i++) {
     const row = aoa[i] || [];
-    const nonEmpty = row.filter(c => c !== '' && c != null).length;
-    if (nonEmpty >= 3 && row.some(c => KEY.test(String(c)))) return i;
+    if (row.filter(c => c !== '' && c != null).length < 3) continue;
+    const score = row.filter(c => KEY.test(String(c))).length;       // นับคอลัมน์ที่ดูเป็นหัวตาราง
+    if (score > bestScore) { bestScore = score; best = i; }
   }
-  // fallback: แถวแรกที่มี cell ไม่ว่าง ≥3
-  for (let i = 0; i < Math.min(aoa.length, 25); i++) {
-    if ((aoa[i] || []).filter(c => c !== '' && c != null).length >= 3) return i;
-  }
+  if (best >= 0) return best;
+  for (let i = 0; i < Math.min(aoa.length, 30); i++) if ((aoa[i] || []).filter(c => c !== '' && c != null).length >= 3) return i;
   return 0;
 }
 // auto-map คอลัมน์จากชื่อ header (เดาให้ก่อน ผู้ใช้แก้ได้)
@@ -132,12 +158,26 @@ function brAutoMapping(headers) {
     balanceCol:balCol >= 0 ? balCol : null,
   };
 }
+
+// ── Preset ราย "แบรนด์" จากไฟล์ตัวอย่างจริง — map คอลัมน์อัตโนมัติครั้งแรก (ปรับเองได้ใน modal) ──
+//   index อิงรูปแบบไฟล์จริง (header อาจไม่อยู่บรรทัดแรก) · KTB เป็น .xls "มีรหัสผ่าน" →
+//   เปิดด้วย Excel แล้ว Save As .xlsx/.csv (ไม่ใส่รหัส) ก่อนนำเข้า
+const BR_PRESETS = {
+  // SCB (UTF-8) · header แถวแรก · acctCol(0)=ไฟล์รวมหลายบัญชี · Note(15)=เลขที่ PV → กระทบยอดแม่นด้วย ref
+  SCB:   { headerRow: 0, mode: 'split', acctCol: 0, dateCol: 5, debitCol: 11, creditCol: 12, balanceCol: 13, descCol: 14, refCol: 15 },
+  // KBANK (TIS-620) · header แถวที่ 10 (index 9) · มีบล็อกสรุปด้านบน
+  KBANK: { headerRow: 9, mode: 'split', dateCol: 0, debitCol: 4, creditCol: 5, balanceCol: 6, descCol: 2, refCol: 7 },
+  // BBL (TIS-620) · header แถวที่ 4 (index 3) · สรุปด้านบน + footer ด้านล่าง
+  BBL:   { headerRow: 3, mode: 'split', dateCol: 0, debitCol: 3, creditCol: 4, balanceCol: 5, descCol: 2, refCol: null },
+};
 // AOA + mapping → StatementLine[] (amount: signed, − = จ่ายออก)
 function brNormalizeLines(aoa, mapping, accountNo) {
   const rows = aoa.slice((mapping.headerRow || 0) + 1);
   const out = [];
   const baseCount = {};
+  const filterAcct = mapping.acctCol != null && bdDigits(accountNo).length >= 4;  // ไฟล์รวมหลายบัญชี (เช่น SCB) → เอาเฉพาะบัญชีที่เลือก
   rows.forEach(r => {
+    if (filterAcct && !bdAcctMatchesCheck(accountNo, r[mapping.acctCol])) return;
     const date = brToISO(r[mapping.dateCol]);
     if (!date) return;                          // ไม่มีวันที่ที่อ่านได้ = แถว header/total/footer → ข้าม
     let amount;
@@ -156,15 +196,18 @@ function brNormalizeLines(aoa, mapping, accountNo) {
     const balance = mapping.balanceCol != null ? (r[mapping.balanceCol] === '' ? null : brNum(r[mapping.balanceCol])) : null;
     const base = `${accountNo}|${date}|${amount.toFixed(2)}|${(ref || desc).slice(0, 18)}`;
     baseCount[base] = (baseCount[base] || 0) + 1;
-    out.push({ id: base + '#' + baseCount[base], date, amount, desc, ref, balance, bankAcct: accountNo, raw: r });
+    out.push({ id: base + '#' + baseCount[base], date, amount, desc, ref, balance, bankAcct: accountNo, _idx: out.length, raw: r });
   });
   return out;
 }
 
 // ─── มุมมองรายเดือน (ยกมา → เคลื่อนไหว → คงเหลือ) จากตัว statement เอง ──────────
 function brMonthlyView(lines) {
-  // sort วันที่อย่างเดียว (stable → คงลำดับในไฟล์สำหรับรายการวันเดียวกัน) เพื่อให้ running balance ตรงกับ statement
-  const sorted = lines.slice().sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+  // sort วันที่ + ลำดับในไฟล์ — รองรับไฟล์เรียงใหม่→เก่า (newest-first เช่น BBL): รายการวันเดียวกัน
+  //   เรียงกลับลำดับไฟล์ให้เป็นเวลาจริง เพื่อให้ running balance/ยอดยกมา-คงเหลือ ตรงกับ statement
+  const fileDesc = lines.length > 1 && lines[0].date > lines[lines.length - 1].date;
+  const sorted = lines.slice().sort((a, b) =>
+    a.date < b.date ? -1 : a.date > b.date ? 1 : (fileDesc ? (b._idx || 0) - (a._idx || 0) : (a._idx || 0) - (b._idx || 0)));
   const inTotal  = sorted.filter(l => l.amount > 0).reduce((s, l) => s + l.amount, 0);
   const outTotal = sorted.filter(l => l.amount < 0).reduce((s, l) => s - l.amount, 0);
   const hasBal = sorted.some(l => l.balance != null);
@@ -192,7 +235,7 @@ function brReconcile(opts) {
   const outLines = lines.filter(l => l.amount < 0);
   const inLines  = lines.filter(l => l.amount > 0);
   const pvAvail  = pvs.map((p, i) => ({ p, i, used: false }));
-  const matched = [], missing = [], recorded = [];
+  const matched = [], recorded = [];
   const toMatch = [];
   outLines.forEach(l => {
     const st = reconState[l.id];
@@ -200,8 +243,34 @@ function brReconcile(opts) {
     else toMatch.push(l);
   });
   toMatch.sort((a, b) => (a.date + a.id) < (b.date + b.id) ? -1 : 1);
-  // pass 1 — 1:1 by score
+
+  // ── pass 0: ref = เลขที่ PV ใน statement (เช่น SCB คอลัมน์ Note = PVxxxx) — แม่นสุด ──
+  //   รองรับ 1 PV หลายขา (เลข PV เดียวกันหลายบรรทัด → จับเป็นกลุ่มเดียว)
+  const pvByNo = {};
+  pvAvail.forEach(c => { const k = brNormRef(c.p.pvNo); if (k) (pvByNo[k] = pvByNo[k] || []).push(c); });
+  const linesByPv = {}, rest = [];
   toMatch.forEach(l => {
+    const k = brFindPvInRef(l.ref, pvByNo);
+    if (k) (linesByPv[k] = linesByPv[k] || []).push(l);
+    else rest.push(l);
+  });
+  Object.keys(linesByPv).forEach(k => {
+    const ls = linesByPv[k], cs = pvByNo[k].filter(c => !c.used);
+    if (!cs.length) { rest.push(...ls); return; }
+    cs.forEach(c => c.used = true);
+    const lineSum = ls.reduce((s, x) => s + Math.abs(x.amount), 0);
+    const pvSum   = cs.reduce((s, c) => s + Math.abs(c.p.amount), 0);
+    matched.push({
+      line: ls.length === 1 ? ls[0] : { _group: true, lines: ls, date: ls[0].date, amount: -lineSum, desc: `รวม ${ls.length} รายการ`, ref: k },
+      lines: ls, pvs: cs.map(c => c.p), via: 'ref', score: 200,
+      amtMismatch: Math.abs(lineSum - pvSum) > tol ? (lineSum - pvSum) : 0,
+    });
+  });
+
+  // ── pass 1: 1:1 amount+date ──
+  rest.sort((a, b) => (a.date + a.id) < (b.date + b.id) ? -1 : 1);
+  const after1 = [];
+  rest.forEach(l => {
     const target = Math.abs(l.amount);
     let best = null, bestScore = -1;
     pvAvail.forEach(c => {
@@ -215,28 +284,36 @@ function brReconcile(opts) {
       if (score > bestScore) { bestScore = score; best = c; }
     });
     if (best) { best.used = true; matched.push({ line: l, pv: best.p, score: bestScore, via: '1:1' }); }
+    else after1.push(l);
+  });
+
+  // ── pass 2: split (1 statement line = ผลรวมของ 2-3 PV ในกรอบวัน) ──
+  const missing = [];
+  after1.forEach(l => {
+    const target = Math.abs(l.amount);
+    const cand = pvAvail.filter(c => !c.used && c.p.date && brDateDiff(l.date, c.p.date) <= win).sort((a, b) => b.p.amount - a.p.amount);
+    const combo = brFindSubset(cand, target, tol, 3);
+    if (combo) { combo.forEach(c => c.used = true); matched.push({ line: l, pvs: combo.map(c => c.p), score: 5, via: 'split' }); }
     else missing.push(l);
   });
-  // pass 2 — split: 1 statement line = ผลรวมของ 2-3 PV ในกรอบวัน
-  const stillMissing = [];
-  missing.forEach(l => {
-    const target = Math.abs(l.amount);
-    const cand = pvAvail.filter(c => !c.used && c.p.date && brDateDiff(l.date, c.p.date) <= win)
-                        .sort((a, b) => b.p.amount - a.p.amount);
-    let combo = brFindSubset(cand, target, tol, 3);
-    if (combo) { combo.forEach(c => c.used = true); matched.push({ line: l, pvs: combo.map(c => c.p), score: 5, via: 'split' }); }
-    else stillMissing.push(l);
-  });
+
   const unmatchedPv = pvAvail.filter(c => !c.used).map(c => c.p);
   const stats = {
-    matched: matched.length,
-    missing: stillMissing.length,
-    unmatchedPv: unmatchedPv.length,
-    recorded: recorded.length,
-    missingAmt: stillMissing.reduce((s, l) => s + Math.abs(l.amount), 0),
+    matched: matched.length, missing: missing.length, unmatchedPv: unmatchedPv.length, recorded: recorded.length,
+    missingAmt: missing.reduce((s, l) => s + Math.abs(l.amount), 0),
     unmatchedPvAmt: unmatchedPv.reduce((s, p) => s + Math.abs(p.amount), 0),
   };
-  return { matched, missing: stillMissing, unmatchedPv, recorded, inLines, stats };
+  return { matched, missing, unmatchedPv, recorded, inLines, stats };
+}
+function brNormRef(s) { return String(s || '').replace(/\s+/g, '').toUpperCase(); }
+// หา pvNo ใน ref ของ statement (ref อาจมีข้อความปน) — คืน key ที่ match ใน pvByNo
+function brFindPvInRef(ref, pvByNo) {
+  const r = brNormRef(ref);
+  if (!r) return null;
+  if (pvByNo[r]) return r;
+  const keys = Object.keys(pvByNo);
+  for (let i = 0; i < keys.length; i++) { if (keys[i].length >= 6 && r.indexOf(keys[i]) >= 0) return keys[i]; }
+  return null;
 }
 // หา subset (≤maxN) ของ cand ที่ผลรวม ≈ target (greedy + backtrack เล็กน้อย)
 function brFindSubset(cand, target, tol, maxN) {
@@ -313,12 +390,19 @@ function BankReconPage({ data, setData, toast }) {
       const sheetIdx = 0;
       const aoa = sheets[sheetNames[0]] || [];
       const brand = brBrandKey(acct);
-      const headerRow = brGuessHeaderRow(aoa);
       const saved = mapAll[brand];
-      const headers = aoa[headerRow] || [];
-      const mapping = saved ? { ...saved, headerRow } : { ...brAutoMapping(headers), headerRow };
-      setPreview({ fileName: file.name, sheetNames, sheets, sheetIdx, aoa, headerRow, mapping, brand });
-    }).catch(err => { if (toast) toast('อ่านไฟล์ไม่สำเร็จ: ' + err); });
+      const guessed = brGuessHeaderRow(aoa);   // หา header เองเสมอ (กัน index เพี้ยนจาก blank-row)
+      let mapping;
+      if (saved) mapping = { ...saved };                                            // ที่เคยตั้งไว้ (จำ header row ด้วย)
+      else if (BR_PRESETS[brand]) mapping = { ...BR_PRESETS[brand], headerRow: guessed };  // preset (คอลัมน์) + header ที่ตรวจเจอจริง
+      else mapping = { ...brAutoMapping(aoa[guessed] || []), headerRow: guessed };
+      if (mapping.headerRow == null) mapping.headerRow = guessed;
+      setPreview({ fileName: file.name, sheetNames, sheets, sheetIdx, aoa, headerRow: mapping.headerRow, mapping, brand, accountNo: acct.accountNo });
+    }).catch(err => {
+      const msg = String((err && err.message) || err);
+      if (/password|encrypt/i.test(msg)) { if (toast) toast('ไฟล์มีรหัสผ่าน (เช่น KTB) — เปิดด้วย Excel แล้ว Save As เป็น .xlsx/.csv (ไม่ใส่รหัส) ก่อนนำเข้า'); }
+      else if (toast) toast('อ่านไฟล์ไม่สำเร็จ: ' + msg);
+    });
   };
   const applyImport = (mapping) => {
     if (!preview || !acct) return;
@@ -578,13 +662,17 @@ function BRMatchedTable({ rows }) {
         <tbody>
           {rows.map((m, i) => {
             const pvList = m.pvs || [m.pv];
+            const pvNos = [...new Set(pvList.map(p => p.pvNo || p.apNo || '—'))];
+            const viaLabel = m.via === 'ref' ? 'PV' : m.via === 'split' ? 'รวม' : '1:1';
+            const viaWarn = m.via === 'split';
             return (
-              <tr key={m.line.id}>
+              <tr key={m.line.id || ('g' + i)}>
                 <td style={{ whiteSpace: 'nowrap', color: 'var(--ink-600)' }}>{fmtDate(m.line.date) || m.line.date}</td>
-                <td>{m.line.desc || '—'} {m.line.ref && <span style={{ fontFamily: 'ui-monospace', fontSize: 11, color: 'var(--ink-400)' }}>· {m.line.ref}</span>}</td>
-                <td style={{ fontFamily: 'ui-monospace', fontSize: 11 }}>{pvList.map(p => p.pvNo || p.apNo || '—').join(', ')}</td>
+                <td>{m.line.desc || '—'} {m.line.ref && <span style={{ fontFamily: 'ui-monospace', fontSize: 11, color: 'var(--ink-400)' }}>· {m.line.ref}</span>}
+                  {m.amtMismatch ? <span style={{ color: 'var(--warn)', fontSize: 11 }}> · ⚠️ ยอดต่าง {fmtNum(Math.abs(m.amtMismatch), 2)}</span> : null}</td>
+                <td style={{ fontFamily: 'ui-monospace', fontSize: 11 }}>{pvNos.join(', ')}</td>
                 <td style={{ textAlign: 'center' }}>
-                  <span style={{ fontSize: 10, fontWeight: 700, color: m.via === 'split' ? 'var(--warn)' : 'var(--good)', background: m.via === 'split' ? 'var(--warn-bg)' : 'var(--good-bg)', padding: '2px 6px', borderRadius: 4 }}>{m.via === 'split' ? 'รวม' : '1:1'}</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: viaWarn ? 'var(--warn)' : 'var(--good)', background: viaWarn ? 'var(--warn-bg)' : 'var(--good-bg)', padding: '2px 6px', borderRadius: 4 }}>{viaLabel}</span>
                 </td>
                 <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: 'var(--good)' }}>{fmtNum(Math.abs(m.line.amount), 2)}</td>
               </tr>
@@ -668,7 +756,7 @@ function BRMappingModal({ preview, onApply, onClose, onChangeSheet }) {
       {colOpts.map(c => <option key={c.i} value={c.i}>{c.label}</option>)}
     </select>
   );
-  const previewLines = brNormalizeLines(preview.aoa, m, '_preview');
+  const previewLines = brNormalizeLines(preview.aoa, m, preview.accountNo || '_preview');
   return (
     <Modal open title={'ตั้งค่าคอลัมน์ statement · ' + preview.fileName} maxWidth={920} onClose={onClose}
       footer={<>
