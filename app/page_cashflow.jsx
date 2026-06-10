@@ -365,7 +365,10 @@ function CashFlowDashboard({ data, setData, toast }) {
   const invoices       = data.invoices || [];
   const payables       = data.payables || [];
   const pvVouchers     = data.pvVouchers || [];
-  const forecastEntries= data.forecastEntries || [];
+  // ประมาณการของ cashflow = เฉพาะที่ "คีย์มือ" จากหน้า Forecast — ตัด AP-plan (EXPENSE_TYPE='AP')
+  //   ที่ผู้ใช้วางแผนจ่ายจากหน้า Bank Diary ออก (คนละส่วนกับประมาณการต้นเดือน ไม่งั้นนับซ้ำ)
+  //   memo ไว้ให้ reference นิ่ง (ไม่ recompute memo ลูกทุก render)
+  const forecastEntries= cfMemo(() => (data.forecastEntries || []).filter(fe => String(fe.EXPENSE_TYPE || '').toUpperCase() !== 'AP'), [data.forecastEntries]);
   const snapshots      = data.cashflowSnapshots || [];
   const bankAccounts   = data.bankAccounts || [];
 
