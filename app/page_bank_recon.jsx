@@ -1,0 +1,751 @@
+/* page_bank_recon.jsx — กระทบยอดธนาคาร (Bank Reconciliation)
+ *
+ * เป้าหมาย: กระทบ "รายการที่บันทึกในระบบ (PV)" กับ "รายการเดินบัญชีจริงจากธนาคาร (statement)"
+ *   ราย "บัญชี" ราย "เดือน" เพื่อตอบ:
+ *     • ทั้งเดือน ยกมา/เคลื่อนไหว/คงเหลือ เท่าไหร่ (จากตัว statement เอง)
+ *     • PV เกิดจากบัญชีไหน · ครบตาม statement ไหม
+ *     • รายการไหน "เกิดจริงแต่ยังไม่ลงระบบ" (ขาดบันทึก) → กดบันทึกเป็นจ่ายจริงได้
+ *       แล้วเด้งเข้า Actual หน้า Cashflow (เขียน forecastEntries STATUS=ACTUAL)
+ *
+ * เก็บ statement + mapping + สถานะกระทบ ใน localStorage (v1, ไม่แตะ Sheets sync)
+ *   — statement เป็น working data (re-import ได้) · ความจริงทางการเงินไหลเข้า forecastEntries (synced)
+ *
+ * Reuse helper จาก page_bank_diary.jsx (global): bdNum, bdDigits, bdISO, bdAcct,
+ *   bdAcctMatchesCheck, bdLast4, bdBrand, bdNormPV  · parse ไฟล์ด้วย global XLSX (โหลดใน index.html)
+ */
+'use strict';
+
+const { useState: brState, useMemo: brMemo, useEffect: brEffect, useRef: brRef } = React;
+
+// ─── localStorage store (v1 — จุดเดียวที่จะสลับเป็น synced v2 ภายหลัง) ──────────
+const BR_LS_STMT  = 'wtp-bankrecon-stmt-v1';   // { [accountNo]: { 'YYYY-MM': StatementLine[] } }
+const BR_LS_MAP   = 'wtp-bankrecon-map-v1';    // { [brandKey]: ColumnMapping }
+const BR_LS_STATE = 'wtp-bankrecon-state-v1';  // { [lineId]: { decision, forecastId } }
+const BankReconStore = {
+  _get(k, def) { try { const v = JSON.parse(localStorage.getItem(k) || 'null'); return v == null ? def : v; } catch (_) { return def; } },
+  _set(k, v)   { try { localStorage.setItem(k, JSON.stringify(v)); } catch (_) {} },
+  getLines()   { return this._get(BR_LS_STMT, {}); },
+  setLines(v)  { this._set(BR_LS_STMT, v); },
+  getMapping() { return this._get(BR_LS_MAP, {}); },
+  setMapping(v){ this._set(BR_LS_MAP, v); },
+  getState()   { return this._get(BR_LS_STATE, {}); },
+  setState(v)  { this._set(BR_LS_STATE, v); },
+};
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+// brand key (ไทย/อังกฤษ) — ใช้เป็น key ของ mapping (บัญชีแบรนด์เดียวกัน map ครั้งเดียว)
+function brBrandKey(acct) {
+  const s = (String((acct && acct.bankName) || '') + ' ' + String((acct && acct.accountName) || '')).toUpperCase();
+  if (/SCB|ไทยพาณิชย์|SIAM COMMERCIAL/i.test(s)) return 'SCB';
+  if (/KTB|กรุงไทย|KRUNG ?THAI/i.test(s))         return 'KTB';
+  if (/BBL|กรุงเทพ|BANGKOK BANK/i.test(s))        return 'BBL';
+  if (/KBANK|KBNK|กสิกร|KASIKORN/i.test(s))       return 'KBANK';
+  if (/BAY|กรุงศรี|AYUDHYA/i.test(s))             return 'BAY';
+  if (/TTB|ทหารไทย|ธนชาต/i.test(s))               return 'TTB';
+  if (/GSB|ออมสิน/i.test(s))                      return 'GSB';
+  const up = String((acct && acct.bankName) || '').trim().toUpperCase();
+  return up || 'BANK';
+}
+
+// number parse (เผื่อ Date object จาก XLSX → 0, comma → ตัด)
+function brNum(v) {
+  if (v == null || v === '') return 0;
+  if (v instanceof Date) return 0;
+  const n = parseFloat(String(v).replace(/,/g, '').replace(/[฿\s]/g, ''));
+  return isNaN(n) ? 0 : n;
+}
+// แปลงค่าวันที่ใดๆ → ISO 'YYYY-MM-DD' (รองรับ Date จาก XLSX, DD/MM/YYYY แบบไทย, พ.ศ., ISO)
+function brToISO(v) {
+  if (v == null || v === '') return '';
+  if (v instanceof Date && !isNaN(v)) return bdISO(v);
+  const s = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);   // DD/MM/YYYY (ไทย)
+  if (m) {
+    let [, dd, mm, yy] = m;
+    if (yy.length === 2) yy = '20' + yy;
+    let y = Number(yy); if (y > 2400) y -= 543;                       // พ.ศ. → ค.ศ.
+    return `${y}-${String(Number(mm)).padStart(2, '0')}-${String(Number(dd)).padStart(2, '0')}`;
+  }
+  const t = Date.parse(s);
+  return isNaN(t) ? '' : bdISO(new Date(t));
+}
+function brMonthOf(iso) { return String(iso || '').slice(0, 7); }
+function brDateDiff(a, b) {
+  const ta = Date.parse(a + 'T00:00:00'), tb = Date.parse(b + 'T00:00:00');
+  if (isNaN(ta) || isNaN(tb)) return 999;
+  return Math.abs(Math.round((tb - ta) / 86400000));
+}
+const BR_MONTHS_TH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+function brFmtMonth(ym) {
+  const [y, m] = String(ym || '').split('-').map(Number);
+  if (!y || !m) return ym || '—';
+  return `${BR_MONTHS_TH[m - 1]} ${y + 543}`;
+}
+
+// ─── ไฟล์ → AOA (รองรับ CSV + Excel ผ่าน global XLSX) ─────────────────────────
+function brParseFile(file) {
+  return file.arrayBuffer().then(buf => {
+    const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+    const sheets = {};
+    wb.SheetNames.forEach(name => {
+      sheets[name] = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, blankrows: false, defval: '' });
+    });
+    return { sheetNames: wb.SheetNames, sheets };
+  });
+}
+// เดาแถว header — แถวแรกที่มี cell ไม่ว่าง ≥3 และมี token คล้าย วันที่/ยอด/รายการ
+function brGuessHeaderRow(aoa) {
+  const KEY = /(date|วันที่|debit|credit|เดบิต|เครดิต|amount|จำนวน|ยอด|balance|คงเหลือ|description|รายการ|รายละเอียด|cheque|เช็ค|ref)/i;
+  for (let i = 0; i < Math.min(aoa.length, 25); i++) {
+    const row = aoa[i] || [];
+    const nonEmpty = row.filter(c => c !== '' && c != null).length;
+    if (nonEmpty >= 3 && row.some(c => KEY.test(String(c)))) return i;
+  }
+  // fallback: แถวแรกที่มี cell ไม่ว่าง ≥3
+  for (let i = 0; i < Math.min(aoa.length, 25); i++) {
+    if ((aoa[i] || []).filter(c => c !== '' && c != null).length >= 3) return i;
+  }
+  return 0;
+}
+// auto-map คอลัมน์จากชื่อ header (เดาให้ก่อน ผู้ใช้แก้ได้)
+function brAutoMapping(headers) {
+  const find = (re) => { for (let i = 0; i < headers.length; i++) if (re.test(String(headers[i]))) return i; return -1; };
+  const dateCol  = find(/date|วันที่|วันที|posting/i);
+  const debitCol = find(/debit|เดบิต|withdraw|ถอน|จ่าย|ออก/i);
+  const creditCol= find(/credit|เครดิต|deposit|ฝาก|รับ|เข้า/i);
+  const amountCol= find(/amount|จำนวนเงิน|^ยอด|มูลค่า/i);
+  const balCol   = find(/balance|คงเหลือ|ยอดคงเหลือ/i);
+  const descCol  = find(/description|รายการ|รายละเอียด|detail|narrative|memo|channel/i);
+  const refCol   = find(/cheque|เช็ค|ref|เลขที่|อ้างอิง|transaction|no\.?$/i);
+  const mode = (debitCol >= 0 && creditCol >= 0) ? 'split' : 'single';
+  return {
+    headerRow: 0,  // ตั้งจริงตอนใช้
+    mode,
+    dateCol:   dateCol >= 0 ? dateCol : 0,
+    amountCol: amountCol >= 0 ? amountCol : (debitCol >= 0 ? debitCol : 1),
+    outflowPositive: mode === 'single' && debitCol >= 0,  // ถ้าเดารวมจากเดบิต = ยอดบวก=จ่ายออก
+    debitCol:  debitCol >= 0 ? debitCol : null,
+    creditCol: creditCol >= 0 ? creditCol : null,
+    descCol:   descCol >= 0 ? descCol : null,
+    refCol:    refCol >= 0 ? refCol : null,
+    balanceCol:balCol >= 0 ? balCol : null,
+  };
+}
+// AOA + mapping → StatementLine[] (amount: signed, − = จ่ายออก)
+function brNormalizeLines(aoa, mapping, accountNo) {
+  const rows = aoa.slice((mapping.headerRow || 0) + 1);
+  const out = [];
+  const baseCount = {};
+  rows.forEach(r => {
+    const date = brToISO(r[mapping.dateCol]);
+    if (!date) return;                          // ไม่มีวันที่ที่อ่านได้ = แถว header/total/footer → ข้าม
+    let amount;
+    if (mapping.mode === 'split') {
+      const dr = brNum(r[mapping.debitCol]);    // เดบิต = จ่ายออก
+      const cr = brNum(r[mapping.creditCol]);   // เครดิต = รับเข้า
+      amount = cr - dr;
+    } else {
+      let a = brNum(r[mapping.amountCol]);
+      if (mapping.outflowPositive) a = -a;      // บางแบงก์โชว์ยอดถอน/จ่ายเป็นเลขบวก
+      amount = a;
+    }
+    if (!amount) return;                        // ข้ามแถวยอด 0
+    const desc    = mapping.descCol  != null ? String(r[mapping.descCol]  || '').trim() : '';
+    const ref     = mapping.refCol   != null ? String(r[mapping.refCol]   || '').trim() : '';
+    const balance = mapping.balanceCol != null ? (r[mapping.balanceCol] === '' ? null : brNum(r[mapping.balanceCol])) : null;
+    const base = `${accountNo}|${date}|${amount.toFixed(2)}|${(ref || desc).slice(0, 18)}`;
+    baseCount[base] = (baseCount[base] || 0) + 1;
+    out.push({ id: base + '#' + baseCount[base], date, amount, desc, ref, balance, bankAcct: accountNo, raw: r });
+  });
+  return out;
+}
+
+// ─── มุมมองรายเดือน (ยกมา → เคลื่อนไหว → คงเหลือ) จากตัว statement เอง ──────────
+function brMonthlyView(lines) {
+  // sort วันที่อย่างเดียว (stable → คงลำดับในไฟล์สำหรับรายการวันเดียวกัน) เพื่อให้ running balance ตรงกับ statement
+  const sorted = lines.slice().sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+  const inTotal  = sorted.filter(l => l.amount > 0).reduce((s, l) => s + l.amount, 0);
+  const outTotal = sorted.filter(l => l.amount < 0).reduce((s, l) => s - l.amount, 0);
+  const hasBal = sorted.some(l => l.balance != null);
+  let opening = null, closing = null;
+  if (hasBal && sorted.length) {
+    const first = sorted.find(l => l.balance != null);
+    const last  = sorted.slice().reverse().find(l => l.balance != null);
+    if (first) opening = first.balance - first.amount;   // ยอดก่อนรายการแรก = ยกมา
+    if (last)  closing = last.balance;
+  }
+  let run = opening != null ? opening : 0;
+  const rows = sorted.map(l => { run += l.amount; return { ...l, running: l.balance != null ? l.balance : run }; });
+  if (opening == null && sorted.length) closing = run;
+  const expectedClosing = opening != null ? opening + (inTotal - outTotal) : null;
+  const balOK = (closing != null && expectedClosing != null) ? Math.abs(closing - expectedClosing) < 0.01 : null;
+  return { sorted: rows, inTotal, outTotal, opening, closing, expectedClosing, balOK, hasBal, count: sorted.length };
+}
+
+// ─── Reconcile engine — statement (จ่ายออก) ↔ PV ──────────────────────────────
+//   3 ถัง: matched · missing (เกิดจริงแต่ยังไม่ลงระบบ) · unmatchedPv (ลงระบบแต่ยังไม่ออกจริง)
+function brReconcile(opts) {
+  const lines = opts.lines || [], pvs = opts.pvs || [], reconState = opts.reconState || {};
+  const tol = opts.amtTol != null ? opts.amtTol : 0.01;
+  const win = opts.dateWindow != null ? opts.dateWindow : 3;
+  const outLines = lines.filter(l => l.amount < 0);
+  const inLines  = lines.filter(l => l.amount > 0);
+  const pvAvail  = pvs.map((p, i) => ({ p, i, used: false }));
+  const matched = [], missing = [], recorded = [];
+  const toMatch = [];
+  outLines.forEach(l => {
+    const st = reconState[l.id];
+    if (st && st.decision === 'recorded') recorded.push({ line: l, forecastId: st.forecastId });
+    else toMatch.push(l);
+  });
+  toMatch.sort((a, b) => (a.date + a.id) < (b.date + b.id) ? -1 : 1);
+  // pass 1 — 1:1 by score
+  toMatch.forEach(l => {
+    const target = Math.abs(l.amount);
+    let best = null, bestScore = -1;
+    pvAvail.forEach(c => {
+      if (c.used) return;
+      if (Math.abs(c.p.amount - target) > tol) return;
+      const dd = c.p.date ? brDateDiff(l.date, c.p.date) : 999;
+      if (dd > win) return;
+      let score = 50 - dd * 10;
+      if (l.ref && c.p.chqNo && bdDigits(l.ref) && bdDigits(l.ref) === bdDigits(c.p.chqNo)) score += 100;
+      if (Math.abs(c.p.amount - target) < 0.005) score += 10;
+      if (score > bestScore) { bestScore = score; best = c; }
+    });
+    if (best) { best.used = true; matched.push({ line: l, pv: best.p, score: bestScore, via: '1:1' }); }
+    else missing.push(l);
+  });
+  // pass 2 — split: 1 statement line = ผลรวมของ 2-3 PV ในกรอบวัน
+  const stillMissing = [];
+  missing.forEach(l => {
+    const target = Math.abs(l.amount);
+    const cand = pvAvail.filter(c => !c.used && c.p.date && brDateDiff(l.date, c.p.date) <= win)
+                        .sort((a, b) => b.p.amount - a.p.amount);
+    let combo = brFindSubset(cand, target, tol, 3);
+    if (combo) { combo.forEach(c => c.used = true); matched.push({ line: l, pvs: combo.map(c => c.p), score: 5, via: 'split' }); }
+    else stillMissing.push(l);
+  });
+  const unmatchedPv = pvAvail.filter(c => !c.used).map(c => c.p);
+  const stats = {
+    matched: matched.length,
+    missing: stillMissing.length,
+    unmatchedPv: unmatchedPv.length,
+    recorded: recorded.length,
+    missingAmt: stillMissing.reduce((s, l) => s + Math.abs(l.amount), 0),
+    unmatchedPvAmt: unmatchedPv.reduce((s, p) => s + Math.abs(p.amount), 0),
+  };
+  return { matched, missing: stillMissing, unmatchedPv, recorded, inLines, stats };
+}
+// หา subset (≤maxN) ของ cand ที่ผลรวม ≈ target (greedy + backtrack เล็กน้อย)
+function brFindSubset(cand, target, tol, maxN) {
+  const n = Math.min(cand.length, 12);   // bound
+  const arr = cand.slice(0, n);
+  let found = null;
+  const dfs = (start, remain, picked) => {
+    if (found) return;
+    if (Math.abs(remain) <= tol && picked.length >= 2) { found = picked.slice(); return; }
+    if (picked.length >= maxN) return;
+    for (let i = start; i < arr.length; i++) {
+      if (arr[i].p.amount - tol > remain) continue;   // เกิน target แล้ว ข้าม (เรียงมาก→น้อย)
+      picked.push(arr[i]);
+      dfs(i + 1, remain - arr[i].p.amount, picked);
+      picked.pop();
+      if (found) return;
+    }
+  };
+  dfs(0, target, []);
+  return found;
+}
+
+// ─── สี/ป้ายแบงก์บนหัวบัญชี ────────────────────────────────────────────────────
+function brBrandChip(acct) {
+  const b = bdBrand(brBrandKey(acct));
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: '#fff',
+      background: b.color, padding: '3px 9px', borderRadius: 6 }}>
+      {b.label} <span style={{ opacity: .85, fontWeight: 500 }}>···{bdLast4(acct.accountNo)}</span>
+    </span>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+function BankReconPage({ data, setData, toast }) {
+  const readOnly = typeof _wtpRoleIsReadOnly === 'function' && _wtpRoleIsReadOnly();
+  const accounts = brMemo(() => (data.bankAccounts || []).map(bdAcct)
+    .filter(a => a.accountNo && (a.type || '').toLowerCase() !== 'closed' && (a.type || '').toLowerCase() !== 'dormant'), [data.bankAccounts]);
+
+  const [accountNo, setAccountNo] = brState('');
+  const today = new Date();
+  const [month, setMonth] = brState(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`);
+  const [linesAll, setLinesAll]   = brState(() => BankReconStore.getLines());
+  const [mapAll, setMapAll]       = brState(() => BankReconStore.getMapping());
+  const [reconState, setReconState] = brState(() => BankReconStore.getState());
+  const [preview, setPreview]     = brState(null);   // { fileName, sheetNames, sheetIdx, aoa, mapping, brand }
+  const [recordLine, setRecordLine] = brState(null); // line ในถัง missing → modal บันทึกจ่ายจริง
+  const fileRef = brRef(null);
+
+  // default account = อันแรก
+  brEffect(() => { if (!accountNo && accounts.length) setAccountNo(accounts[0].accountNo); }, [accounts]);
+  const acct = accounts.find(a => a.accountNo === accountNo) || accounts[0] || null;
+
+  // PV ของบัญชี+เดือนนี้ (outflow) — ผูกบัญชีด้วย bdAcctMatchesCheck (เลขท้าย 4)
+  const pvForAcct = brMemo(() => {
+    if (!acct) return [];
+    return (data.pvVouchers || []).map(bdNormPV)
+      .filter(p => p.amount > 0 && p.date && brMonthOf(p.date) === month && bdAcctMatchesCheck(acct.accountNo, p.bankAc));
+  }, [data.pvVouchers, acct && acct.accountNo, month]);
+
+  const lines = brMemo(() => ((linesAll[accountNo] || {})[month]) || [], [linesAll, accountNo, month]);
+  const monthly = brMemo(() => brMonthlyView(lines), [lines]);
+  const recon = brMemo(() => brReconcile({ lines, pvs: pvForAcct, reconState }), [lines, pvForAcct, reconState]);
+
+  // เดือนที่มีข้อมูล statement ของบัญชีนี้ (ไว้สลับเร็ว)
+  const monthsWithData = brMemo(() => Object.keys(linesAll[accountNo] || {}).sort().reverse(), [linesAll, accountNo]);
+
+  // ── Import flow ──
+  const onPickFile = (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file || !acct) return;
+    brParseFile(file).then(({ sheetNames, sheets }) => {
+      const sheetIdx = 0;
+      const aoa = sheets[sheetNames[0]] || [];
+      const brand = brBrandKey(acct);
+      const headerRow = brGuessHeaderRow(aoa);
+      const saved = mapAll[brand];
+      const headers = aoa[headerRow] || [];
+      const mapping = saved ? { ...saved, headerRow } : { ...brAutoMapping(headers), headerRow };
+      setPreview({ fileName: file.name, sheetNames, sheets, sheetIdx, aoa, headerRow, mapping, brand });
+    }).catch(err => { if (toast) toast('อ่านไฟล์ไม่สำเร็จ: ' + err); });
+  };
+  const applyImport = (mapping) => {
+    if (!preview || !acct) return;
+    const newLines = brNormalizeLines(preview.aoa, mapping, acct.accountNo);
+    if (!newLines.length) { if (toast) toast('ไม่พบรายการที่อ่านได้ — ลองปรับ map คอลัมน์/แถว header'); return; }
+    // เก็บ mapping ต่อแบรนด์ + bucket รายเดือนตามวันที่จริงในไฟล์
+    const nm = { ...mapAll, [preview.brand]: mapping }; setMapAll(nm); BankReconStore.setMapping(nm);
+    const acctBucket = { ...(linesAll[acct.accountNo] || {}) };
+    const byMonth = {};
+    newLines.forEach(l => { (byMonth[brMonthOf(l.date)] = byMonth[brMonthOf(l.date)] || []).push(l); });
+    Object.keys(byMonth).forEach(m => { acctBucket[m] = byMonth[m]; });   // ทับเฉพาะเดือนที่อยู่ในไฟล์
+    const nl = { ...linesAll, [acct.accountNo]: acctBucket }; setLinesAll(nl); BankReconStore.setLines(nl);
+    const months = Object.keys(byMonth).sort();
+    if (months.length) setMonth(months[months.length - 1]);
+    setPreview(null);
+    if (toast) toast(`นำเข้า ${newLines.length} รายการ (${months.map(brFmtMonth).join(', ')})`);
+  };
+  const clearMonth = () => {
+    if (!acct || !window.confirm(`ลบ statement ของ ${brFmtMonth(month)} บัญชีนี้?`)) return;
+    const acctBucket = { ...(linesAll[acct.accountNo] || {}) }; delete acctBucket[month];
+    const nl = { ...linesAll, [acct.accountNo]: acctBucket }; setLinesAll(nl); BankReconStore.setLines(nl);
+  };
+
+  // ── บันทึก "เกิดจริงแต่ยังไม่ลงระบบ" → forecastEntries STATUS=ACTUAL (เด้งเข้า Cashflow) ──
+  const recordActual = (line, cat) => {
+    if (readOnly) { if (toast) toast('สิทธิ์นี้ดูได้อย่างเดียว'); return; }
+    const id = (window.WTPData && WTPData.newId) ? WTPData.newId() : ('fe-' + Date.now());
+    const todayISO = new Date().toISOString().slice(0, 10);
+    const row = {
+      id, DATE: todayISO, PAYMENT_DATE: line.date, EXPENSE_TYPE: 'BANK_RECON',
+      DESCRIPTION: line.desc || ('รายการธนาคาร' + (line.ref ? ' ' + line.ref : '')),
+      AMOUNT: String(-Math.abs(line.amount)), Bank_AC: line.bankAcct || (acct && acct.accountNo) || null,
+      STATUS: 'ACTUAL', CATEGORY: cat ? String(cat) : null,
+      ACTUAL_AMOUNT: String(-Math.abs(line.amount)), ACTUAL_DATE: line.date,
+      REF_DOC: line.ref || null, BOOKED_AT: null, CFS_ACTIVITY: null, NOTE: 'นำเข้าจาก statement (กระทบยอด)',
+    };
+    setData(d => ({ ...d, forecastEntries: [...(d.forecastEntries || []), row] }));
+    const ns = { ...reconState, [line.id]: { decision: 'recorded', forecastId: id } };
+    setReconState(ns); BankReconStore.setState(ns);
+    setRecordLine(null);
+    if (toast) toast('บันทึกจ่ายจริงแล้ว → เด้งเข้า Actual หน้า Cashflow');
+  };
+  const undoRecord = (line, forecastId) => {
+    if (readOnly) return;
+    if (forecastId) setData(d => ({ ...d, forecastEntries: (d.forecastEntries || []).filter(e => e.id !== forecastId) }));
+    const ns = { ...reconState }; delete ns[line.id];
+    setReconState(ns); BankReconStore.setState(ns);
+    if (toast) toast('ยกเลิกบันทึก — ลบออกจาก Actual แล้ว');
+  };
+
+  const goMonth = (delta) => {
+    const [y, m] = month.split('-').map(Number);
+    const d = new Date(y, m - 1 + delta, 1);
+    setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  };
+
+  if (!accounts.length) {
+    return <div className="page bg-pattern"><div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--ink-500)' }}>ยังไม่มีบัญชีธนาคารในระบบ</div></div>;
+  }
+
+  return (
+    <div className="page bg-pattern">
+      <input ref={fileRef} type="file" accept=".csv,.xls,.xlsx,.txt" style={{ display: 'none' }} onChange={onPickFile} />
+
+      {/* Header */}
+      <div className="page-head anim-in">
+        <div>
+          <h1 className="page-title">กระทบยอดธนาคาร</h1>
+          <div className="page-sub">Bank Reconciliation · เทียบ PV ในระบบ กับรายการเดินบัญชีจริง · {brFmtMonth(month)}</div>
+        </div>
+        <div className="page-head-r" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button className="btn btn-ghost" onClick={() => goMonth(-1)} title="เดือนก่อน">‹</button>
+          <div style={{ padding: '6px 12px', background: 'var(--ink-50)', borderRadius: 8, fontSize: 13, fontWeight: 600, minWidth: 96, textAlign: 'center' }}>{brFmtMonth(month)}</div>
+          <button className="btn btn-ghost" onClick={() => goMonth(1)} title="เดือนถัดไป">›</button>
+          {!readOnly && <button className="btn btn-primary" onClick={() => fileRef.current && fileRef.current.click()} title="นำเข้าไฟล์รายการเดินบัญชี (CSV/Excel)">📥 นำเข้า statement</button>}
+        </div>
+      </div>
+
+      {/* Account selector */}
+      <div className="card anim-in" style={{ padding: 12, marginBottom: 16, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink-600)' }}>บัญชี:</span>
+        <select className="select input" value={accountNo} onChange={e => setAccountNo(e.target.value)} style={{ minWidth: 320, fontSize: 13, padding: '6px 10px' }}>
+          {accounts.map(a => (
+            <option key={a.accountNo} value={a.accountNo}>
+              {bdBrand(brBrandKey(a)).label} ···{bdLast4(a.accountNo)} — {a.accountName || a.bankName || a.accountNo}
+            </option>
+          ))}
+        </select>
+        {monthsWithData.length > 0 && (
+          <span style={{ fontSize: 11.5, color: 'var(--ink-500)' }}>
+            มี statement: {monthsWithData.map(m => (
+              <button key={m} onClick={() => setMonth(m)} style={{ border: 'none', background: m === month ? 'var(--brand-500)' : 'var(--ink-100)', color: m === month ? '#fff' : 'var(--ink-700)', borderRadius: 5, padding: '2px 8px', margin: '0 3px', cursor: 'pointer', fontSize: 11 }}>{brFmtMonth(m)}</button>
+            ))}
+          </span>
+        )}
+        {acct && <span style={{ marginLeft: 'auto' }}>{brBrandChip(acct)}</span>}
+      </div>
+
+      {/* KPI — ยกมา / เข้า / ออก / คงเหลือ + cross-check */}
+      <div className="grid anim-in" style={{ gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 12, marginBottom: 8 }}>
+        <KpiTile label="ยอดยกมา (ต้นเดือน)" value={monthly.opening != null ? monthly.opening : 0} digits={0} accent="var(--brand-500)" icon="coin" />
+        <KpiTile label="เงินเข้า" value={monthly.inTotal} digits={0} accent="var(--good)" icon="arrow_down" />
+        <KpiTile label="เงินออก" value={monthly.outTotal} digits={0} accent="var(--bad)" icon="arrow_up" />
+        <KpiTile label="คงเหลือ (ปลายเดือน)" value={monthly.closing != null ? monthly.closing : 0} digits={0} accent="var(--brand-700)" icon="bank" />
+      </div>
+      {monthly.count > 0 && monthly.balOK != null && (
+        <div style={{ marginBottom: 16, fontSize: 12, fontWeight: 600,
+          color: monthly.balOK ? 'var(--good)' : 'var(--bad)' }}>
+          {monthly.balOK
+            ? '✓ ยอดคงเหลือใน statement ตรงกับผลรวมรายการ'
+            : `⚠️ ยอดคงเหลือไม่ตรง (ต่าง ${fmtNum(Math.abs(monthly.closing - monthly.expectedClosing), 2)}) — อาจมีรายการขาด/ซ้ำใน statement`}
+        </div>
+      )}
+
+      {/* ไม่มี statement → ชวนนำเข้า */}
+      {monthly.count === 0 ? (
+        <div className="card" style={{ padding: 32, textAlign: 'center', color: 'var(--ink-500)', marginBottom: 16 }}>
+          <div style={{ fontSize: 40, marginBottom: 8 }}>🏦</div>
+          <div style={{ fontWeight: 600, color: 'var(--ink-700)', marginBottom: 4 }}>ยังไม่มีรายการเดินบัญชีของ {brFmtMonth(month)}</div>
+          <div style={{ fontSize: 12.5, marginBottom: 14 }}>นำเข้าไฟล์ statement (CSV/Excel) จากธนาคาร แล้วระบบจะกระทบกับ PV ในระบบให้</div>
+          {!readOnly && <button className="btn btn-primary" onClick={() => fileRef.current && fileRef.current.click()}>📥 นำเข้า statement</button>}
+          {pvForAcct.length > 0 && <div style={{ fontSize: 12, marginTop: 14, color: 'var(--ink-600)' }}>เดือนนี้มี PV ในระบบ <b>{pvForAcct.length}</b> รายการ (รวม {fmtNum(recon.stats.unmatchedPvAmt, 0)} ฿) รอกระทบ</div>}
+        </div>
+      ) : (
+        <BRReconcileSection recon={recon} acct={acct} readOnly={readOnly}
+          onRecord={setRecordLine} onUndo={undoRecord} />
+      )}
+
+      {/* รายการเดินบัญชี (statement) — ยกมา → เคลื่อนไหว → คงเหลือ */}
+      {monthly.count > 0 && <BRStatementTable monthly={monthly} />}
+
+      {/* Mapping modal */}
+      {preview && (
+        <BRMappingModal preview={preview} onApply={applyImport} onClose={() => setPreview(null)}
+          onChangeSheet={(idx) => {
+            const name = preview.sheetNames[idx]; const aoa = preview.sheets[name] || [];
+            const headerRow = brGuessHeaderRow(aoa);
+            setPreview({ ...preview, sheetIdx: idx, aoa, headerRow, mapping: { ...preview.mapping, headerRow } });
+          }} />
+      )}
+
+      {/* Record-actual modal */}
+      {recordLine && (
+        <BRRecordModal line={recordLine} onSave={recordActual} onClose={() => setRecordLine(null)} />
+      )}
+
+      {/* footer note */}
+      <div className="card no-print" style={{ marginTop: 16, padding: '10px 14px', background: '#fffbeb', borderLeft: '4px solid #f6ad55', fontSize: 11.5, color: 'var(--ink-700)', lineHeight: 1.7 }}>
+        💡 จับคู่ด้วย <b>ยอด</b> (±0.01) + <b>วันที่</b> (±3 วัน) + เลขเช็ค · รองรับ 1 รายการธนาคาร = หลาย PV ·
+        รายการ "เกิดจริงแต่ยังไม่ลงระบบ" กด <b>บันทึกจ่ายจริง</b> → เพิ่มเป็น Actual หน้า <a href="#cashflow" style={{ color: 'var(--brand-600)' }}>Cashflow</a> ·
+        statement เก็บในเครื่อง (localStorage) ไม่ขึ้น cloud
+      </div>
+    </div>
+  );
+}
+
+// ─── ส่วนกระทบยอด 3 ถัง ───────────────────────────────────────────────────────
+function BRReconcileSection({ recon, acct, readOnly, onRecord, onUndo }) {
+  const [tab, setTab] = brState('missing');
+  const { matched, missing, unmatchedPv, recorded, stats } = recon;
+  const tabs = [
+    { key: 'missing',  label: 'ขาดบันทึก',         n: missing.length,    color: 'var(--bad)' },
+    { key: 'unmatch',  label: 'ยังไม่ออกจริง',      n: unmatchedPv.length, color: 'var(--warn)' },
+    { key: 'matched',  label: 'แมตช์แล้ว',          n: matched.length,    color: 'var(--good)' },
+    { key: 'recorded', label: 'บันทึกจาก statement', n: recorded.length,   color: 'var(--brand-600)' },
+  ];
+  return (
+    <div className="card anim-in" style={{ padding: 0, marginBottom: 16, overflow: 'hidden' }}>
+      {/* summary chips / tabs */}
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
+        {tabs.map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)}
+            style={{ flex: '1 1 0', minWidth: 130, border: 'none', background: tab === t.key ? 'var(--surface)' : 'var(--ink-50)',
+              borderBottom: tab === t.key ? '2px solid ' + t.color : '2px solid transparent', cursor: 'pointer', padding: '12px 10px', textAlign: 'center' }}>
+            <div style={{ fontSize: 22, fontWeight: 800, color: t.color, fontVariantNumeric: 'tabular-nums' }}>{t.n}</div>
+            <div style={{ fontSize: 12, color: 'var(--ink-600)', fontWeight: 600 }}>{t.label}</div>
+          </button>
+        ))}
+      </div>
+      <div style={{ padding: 14 }}>
+        {tab === 'missing'  && <BRMissingTable rows={missing} readOnly={readOnly} onRecord={onRecord} />}
+        {tab === 'unmatch'  && <BRPvTable rows={unmatchedPv} />}
+        {tab === 'matched'  && <BRMatchedTable rows={matched} />}
+        {tab === 'recorded' && <BRRecordedTable rows={recorded} readOnly={readOnly} onUndo={onUndo} />}
+      </div>
+    </div>
+  );
+}
+
+function BREmpty({ text }) { return <div style={{ padding: 24, textAlign: 'center', color: 'var(--ink-400)', fontSize: 12.5 }}>{text}</div>; }
+
+// ถัง (b) — statement ออก แต่ไม่มี PV → กดบันทึกจ่ายจริง
+function BRMissingTable({ rows, readOnly, onRecord }) {
+  if (!rows.length) return <BREmpty text="✓ ไม่มีรายการที่ขาดการบันทึก — statement ทุกรายการมี PV รองรับ" />;
+  return (
+    <div style={{ maxHeight: '52vh', overflow: 'auto' }}>
+      <div style={{ fontSize: 12, color: 'var(--ink-600)', marginBottom: 8 }}>เงินออกจากบัญชีจริง แต่ยังไม่มี PV ในระบบ — ตรวจแล้วกด "บันทึกจ่ายจริง" เพื่อส่งเข้า Actual หน้า Cashflow</div>
+      <table className="tbl" style={{ width: '100%', fontSize: 12.5 }}>
+        <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
+          <tr><th style={{ width: 100 }}>วันที่</th><th>รายละเอียด</th><th style={{ width: 110 }}>อ้างอิง/เช็ค</th><th style={{ width: 130, textAlign: 'right' }}>จำนวน (฿)</th><th style={{ width: 130, textAlign: 'center' }}>จัดการ</th></tr>
+        </thead>
+        <tbody>
+          {rows.map(l => (
+            <tr key={l.id}>
+              <td style={{ whiteSpace: 'nowrap', color: 'var(--ink-600)' }}>{fmtDate(l.date) || l.date}</td>
+              <td>{l.desc || '—'}</td>
+              <td style={{ fontFamily: 'ui-monospace', fontSize: 11.5, color: 'var(--brand-700)' }}>{l.ref || '—'}</td>
+              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: 'var(--bad)' }}>{fmtNum(Math.abs(l.amount), 2)}</td>
+              <td style={{ textAlign: 'center' }}>
+                {!readOnly
+                  ? <button className="btn btn-primary" style={{ fontSize: 11.5, padding: '4px 10px' }} onClick={() => onRecord(l)}>บันทึกจ่ายจริง</button>
+                  : <span style={{ color: 'var(--ink-300)' }}>—</span>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ถัง (c) — PV ในระบบ แต่ยังไม่เจอใน statement
+function BRPvTable({ rows }) {
+  if (!rows.length) return <BREmpty text="✓ PV ทุกใบเจอใน statement แล้ว" />;
+  return (
+    <div style={{ maxHeight: '52vh', overflow: 'auto' }}>
+      <div style={{ fontSize: 12, color: 'var(--ink-600)', marginBottom: 8 }}>มี PV ในระบบ แต่ยังไม่เจอรายการตรงกันใน statement (เช็คยังไม่ขึ้นเงิน / ยังไม่ถึงรอบ / เลขไม่ตรง)</div>
+      <table className="tbl" style={{ width: '100%', fontSize: 12.5 }}>
+        <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
+          <tr><th style={{ width: 100 }}>วันที่จ่าย</th><th style={{ width: 120 }}>เลขที่ PV</th><th>ผู้รับเงิน</th><th style={{ width: 100 }}>เช็ค</th><th style={{ width: 130, textAlign: 'right' }}>จำนวน (฿)</th></tr>
+        </thead>
+        <tbody>
+          {rows.map(p => (
+            <tr key={p.id || (p.pvNo + p.date)}>
+              <td style={{ whiteSpace: 'nowrap', color: 'var(--ink-600)' }}>{fmtDate(p.date) || p.date}</td>
+              <td style={{ fontFamily: 'ui-monospace', fontSize: 11.5 }}>{p.pvNo || '—'}</td>
+              <td>{p.payee || '—'}</td>
+              <td style={{ fontFamily: 'ui-monospace', fontSize: 11 }}>{p.chqNo || '—'}</td>
+              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: 'var(--warn)' }}>{fmtNum(Math.abs(p.amount), 2)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ถัง (a) — แมตช์แล้ว
+function BRMatchedTable({ rows }) {
+  if (!rows.length) return <BREmpty text="ยังไม่มีรายการที่แมตช์" />;
+  return (
+    <div style={{ maxHeight: '52vh', overflow: 'auto' }}>
+      <table className="tbl" style={{ width: '100%', fontSize: 12.5 }}>
+        <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
+          <tr><th style={{ width: 100 }}>วันที่</th><th>รายการ statement</th><th style={{ width: 150 }}>PV</th><th style={{ width: 60, textAlign: 'center' }}>วิธี</th><th style={{ width: 130, textAlign: 'right' }}>จำนวน (฿)</th></tr>
+        </thead>
+        <tbody>
+          {rows.map((m, i) => {
+            const pvList = m.pvs || [m.pv];
+            return (
+              <tr key={m.line.id}>
+                <td style={{ whiteSpace: 'nowrap', color: 'var(--ink-600)' }}>{fmtDate(m.line.date) || m.line.date}</td>
+                <td>{m.line.desc || '—'} {m.line.ref && <span style={{ fontFamily: 'ui-monospace', fontSize: 11, color: 'var(--ink-400)' }}>· {m.line.ref}</span>}</td>
+                <td style={{ fontFamily: 'ui-monospace', fontSize: 11 }}>{pvList.map(p => p.pvNo || p.apNo || '—').join(', ')}</td>
+                <td style={{ textAlign: 'center' }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: m.via === 'split' ? 'var(--warn)' : 'var(--good)', background: m.via === 'split' ? 'var(--warn-bg)' : 'var(--good-bg)', padding: '2px 6px', borderRadius: 4 }}>{m.via === 'split' ? 'รวม' : '1:1'}</span>
+                </td>
+                <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: 'var(--good)' }}>{fmtNum(Math.abs(m.line.amount), 2)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ถังที่บันทึกจาก statement แล้ว (เด้งเข้า cashflow แล้ว)
+function BRRecordedTable({ rows, readOnly, onUndo }) {
+  if (!rows.length) return <BREmpty text="ยังไม่มีรายการที่บันทึกจ่ายจริงจาก statement" />;
+  return (
+    <div style={{ maxHeight: '52vh', overflow: 'auto' }}>
+      <table className="tbl" style={{ width: '100%', fontSize: 12.5 }}>
+        <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
+          <tr><th style={{ width: 100 }}>วันที่</th><th>รายละเอียด</th><th style={{ width: 130, textAlign: 'right' }}>จำนวน (฿)</th><th style={{ width: 110, textAlign: 'center' }}>จัดการ</th></tr>
+        </thead>
+        <tbody>
+          {rows.map(r => (
+            <tr key={r.line.id}>
+              <td style={{ whiteSpace: 'nowrap', color: 'var(--ink-600)' }}>{fmtDate(r.line.date) || r.line.date}</td>
+              <td>{r.line.desc || '—'} <span style={{ fontSize: 11, color: 'var(--good)' }}>✓ เป็น Actual แล้ว</span></td>
+              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: 'var(--ink-700)' }}>{fmtNum(Math.abs(r.line.amount), 2)}</td>
+              <td style={{ textAlign: 'center' }}>
+                {!readOnly ? <button className="btn btn-ghost" style={{ fontSize: 11, padding: '3px 8px', color: 'var(--bad)' }} onClick={() => onUndo(r.line, r.forecastId)}>↩ ยกเลิก</button> : <span style={{ color: 'var(--ink-300)' }}>—</span>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ─── ตารางรายการเดินบัญชี (statement) ──────────────────────────────────────────
+function BRStatementTable({ monthly }) {
+  return (
+    <div className="card anim-in" style={{ padding: 0, overflow: 'hidden' }}>
+      <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--line)', fontWeight: 700, fontSize: 13, color: 'var(--ink-800)', display: 'flex', justifyContent: 'space-between' }}>
+        <span>รายการเดินบัญชี (statement) · {monthly.count} รายการ</span>
+        <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--ink-500)' }}>ยกมา {fmtNum(monthly.opening || 0, 0)} → คงเหลือ {fmtNum(monthly.closing || 0, 0)}</span>
+      </div>
+      <div style={{ maxHeight: '60vh', overflow: 'auto' }}>
+        <table className="tbl" style={{ width: '100%', fontSize: 12.5 }}>
+          <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
+            <tr><th style={{ width: 100 }}>วันที่</th><th>รายละเอียด</th><th style={{ width: 110 }}>อ้างอิง</th><th style={{ width: 120, textAlign: 'right' }}>จ่ายออก</th><th style={{ width: 120, textAlign: 'right' }}>รับเข้า</th><th style={{ width: 130, textAlign: 'right' }}>คงเหลือ</th></tr>
+          </thead>
+          <tbody>
+            {monthly.sorted.map(l => (
+              <tr key={l.id}>
+                <td style={{ whiteSpace: 'nowrap', color: 'var(--ink-600)' }}>{fmtDate(l.date) || l.date}</td>
+                <td>{l.desc || '—'}</td>
+                <td style={{ fontFamily: 'ui-monospace', fontSize: 11, color: 'var(--ink-500)' }}>{l.ref || ''}</td>
+                <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--bad)' }}>{l.amount < 0 ? fmtNum(-l.amount, 2) : ''}</td>
+                <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--good)' }}>{l.amount > 0 ? fmtNum(l.amount, 2) : ''}</td>
+                <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--ink-700)', fontWeight: 600 }}>{fmtNum(l.running, 2)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── Mapping modal — preview + เลือกคอลัมน์ ────────────────────────────────────
+function BRMappingModal({ preview, onApply, onClose, onChangeSheet }) {
+  const [m, setM] = brState(preview.mapping);
+  brEffect(() => { setM(preview.mapping); }, [preview.headerRow, preview.sheetIdx]);
+  const headers = (preview.aoa[m.headerRow] || []);
+  const colOpts = headers.map((h, i) => ({ i, label: `${i + 1}. ${String(h || '').slice(0, 28) || '(ว่าง)'}` }));
+  const sample = preview.aoa.slice(m.headerRow + 1, m.headerRow + 9);
+  const up = (patch) => setM({ ...m, ...patch });
+  const sel = (val, onCh, allowNone) => (
+    <select className="select input" value={val == null ? '' : val} onChange={e => onCh(e.target.value === '' ? null : Number(e.target.value))}
+      style={{ fontSize: 12, padding: '4px 8px', minWidth: 150 }}>
+      {allowNone && <option value="">— ไม่มี —</option>}
+      {colOpts.map(c => <option key={c.i} value={c.i}>{c.label}</option>)}
+    </select>
+  );
+  const previewLines = brNormalizeLines(preview.aoa, m, '_preview');
+  return (
+    <Modal open title={'ตั้งค่าคอลัมน์ statement · ' + preview.fileName} maxWidth={920} onClose={onClose}
+      footer={<>
+        <span style={{ marginRight: 'auto', fontSize: 12, color: previewLines.length ? 'var(--good)' : 'var(--bad)' }}>
+          {previewLines.length ? `อ่านได้ ${previewLines.length} รายการ` : 'ยังอ่านไม่ได้ — ปรับคอลัมน์/แถว header'}
+        </span>
+        <button className="btn btn-ghost" onClick={onClose}>ยกเลิก</button>
+        <button className="btn btn-primary" disabled={!previewLines.length} onClick={() => onApply(m)}>นำเข้า {previewLines.length || ''}</button>
+      </>}>
+      {preview.sheetNames.length > 1 && (
+        <div style={{ marginBottom: 10, fontSize: 12.5 }}>ชีต:{' '}
+          <select className="select input" value={preview.sheetIdx} onChange={e => onChangeSheet(Number(e.target.value))} style={{ fontSize: 12, padding: '4px 8px' }}>
+            {preview.sheetNames.map((n, i) => <option key={i} value={i}>{n}</option>)}
+          </select>
+        </div>
+      )}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px 16px', marginBottom: 14, alignItems: 'center', fontSize: 12.5 }}>
+        <label>แถว header (1=แรกสุด): <input type="number" min={1} value={m.headerRow + 1} onChange={e => up({ headerRow: Math.max(0, Number(e.target.value) - 1) })} style={{ width: 60, padding: '3px 6px', marginLeft: 6 }} /></label>
+        <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>คอลัมน์วันที่: {sel(m.dateCol, v => up({ dateCol: v }))}</label>
+        <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap', borderTop: '1px dashed var(--line)', paddingTop: 10 }}>
+          <label><input type="radio" checked={m.mode === 'split'} onChange={() => up({ mode: 'split' })} /> เดบิต/เครดิต แยกคอลัมน์</label>
+          <label><input type="radio" checked={m.mode === 'single'} onChange={() => up({ mode: 'single' })} /> ยอดคอลัมน์เดียว</label>
+        </div>
+        {m.mode === 'split' ? (
+          <>
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>เดบิต (จ่ายออก): {sel(m.debitCol, v => up({ debitCol: v }), true)}</label>
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>เครดิต (รับเข้า): {sel(m.creditCol, v => up({ creditCol: v }), true)}</label>
+          </>
+        ) : (
+          <>
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>คอลัมน์ยอด: {sel(m.amountCol, v => up({ amountCol: v }))}</label>
+            <label><input type="checkbox" checked={!!m.outflowPositive} onChange={e => up({ outflowPositive: e.target.checked })} /> ยอดจ่ายออกเป็นเลขบวก</label>
+          </>
+        )}
+        <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>รายละเอียด: {sel(m.descCol, v => up({ descCol: v }), true)}</label>
+        <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>เลขที่/เช็ค: {sel(m.refCol, v => up({ refCol: v }), true)}</label>
+        <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>ยอดคงเหลือ: {sel(m.balanceCol, v => up({ balanceCol: v }), true)}</label>
+      </div>
+      <div style={{ fontSize: 11.5, color: 'var(--ink-500)', marginBottom: 6 }}>ตัวอย่างข้อมูล (8 แถวแรกหลัง header):</div>
+      <div style={{ maxHeight: 220, overflow: 'auto', border: '1px solid var(--line)', borderRadius: 6 }}>
+        <table className="tbl" style={{ width: '100%', fontSize: 11 }}>
+          <thead><tr>{headers.map((h, i) => <th key={i} style={{ whiteSpace: 'nowrap' }}>{i + 1}. {String(h || '').slice(0, 18)}</th>)}</tr></thead>
+          <tbody>
+            {sample.map((r, ri) => <tr key={ri}>{headers.map((_, ci) => <td key={ci} style={{ whiteSpace: 'nowrap', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis' }}>{r[ci] instanceof Date ? bdISO(r[ci]) : String(r[ci] == null ? '' : r[ci]).slice(0, 22)}</td>)}</tr>)}
+          </tbody>
+        </table>
+      </div>
+    </Modal>
+  );
+}
+
+// ─── Record-actual modal ──────────────────────────────────────────────────────
+function BRRecordModal({ line, onSave, onClose }) {
+  const [cat, setCat] = brState('1');
+  return (
+    <Modal open title="บันทึกเป็นจ่ายจริง" maxWidth={460} onClose={onClose}
+      footer={<>
+        <button className="btn btn-ghost" onClick={onClose}>ยกเลิก</button>
+        <button className="btn btn-primary" onClick={() => onSave(line, cat)}>บันทึก → ส่งเข้า Cashflow</button>
+      </>}>
+      <div style={{ fontSize: 12.5, color: 'var(--ink-600)', marginBottom: 12 }}>
+        รายการนี้จะถูกบันทึกเป็น "จ่ายจริง" (forecastEntries STATUS=ACTUAL) และไปแสดงในช่อง Actual หน้า Cashflow ตามสัปดาห์/หมวดที่เลือก
+      </div>
+      <table className="tbl" style={{ width: '100%', fontSize: 13, marginBottom: 12 }}>
+        <tbody>
+          <tr><td style={{ color: 'var(--ink-500)', width: 110 }}>วันที่</td><td style={{ fontWeight: 600 }}>{fmtDate(line.date) || line.date}</td></tr>
+          <tr><td style={{ color: 'var(--ink-500)' }}>รายละเอียด</td><td style={{ fontWeight: 600 }}>{line.desc || '—'}</td></tr>
+          <tr><td style={{ color: 'var(--ink-500)' }}>อ้างอิง/เช็ค</td><td>{line.ref || '—'}</td></tr>
+          <tr><td style={{ color: 'var(--ink-500)' }}>จำนวน</td><td style={{ fontWeight: 700, color: 'var(--bad)' }}>{fmtNum(Math.abs(line.amount), 2)} ฿</td></tr>
+        </tbody>
+      </table>
+      <label style={{ display: 'block', fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>หมวดค่าใช้จ่าย</label>
+      <select className="select input" value={cat} onChange={e => setCat(e.target.value)} style={{ width: '100%', fontSize: 13, padding: '7px 10px' }}>
+        {BD_CF_CATEGORIES.map(c => <option key={c.code} value={c.code}>{c.code} · {c.label}</option>)}
+      </select>
+    </Modal>
+  );
+}
+
+Object.assign(window, { BankReconPage });
