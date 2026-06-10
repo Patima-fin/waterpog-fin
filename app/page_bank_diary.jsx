@@ -1453,6 +1453,12 @@ function BDApPanel({ apList, plannedRefs, bankAccounts, defaultBank, today, peri
     if (key === 'remark')     return a.remark || '—';
     return '';
   };
+  // ค่าที่ใช้ "จัดเรียงใน dropdown กรอง" — วันที่ใช้ ISO (เรียงเดือน→วัน), ยอดใช้ตัวเลข (ไม่เรียงตาม string)
+  const apGetSortValue = (a, key) => {
+    if (key === 'due')    return a.due || '';   // 'YYYY-MM-DD' เรียงตามเวลาจริง
+    if (key === 'amount') return a.amount;       // number เรียงตามค่า
+    return apGetValue(a, key);
+  };
 
   // base = หลัง search/สถานะ/ช่วงวันที่ (ก่อน filter รายคอลัมน์) — เป็น allRows ของ dropdown กรอง
   const baseRows = React.useMemo(() => {
@@ -1651,17 +1657,17 @@ function BDApPanel({ apList, plannedRefs, bankAccounts, defaultBank, today, peri
       )}
 
       <div style={{ overflowX:'auto' }}>
-        <table className="tbl" style={{ minWidth:800, fontSize:12 }}>
+        <table className="tbl" style={{ minWidth:880, fontSize:12, tableLayout:'fixed' }}>
           <thead>
             <tr>
               {canEdit && <th style={{ width:34, textAlign:'center' }}><input type="checkbox" checked={allChecked} onChange={toggleAll} title="เลือกทั้งหมดที่เห็น" /></th>}
-              <FilterableColHeader label="ครบกำหนด"   sortKey="due"        colKey="due"        sort={{ key:sortKey, dir:sortDir }} sortToggle={toggleSort} align="center" width={104} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={baseRows} getValue={apGetValue} />
-              <FilterableColHeader label="ผู้ขาย"      sortKey="vendor"     colKey="vendor"     sort={{ key:sortKey, dir:sortDir }} sortToggle={toggleSort} align="center" colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={baseRows} getValue={apGetValue} />
-              <FilterableColHeader label="เลขที่ (AP)" sortKey="vchno"      colKey="vchno"      sort={{ key:sortKey, dir:sortDir }} sortToggle={toggleSort} align="center" width={140} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={baseRows} getValue={apGetValue} />
-              <FilterableColHeader label="ประเภท (CF)" sortKey="cfCategory" colKey="cfCategory" sort={{ key:sortKey, dir:sortDir }} sortToggle={toggleSort} align="center" width={180} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={baseRows} getValue={apGetValue} />
-              <FilterableColHeader label="ยอดสุทธิ"    sortKey="amount"     colKey="amount"     sort={{ key:sortKey, dir:sortDir }} sortToggle={toggleSort} align="right"  width={120} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={baseRows} getValue={apGetValue} />
-              <FilterableColHeader label="REMARK"      sortKey="remark"     colKey="remark"     sort={{ key:sortKey, dir:sortDir }} sortToggle={toggleSort} align="center" width={170} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={baseRows} getValue={apGetValue} />
-              <th style={{ width:120 }}></th>
+              <FilterableColHeader label="ครบกำหนด"   sortKey="due"        colKey="due"        sort={{ key:sortKey, dir:sortDir }} sortToggle={toggleSort} align="center" width={96}  colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={baseRows} getValue={apGetValue} getSortValue={apGetSortValue} />
+              <FilterableColHeader label="ผู้ขาย"      sortKey="vendor"     colKey="vendor"     sort={{ key:sortKey, dir:sortDir }} sortToggle={toggleSort} align="left"                colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={baseRows} getValue={apGetValue} getSortValue={apGetSortValue} />
+              <FilterableColHeader label="เลขที่ (AP)" sortKey="vchno"      colKey="vchno"      sort={{ key:sortKey, dir:sortDir }} sortToggle={toggleSort} align="center" width={124} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={baseRows} getValue={apGetValue} getSortValue={apGetSortValue} />
+              <FilterableColHeader label="ประเภท (CF)" sortKey="cfCategory" colKey="cfCategory" sort={{ key:sortKey, dir:sortDir }} sortToggle={toggleSort} align="center" width={150} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={baseRows} getValue={apGetValue} getSortValue={apGetSortValue} />
+              <FilterableColHeader label="ยอดสุทธิ"    sortKey="amount"     colKey="amount"     sort={{ key:sortKey, dir:sortDir }} sortToggle={toggleSort} align="right"  width={116} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={baseRows} getValue={apGetValue} getSortValue={apGetSortValue} />
+              <FilterableColHeader label="REMARK"      sortKey="remark"     colKey="remark"     sort={{ key:sortKey, dir:sortDir }} sortToggle={toggleSort} align="left"   width={150} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={baseRows} getValue={apGetValue} getSortValue={apGetSortValue} />
+              <th style={{ width:112 }}></th>
             </tr>
           </thead>
           <tbody>
@@ -1681,8 +1687,8 @@ function BDApPanel({ apList, plannedRefs, bankAccounts, defaultBank, today, peri
                   <td style={{ whiteSpace:'nowrap', color: od ? '#dc2626' : '#4a5568' }}>
                     {fmtDate(a.due) || '—'}{od && <span style={{ display:'block', fontSize:9, fontWeight:700, color:'#dc2626' }}>เลยกำหนด</span>}
                   </td>
-                  <td>{a.vendor}</td>
-                  <td style={{ fontFamily:'ui-monospace', fontSize:11, color:'#64748b' }}>{a.vchno || '—'}</td>
+                  <td style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} title={a.vendor || ''}>{a.vendor}</td>
+                  <td style={{ fontFamily:'ui-monospace', fontSize:11, color:'#64748b', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }} title={a.vchno || ''}>{a.vchno || '—'}</td>
                   <td>
                     {canEdit ? (
                       <select value={a.cfCategory} onChange={e => onSetCategory(a, e.target.value)}

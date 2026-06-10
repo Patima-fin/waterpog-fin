@@ -151,7 +151,7 @@ function exportRowsToExcel(rows, columns, opts = {}) {
 // state: `colFilters` = { [colKey]: Set<displayValue> | null }.
 // `getValue(row, colKey)` returns the display string used for both rendering
 // and matching. Defaults to row[colKey].
-function ColFilterDropdown({ btnRef, colKey, allRows, active, getValue, onApply, onClose }) {
+function ColFilterDropdown({ btnRef, colKey, allRows, active, getValue, getSortValue, onApply, onClose }) {
   const [search, setSearch] = useState('');
   const [pos, setPos] = useState(null);
   const [hoverVal, setHoverVal] = useState(null);
@@ -160,12 +160,19 @@ function ColFilterDropdown({ btnRef, colKey, allRows, active, getValue, onApply,
 
   const allVals = useMemo(() => {
     const map = new Map();
+    const sortMap = new Map();   // displayVal → ค่าที่ใช้จัดเรียง (ถ้ามี getSortValue เช่น วันที่=ISO, ยอด=number)
     allRows.forEach(r => {
       const v = _val(r, colKey);
       map.set(v, (map.get(v) || 0) + 1);
+      if (getSortValue && !sortMap.has(v)) sortMap.set(v, getSortValue(r, colKey));
     });
     return [...map.entries()].sort((a, b) => {
       if (a[0] === '—') return 1; if (b[0] === '—') return -1;
+      if (getSortValue) {
+        const sa = sortMap.get(a[0]), sb = sortMap.get(b[0]);
+        if (typeof sa === 'number' && typeof sb === 'number') return sa - sb;
+        return String(sa == null ? '' : sa).localeCompare(String(sb == null ? '' : sb), 'th');
+      }
       return String(a[0]).localeCompare(String(b[0]), 'th');
     });
   }, [allRows, colKey]);
@@ -310,7 +317,7 @@ function ColFilterDropdown({ btnRef, colKey, allRows, active, getValue, onApply,
 
 // FilterableColHeader — drop-in replacement for SortHeader, adds funnel button
 function FilterableColHeader({ label, sortKey, sort, sortToggle, align = 'center', width,
-                               colKey, colFilters, setColFilters, openCol, setOpenCol, allRows, getValue }) {
+                               colKey, colFilters, setColFilters, openCol, setOpenCol, allRows, getValue, getSortValue }) {
   const btnRef = useRef(null);
   const active = colFilters[colKey || sortKey];
   const isActive = active && active.size > 0;
@@ -359,7 +366,7 @@ function FilterableColHeader({ label, sortKey, sort, sortToggle, align = 'center
       </div>
       {isOpen && (
         <ColFilterDropdown btnRef={btnRef} colKey={effectiveKey} allRows={allRows}
-          active={active} getValue={getValue}
+          active={active} getValue={getValue} getSortValue={getSortValue}
           onApply={applyFilter} onClose={() => setOpenCol(null)} />
       )}
     </th>
