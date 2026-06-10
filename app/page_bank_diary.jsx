@@ -175,7 +175,7 @@ function bdNormAP(p) {
 
 /* Build the per-account view (เช็คค้างจ่าย + forecast ที่ผูกบัญชี) — base = ยอดเงินจริง (ไม่หัก HOLD)
  * สัญญาณ "เงินไม่พอ" ใช้กรอบ 7 วัน (near-term) เทียบยอดเงินจริง */
-function bdBuildAccountView(acct, matchedChecks, matchedForecasts, matchedTransfers, matchedPVs, today, next7, paidApSet) {
+function bdBuildAccountView(acct, matchedChecks, matchedForecasts, matchedTransfers, matchedPVs, today, next7, paidApSet, transferInfoByRef) {
   // ใช้วันที่ของยอดที่บันทึก (acct.asOf = DATE) เป็นจุดเริ่ม — รวมกรณีอนาคต (เช่นบันทึก "ยอดยกไปพรุ่งนี้")
   //   ไม่ cap ที่ today อีกต่อไป → พอบันทึกยอดพรุ่งนี้ รายการของวันนี้ (จ่าย/สะท้อนในยอดแล้ว) จะหลุดออกเอง ไม่หักซ้ำ
   const asOfRef = acct.asOf || today;
@@ -213,12 +213,26 @@ function bdBuildAccountView(acct, matchedChecks, matchedForecasts, matchedTransf
   // (ยืนยัน = โอนจริง+เอา PV เข้าแล้ว → ถือว่าอยู่ใน BALANCE ที่ sync มาแล้ว จึงไม่นับซ้ำ)
   (matchedTransfers || [])
     .filter(e => (e.entryDate || '') >= asOfRef && !e.reconciled)
-    .forEach(e => items.push({
-      date: e.entryDate, signed: bdNum(e.amount), kind: 'transfer', ref: e.transferRef || '',
-      title: e.description || 'โอนระหว่างบัญชี',
-      sub: 'โอนระหว่างบัญชี (รอกลืนยอด)' + (e.transferRef ? ' • ' + e.transferRef : ''),
-      status: 'pending', raw: e,
-    }));
+    .forEach(e => {
+      const amt = bdNum(e.amount);
+      // ป้ายตาม "ทิศจริง" ของขานี้ — ฝั่งรับ = รับโอนจากต้นทาง / ฝั่งจ่าย = โอนเงินไปปลายทาง
+      //   (ไม่ใช้ e.description ตรงๆ เพราะบางที note ค้างมาเป็นแบบฝั่งจ่ายทั้งคู่)
+      const isInflow = e.entryType === 'inflow_transfer' || (e.entryType !== 'outflow_transfer' && amt > 0);
+      const info  = (transferInfoByRef && transferInfoByRef[e.transferRef]) || {};
+      const party = isInflow ? [info.fromBank, info.fromNo].filter(Boolean).join(' ')
+                             : [info.toBank,   info.toNo].filter(Boolean).join(' ');
+      const title = isInflow ? (party ? 'รับโอนจาก ' + party : 'รับโอนระหว่างบัญชี')
+                             : (party ? 'โอนเงินไป ' + party : 'โอนระหว่างบัญชี');
+      // เก็บ note ที่ผู้ใช้พิมพ์เองไว้เป็นหมายเหตุ (ข้ามตัวที่ระบบสร้าง "โอนเงินไป/รับโอนจาก")
+      const desc = (e.description || '').trim();
+      const userNote = (!desc || /^(โอนเงินไป|รับโอนจาก)/.test(desc)) ? '' : desc;
+      items.push({
+        date: e.entryDate, signed: amt, kind: 'transfer', ref: e.transferRef || '',
+        title,
+        sub: 'โอนระหว่างบัญชี (รอกลืนยอด)' + (e.transferRef ? ' • ' + e.transferRef : ''),
+        status: 'pending', raw: e, remark: userNote,
+      });
+    });
   // PV (Payment Voucher): เอกสารจ่ายออกแล้วแต่ Pmt_Date ยังไม่ถึงวัน asOf → ยังไม่กลืนยอด นับเป็น outflow
   // (Pmt_Date < asOf = จ่ายไปแล้ว อยู่ใน BALANCE ที่ sync มา จึงไม่นับซ้ำ — เหมือนกติกาเช็ค)
   // กันนับซ้ำ: ข้าม PV ที่เป็นเช็คใบเดียวกับที่นับแล้ว (chqNo) หรือ AP เดียวกับ forecast ที่นับแล้ว (apNo)
@@ -1812,6 +1826,26 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
     return pairs;
   }, [bankEntries]);
 
+  /* transferRef → ข้อมูลคู่โอน (ต้นทาง/ปลายทาง) — ใช้ตั้งป้าย "รับโอนจาก/โอนเงินไป" ตามทิศจริงในการ์ด */
+  const transferInfoByRef = React.useMemo(() => {
+    const m = {};
+    Object.keys(transferPairs).forEach(ref => {
+      const entries = transferPairs[ref] || [];
+      const out = entries.find(e => e.entryType === 'outflow_transfer') || entries.find(e => bdNum(e.amount) < 0);
+      const inn = entries.find(e => e.entryType === 'inflow_transfer')  || entries.find(e => bdNum(e.amount) > 0);
+      const fromNo = (out && out.accountNo) || '';
+      const toNo   = (inn && inn.accountNo) || '';
+      const fromA = accounts.find(a => bdAcctMatchesCheck(a.accountNo, fromNo));
+      const toA   = accounts.find(a => bdAcctMatchesCheck(a.accountNo, toNo));
+      m[ref] = {
+        fromNo, toNo,
+        fromBank: (fromA && fromA.bankName) || (out && out.bankName) || '',
+        toBank:   (toA && toA.bankName)     || (inn && inn.bankName) || '',
+      };
+    });
+    return m;
+  }, [transferPairs, accounts]);
+
   /* Group manual transfer entries → accounts (โผล่ในการ์ด BANK) */
   const transfersByAccount = React.useMemo(() => {
     const byAcct = {};
@@ -1826,8 +1860,8 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
 
   /* Per-account views (เช็ค + forecast + การโอน + สัญญาณเงินไม่พอ 7 วัน) */
   const accountViews = React.useMemo(
-    () => accounts.map(a => bdBuildAccountView(a, checksByAccount[a.accountNo] || [], forecastByAccount[a.accountNo] || [], transfersByAccount[a.accountNo] || [], pvByAccount[a.accountNo] || [], today, next7, paidApSet)),
-    [accounts, checksByAccount, forecastByAccount, transfersByAccount, pvByAccount, today, next7, paidApSet]
+    () => accounts.map(a => bdBuildAccountView(a, checksByAccount[a.accountNo] || [], forecastByAccount[a.accountNo] || [], transfersByAccount[a.accountNo] || [], pvByAccount[a.accountNo] || [], today, next7, paidApSet, transferInfoByRef)),
+    [accounts, checksByAccount, forecastByAccount, transfersByAccount, pvByAccount, today, next7, paidApSet, transferInfoByRef]
   );
 
   /* ── Totals across all accounts ── */
