@@ -720,6 +720,34 @@ const WTPOverride = {
     window.dispatchEvent(new CustomEvent('wtp-override-change', { detail: { key } }));
   },
 
+  // ── setRaw — เหมือน set แต่ "ไม่ coerce เป็น Number" → เก็บ string ได้
+  //   ใช้กับ Finance Master (Project Control) ที่เก็บเป็น JSON string per โครงการ
+  //   key เช่น "pcfin.<ContractNo>" · ทีมทุกคนเห็นเหมือนกันผ่าน manualOverrides sync
+  setRaw(key, value) {
+    if (_wtpRoleIsReadOnly()) { console.warn('WTPOverride.setRaw blocked — read-only'); return; }
+    const local = this._loadLocal();
+    const clearing = value === null || value === '' || value === undefined;
+    if (clearing) delete local[key]; else local[key] = value;
+    this._saveLocal(local);
+    if (typeof window.__wtpSetData === 'function') {
+      let updatedBy = ''; try { updatedBy = (JSON.parse(localStorage.getItem('wtp-session') || 'null') || {}).username || ''; } catch (_) {}
+      const updatedAt = new Date().toISOString();
+      window.__wtpSetData(d => {
+        const arr = Array.isArray(d.manualOverrides) ? d.manualOverrides : [];
+        const idx = arr.findIndex(r => r && r.key === key);
+        let next;
+        if (clearing) { next = idx >= 0 ? arr.filter((_, i) => i !== idx) : arr; }
+        else {
+          const id = idx >= 0 ? arr[idx].id : `ov_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+          const row = { id, key, value, updatedBy, updatedAt }; // ← เก็บ value ดิบ (ไม่ Number())
+          next = arr.slice(); if (idx >= 0) next[idx] = row; else next.push(row);
+        }
+        return { ...d, manualOverrides: next };
+      });
+    }
+    window.dispatchEvent(new CustomEvent('wtp-override-change', { detail: { key } }));
+  },
+
   // ── Batch write — เขียนหลาย key ในครั้งเดียว (1 setData → push sync รอบเดียว)
   //   entries = { key: value, ... } · value === null/''/undefined = ลบคีย์นั้น
   //   ใช้ตอน freeze baseline ราย IV (หลายสิบคีย์) จะได้ไม่ยิง setData ทีละตัว

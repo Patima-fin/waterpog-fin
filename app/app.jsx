@@ -380,7 +380,7 @@ function App() {
     case 'warroom1':       page = <WarRoomPage1 data={data} setData={setData} toast={pushToast} />; break;
     case 'warroom2':       page = <WarRoomPage2 data={data} setData={setData} toast={pushToast} />; break;
     case 'cashflow':       page = <CashFlowDashboard data={data} setData={setData} toast={pushToast} />; break;
-    case 'projects':       page = <ProjectsPage data={data} setData={setData} toast={pushToast} />; break;
+    case 'projects':       page = <ProjectControlPage data={data} setData={setData} toast={pushToast} />; break;
     case 'invoices':       page = <InvoicesPage data={data} setData={setData} toast={pushToast} />; break;
     case 'debt':           page = <DebtPage data={data} setData={setData} toast={pushToast} />; break;
     case 'debt_ledger':    page = <DebtLedgerPage data={data} setData={setData} toast={pushToast} />; break;
