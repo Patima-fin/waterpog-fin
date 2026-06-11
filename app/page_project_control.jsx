@@ -477,7 +477,6 @@ function PcGridToolbar({ allCols, state, setState, rows, visibleColObjs, scopeLa
   const [expMenu, setExpMenu] = pcSt(false);
   const activeFilters = Object.values(state.colFilters).filter(Boolean).length;
   const gridRows = () => PCGrid.applySort(PCGrid.applyColFilters(rows, allCols, state.colFilters), allCols, state.sort);
-  const expItem = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 10px', border: 'none', background: 'transparent', textAlign: 'left', fontSize: 12, cursor: 'pointer', borderRadius: 6, color: 'var(--ink-900)' };
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
       <div style={{ position: 'relative' }}>
@@ -500,16 +499,69 @@ function PcGridToolbar({ allCols, state, setState, rows, visibleColObjs, scopeLa
       <button onClick={() => setState(s => ({ ...s, cf: !s.cf }))} style={{ ...pcBtn, background: state.cf ? 'var(--brand-50)' : '#fff', color: state.cf ? 'var(--brand-700)' : '#64748b' }}>🎨 ไฮไลต์</button>
       <button onClick={onAdvanced} style={{ ...pcBtn, display: 'inline-flex', alignItems: 'center', gap: 6, background: advCount > 0 ? 'var(--brand-50)' : '#fff', color: advCount > 0 ? 'var(--brand-700)' : '#475569', borderColor: advCount > 0 ? 'var(--brand-200)' : '#d3dcea' }}><PcI.filter size={14} />ฟิลเตอร์ขั้นสูง{advCount > 0 ? ` (${advCount})` : ''}</button>
       {activeFilters > 0 && <button onClick={() => setState(s => ({ ...s, colFilters: {}, sort: [], page: 1 }))} style={{ ...pcBtn, color: '#dc2626' }}>ล้างตัวกรองคอลัมน์ ({activeFilters})</button>}
-      <div style={{ position: 'relative', marginLeft: 'auto' }}>
-        <button onClick={() => setExpMenu(v => !v)} style={{ ...pcBtn, display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--brand-600)', color: '#fff', border: 'none' }}><PcI.download size={14} />Export<PcI.chevron size={13} /></button>
-        {expMenu && (
-          <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 60, background: '#fff', border: '1px solid #d3dcea', borderRadius: 10, boxShadow: '0 16px 44px rgba(13,31,58,.16)', padding: 6, width: 270 }}>
-            <button style={expItem} onClick={() => { PCU.openReport('summary', gridRows(), scopeLabel); setExpMenu(false); }}><span style={{ fontSize: 16 }}>📊</span><span><b>รายงานสรุป</b> <span style={{ color: '#94a3b8' }}>(PDF)</span><div style={{ fontSize: 10, color: '#94a3b8' }}>ภาพรวม KPI · cashflow · LG — สำหรับนักลงทุน</div></span></button>
-            <button style={expItem} onClick={() => { PCU.openReport('detail', gridRows(), scopeLabel); setExpMenu(false); }}><span style={{ fontSize: 16 }}>📋</span><span><b>รายงานรายละเอียด</b> <span style={{ color: '#94a3b8' }}>(PDF)</span><div style={{ fontSize: 10, color: '#94a3b8' }}>ทุกโครงการครบทุกคอลัมน์ · พร้อมโลโก้</div></span></button>
-            <div style={{ height: 1, background: '#eef2f7', margin: '4px 2px' }} />
-            <button style={expItem} onClick={() => { PCU.exportCSV(gridRows(), visibleColObjs, 'project-control-' + PCU.TODAY); setExpMenu(false); }}><span style={{ fontSize: 16 }}>📄</span><span><b>Export CSV</b><div style={{ fontSize: 10, color: '#94a3b8' }}>ข้อมูลดิบตามคอลัมน์ที่แสดง</div></span></button>
+      <div style={{ marginLeft: 'auto' }}>
+        <button onClick={() => setExpMenu(true)} style={{ ...pcBtn, display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--brand-600)', color: '#fff', border: 'none' }}><PcI.download size={14} />Export<PcI.chevron size={13} /></button>
+      </div>
+      {expMenu && <PcExportModal rows={gridRows()} visibleColObjs={visibleColObjs} scopeLabel={scopeLabel} onClose={() => setExpMenu(false)} />}
+    </div>
+  );
+}
+
+// ── Export modal — เลือกเนื้อหา (สรุป/ละเอียด/ทั้งคู่) × รูปแบบไฟล์ (PDF/Excel/CSV) ──
+function PcExportModal({ rows, visibleColObjs, scopeLabel, onClose }) {
+  const [content, setContent] = pcSt('summary');
+  const [format, setFormat] = pcSt('pdf');
+  const contents = [
+    { k: 'summary', icon: '📊', title: 'สรุป', desc: 'ภาพรวม KPI · pipeline · cashflow · LG — สำหรับนักลงทุน' },
+    { k: 'detail',  icon: '📋', title: 'รายละเอียด', desc: 'ทะเบียนโครงการครบทุกคอลัมน์ · เรียงตามมูลค่า' },
+    { k: 'both',    icon: '📑', title: 'สรุป + รายละเอียด', desc: 'รวมทั้งสองส่วนในไฟล์เดียว' },
+  ];
+  const formats = [
+    { k: 'pdf',  icon: '📄', title: 'PDF', desc: 'พร้อมโลโก้ Water POG · โทนฟ้า · เปิดหน้าใหม่แล้วสั่งพิมพ์/บันทึก' },
+    { k: 'xlsx', icon: '📗', title: 'Excel (.xlsx)', desc: 'ตกแต่งสี + format ตัวเลข · ดาวน์โหลดทันที' },
+    { k: 'csv',  icon: '🗒️', title: 'CSV', desc: 'ข้อมูลดิบตามคอลัมน์ที่แสดงในตาราง' },
+  ];
+  const doExport = () => {
+    if (!rows.length) { alert('ไม่มีโครงการที่จะส่งออก'); return; }
+    if (format === 'pdf') PCU.openReport(content, rows, scopeLabel);
+    else if (format === 'xlsx') PCU.exportXLSX(content, rows, scopeLabel);
+    else PCU.exportCSV(rows, visibleColObjs, 'project-control-' + PCU.TODAY);
+    onClose();
+  };
+  const card = (o, active, onClick) => (
+    <button key={o.k} onClick={onClick} style={{
+      textAlign: 'left', padding: '12px 14px', borderRadius: 11, cursor: 'pointer',
+      border: `2px solid ${active ? 'var(--brand-500)' : '#e3e9f2'}`,
+      background: active ? 'var(--brand-50)' : '#fff', transition: 'all .12s',
+    }}>
+      <div style={{ fontSize: 21, marginBottom: 3 }}>{o.icon}</div>
+      <div style={{ fontWeight: 800, fontSize: 13, color: active ? 'var(--brand-700)' : 'var(--ink-700)' }}>{o.title}</div>
+      <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 3, lineHeight: 1.45 }}>{o.desc}</div>
+    </button>
+  );
+  const lbl = { fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: .5, fontWeight: 700, marginBottom: 8 };
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(8,18,34,.42)', zIndex: 730, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, width: 'min(620px,97vw)', boxShadow: '0 24px 60px rgba(13,31,58,.28)', overflow: 'hidden' }}>
+        <div style={{ background: 'linear-gradient(135deg,var(--brand-600),var(--brand-500))', color: '#fff', padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div><div style={{ fontSize: 16, fontWeight: 800 }}>ส่งออกรายงาน — เลือกรูปแบบ</div><div style={{ fontSize: 10.5, opacity: .85 }}>{rows.length.toLocaleString()} โครงการ · ขอบเขต: {scopeLabel || 'ทั้งหมด'}</div></div>
+          <button onClick={onClose} style={{ border: 'none', background: 'rgba(255,255,255,.18)', color: '#fff', borderRadius: 8, width: 30, height: 30, display: 'grid', placeItems: 'center', cursor: 'pointer' }}><PcI.close size={16} /></button>
+        </div>
+        <div style={{ padding: 18 }}>
+          <div style={lbl}>1. เนื้อหา</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 18 }}>
+            {contents.map(o => card(o, content === o.k, () => setContent(o.k)))}
           </div>
-        )}
+          <div style={lbl}>2. รูปแบบไฟล์</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+            {formats.map(o => card(o, format === o.k, () => { setFormat(o.k); if (o.k === 'csv') setContent('detail'); }))}
+          </div>
+          {format === 'csv' && <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 10 }}>* CSV ส่งออกข้อมูลดิบตามคอลัมน์ที่แสดงในตาราง (ไม่แยกสรุป/ละเอียด)</div>}
+        </div>
+        <div style={{ padding: '12px 18px', borderTop: '1px solid #eef2f7', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button onClick={onClose} style={pcBtn}>ยกเลิก</button>
+          <button onClick={doExport} style={{ ...pcBtn, background: 'var(--brand-600)', color: '#fff', border: 'none', padding: '0 20px', display: 'inline-flex', alignItems: 'center', gap: 6 }}><PcI.download size={14} />ส่งออก {rows.length.toLocaleString()} โครงการ</button>
+        </div>
       </div>
     </div>
   );
@@ -562,10 +614,16 @@ function PcDrawer({ row, canEdit, onClose, onSaveFinance }) {
                 let note;
                 if (row.status === 'ยกเลิก') note = 'โครงการยกเลิก → ความคืบหน้า 0%';
                 else if (row.status === 'ยังไม่ลงนาม') note = 'ยังไม่ลงนามสัญญา → ความคืบหน้า 0%';
+                else if (pd.source === 'pog') {
+                  const which = (pd.pogStank != null && pd.pogStank > 0)
+                    ? `งานหอถัง+ระบบ (POG+STANK) = ${pd.pogStank}%`
+                    : (pd.pogDrink != null && pd.pogDrink > 0) ? `งานน้ำดื่ม (POG DRINK) = ${pd.pogDrink}%` : `${pd.pog}%`;
+                  note = `ความคืบหน้างานก่อสร้างจริงจากฝ่ายงาน — ${which}`;
+                }
                 else if (row.status === 'Finish') note = 'รับเงินครบตามสัญญา → 100%';
-                else if (pd.total > 0) note = `คำนวณจากงวดงาน ถ่วงน้ำหนักตาม % งวด — ส่งมอบ ${pd.delivered}/${pd.total} งวด · ตรวจรับ ${pd.accepted} งวด · รับเงิน ${pd.paid} งวด (เกณฑ์: ส่งมอบ = 75% · ตรวจรับ = 90% · รับเงิน = 100% ของน้ำหนักงวดนั้น)`;
+                else if (pd.total > 0) note = `ไม่มีค่า % งานก่อสร้าง → คำนวณจากงวดงาน ถ่วงน้ำหนักตาม % งวด — ส่งมอบ ${pd.delivered}/${pd.total} งวด · ตรวจรับ ${pd.accepted} งวด · รับเงิน ${pd.paid} งวด (เกณฑ์: ส่งมอบ = 75% · ตรวจรับ = 90% · รับเงิน = 100% ของน้ำหนักงวดนั้น)`;
                 else if (row.received > 0 && row.contractAmt > 0) note = `ไม่มีข้อมูลงวดงาน → คำนวณจาก รับแล้ว ฿${U.fmtBaht(row.received)} ÷ มูลค่าสัญญา ฿${U.fmtBaht(row.contractAmt)}`;
-                else note = 'ลงนาม/เริ่มงานแล้ว แต่ยังไม่ส่งมอบงวดใด → ตั้งต้นที่ระดับเริ่มต้น';
+                else note = 'ลงนาม/เริ่มงานแล้ว แต่ยังไม่มีค่า % งานก่อสร้าง → ตั้งต้นที่ระดับเริ่มต้น';
                 return (
                   <div style={{ gridColumn: '1 / -1', margin: '2px 0 8px', padding: '11px 13px', background: 'var(--brand-50)', border: '1px solid var(--brand-100)', borderRadius: 10 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>

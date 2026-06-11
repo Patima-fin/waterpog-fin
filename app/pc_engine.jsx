@@ -260,11 +260,27 @@
     return { main: 'Work in progress', sub: 'ลงนามแล้ว' };
   }
 
+  // ── physical construction progress (ความคืบหน้างานก่อสร้างจริง) ───────────────
+  // วิศวกรกรอกใน 2 คอลัมน์ที่ exclusive กัน (โครงนึงขึ้นแค่ช่องเดียว):
+  //   "% (POG+STANK)" = งานหอถัง+ระบบ · "% (POG DRINK)" = งานน้ำดื่ม
+  // → ความคืบหน้า = ผลรวม (ช่องที่ไม่ขึ้นจะเป็น 0/ว่าง) · นี่คือ source ที่ฝ่ายงานยึด
+  function pogProgress(p) {
+    if (!p) return null;
+    const a = toNum(p['% (POG+STANK)']);
+    const b = toNum(p['% (POG DRINK)']);
+    if (a == null && b == null) return null;
+    return (a || 0) + (b || 0);
+  }
+
   // ── progress % ─────────────────────────────────────────────────────────────
   function deriveProgress(p, status, insts, received, contract) {
     if (status.main === 'ยกเลิก') return 0;
     if (status.main === 'ยังไม่ลงนาม') return 0;
+    // PRIMARY: physical construction progress จากคอลัมน์ POG (ตามที่ฝ่ายงานยึด)
+    const pog = pogProgress(p);
+    if (pog != null && pog > 0) return Math.min(100, Math.round(pog));
     if (status.main === 'Finish') return 100;
+    // FALLBACK 1: ถ่วงน้ำหนักตามงวดงาน (เมื่อไม่มีค่า POG)
     const reqd = insts.filter(i => i.amount > 0 || i.percent > 0);
     if (reqd.length) {
       let done = 0, total = 0;
@@ -277,13 +293,20 @@
       });
       if (total > 0) return Math.max(5, Math.min(99, Math.round(done / total * 100)));
     }
+    // FALLBACK 2: ตามเงินที่รับ
     if (contract > 0 && received > 0) return Math.max(5, Math.min(99, Math.round(received / contract * 100)));
     return 20;
   }
   // progress breakdown (สำหรับแสดงที่มาของ % ใน drawer)
-  function progressDetail(insts) {
+  function progressDetail(p, insts) {
     const reqd = insts.filter(i => i.amount > 0 || (i.percent != null && i.percent > 0));
+    const pogStank = toNum(p['% (POG+STANK)']);
+    const pogDrink = toNum(p['% (POG DRINK)']);
+    const pog = pogProgress(p);
     return {
+      // source ของ % ที่แสดง: 'pog' = งานก่อสร้างจริง · 'installment' = ถ่วงน้ำหนักงวด · 'received' = ตามเงินรับ
+      source: (pog != null && pog > 0) ? 'pog' : (reqd.length ? 'installment' : 'received'),
+      pog, pogStank: pogStank != null ? pogStank : null, pogDrink: pogDrink != null ? pogDrink : null,
       total: reqd.length,
       delivered: reqd.filter(i => i.delivered).length,
       accepted: reqd.filter(i => i.acceptDate).length,
@@ -356,7 +379,7 @@
 
       const status = deriveStatus(p, contract, received, insts);
       const progress = deriveProgress(p, status, insts, received, contract);
-      const progDetail = progressDetail(insts);
+      const progDetail = progressDetail(p, insts);
       const outstandingAR = status.main === 'ยกเลิก' ? 0 : Math.max(0, contract - received);
 
       // forecast แยก 2 งวด (+ lines สำหรับ cashflow drill-down)
@@ -494,6 +517,170 @@
     const a = document.createElement('a'); a.href = url; a.download = filename + '.csv';
     document.body.appendChild(a); a.click();
     setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+  }
+
+  // ── Excel export (styled .xlsx) — summary / detail / both ───────────────────
+  // ใช้ xlsx-js-style (global XLSX) · โทน brand-blue · เลข format #,##0 ชิดขวา
+  const XL_BLUE = '1F56B8', XL_BLUE2 = '2A6FDB', XL_ZEBRA = 'F7FAFF', XL_HEADBG = 'EAF2FF';
+  const XL_BD = { style: 'thin', color: { rgb: 'E6ECF4' } };
+  const XL_BORDER = { top: XL_BD, bottom: XL_BD, left: XL_BD, right: XL_BD };
+  const FMT_BAHT = '#,##0;[Red]-#,##0', FMT_PCT = '0"%"';
+  const PCXL = {
+    title:   { font: { bold: true, sz: 15, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: XL_BLUE } }, alignment: { horizontal: 'left', vertical: 'center' } },
+    sub:     { font: { sz: 10, color: { rgb: '64748B' } } },
+    section: { font: { bold: true, sz: 11.5, color: { rgb: XL_BLUE } }, fill: { fgColor: { rgb: XL_HEADBG } }, alignment: { vertical: 'center' } },
+    th:      { font: { bold: true, sz: 10, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: XL_BLUE } }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true }, border: XL_BORDER },
+    cell:    { font: { sz: 10 }, alignment: { vertical: 'center' }, border: XL_BORDER },
+    cellAlt: { font: { sz: 10 }, fill: { fgColor: { rgb: XL_ZEBRA } }, alignment: { vertical: 'center' }, border: XL_BORDER },
+    totalRow:{ font: { bold: true, sz: 10.5, color: { rgb: '0D1F3A' } }, fill: { fgColor: { rgb: XL_HEADBG } }, border: XL_BORDER },
+  };
+  function pcXlSet(ws, r, c, style) {
+    const a = XLSX.utils.encode_cell({ r, c });
+    if (!ws[a]) ws[a] = { t: 's', v: '' };
+    ws[a].s = Object.assign({}, ws[a].s, style);
+    return ws[a];
+  }
+  function pcXlRow(ws, r, c0, c1, style) { for (let c = c0; c <= c1; c++) pcXlSet(ws, r, c, style); }
+  function pcXlFmt(ws, r, c, fmt, align) {
+    const a = XLSX.utils.encode_cell({ r, c });
+    if (!ws[a]) return;
+    ws[a].z = fmt;
+    if (align) ws[a].s = Object.assign({}, ws[a].s, { alignment: Object.assign({}, (ws[a].s && ws[a].s.alignment) || {}, { horizontal: align }) });
+  }
+
+  function buildSummarySheet_(wb, rows, scopeLabel, genStr) {
+    const sum = summarize(rows);
+    const pcs = pipelineCounts(rows).filter(p => p.count > 0);
+    const years = forecastYears(rows);
+    const lg = lgByBank(rows);
+    const aoa = [];
+    const sections = [], ths = [], totals = [], moneyCells = []; // moneyCells: [r,c]
+    aoa.push(['รายงานสรุปโครงการ · Project Control Executive Summary']);
+    aoa.push([`ขอบเขต: ${scopeLabel || 'ทั้งหมด'}`, '', `จำนวน ${rows.length} โครงการ`, '', `ออกรายงาน ${genStr}`]);
+    aoa.push([]);
+    // KPI
+    sections.push(aoa.length); aoa.push(['ภาพรวม (Executive KPI)']);
+    ths.push(aoa.length); aoa.push(['รายการ', 'มูลค่า / จำนวน', 'หมายเหตุ']);
+    const kpi = [
+      ['โครงการทั้งหมด', sum.count, 'มูลค่าสัญญารวม ฿' + fmtBaht(sum.contractTotal)],
+      ['กำลังดำเนินการ', sum.wip, '฿' + fmtBaht(sum.wipAmt)],
+      ['เสร็จสิ้น', sum.finish, '฿' + fmtBaht(sum.finishAmt)],
+      ['ยังไม่ลงนาม', sum.awaiting, '฿' + fmtBaht(sum.awaitAmt)],
+      ['ยกเลิก', sum.cancelled, '฿' + fmtBaht(sum.cancelAmt)],
+      ['รับแล้ว (Received) — บาท', sum.received, ''],
+      ['ยอดค้างรับ (AR) — บาท', sum.outstandingAR, ''],
+      ['คาดรับใน 30 วัน — บาท', sum.forecast30, '60 วัน ฿' + fmtBaht(sum.forecast60) + ' · 90 วัน ฿' + fmtBaht(sum.forecast90)],
+      ['วงเงิน LG รวม — บาท', sum.lgTotal, ''],
+    ];
+    kpi.forEach(row => { moneyCells.push([aoa.length, 1]); aoa.push(row); });
+    aoa.push([]);
+    // Pipeline
+    sections.push(aoa.length); aoa.push(['สถานะโครงการ (Pipeline)']);
+    ths.push(aoa.length); aoa.push(['สถานะย่อย', 'EN', 'จำนวน']);
+    pcs.forEach(p => aoa.push([p.th, p.en, p.count]));
+    aoa.push([]);
+    // Cashflow per year
+    years.forEach(y => {
+      const ms = cashflowByMonth(rows, y).filter(m => m.gross > 0);
+      if (!ms.length) return;
+      const tot = ms.reduce((s, m) => s + m.gross, 0);
+      sections.push(aoa.length); aoa.push([`กระแสเงินสดคาดการณ์ ปี ${y + 543}`]);
+      ths.push(aoa.length); aoa.push(['เดือน', 'คาดรับ (Gross) บาท', 'จำนวนงวด']);
+      ms.forEach(m => { moneyCells.push([aoa.length, 1]); aoa.push([`${m.month} ${y + 543}`, m.gross, m.count]); });
+      moneyCells.push([aoa.length, 1]); totals.push(aoa.length); aoa.push(['รวม', tot, ms.reduce((s, m) => s + m.count, 0)]);
+      aoa.push([]);
+    });
+    // LG
+    if (lg.length) {
+      sections.push(aoa.length); aoa.push(['หลักประกัน (LG Monitoring)']);
+      ths.push(aoa.length); aoa.push(['ธนาคาร', 'จำนวน', 'วงเงิน (บาท)']);
+      lg.forEach(b => { moneyCells.push([aoa.length, 2]); aoa.push([b.bank, b.count, b.amount]); });
+      moneyCells.push([aoa.length, 2]); totals.push(aoa.length); aoa.push(['รวม', lg.reduce((s, b) => s + b.count, 0), lg.reduce((s, b) => s + b.amount, 0)]);
+    }
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{ wch: 34 }, { wch: 22 }, { wch: 40 }];
+    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 2 } }];
+    ws['!rows'] = [{ hpt: 26 }];
+    // styling
+    pcXlRow(ws, 0, 0, 2, PCXL.title);
+    pcXlRow(ws, 1, 0, 4, PCXL.sub);
+    sections.forEach(r => pcXlRow(ws, r, 0, 2, PCXL.section));
+    ths.forEach(r => pcXlRow(ws, r, 0, 2, PCXL.th));
+    // body cells (non-section/th/total/blank rows)
+    const special = new Set([0, 1, ...sections, ...ths, ...totals]);
+    let zeb = 0;
+    for (let r = 2; r < aoa.length; r++) {
+      if (special.has(r)) { zeb = 0; continue; }
+      const isBlank = !aoa[r] || aoa[r].length === 0;
+      if (isBlank) { zeb = 0; continue; }
+      pcXlRow(ws, r, 0, 2, (zeb++ % 2) ? PCXL.cellAlt : PCXL.cell);
+    }
+    totals.forEach(r => pcXlRow(ws, r, 0, 2, PCXL.totalRow));
+    moneyCells.forEach(([r, c]) => pcXlFmt(ws, r, c, FMT_BAHT, 'right'));
+    XLSX.utils.book_append_sheet(wb, ws, 'สรุป');
+  }
+
+  function buildDetailSheet_(wb, rows, scopeLabel, genStr) {
+    const sorted = rows.slice().sort((a, b) => (b.contractAmt || 0) - (a.contractAmt || 0));
+    const headers = ['โครงการ', 'เลขสัญญา', 'ปีงบ', 'จังหวัด', 'ภาค', 'ประเภท', 'มูลค่าสัญญา (รวม VAT)',
+      'สถานะ', 'สถานะย่อย', 'ความคืบหน้า %', 'รับแล้ว', 'ค้างรับ',
+      'คาดรับ งวด 1', 'วันที่ งวด 1', 'คาดรับ งวด 2', 'วันที่ งวด 2', 'ผู้รับโอนสิทธิ'];
+    const aoa = [
+      [`ทะเบียนโครงการ · Project Detail — ${rows.length} โครงการ`],
+      [`ขอบเขต: ${scopeLabel || 'ทั้งหมด'}`, '', '', '', `ออกรายงาน ${genStr}`],
+      [],
+      headers,
+    ];
+    const headRow = 3;
+    sorted.forEach(r => {
+      aoa.push([
+        r.site || r.name,
+        /^(XL|WS)-/i.test(r.contractNo) ? '(ไม่มีเลข)' : r.contractNo,
+        r.fy ? 'FY' + r.fy : '',
+        r.province || '', r.regionEn || r.region || '', r.type || '',
+        r.contractAmt || 0,
+        (STATUS_META[r.status] && STATUS_META[r.status].th) || r.status || '',
+        r.projectStatus || '',
+        r.progress != null ? r.progress : '',
+        r.received || 0, r.outstandingAR || 0,
+        r.fc1Amount || 0, r.fc1Date ? fmtDate(r.fc1Date) : '',
+        r.fc2Amount || 0, r.fc2Date ? fmtDate(r.fc2Date) : '',
+        r.assignee || '',
+      ]);
+    });
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{ wch: 42 }, { wch: 12 }, { wch: 7 }, { wch: 14 }, { wch: 10 }, { wch: 8 }, { wch: 16 },
+      { wch: 13 }, { wch: 13 }, { wch: 11 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 13 }];
+    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 6 } }];
+    ws['!rows'] = [{ hpt: 26 }, {}, {}, { hpt: 30 }];
+    ws['!freeze'] = { xSplit: 1, ySplit: headRow + 1 };
+    const lastCol = headers.length - 1;
+    pcXlRow(ws, 0, 0, lastCol, PCXL.title);
+    pcXlRow(ws, 1, 0, lastCol, PCXL.sub);
+    pcXlRow(ws, headRow, 0, lastCol, PCXL.th);
+    const moneyCols = [6, 10, 11, 12, 14], pctCols = [9];
+    for (let i = 0; i < sorted.length; i++) {
+      const r = headRow + 1 + i;
+      pcXlRow(ws, r, 0, lastCol, (i % 2) ? PCXL.cellAlt : PCXL.cell);
+      moneyCols.forEach(c => pcXlFmt(ws, r, c, FMT_BAHT, 'right'));
+      pctCols.forEach(c => pcXlFmt(ws, r, c, FMT_PCT, 'center'));
+      [2, 13, 15].forEach(c => pcXlFmt(ws, r, c, null, 'center'));
+      // ค้างรับ เป็นสีแดงถ้ามากกว่า 0
+      if ((sorted[i].outstandingAR || 0) > 0) pcXlSet(ws, r, 11, { font: { sz: 10, bold: true, color: { rgb: 'B45309' } } });
+    }
+    // also enable autofilter on header
+    ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: headRow, c: 0 }, e: { r: headRow + sorted.length, c: lastCol } }) };
+    XLSX.utils.book_append_sheet(wb, ws, 'รายละเอียด');
+  }
+
+  function exportXLSX(kind, rows, scopeLabel) {
+    if (!window.XLSX) { alert('SheetJS ยังไม่โหลด — รีเฟรชหน้า'); return; }
+    const wb = XLSX.utils.book_new();
+    const genStr = fmtDate(TODAY, 'long');
+    if (kind === 'summary' || kind === 'both') buildSummarySheet_(wb, rows, scopeLabel, genStr);
+    if (kind === 'detail' || kind === 'both') buildDetailSheet_(wb, rows, scopeLabel, genStr);
+    const suffix = kind === 'summary' ? 'summary' : kind === 'detail' ? 'detail' : 'full';
+    XLSX.writeFile(wb, `project-control-${suffix}-${TODAY}.xlsx`);
   }
 
   // ── local project snapshot (รอด cloud sync — รักษาคอลัมน์เต็มจาก Excel upload)
@@ -650,17 +837,19 @@
       .btnbar{position:fixed;top:12px;right:16px;display:flex;gap:8px;z-index:9}
       .btnbar button{font:600 12px/1 'IBM Plex Sans Thai',sans-serif;padding:9px 15px;border-radius:8px;border:none;cursor:pointer;background:#2a6fdb;color:#fff;box-shadow:0 4px 14px rgba(35,72,150,.3)}
       .btnbar button.sec{background:#fff;color:#475569;border:1px solid #cbd5e1;box-shadow:none}`;
+    const kindLabel = kind === 'summary' ? 'Executive Summary' : kind === 'both' ? 'สรุป + รายละเอียดโครงการ' : 'รายละเอียดโครงการ';
     const head = `
       <div class="hd">
         <img src="${logoUrl}" alt="Water POG" onerror="this.style.display='none'"/>
-        <div><div class="t1">Project Control — ${kind === 'summary' ? 'Executive Summary' : 'รายละเอียดโครงการ'}</div>
+        <div><div class="t1">Project Control — ${kindLabel}</div>
         <div class="t2">Water POG · ระบบติดตามโครงการ (Engineering & Finance)</div></div>
         <div class="meta">ขอบเขต: <b>${esc(scopeLabel || 'ทั้งหมด')}</b><br/>จำนวน <b class="num">${rows.length.toLocaleString()}</b> โครงการ<br/>ออกรายงาน <b>${genStr}</b></div>
       </div>`;
     const stPill = (st) => { const m = STATUS_META[st] || { th: st, bg: '#f1f5f9', color: '#475569' }; return `<span class="pill" style="background:${m.bg};color:${m.color}">${esc(m.th)}</span>`; };
 
-    let body = '';
-    if (kind === 'summary') {
+    // ── body builders (แยกเพื่อให้ kind='both' ประกอบทั้งสองส่วนได้) ──
+    const buildSummaryBody = () => {
+      let body = '';
       const pcs = pipelineCounts(rows).filter(p => p.count > 0);
       const years = forecastYears(rows);
       const lg = lgByBank(rows);
@@ -688,9 +877,11 @@
         body += `<h2>หลักประกัน (LG Monitoring)</h2><table><thead><tr><th>ธนาคาร</th><th class="c">จำนวน</th><th class="r">วงเงิน</th></tr></thead><tbody>
           ${lg.map(b => `<tr><td><b style="color:${b.color}">${esc(b.bank)}</b></td><td class="c num">${b.count}</td><td class="r num">฿${fmtBaht(b.amount)}</td></tr>`).join('')}</tbody></table>`;
       }
-    } else {
+      return body;
+    };
+    const buildDetailBody = () => {
       const sorted = rows.slice().sort((a, b) => (b.contractAmt || 0) - (a.contractAmt || 0));
-      body += `<h2>ทะเบียนโครงการ (${rows.length.toLocaleString()} โครงการ)</h2>
+      return `<h2>ทะเบียนโครงการ (${rows.length.toLocaleString()} โครงการ)</h2>
         <table><thead><tr>
           <th>โครงการ</th><th>เลขสัญญา</th><th class="c">ปีงบ</th><th>จังหวัด</th>
           <th class="r">มูลค่าสัญญา</th><th class="c">สถานะ</th><th>สถานะย่อย</th><th class="c">%</th>
@@ -715,9 +906,13 @@
           <td class="c num">${r.fc2Date ? fmtDate(r.fc2Date) : '—'}</td>
           <td>${esc(r.assignee || '—')}</td>
         </tr>`).join('')}</tbody></table>`;
-    }
+    };
+    let body = '';
+    if (kind === 'summary') body = buildSummaryBody();
+    else if (kind === 'detail') body = buildDetailBody();
+    else body = buildSummaryBody() + '<div style="page-break-before:always;height:0"></div>' + buildDetailBody();
     const html = `<!doctype html><html lang="th"><head><meta charset="utf-8"/>
-      <title>Project Control — ${kind === 'summary' ? 'Summary' : 'Detail'} · ${TODAY}</title>
+      <title>Project Control — ${kind === 'summary' ? 'Summary' : kind === 'both' ? 'Summary+Detail' : 'Detail'} · ${TODAY}</title>
       <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700;800&family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet"/>
       <style>${STY}</style></head><body>
       <div class="btnbar noprint"><button class="sec" onclick="window.close()">ปิด</button><button onclick="window.print()">🖨️ พิมพ์ / บันทึก PDF</button></div>
@@ -734,7 +929,7 @@
     fmtBaht, fmtCompact, fmtDate, daysFromToday,
     STATUS_META, SUB_PIPELINE, SUB_ORDER, REGION_EN, BANK_COLORS, CREDITOR_NAMES,
     deriveProjects, summarize, pipelineCounts, cashflowByMonth, forecastYears, lgByBank, debtByCreditor,
-    exportCSV, openReport, loadFinanceMaster, setFinanceField, contractAmtOf,
+    exportCSV, exportXLSX, openReport, loadFinanceMaster, setFinanceField, contractAmtOf,
     loadLocalProjects, saveLocalProjects, parseProjectControl,
   };
 })();
