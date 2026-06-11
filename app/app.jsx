@@ -21,7 +21,7 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 const ROLE_PERMS = {
   // ผู้บริหาร — เห็นเฉพาะ Dashboard (รายงานรับเงินรายวัน + War Room) — ไม่เห็นประมาณการ
   viewer: {
-    pages: new Set(['daily', 'warroom1', 'warroom2']),
+    pages: new Set(['home', 'daily', 'warroom1', 'warroom2']),
     canEdit: false, canDelete: false, canApprove: false, canManageUsers: false,
   },
   // ฝ่ายการเงิน — ทำงานปกติ เพิ่ม/แก้ได้ แต่ลบไม่ได้ + ไม่เห็น audit + users
@@ -92,7 +92,7 @@ function App() {
 
   const [route, setRoute] = aState(() => {
     const h = window.location.hash.replace(/^#/, '');
-    return h || 'daily';
+    return h || 'home';
   });
   const [data, setData] = aState(() => WTPData.load());
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
@@ -300,7 +300,7 @@ function App() {
     if (!isLoggedIn || !window.WTPAuth) return;
     if (!window.WTPAuth.canViewPage(route)) {
       // Pull routes object below — at this point it's not defined yet, fallback inline
-      const order = ['daily','warroom1','warroom2','cashflow','pnl','budget','debt','debt_ledger',
+      const order = ['home','daily','warroom1','warroom2','cashflow','pnl','budget','debt','debt_ledger',
                      'iv_report','receipts','bank_diary','interest_calc','sts_calc','sts_workflow',
                      'projects','invoices','checks','data_forecast','data_bank','data_pv','data_payable'];
       const allowed = window.WTPAuth.firstAllowedPage(order);
@@ -348,6 +348,7 @@ function App() {
   if (!isLoggedIn) return <LoginPage onLogin={handleLogin} />;
 
   const routes = {
+    home:  { label: 'หน้าหลัก', title: 'หน้าหลัก · Financial Console', icon: 'home' },
     daily: { label: 'รายงานรับเงินประจำวัน', title: 'Daily Revenue', icon: 'daily' },
     warroom1: { label: 'War Room — รายรับ (หน้า 1)', title: 'Revenue Collection', icon: 'receivables' },
     warroom2: { label: 'War Room — รายปี (หน้า 2)', title: 'Annual Cash Flow', icon: 'forecast' },
@@ -377,6 +378,7 @@ function App() {
 
   let page;
   switch (route) {
+    case 'home':           page = <HomePage data={data} />; break;
     case 'warroom1':       page = <WarRoomPage1 data={data} setData={setData} toast={pushToast} />; break;
     case 'warroom2':       page = <WarRoomPage2 data={data} setData={setData} toast={pushToast} />; break;
     case 'cashflow':       page = <CashFlowDashboard data={data} setData={setData} toast={pushToast} />; break;
@@ -401,8 +403,8 @@ function App() {
     case 'daily_balance':  page = <DailyBalancePage data={data} setData={setData} toast={pushToast} />; break;
     case 'pnl':            page = <PnLPage data={data} setData={setData} toast={pushToast} />; break;
     case 'budget':         page = <BudgetControlPage toast={pushToast} />; break;
-    case 'daily':
-    default:               page = <DailyRevenueDashboard data={data} setData={setData} toast={pushToast} />;
+    case 'daily':          page = <DailyRevenueDashboard data={data} setData={setData} toast={pushToast} />; break;
+    default:               page = <HomePage data={data} />;
   }
 
   return (
@@ -616,6 +618,7 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
             <span>แดชบอร์ด</span>{chevron(sec.dash)}
           </div>
           {(sec.dash || collapsed) && navItems([
+            ['home',     'หน้าหลัก',               'home'],
             ['daily',    'รายงานรับเงินรายวัน',    'daily'],
             ['warroom1', 'War Room · รายรับ',       'receivables'],
             ['warroom2', 'War Room · รายปี',        'forecast'],
