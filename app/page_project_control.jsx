@@ -108,11 +108,11 @@ function PcKpiSection({ summary, filterStatus, onFilterStatus }) {
   };
   return (
     <div className="pc-kpi-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(8,minmax(0,1fr))', gap: 10 }}>
-      {card('all', <PcI.building size={15} />, 'โครงการทั้งหมด', 'All Projects', summary.count.toLocaleString(), null, '#2a6fdb', null)}
-      {card('wip', <PcI.refresh size={15} />, 'กำลังดำเนินการ', 'Work in Progress', summary.wip.toLocaleString(), null, '#2a6fdb', 'Work in progress')}
-      {card('await', <PcI.clock size={15} />, 'รอลงนาม', 'Awaiting Sign', summary.awaiting.toLocaleString(), null, '#f97316', 'ยังไม่ลงนาม')}
-      {card('fin', <PcI.check size={15} />, 'เสร็จสิ้น', 'Finished', summary.finish.toLocaleString(), null, '#16a34a', 'Finish')}
-      {card('cancel', <PcI.close size={15} />, 'ยกเลิก', 'Cancelled', summary.cancelled.toLocaleString(), null, '#ef4444', 'ยกเลิก')}
+      {card('all', <PcI.building size={15} />, 'โครงการทั้งหมด', 'All Projects', summary.count.toLocaleString(), '฿' + PCU.fmtCompact(summary.contractTotal), '#2a6fdb', null)}
+      {card('wip', <PcI.refresh size={15} />, 'กำลังดำเนินการ', 'Work in Progress', summary.wip.toLocaleString(), '฿' + PCU.fmtCompact(summary.wipAmt), '#2a6fdb', 'Work in progress')}
+      {card('await', <PcI.clock size={15} />, 'รอลงนาม', 'Awaiting Sign', summary.awaiting.toLocaleString(), '฿' + PCU.fmtCompact(summary.awaitAmt), '#f97316', 'ยังไม่ลงนาม')}
+      {card('fin', <PcI.check size={15} />, 'เสร็จสิ้น', 'Finished', summary.finish.toLocaleString(), '฿' + PCU.fmtCompact(summary.finishAmt), '#16a34a', 'Finish')}
+      {card('cancel', <PcI.close size={15} />, 'ยกเลิก', 'Cancelled', summary.cancelled.toLocaleString(), '฿' + PCU.fmtCompact(summary.cancelAmt), '#ef4444', 'ยกเลิก')}
       {card('contract', <PcI.money size={15} />, 'มูลค่าสัญญารวม', 'Contract Value', '฿' + PCU.fmtCompact(summary.contractTotal), 'รับแล้ว ฿' + PCU.fmtCompact(summary.received), '#0e9f9a', null)}
       {card('ar', <PcI.alert size={15} />, 'ยอดค้างรับ', 'Outstanding AR', '฿' + PCU.fmtCompact(summary.outstandingAR), null, '#b45309', null)}
       {card('f30', <PcI.clock size={15} />, 'คาดรับ 30 วัน', 'Forecast 30d', '฿' + PCU.fmtCompact(summary.forecast30), '60d ฿' + PCU.fmtCompact(summary.forecast60), '#2563eb', null)}
@@ -146,6 +146,7 @@ function PcFunnel({ rows, onPick }) {
 function PcCashflow({ rows }) {
   const years = pcMemo(() => PCU.forecastYears(rows), [rows]);
   const [year, setYear] = pcSt(null);
+  const [drill, setDrill] = pcSt(null); // month obj
   const yr = year || years[0] || new Date().getFullYear();
   const months = pcMemo(() => PCU.cashflowByMonth(rows, yr), [rows, yr]);
   const max = Math.max(1, ...months.map(m => m.gross));
@@ -155,8 +156,8 @@ function PcCashflow({ rows }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
         <div style={{ display: 'flex', gap: 14, fontSize: 11 }}>
           <span><b className="num" style={{ color: 'var(--brand-700)' }}>฿{PCU.fmtCompact(total.gross)}</b> <span style={{ color: '#94a3b8' }}>Gross</span></span>
-          <span><b className="num" style={{ color: '#b45309' }}>฿{PCU.fmtCompact(total.debt)}</b> <span style={{ color: '#94a3b8' }}>Debt</span></span>
           <span><b className="num" style={{ color: '#16a34a' }}>฿{PCU.fmtCompact(total.net)}</b> <span style={{ color: '#94a3b8' }}>Net</span></span>
+          <span style={{ color: '#cbd5e1' }}>· คลิกแท่งเพื่อดูรายโครงการ/งวด</span>
         </div>
         {years.length > 1 && (
           <select value={yr} onChange={e => setYear(+e.target.value)} style={{ fontSize: 11, padding: '3px 6px', borderRadius: 6, border: '1px solid #d3dcea' }}>
@@ -167,17 +168,56 @@ function PcCashflow({ rows }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12,1fr)', gap: 4, alignItems: 'end', height: 130 }}>
         {months.map((m, i) => {
           const gh = (m.gross / max) * 110, nh = (m.net / max) * 110;
+          const has = m.count > 0;
           return (
-            <div key={i} title={`${m.month} · Gross ฿${PCU.fmtBaht(m.gross)} · Net ฿${PCU.fmtBaht(m.net)}`} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+            <div key={i} onClick={has ? () => setDrill(m) : undefined} title={`${m.month} · คาดรับ ฿${PCU.fmtBaht(m.gross)} · ${m.count} งวด`}
+              style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, cursor: has ? 'pointer' : 'default' }}>
               <div style={{ width: '100%', height: 112, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: 2 }}>
-                <div style={{ width: '42%', height: Math.max(1, gh), background: 'var(--brand-300)', borderRadius: '3px 3px 0 0' }} />
-                <div style={{ width: '42%', height: Math.max(1, nh), background: 'var(--brand-600)', borderRadius: '3px 3px 0 0' }} />
+                <div style={{ width: '60%', height: Math.max(1, gh), background: has ? 'var(--brand-500)' : '#e7edf4', borderRadius: '3px 3px 0 0', transition: 'background .15s' }} />
               </div>
-              <span style={{ fontSize: 9, color: '#94a3b8' }}>{m.month}</span>
+              <span style={{ fontSize: 9, color: has ? 'var(--brand-700)' : '#cbd5e1', fontWeight: has ? 600 : 400 }}>{m.month}</span>
             </div>
           );
         })}
       </div>
+      {drill && (
+        <div onClick={() => setDrill(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(8,18,34,.42)', zIndex: 650, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, width: 'min(680px,96vw)', maxHeight: '82vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 60px rgba(13,31,58,.28)', overflow: 'hidden' }}>
+            <div style={{ background: 'linear-gradient(135deg,var(--brand-600),var(--brand-500))', color: '#fff', padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontSize: 10.5, opacity: .8 }}>กระแสเงินสดคาดการณ์ · {yr + 543}</div>
+                <div style={{ fontSize: 16, fontWeight: 800 }}>{drill.month} · คาดรับ ฿{PCU.fmtBaht(drill.gross)} <span style={{ fontSize: 12, fontWeight: 500, opacity: .85 }}>({drill.count} งวด)</span></div>
+              </div>
+              <button onClick={() => setDrill(null)} style={{ border: 'none', background: 'rgba(255,255,255,.18)', color: '#fff', borderRadius: 8, width: 30, height: 30, display: 'grid', placeItems: 'center', cursor: 'pointer' }}><PcI.close size={16} /></button>
+            </div>
+            <div style={{ overflow: 'auto', padding: 0 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead><tr style={{ position: 'sticky', top: 0 }}>
+                  {['โครงการ', 'งวด', 'คาดรับ', 'วันที่'].map((h, i) => <th key={i} style={{ background: '#f6f8fb', borderBottom: '1.5px solid #d3dcea', padding: '8px 12px', textAlign: i >= 2 ? 'right' : 'left', fontSize: 11, color: '#334155', whiteSpace: 'nowrap' }}>{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {drill.lines.map((ln, i) => (
+                    <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '8px 12px' }}>
+                        <div style={{ fontWeight: 600, color: 'var(--ink-900)' }}>{ln.row.site || ln.row.name}</div>
+                        <div style={{ fontSize: 10, color: '#94a3b8' }}>{[/^(XL|WS)-/i.test(ln.row.contractNo) ? null : ln.row.contractNo, ln.row.province].filter(Boolean).join(' · ')}</div>
+                      </td>
+                      <td style={{ padding: '8px 12px' }}><span style={{ background: 'var(--brand-50)', color: 'var(--brand-700)', fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 100 }}>งวด {ln.no}</span></td>
+                      <td className="num" style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: '#0e9f9a' }}>฿{PCU.fmtBaht(ln.amount)}</td>
+                      <td className="num" style={{ padding: '8px 12px', textAlign: 'right', color: '#475569' }}>{PCU.fmtDate(ln.date)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot><tr style={{ background: '#eaf2ff', fontWeight: 800 }}>
+                  <td style={{ padding: '9px 12px' }} colSpan={2}>รวม {drill.month}</td>
+                  <td className="num" style={{ padding: '9px 12px', textAlign: 'right', color: 'var(--brand-700)' }}>฿{PCU.fmtBaht(drill.gross)}</td>
+                  <td />
+                </tr></tfoot>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -255,6 +295,10 @@ function PcCellRender(col, r) {
     case 'forecastReceive': return <span className="num" style={{ color: r.forecastReceive > 0 ? '#0e9f9a' : '#cbd5e1' }}>{r.forecastReceive > 0 ? '฿' + U.fmtBaht(r.forecastReceive) : '—'}</span>;
     case 'forecastDate': { const dd = U.daysFromToday(r.forecastDate); const over = dd != null && dd < 0;
       return r.forecastDate ? <span className="num" style={{ fontSize: 11, color: over ? '#dc2626' : '#475569' }}>{U.fmtDate(r.forecastDate)}{dd != null && dd >= 0 && dd <= 30 ? <span style={{ color: '#d97706' }}> ·{dd}d</span> : ''}</span> : '—'; }
+    case 'fc1Amount': return <span className="num" style={{ color: r.fc1Amount > 0 ? '#0e9f9a' : '#cbd5e1' }}>{r.fc1Amount > 0 ? '฿' + U.fmtBaht(r.fc1Amount) : '—'}</span>;
+    case 'fc2Amount': return <span className="num" style={{ color: r.fc2Amount > 0 ? '#0e9f9a' : '#cbd5e1' }}>{r.fc2Amount > 0 ? '฿' + U.fmtBaht(r.fc2Amount) : '—'}</span>;
+    case 'fc1Date': case 'fc2Date': { const iso = col.id === 'fc1Date' ? r.fc1Date : r.fc2Date; const dd = U.daysFromToday(iso); const over = dd != null && dd < 0;
+      return iso ? <span className="num" style={{ fontSize: 11, color: over ? '#dc2626' : '#475569' }}>{U.fmtDate(iso)}{dd != null && dd >= 0 && dd <= 30 ? <span style={{ color: '#d97706' }}> ·{dd}d</span> : ''}</span> : '—'; }
     case 'forecastNet': return <span className="num" style={{ color: r.forecastNet > 0 ? 'var(--ink-900)' : '#cbd5e1' }}>{r.forecastNet > 0 ? '฿' + U.fmtBaht(r.forecastNet) : '—'}</span>;
     case 'assignee': return r.assignee ? <span style={{ background: 'var(--brand-50)', color: 'var(--brand-700)', fontSize: 10.5, fontWeight: 600, padding: '2px 7px', borderRadius: 100 }}>{r.assignee}</span> : '—';
     case 'lgBank': return r.lg && r.lg.bank ? <span style={{ fontWeight: 700, fontSize: 11, color: U.BANK_COLORS[r.lg.bank] || 'var(--brand-700)' }}>{r.lg.bank}</span> : '—';
@@ -294,7 +338,7 @@ function PcColFilterDropdown({ col, rows, value, onChange, onClose }) {
       {col.type === 'enum' && (<>
         <input placeholder="ค้นหา…" value={search} onChange={e => setSearch(e.target.value)} style={{ ...pcInp, marginBottom: 6 }} />
         <div style={{ maxHeight: 200, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <label style={pcChk}><input type="checkbox" checked={sel.size === distinct.length && distinct.length > 0} onChange={() => setSel(sel.size === distinct.length ? new Set() : new Set(distinct))} />ทั้งหมด</label>
+          <label style={{ ...pcChk, fontWeight: 700, borderBottom: '1px solid #eef2f7', paddingBottom: 4, marginBottom: 2 }}><input type="checkbox" checked={sel.size === distinct.length && distinct.length > 0} ref={el => { if (el) el.indeterminate = sel.size > 0 && sel.size < distinct.length; }} onChange={() => setSel(sel.size === distinct.length ? new Set() : new Set(distinct))} />เลือกทั้งหมด <span style={{ color: '#94a3b8', fontWeight: 400 }}>({distinct.length})</span></label>
           {distinct.filter(d => !search || String(d).toLowerCase().includes(search.toLowerCase())).map((d, i) => (
             <label key={i} style={pcChk}><input type="checkbox" checked={sel.has(d)} onChange={() => { const n = new Set(sel); n.has(d) ? n.delete(d) : n.add(d); setSel(n); }} />{d === '' ? <em style={{ color: '#94a3b8' }}>(ว่าง)</em> : d}</label>
           ))}
@@ -313,6 +357,12 @@ const pcBtn = { height: 28, padding: '0 12px', fontSize: 11.5, fontWeight: 600, 
 function PcGrid({ rows, allCols, state, setState, onOpenRow }) {
   const [openFilter, setOpenFilter] = pcSt(null);
   const [resizing, setResizing] = pcSt(null);
+  const [dragCol, setDragCol] = pcSt(null);
+  const [dragOver, setDragOver] = pcSt(null);
+  const moveCol = (srcId, dstId) => {
+    if (!srcId || srcId === dstId) return;
+    setState(s => { const ord = s.order.filter(x => x !== srcId); const idx = ord.indexOf(dstId); if (idx < 0) return s; ord.splice(idx, 0, srcId); return { ...s, order: ord }; });
+  };
   const visibleCols = pcMemo(() => state.order.map(id => allCols.find(c => c.id === id)).filter(c => c && !state.hidden.includes(c.id)), [state.order, state.hidden, allCols]);
   const frozenCols = visibleCols.filter(c => state.frozen.includes(c.id));
   const scrollCols = visibleCols.filter(c => !state.frozen.includes(c.id));
@@ -353,9 +403,15 @@ function PcGrid({ rows, allCols, state, setState, onOpenRow }) {
     const hasFilter = !!state.colFilters[c.id];
     return (
       <th key={c.id} style={{ position: frozen ? 'sticky' : 'relative', left: frozen ? leftOffset : undefined, zIndex: frozen ? 6 : 2, minWidth: colW(c), maxWidth: colW(c), width: colW(c),
-        background: '#f6f8fb', borderBottom: '1.5px solid #d3dcea', borderRight: frozen ? '1px solid #e6ecf4' : 'none', padding: '0', textAlign: c.align || 'left', whiteSpace: 'nowrap', userSelect: 'none', top: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '8px 9px', justifyContent: c.align === 'right' ? 'flex-end' : c.align === 'center' ? 'center' : 'flex-start' }}>
-          <span onClick={e => toggleSort(c.id, e.shiftKey)} style={{ cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#334155', display: 'inline-flex', alignItems: 'center', gap: 3 }} title={c.th}>
+        background: dragOver === c.id ? '#dceaff' : '#f6f8fb', borderBottom: '1.5px solid #d3dcea', borderRight: frozen ? '1px solid #e6ecf4' : 'none', borderLeft: dragOver === c.id && dragCol !== c.id ? '2px solid var(--brand-500)' : undefined, padding: '0', textAlign: c.align || 'left', whiteSpace: 'nowrap', userSelect: 'none', top: 0 }}>
+        <div draggable
+          onDragStart={e => { setDragCol(c.id); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', c.id); } catch (_) {} }}
+          onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOver !== c.id) setDragOver(c.id); }}
+          onDragLeave={() => { if (dragOver === c.id) setDragOver(null); }}
+          onDrop={e => { e.preventDefault(); moveCol(dragCol, c.id); setDragCol(null); setDragOver(null); }}
+          onDragEnd={() => { setDragCol(null); setDragOver(null); }}
+          style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '8px 9px', cursor: dragCol ? 'grabbing' : 'grab', justifyContent: c.align === 'right' ? 'flex-end' : c.align === 'center' ? 'center' : 'flex-start' }}>
+          <span onClick={e => toggleSort(c.id, e.shiftKey)} style={{ cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#334155', display: 'inline-flex', alignItems: 'center', gap: 3 }} title={c.th + ' · ลากเพื่อย้ายคอลัมน์'}>
             {c.label}
             {sortDir === 'asc' && <PcI.sortAsc size={12} style={{ color: 'var(--brand-600)' }} />}
             {sortDir === 'desc' && <PcI.sortDesc size={12} style={{ color: 'var(--brand-600)' }} />}
@@ -416,9 +472,12 @@ function PcGrid({ rows, allCols, state, setState, onOpenRow }) {
 }
 
 // ── grid toolbar (columns / density / export / saved view) ──────────────────
-function PcGridToolbar({ allCols, state, setState, rows, visibleColObjs }) {
+function PcGridToolbar({ allCols, state, setState, rows, visibleColObjs, scopeLabel, onAdvanced, advCount }) {
   const [colMenu, setColMenu] = pcSt(false);
+  const [expMenu, setExpMenu] = pcSt(false);
   const activeFilters = Object.values(state.colFilters).filter(Boolean).length;
+  const gridRows = () => PCGrid.applySort(PCGrid.applyColFilters(rows, allCols, state.colFilters), allCols, state.sort);
+  const expItem = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 10px', border: 'none', background: 'transparent', textAlign: 'left', fontSize: 12, cursor: 'pointer', borderRadius: 6, color: 'var(--ink-900)' };
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
       <div style={{ position: 'relative' }}>
@@ -439,8 +498,19 @@ function PcGridToolbar({ allCols, state, setState, rows, visibleColObjs }) {
       </div>
       <button onClick={() => setState(s => ({ ...s, density: s.density === 'compact' ? 'regular' : 'compact' }))} style={pcBtn}>{state.density === 'compact' ? '☰ กระชับ' : '≡ ปกติ'}</button>
       <button onClick={() => setState(s => ({ ...s, cf: !s.cf }))} style={{ ...pcBtn, background: state.cf ? 'var(--brand-50)' : '#fff', color: state.cf ? 'var(--brand-700)' : '#64748b' }}>🎨 ไฮไลต์</button>
-      {activeFilters > 0 && <button onClick={() => setState(s => ({ ...s, colFilters: {}, sort: [], page: 1 }))} style={{ ...pcBtn, color: '#dc2626' }}>ล้างตัวกรอง ({activeFilters})</button>}
-      <button onClick={() => PCU.exportCSV(PCGrid.applySort(PCGrid.applyColFilters(rows, allCols, state.colFilters), allCols, state.sort), visibleColObjs, 'project-control-' + PCU.TODAY)} style={{ ...pcBtn, marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--brand-600)', color: '#fff', border: 'none' }}><PcI.download size={14} />Export CSV</button>
+      <button onClick={onAdvanced} style={{ ...pcBtn, display: 'inline-flex', alignItems: 'center', gap: 6, background: advCount > 0 ? 'var(--brand-50)' : '#fff', color: advCount > 0 ? 'var(--brand-700)' : '#475569', borderColor: advCount > 0 ? 'var(--brand-200)' : '#d3dcea' }}><PcI.filter size={14} />ฟิลเตอร์ขั้นสูง{advCount > 0 ? ` (${advCount})` : ''}</button>
+      {activeFilters > 0 && <button onClick={() => setState(s => ({ ...s, colFilters: {}, sort: [], page: 1 }))} style={{ ...pcBtn, color: '#dc2626' }}>ล้างตัวกรองคอลัมน์ ({activeFilters})</button>}
+      <div style={{ position: 'relative', marginLeft: 'auto' }}>
+        <button onClick={() => setExpMenu(v => !v)} style={{ ...pcBtn, display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--brand-600)', color: '#fff', border: 'none' }}><PcI.download size={14} />Export<PcI.chevron size={13} /></button>
+        {expMenu && (
+          <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, zIndex: 60, background: '#fff', border: '1px solid #d3dcea', borderRadius: 10, boxShadow: '0 16px 44px rgba(13,31,58,.16)', padding: 6, width: 270 }}>
+            <button style={expItem} onClick={() => { PCU.openReport('summary', gridRows(), scopeLabel); setExpMenu(false); }}><span style={{ fontSize: 16 }}>📊</span><span><b>รายงานสรุป</b> <span style={{ color: '#94a3b8' }}>(PDF)</span><div style={{ fontSize: 10, color: '#94a3b8' }}>ภาพรวม KPI · cashflow · LG — สำหรับนักลงทุน</div></span></button>
+            <button style={expItem} onClick={() => { PCU.openReport('detail', gridRows(), scopeLabel); setExpMenu(false); }}><span style={{ fontSize: 16 }}>📋</span><span><b>รายงานรายละเอียด</b> <span style={{ color: '#94a3b8' }}>(PDF)</span><div style={{ fontSize: 10, color: '#94a3b8' }}>ทุกโครงการครบทุกคอลัมน์ · พร้อมโลโก้</div></span></button>
+            <div style={{ height: 1, background: '#eef2f7', margin: '4px 2px' }} />
+            <button style={expItem} onClick={() => { PCU.exportCSV(gridRows(), visibleColObjs, 'project-control-' + PCU.TODAY); setExpMenu(false); }}><span style={{ fontSize: 16 }}>📄</span><span><b>Export CSV</b><div style={{ fontSize: 10, color: '#94a3b8' }}>ข้อมูลดิบตามคอลัมน์ที่แสดง</div></span></button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -487,6 +557,25 @@ function PcDrawer({ row, canEdit, onClose, onSaveFinance }) {
         <div style={{ flex: 1, overflow: 'auto', padding: 18 }}>
           {tab === 'overview' && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 18px' }}>
+              {(() => {
+                const pd = row.progressDetail || { total: 0, delivered: 0, accepted: 0, paid: 0 };
+                let note;
+                if (row.status === 'ยกเลิก') note = 'โครงการยกเลิก → ความคืบหน้า 0%';
+                else if (row.status === 'ยังไม่ลงนาม') note = 'ยังไม่ลงนามสัญญา → ความคืบหน้า 0%';
+                else if (row.status === 'Finish') note = 'รับเงินครบตามสัญญา → 100%';
+                else if (pd.total > 0) note = `คำนวณจากงวดงาน ถ่วงน้ำหนักตาม % งวด — ส่งมอบ ${pd.delivered}/${pd.total} งวด · ตรวจรับ ${pd.accepted} งวด · รับเงิน ${pd.paid} งวด (เกณฑ์: ส่งมอบ = 75% · ตรวจรับ = 90% · รับเงิน = 100% ของน้ำหนักงวดนั้น)`;
+                else if (row.received > 0 && row.contractAmt > 0) note = `ไม่มีข้อมูลงวดงาน → คำนวณจาก รับแล้ว ฿${U.fmtBaht(row.received)} ÷ มูลค่าสัญญา ฿${U.fmtBaht(row.contractAmt)}`;
+                else note = 'ลงนาม/เริ่มงานแล้ว แต่ยังไม่ส่งมอบงวดใด → ตั้งต้นที่ระดับเริ่มต้น';
+                return (
+                  <div style={{ gridColumn: '1 / -1', margin: '2px 0 8px', padding: '11px 13px', background: 'var(--brand-50)', border: '1px solid var(--brand-100)', borderRadius: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--brand-700)' }}>ความคืบหน้า {row.progress == null ? '—' : row.progress + '%'} <span style={{ fontWeight: 400, color: '#94a3b8', fontSize: 10.5 }}>· ที่มาของตัวเลข</span></span>
+                      <PcProgress value={row.progress} w={120} />
+                    </div>
+                    <div style={{ fontSize: 11, color: '#475569', lineHeight: 1.6 }}>{note}</div>
+                  </div>
+                );
+              })()}
               <Field label="มูลค่าสัญญา (รวม VAT)" value={row.contractAmt ? '฿' + U.fmtBaht(row.contractAmt) : null} mono />
               <Field label="เงินตามใบจัดสรร" value={row.allocation ? '฿' + U.fmtBaht(row.allocation) : null} mono />
               <Field label="รับแล้ว" value={row.received ? '฿' + U.fmtBaht(row.received) : null} mono />
@@ -574,9 +663,178 @@ function PcFinanceEditor({ row, canEdit, onSave }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// ADVANCED FILTER (หลายเงื่อนไข AND/OR)
+// ═══════════════════════════════════════════════════════════════════════════
+function pcAdvFields() {
+  return [
+    { key: 'assignee', label: 'ผู้รับโอนสิทธิ', type: 'enum', get: r => r.assignee || '' },
+    { key: 'status', label: 'สถานะหลัก', type: 'enum', get: r => r.status, fmt: v => (PCU.STATUS_META[v] && PCU.STATUS_META[v].th) || v },
+    { key: 'projectStatus', label: 'สถานะย่อย', type: 'enum', get: r => r.projectStatus || '' },
+    { key: 'fy', label: 'ปีงบ', type: 'enum', get: r => r.fy ? 'FY' + r.fy : '' },
+    { key: 'region', label: 'ภูมิภาค', type: 'enum', get: r => r.regionEn || r.region || '' },
+    { key: 'province', label: 'จังหวัด', type: 'enum', get: r => r.province || '' },
+    { key: 'type', label: 'ประเภท', type: 'enum', get: r => r.type || '' },
+    { key: 'lgBank', label: 'ธนาคาร LG', type: 'enum', get: r => (r.lg && r.lg.bank) || '' },
+    { key: 'contractAmt', label: 'มูลค่าสัญญา (฿)', type: 'num', get: r => r.contractAmt || 0 },
+    { key: 'outstandingAR', label: 'ยอดค้างรับ (฿)', type: 'num', get: r => r.outstandingAR || 0 },
+    { key: 'received', label: 'รับแล้ว (฿)', type: 'num', get: r => r.received || 0 },
+    { key: 'progress', label: 'ความคืบหน้า (%)', type: 'num', get: r => r.progress || 0 },
+    { key: 'd1', label: 'ส่งมอบงวด 1 แล้ว', type: 'bool', get: r => !!r.d1 },
+    { key: 'a1', label: 'ได้ใบตรวจรับ งวด 1', type: 'bool', get: r => !!r.a1 },
+    { key: 'p1', label: 'รับเงินงวด 1 แล้ว', type: 'bool', get: r => !!r.p1 },
+    { key: 'd2', label: 'ส่งมอบงวด 2 แล้ว', type: 'bool', get: r => !!r.d2 },
+    { key: 'a2', label: 'ได้ใบตรวจรับ งวด 2', type: 'bool', get: r => !!r.a2 },
+    { key: 'p2', label: 'รับเงินงวด 2 แล้ว', type: 'bool', get: r => !!r.p2 },
+  ];
+}
+function pcApplyAdvanced(rows, conds, mode) {
+  const active = (conds || []).filter(c => c.field && c.op);
+  if (!active.length) return rows;
+  const fields = {}; pcAdvFields().forEach(f => fields[f.key] = f);
+  const test = (r, c) => {
+    const f = fields[c.field]; if (!f) return true;
+    const v = f.get(r);
+    if (f.type === 'bool') return c.op === 'false' ? v === false : v === true;
+    if (f.type === 'num') { const n = +v, t = +c.value; if (c.value === '' || isNaN(t)) return true; return c.op === 'lte' ? n <= t : c.op === 'eq' ? n === t : n >= t; }
+    if (c.value == null || c.value === '') return true;
+    return c.op === 'isNot' ? String(v) !== String(c.value) : String(v) === String(c.value);
+  };
+  return rows.filter(r => mode === 'OR' ? active.some(c => test(r, c)) : active.every(c => test(r, c)));
+}
+function PcAdvancedFilter({ rows, conds, mode, onApply, onClose }) {
+  const fields = pcMemo(() => pcAdvFields(), []);
+  const fmap = pcMemo(() => { const m = {}; fields.forEach(f => m[f.key] = f); return m; }, [fields]);
+  const [cs, setCs] = pcSt(() => (conds && conds.length ? conds.map(c => ({ ...c })) : [{ field: 'assignee', op: 'is', value: '' }]));
+  const [md, setMd] = pcSt(mode || 'AND');
+  const optsFor = (fkey) => { const f = fmap[fkey]; if (!f) return []; const s = new Set(); rows.forEach(r => { const v = f.get(r); if (v !== '' && v != null) s.add(String(v)); }); return [...s].sort((a, b) => a.localeCompare(b, 'th')); };
+  const opDefault = (t) => t === 'bool' ? 'true' : t === 'num' ? 'gte' : 'is';
+  const setRow = (i, patch) => setCs(cs => cs.map((c, k) => k === i ? { ...c, ...patch } : c));
+  const addRow = () => setCs(cs => [...cs, { field: 'assignee', op: 'is', value: '' }]);
+  const delRow = (i) => setCs(cs => cs.filter((_, k) => k !== i));
+  const preview = pcMemo(() => pcApplyAdvanced(rows, cs, md).length, [rows, cs, md]);
+  const sel = { height: 30, fontSize: 11.5, padding: '0 6px', border: '1px solid #d3dcea', borderRadius: 6, background: '#fff', outline: 'none' };
+  const usePreset = () => { setMd('AND'); setCs([
+    { field: 'assignee', op: 'is', value: 'LIT' }, { field: 'd1', op: 'true', value: '' }, { field: 'a1', op: 'true', value: '' }, { field: 'p1', op: 'false', value: '' },
+  ]); };
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(8,18,34,.42)', zIndex: 700, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '6vh 20px 20px' }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, width: 'min(720px,97vw)', maxHeight: '86vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 60px rgba(13,31,58,.28)', overflow: 'hidden' }}>
+        <div style={{ background: 'linear-gradient(135deg,var(--brand-600),var(--brand-500))', color: '#fff', padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div><div style={{ fontSize: 16, fontWeight: 800 }}>ฟิลเตอร์ขั้นสูง</div><div style={{ fontSize: 10.5, opacity: .85 }}>กรองหลายเงื่อนไขพร้อมกัน · เช่น โอนสิทธิ LIT · ส่งงวด 1 · ได้ใบตรวจรับ · ยังไม่รับเงิน</div></div>
+          <button onClick={onClose} style={{ border: 'none', background: 'rgba(255,255,255,.18)', color: '#fff', borderRadius: 8, width: 30, height: 30, display: 'grid', placeItems: 'center', cursor: 'pointer' }}><PcI.close size={16} /></button>
+        </div>
+        <div style={{ padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid #eef2f7', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11.5, color: '#64748b', fontWeight: 600 }}>ต้องตรง</span>
+          <div style={{ display: 'inline-flex', border: '1px solid #d3dcea', borderRadius: 7, overflow: 'hidden' }}>
+            {[['AND', 'ทุกเงื่อนไข'], ['OR', 'เงื่อนไขใดก็ได้']].map(([v, l]) => (
+              <button key={v} onClick={() => setMd(v)} style={{ border: 'none', padding: '5px 11px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', background: md === v ? 'var(--brand-500)' : '#fff', color: md === v ? '#fff' : '#475569' }}>{l}</button>
+            ))}
+          </div>
+          <button onClick={usePreset} style={{ ...pcBtn, marginLeft: 'auto', fontSize: 11 }}>⚡ ตัวอย่าง: LIT ส่งงวด1·ตรวจรับ·ยังไม่รับเงิน</button>
+        </div>
+        <div style={{ flex: 1, overflow: 'auto', padding: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {cs.map((c, i) => {
+            const f = fmap[c.field] || fields[0];
+            return (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 11, color: '#94a3b8', width: 26, textAlign: 'right' }}>{i === 0 ? '' : (md === 'OR' ? 'หรือ' : 'และ')}</span>
+                <select value={c.field} onChange={e => { const nf = fmap[e.target.value]; setRow(i, { field: e.target.value, op: opDefault(nf.type), value: '' }); }} style={{ ...sel, minWidth: 150 }}>
+                  {fields.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
+                </select>
+                {f.type === 'bool' && (
+                  <select value={c.op} onChange={e => setRow(i, { op: e.target.value })} style={{ ...sel, minWidth: 90 }}><option value="true">ใช่</option><option value="false">ไม่ใช่</option></select>
+                )}
+                {f.type === 'num' && (<>
+                  <select value={c.op} onChange={e => setRow(i, { op: e.target.value })} style={{ ...sel, minWidth: 70 }}><option value="gte">≥</option><option value="lte">≤</option><option value="eq">=</option></select>
+                  <input type="number" value={c.value} onChange={e => setRow(i, { value: e.target.value })} placeholder="ค่า" style={{ ...sel, width: 120 }} />
+                </>)}
+                {f.type === 'enum' && (<>
+                  <select value={c.op} onChange={e => setRow(i, { op: e.target.value })} style={{ ...sel, minWidth: 100 }}><option value="is">เท่ากับ</option><option value="isNot">ไม่เท่ากับ</option></select>
+                  <select value={c.value} onChange={e => setRow(i, { value: e.target.value })} style={{ ...sel, minWidth: 150 }}>
+                    <option value="">— เลือก —</option>
+                    {optsFor(c.field).map(o => <option key={o} value={o}>{f.fmt ? f.fmt(o) : o}</option>)}
+                  </select>
+                </>)}
+                <button onClick={() => delRow(i)} title="ลบเงื่อนไข" style={{ border: 'none', background: '#fef2f2', color: '#dc2626', borderRadius: 6, width: 28, height: 28, cursor: 'pointer', flex: '0 0 auto' }}>✕</button>
+              </div>
+            );
+          })}
+          <button onClick={addRow} style={{ ...pcBtn, alignSelf: 'flex-start', marginTop: 4, color: 'var(--brand-700)', borderColor: 'var(--brand-200)' }}>+ เพิ่มเงื่อนไข</button>
+        </div>
+        <div style={{ padding: '12px 18px', borderTop: '1px solid #eef2f7', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 12, color: '#64748b' }}>ตรงเงื่อนไข <b className="num" style={{ color: 'var(--brand-700)', fontSize: 15 }}>{preview.toLocaleString()}</b> / {rows.length.toLocaleString()} โครงการ</span>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+            <button onClick={() => { setCs([]); onApply([], 'AND'); }} style={{ ...pcBtn, color: '#dc2626' }}>ล้างทั้งหมด</button>
+            <button onClick={() => onApply(cs.filter(c => c.field && c.op), md)} style={{ ...pcBtn, background: 'var(--brand-600)', color: '#fff', border: 'none', padding: '0 18px' }}>ใช้ตัวกรอง</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// UPLOAD DIFF (แจ้งเตือนความเปลี่ยนแปลงหลัง upload Excel)
+// ═══════════════════════════════════════════════════════════════════════════
+function PcUploadDiff({ diff, stats, onClose }) {
+  const groups = [
+    { key: 'signed', icon: '✍️', label: 'ลงนามใหม่', color: '#2563eb', bg: '#dceaff', items: diff.signed || [], hint: 'เปลี่ยนจาก “รอลงนาม” → มีเลขสัญญาจริง' },
+    { key: 'added', icon: '➕', label: 'โครงการใหม่', color: '#15803d', bg: '#dcfce7', items: diff.added || [], hint: 'เลขสัญญาที่ไม่เคยมีในระบบ' },
+    { key: 'cancelled', icon: '🔴', label: 'ยกเลิกเพิ่ม', color: '#b91c1c', bg: '#fee2e2', items: diff.cancelled || [], hint: 'เพิ่งถูกตั้งสถานะยกเลิกในไฟล์นี้' },
+    { key: 'missing', icon: '➖', label: 'โครงการหายไป', color: '#b45309', bg: '#ffedd5', items: diff.missing || [], hint: 'มีในระบบเดิม แต่ไม่อยู่ในไฟล์ใหม่ (ยังคงเก็บไว้ ไม่ลบ)' },
+  ];
+  const [open, setOpen] = pcSt(groups.find(g => g.items.length) ? groups.find(g => g.items.length).key : null);
+  const nothing = groups.every(g => !g.items.length);
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(8,18,34,.42)', zIndex: 720, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, width: 'min(560px,96vw)', maxHeight: '84vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 60px rgba(13,31,58,.28)', overflow: 'hidden' }}>
+        <div style={{ background: 'linear-gradient(135deg,var(--brand-600),var(--brand-500))', color: '#fff', padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div><div style={{ fontSize: 16, fontWeight: 800 }}>อัปโหลดสำเร็จ · สรุปการเปลี่ยนแปลง</div><div style={{ fontSize: 10.5, opacity: .85 }}>{stats.totalRows} โครงการในไฟล์ · คงไว้ {stats.keptCount} · ข้ามแถวว่าง {stats.ghostCount}</div></div>
+          <button onClick={onClose} style={{ border: 'none', background: 'rgba(255,255,255,.18)', color: '#fff', borderRadius: 8, width: 30, height: 30, display: 'grid', placeItems: 'center', cursor: 'pointer' }}><PcI.close size={16} /></button>
+        </div>
+        <div style={{ padding: 14, display: 'flex', gap: 8 }}>
+          {groups.map(g => (
+            <div key={g.key} style={{ flex: 1, background: g.bg, borderRadius: 10, padding: '9px 8px', textAlign: 'center' }}>
+              <div style={{ fontSize: 17 }}>{g.icon}</div>
+              <div className="num" style={{ fontSize: 19, fontWeight: 800, color: g.color }}>{g.items.length}</div>
+              <div style={{ fontSize: 10, color: g.color, fontWeight: 600 }}>{g.label}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ flex: 1, overflow: 'auto', padding: '0 14px 14px' }}>
+          {nothing && <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: 12.5, padding: 24 }}>ไม่มีการเปลี่ยนแปลงด้านสถานะ · ข้อมูลถูกอัปเดตเรียบร้อย</div>}
+          {groups.filter(g => g.items.length).map(g => (
+            <div key={g.key} style={{ border: '1px solid #e6ecf4', borderRadius: 10, marginBottom: 8, overflow: 'hidden' }}>
+              <button onClick={() => setOpen(open === g.key ? null : g.key)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', border: 'none', background: '#f8fafc', cursor: 'pointer', textAlign: 'left' }}>
+                <span>{g.icon}</span><b style={{ fontSize: 12.5, color: g.color }}>{g.label} ({g.items.length})</b>
+                <span style={{ marginLeft: 'auto', transform: open === g.key ? 'rotate(180deg)' : 'none', color: '#94a3b8' }}><PcI.chevron size={14} /></span>
+              </button>
+              {open === g.key && (
+                <div style={{ padding: '4px 12px 10px' }}>
+                  <div style={{ fontSize: 10.5, color: '#94a3b8', margin: '2px 0 8px' }}>{g.hint}</div>
+                  {g.items.map((it, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 8, padding: '5px 0', borderBottom: '1px solid #f1f5f9', fontSize: 11.5 }}>
+                      <span className="num" style={{ color: 'var(--brand-700)', fontWeight: 600, minWidth: 76, flex: '0 0 auto' }}>{/^(XL|WS)-/i.test(it.code) ? '(ไม่มีเลข)' : it.code}</span>
+                      <span style={{ color: 'var(--ink-900)' }}>{it.name.replace(/^[A-Z0-9\-]+ · /, '')}{it.prev ? <span style={{ color: '#94a3b8' }}> · เดิม {it.prev}</span> : ''}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+        <div style={{ padding: '12px 18px', borderTop: '1px solid #eef2f7', textAlign: 'right' }}>
+          <button onClick={onClose} style={{ ...pcBtn, background: 'var(--brand-600)', color: '#fff', border: 'none', padding: '0 20px' }}>รับทราบ</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // MAIN PAGE
 // ═══════════════════════════════════════════════════════════════════════════
-const PC_STATE_KEY = 'wtp-pc-gridstate-v1';
+const PC_STATE_KEY = 'wtp-pc-gridstate-v2';
 function pcDefaultState() {
   return { order: PCGrid.makeColumns().map(c => c.id), hidden: PCGrid.makeColumns().map(c => c.id).filter(id => !PCGrid.DEFAULT_VISIBLE.includes(id)),
     frozen: PCGrid.DEFAULT_FROZEN.slice(), widths: {}, sort: [], colFilters: {}, page: 1, pageSize: 50, cf: true, density: 'compact' };
@@ -598,6 +856,10 @@ function ProjectControlPage({ data, setData, toast }) {
   const [localProjects, setLocalProjects] = pcSt(() => PCU.loadLocalProjects());
   const [uploadInfo, setUploadInfo] = pcSt(null); // { status, msg }
   const [busy, setBusy] = pcSt(false);
+  const [advConds, setAdvConds] = pcSt([]);
+  const [advMode, setAdvMode] = pcSt('AND');
+  const [advOpen, setAdvOpen] = pcSt(false);
+  const [diffModal, setDiffModal] = pcSt(null); // { diff, stats }
   const fileRef = pcRef();
 
   pcEff(() => { const t = setTimeout(() => setSearch(searchInput), 180); return () => clearTimeout(t); }, [searchInput]);
@@ -626,8 +888,9 @@ function ProjectControlPage({ data, setData, toast }) {
         return q.every(t => hay.includes(t));
       });
     }
+    if (advConds.length) r = pcApplyAdvanced(r, advConds, advMode);
     return r;
-  }, [allProjects, fy, statusFilter, search]);
+  }, [allProjects, fy, statusFilter, search, advConds, advMode]);
 
   const summary = pcMemo(() => PCU.summarize(topRows), [topRows]);
   const visibleColObjs = pcMemo(() => gridState.order.map(id => allCols.find(c => c.id === id)).filter(c => c && !gridState.hidden.includes(c.id)), [gridState.order, gridState.hidden, allCols]);
@@ -645,7 +908,7 @@ function ProjectControlPage({ data, setData, toast }) {
     setBusy(true); setUploadInfo({ status: 'loading', msg: 'กำลังอ่านไฟล์ ' + file.name + '…' });
     try {
       const buf = await file.arrayBuffer();
-      const { merged, stats } = PCU.parseProjectControl(buf, baseProjects);
+      const { merged, stats, diff } = PCU.parseProjectControl(buf, baseProjects);
       if (!merged.length) throw new Error('ไม่พบโครงการในไฟล์');
       // 1) เก็บ snapshot ลง localStorage (รอด cloud sync, มีคอลัมน์เต็ม)
       PCU.saveLocalProjects(merged);
@@ -653,7 +916,8 @@ function ProjectControlPage({ data, setData, toast }) {
       // 2) push เข้า cloud sheet (ทีมเห็นเหมือนกัน) — Finance Master ไม่ถูกแตะ (แยก localStorage)
       setData(d => ({ ...d, projects: merged }));
       setFinVer(v => v + 1); // recalc forecast/dashboard
-      setUploadInfo({ status: 'ok', msg: `อัปเดตแล้ว · ${stats.totalRows} โครงการ · ใหม่ ${stats.newCount} · ยกเลิก ${stats.cancelledCount} · คงไว้ ${stats.keptCount} · ข้ามแถวมั่ว ${stats.ghostCount} · sync เข้า Google Sheet…` });
+      setUploadInfo({ status: 'ok', msg: `อัปเดตแล้ว · ${stats.totalRows} โครงการ · ใหม่ ${stats.newCount} · ยกเลิก ${stats.cancelledCount} · คงไว้ ${stats.keptCount} · sync เข้า Google Sheet…` });
+      if (diff) setDiffModal({ diff, stats }); // แสดงสรุปความเปลี่ยนแปลง
       toast && toast('อัปโหลด Project Control สำเร็จ · ' + stats.totalRows + ' โครงการ');
       setTimeout(() => setUploadInfo(null), 6000);
     } catch (e) {
@@ -662,6 +926,13 @@ function ProjectControlPage({ data, setData, toast }) {
       setTimeout(() => setUploadInfo(null), 7000);
     } finally { setBusy(false); if (fileRef.current) fileRef.current.value = ''; }
   };
+
+  const scopeLabel = [
+    fy.length ? fy.map(x => 'FY' + x).join('/') : 'ทุกปีงบ',
+    statusFilter ? (PCU.STATUS_META[statusFilter] && PCU.STATUS_META[statusFilter].th || statusFilter) : null,
+    advConds.length ? ('ฟิลเตอร์ขั้นสูง ' + advConds.length + ' เงื่อนไข') : null,
+    search ? ('ค้นหา “' + search + '”') : null,
+  ].filter(Boolean).join(' · ');
 
   const fyBtn = (val, label) => {
     const active = val === 'all' ? fy.length === 0 : fy.includes(val);
@@ -707,7 +978,8 @@ function ProjectControlPage({ data, setData, toast }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 11, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 10, opacity: .65, textTransform: 'uppercase', letterSpacing: '.5px', fontWeight: 600 }}>ปีงบประมาณ</span>
           <div style={{ display: 'flex', gap: 5 }}>{fyBtn('all', 'ทั้งหมด')}{fyBtn(67, 'FY67')}{fyBtn(68, 'FY68')}{fyBtn(69, 'FY69')}</div>
-          {(statusFilter || search) && <button onClick={() => { setStatusFilter(null); setSearchInput(''); setSearch(''); }} style={{ fontSize: 11, fontWeight: 600, color: '#fff', background: 'rgba(255,255,255,.16)', border: 'none', borderRadius: 7, padding: '3px 10px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}><PcI.close size={11} />ล้างตัวกรอง{statusFilter ? ' · ' + (PCU.STATUS_META[statusFilter]?.th || statusFilter) : ''}</button>}
+          {advConds.length > 0 && <span style={{ fontSize: 11, fontWeight: 600, color: '#fff', background: 'rgba(255,255,255,.22)', borderRadius: 7, padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}><PcI.filter size={11} />ฟิลเตอร์ขั้นสูง {advConds.length} เงื่อนไข</span>}
+          {(statusFilter || search || advConds.length > 0) && <button onClick={() => { setStatusFilter(null); setSearchInput(''); setSearch(''); setAdvConds([]); }} style={{ fontSize: 11, fontWeight: 600, color: '#fff', background: 'rgba(255,255,255,.16)', border: 'none', borderRadius: 7, padding: '3px 10px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}><PcI.close size={11} />ล้างตัวกรอง{statusFilter ? ' · ' + (PCU.STATUS_META[statusFilter]?.th || statusFilter) : ''}</button>}
         </div>
       </div>
 
@@ -720,16 +992,16 @@ function ProjectControlPage({ data, setData, toast }) {
         <div><PcBand n="03" en="Cashflow Forecast" th="กระแสเงินสด" /><PcCashflow rows={topRows} /></div>
       </div>
 
-      <div className="pc-row2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 4 }}>
-        <div><PcBand n="04" en="LG Monitoring" th="หลักประกัน" /><PcLgSection rows={topRows} /></div>
-        <div><PcBand n="05" en="Debt Monitoring" th="ภาระหนี้" /><PcDebtSection rows={topRows} /></div>
-      </div>
+      <PcBand n="04" en="LG Monitoring" th="หลักประกัน" />
+      <PcLgSection rows={topRows} />
 
-      <PcBand n="06" en="Project Register" th="ทะเบียนโครงการ — Excel-grade Data Grid" />
-      <div style={{ marginBottom: 8 }}><PcGridToolbar allCols={allCols} state={gridState} setState={setGridState} rows={topRows} visibleColObjs={visibleColObjs} /></div>
+      <PcBand n="05" en="Project Register" th="ทะเบียนโครงการ — Excel-grade Data Grid" />
+      <div style={{ marginBottom: 8 }}><PcGridToolbar allCols={allCols} state={gridState} setState={setGridState} rows={topRows} visibleColObjs={visibleColObjs} scopeLabel={scopeLabel} onAdvanced={() => setAdvOpen(true)} advCount={advConds.length} /></div>
       <PcGrid rows={topRows} allCols={allCols} state={gridState} setState={setGridState} onOpenRow={setDrawerRow} />
 
       {drawerRow && <PcDrawer row={drawerRow} canEdit={canEdit} onClose={() => setDrawerRow(null)} onSaveFinance={saveFinance} />}
+      {advOpen && <PcAdvancedFilter rows={allProjects} conds={advConds} mode={advMode} onApply={(c, m) => { setAdvConds(c); setAdvMode(m); setAdvOpen(false); }} onClose={() => setAdvOpen(false)} />}
+      {diffModal && <PcUploadDiff diff={diffModal.diff} stats={diffModal.stats} onClose={() => setDiffModal(null)} />}
 
       {uploadInfo && (() => {
         const c = uploadInfo.status === 'ok' ? '#16a34a' : uploadInfo.status === 'err' ? '#dc2626' : 'var(--brand-600)';

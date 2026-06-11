@@ -273,6 +273,47 @@
     if (contract > 0 && received > 0) return Math.max(5, Math.min(99, Math.round(received / contract * 100)));
     return 20;
   }
+  // progress breakdown (สำหรับแสดงที่มาของ % ใน drawer)
+  function progressDetail(insts) {
+    const reqd = insts.filter(i => i.amount > 0 || (i.percent != null && i.percent > 0));
+    return {
+      total: reqd.length,
+      delivered: reqd.filter(i => i.delivered).length,
+      accepted: reqd.filter(i => i.acceptDate).length,
+      paid: reqd.filter(i => i.paid).length,
+    };
+  }
+
+  // ── forecast แยก 2 งวด (baseline) ────────────────────────────────────────────
+  // งวดเดียว → งวด 1 = 0, งวด 2 = 100% · หลายงวด → งวด 1 = งวดแรก, งวด 2 = ยุบงวด 2+
+  // คืน fc1/fc2 (amount+date), lines (สำหรับ cashflow drill), forecastReceive รวม
+  function splitForecast(insts, outstandingAR, statusMain, finishIso) {
+    const reqd = insts.filter(i => i.amount > 0 || (i.percent != null && i.percent > 0));
+    const fcOf = (i) => (i && !i.paid && i.amount > 0)
+      ? { amount: i.amount, date: i.forecastDate || null }
+      : { amount: 0, date: null };
+    let fc1 = { amount: 0, date: null }, fc2 = { amount: 0, date: null };
+    if (reqd.length === 0) {
+      if (outstandingAR > 0 && statusMain === 'Work in progress') {
+        const d = (finishIso && finishIso > TODAY) ? finishIso : addDays(TODAY, 30);
+        fc2 = { amount: outstandingAR, date: d };
+      }
+    } else if (reqd.length === 1) {
+      fc2 = fcOf(reqd[0]);
+    } else {
+      fc1 = fcOf(reqd[0]);
+      const rest = reqd.slice(1).filter(i => !i.paid && i.amount > 0);
+      const amt = rest.reduce((s, i) => s + i.amount, 0);
+      const dates = rest.map(i => i.forecastDate).filter(Boolean).sort();
+      fc2 = { amount: amt, date: dates[0] || null };
+    }
+    const lines = [];
+    if (fc1.amount > 0 && fc1.date) lines.push({ no: 1, amount: fc1.amount, date: fc1.date });
+    if (fc2.amount > 0 && fc2.date) lines.push({ no: 2, amount: fc2.amount, date: fc2.date });
+    const forecastReceive = (fc1.amount || 0) + (fc2.amount || 0);
+    const allDates = [fc1.date, fc2.date].filter(Boolean).sort();
+    return { lines, fc1, fc2, forecastReceive, forecastDate: allDates[0] || null };
+  }
 
   // ── MAIN derive ─────────────────────────────────────────────────────────────
   // คืน array ของ project rows (dashboard shape) จาก data.projects + finance master
@@ -308,22 +349,15 @@
 
       const status = deriveStatus(p, contract, received, insts);
       const progress = deriveProgress(p, status, insts, received, contract);
+      const progDetail = progressDetail(insts);
       const outstandingAR = status.main === 'ยกเลิก' ? 0 : Math.max(0, contract - received);
 
-      // forecast: sum unsettled installments with forecastDate; pick earliest date
-      let forecastReceive = 0, forecastDate = null;
-      insts.forEach(i => {
-        if (i.paid) return;
-        if (i.forecastDate) {
-          forecastReceive += i.amount;
-          if (!forecastDate || i.forecastDate < forecastDate) forecastDate = i.forecastDate;
-        }
-      });
-      if (!forecastReceive && outstandingAR > 0 && status.main === 'Work in progress') {
-        forecastReceive = outstandingAR;
-        const fin2 = isoOf(p['Finish']);
-        forecastDate = (fin2 && fin2 > TODAY) ? fin2 : addDays(TODAY, 30);
-      }
+      // forecast แยก 2 งวด (+ lines สำหรับ cashflow drill-down)
+      const { lines: forecastLines, fc1, fc2, forecastReceive, forecastDate } =
+        splitForecast(insts, outstandingAR, status.main, isoOf(p['Finish']));
+      // per-งวด flags (สำหรับ advanced filter)
+      const reqdInsts = insts.filter(i => i.amount > 0 || (i.percent != null && i.percent > 0));
+      const i1 = reqdInsts[0], i2 = reqdInsts[1];
 
       // finance master (manual): assignee, LG, debt, debtDeduction, remark
       const assignee = (f.assignee != null ? f.assignee : (p['ผู้รับโอนสิทธิ์'] || '')) || '';
@@ -349,9 +383,16 @@
         customer: p['Customer'] || '', budgetLabel: p['งบประมาณ'] || '', refCode: p['Ref.code'] || '',
         start: isoOf(p['Start']), finish: isoOf(p['Finish']),
         contractAmt: contract, allocation: toNum(p['เงินตามใบจัดสรร']),
-        progress, status: status.main, projectStatus: status.sub,
+        progress, progressDetail: progDetail, status: status.main, projectStatus: status.sub,
         received, outstandingAR, forecastReceive, forecastDate, forecastDebt,
         forecastNet: forecastReceive - forecastDebt,
+        // forecast แยกงวด
+        fc1Amount: fc1.amount || 0, fc1Date: fc1.date || null,
+        fc2Amount: fc2.amount || 0, fc2Date: fc2.date || null,
+        forecastLines,
+        // per-งวด flags (advanced filter)
+        d1: !!(i1 && i1.delivered), a1: !!(i1 && i1.acceptDate), p1: !!(i1 && i1.paid),
+        d2: !!(i2 && i2.delivered), a2: !!(i2 && i2.acceptDate), p2: !!(i2 && i2.paid),
         assignee, lg, debt, creditTerm: (f.creditTerm != null ? f.creditTerm : 30), remark: f.remark || (p['Remark'] || ''),
         installments: insts,
         _manualStatus: p.manualStatus || p._manualStatus || '',
@@ -363,14 +404,16 @@
   // ── aggregations ────────────────────────────────────────────────────────────
   function summarize(rows) {
     const s = { count: rows.length, wip: 0, finish: 0, awaiting: 0, cancelled: 0,
-      contractTotal: 0, outstandingAR: 0, received: 0, forecast30: 0, forecast60: 0, forecast90: 0,
+      contractTotal: 0, wipAmt: 0, finishAmt: 0, awaitAmt: 0, cancelAmt: 0,
+      outstandingAR: 0, received: 0, forecast30: 0, forecast60: 0, forecast90: 0,
       lgTotal: 0, debtTotal: 0, debtRemaining: 0, debtDeducted: 0 };
     for (const r of rows) {
-      if (r.status === 'Work in progress') s.wip++;
-      else if (r.status === 'Finish') s.finish++;
-      else if (r.status === 'ยังไม่ลงนาม') s.awaiting++;
-      else if (r.status === 'ยกเลิก') s.cancelled++;
-      s.contractTotal += r.contractAmt || 0;
+      const amt = r.contractAmt || 0;
+      if (r.status === 'Work in progress') { s.wip++; s.wipAmt += amt; }
+      else if (r.status === 'Finish') { s.finish++; s.finishAmt += amt; }
+      else if (r.status === 'ยังไม่ลงนาม') { s.awaiting++; s.awaitAmt += amt; }
+      else if (r.status === 'ยกเลิก') { s.cancelled++; s.cancelAmt += amt; }
+      s.contractTotal += amt;
       s.outstandingAR += r.outstandingAR || 0;
       s.received += r.received || 0;
       const dd = daysFromToday(r.forecastDate);
@@ -389,19 +432,27 @@
     rows.forEach(r => { if (m[r.projectStatus] != null) m[r.projectStatus]++; });
     return SUB_PIPELINE.map(p => ({ ...p, count: m[p.th] }));
   }
+  // cashflow รายเดือน — bucket ราย "งวด" (forecastLines) ไม่ใช่ราย project
+  // เพราะโครงเดียวกัน งวด 1 / งวด 2 รับคนละเดือน · months[i].lines = drill-down
   function cashflowByMonth(rows, year) {
-    const months = EN_MONTHS.map((m, i) => ({ month: m, idx: i, gross: 0, debt: 0, net: 0, count: 0 }));
+    const months = EN_MONTHS.map((m, i) => ({ month: m, idx: i, gross: 0, debt: 0, net: 0, count: 0, lines: [] }));
     for (const r of rows) {
-      if (!r.forecastDate || !r.forecastReceive) continue;
-      const d = new Date(r.forecastDate); if (d.getFullYear() !== year) continue;
-      const mo = months[d.getMonth()];
-      mo.gross += r.forecastReceive; mo.debt += r.forecastDebt || 0;
-      mo.net += r.forecastNet != null ? r.forecastNet : (r.forecastReceive - (r.forecastDebt || 0)); mo.count++;
+      const debtRatio = r.forecastReceive > 0 ? (r.forecastDebt || 0) / r.forecastReceive : 0;
+      (r.forecastLines || []).forEach(ln => {
+        if (!ln.date || !ln.amount) return;
+        const d = new Date(ln.date); if (d.getFullYear() !== year) return;
+        const mo = months[d.getMonth()];
+        const dbt = ln.amount * debtRatio;
+        mo.gross += ln.amount; mo.debt += dbt; mo.net += ln.amount - dbt; mo.count++;
+        mo.lines.push({ row: r, no: ln.no, amount: ln.amount, date: ln.date });
+      });
     }
+    months.forEach(mo => mo.lines.sort((a, b) => String(a.date).localeCompare(String(b.date))));
     return months;
   }
   function forecastYears(rows) {
-    const ys = new Set(); rows.forEach(r => { if (r.forecastDate) ys.add(new Date(r.forecastDate).getFullYear()); });
+    const ys = new Set();
+    rows.forEach(r => (r.forecastLines || []).forEach(ln => { if (ln.date) ys.add(new Date(ln.date).getFullYear()); }));
     return [...ys].sort();
   }
   function lgByBank(rows) {
@@ -491,11 +542,14 @@
     const DATE_COLS = new Set(['Start','Finish','เซ็นสัญญา','แจ้งเข้าดำเนินการ','ประกาศผู้ชนะ','Receive Date','Receive Date2','Receive Date3',
       'วันที่ส่งมอบงาน งวด 1','วันที่ส่งมอบงาน งวด 2','วันที่ส่งมอบงานงวด 3','วันที่เซ็น/รับ ใบตรวจรับ งวดที่ 1','วันที่เซ็น/รับ ใบตรวจรับ งวด 2','กำหนดส่งมอบงานงวด 1']);
 
-    // preserve ids
+    // preserve ids + snapshot สถานะเดิม (สำหรับ diff หลัง upload)
     const idByCode = {}; let maxId = 0;
+    const wasCancelled = {}, wsNameToCode = {};
     (existingProjects || []).forEach(p => { const c = String(p['Contract No.'] || p.code || '').trim(); if (c && p.id) idByCode[c] = p.id;
-      const m = String(p.id || '').match(/proj[_-]?0*(\d+)/i); if (m) maxId = Math.max(maxId, +m[1]); });
+      const m = String(p.id || '').match(/proj[_-]?0*(\d+)/i); if (m) maxId = Math.max(maxId, +m[1]);
+      if (c) { if (isCancelled(p)) wasCancelled[c] = true; if (/^WS-/i.test(c)) { const nm = _clean(p['พื้นที่'] || ''); if (nm) wsNameToCode[nm] = c; } } });
     const existingCodes = new Set(Object.keys(idByCode));
+    const diff = { added: [], cancelled: [], missing: [], signed: [] };
 
     // Phase 1: assign code + skip ghost
     let ghostCount = 0; const pairs = [];
@@ -518,7 +572,15 @@
     Object.keys(byCode).forEach(code => {
       const { row: r, cancel } = byCode[code];
       if (cancel) cancelledCount++;
-      let id = idByCode[code]; if (id) preservedCount++; else { id = 'proj_' + String(++maxId).padStart(4, '0'); newCount++; }
+      const nm = String(r['พื้นที่'] || '').trim();
+      const display = (code && !/^(XL|WS)-/i.test(code) ? code + ' · ' : '') + (nm || '(ไม่มีชื่อ)');
+      let id = idByCode[code];
+      if (id) preservedCount++;
+      else { id = 'proj_' + String(++maxId).padStart(4, '0'); newCount++; diff.added.push({ code, name: display }); }
+      // ยกเลิกใหม่ (ก่อนหน้ายังไม่ยกเลิก)
+      if (cancel && !wasCancelled[code]) diff.cancelled.push({ code, name: display });
+      // ลงนามใหม่: มีเลขสัญญาจริงแล้ว + เคยเป็น WS- (รอลงนาม) ชื่อเดียวกัน
+      if (!/^(XL|WS)-/i.test(code)) { const cn = _clean(nm); if (cn && wsNameToCode[cn]) diff.signed.push({ code, name: display, prev: wsNameToCode[cn] }); }
       const out = { id };
       colOrder.forEach(col => { let v = r[col]; if (v == null) v = ''; else if (DATE_COLS.has(col)) v = isoDate(v); else if (v instanceof Date) v = v.toISOString().slice(0, 10); out[col] = v; });
       out['Contract No.'] = code; if (cancel) out['ยกเลิกโครงการ'] = 1;
@@ -531,7 +593,130 @@
     const kept = (existingProjects || []).filter(p => { const c = String(p['Contract No.'] || p.code || '').trim(); return c && !inFile.has(c); });
     const merged = [...outRows, ...kept];
 
-    return { merged, stats: { totalCols: colOrder.length + 1, totalRows: outRows.length, cancelledCount, ghostCount, newCount, preservedCount, keptCount: kept.length } };
+    // โครงการหายไป: เลขสัญญาจริงที่เคยมี แต่ไม่อยู่ในไฟล์ใหม่ (synthetic ไม่นับ)
+    (existingProjects || []).forEach(p => {
+      const c = String(p['Contract No.'] || p.code || '').trim();
+      if (!c || inFile.has(c) || /^(XL|WS)-/i.test(c)) return;
+      const nm = String(p['พื้นที่'] || p.name || '').trim();
+      diff.missing.push({ code: c, name: c + (nm ? ' · ' + nm : '') });
+    });
+
+    return { merged, diff, stats: { totalCols: colOrder.length + 1, totalRows: outRows.length, cancelledCount, ghostCount, newCount, preservedCount, keptCount: kept.length,
+      addedN: diff.added.length, cancelledNewN: diff.cancelled.length, missingN: diff.missing.length, signedN: diff.signed.length } };
+  }
+
+  // ── Investor-grade report (HTML → print/PDF) · มีโลโก้ + โทน brand-blue ──────
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+  function openReport(kind, rows, scopeLabel) {
+    const logoUrl = new URL('waterpog_Logo-02.png', location.href).href;
+    const sum = summarize(rows);
+    const today = new Date(); const genStr = fmtDate(TODAY, 'long');
+    const STY = `
+      *{box-sizing:border-box;margin:0;padding:0;font-family:'IBM Plex Sans Thai','Sarabun',system-ui,sans-serif}
+      body{color:#0d1f3a;background:#fff;padding:0}
+      .num{font-variant-numeric:tabular-nums;font-feature-settings:'tnum'}
+      .wrap{max-width:1040px;margin:0 auto;padding:30px 34px 50px}
+      .hd{display:flex;align-items:center;gap:16px;border-bottom:3px solid #2a6fdb;padding-bottom:16px;margin-bottom:22px}
+      .hd img{height:54px;width:auto}
+      .hd .t1{font-size:21px;font-weight:800;color:#1f56b8;letter-spacing:-.3px}
+      .hd .t2{font-size:12px;color:#64748b;margin-top:2px}
+      .hd .meta{margin-left:auto;text-align:right;font-size:11px;color:#64748b;line-height:1.6}
+      .hd .meta b{color:#0d1f3a}
+      h2{font-size:13px;font-weight:800;color:#1f56b8;margin:24px 0 10px;display:flex;align-items:center;gap:8px}
+      h2::before{content:'';width:4px;height:15px;background:#2a6fdb;border-radius:3px;display:inline-block}
+      .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+      .kpi{border:1px solid #e6ecf4;border-radius:11px;padding:13px 15px;background:linear-gradient(135deg,#f8fbff,#fff)}
+      .kpi .lbl{font-size:10.5px;color:#64748b;font-weight:600}
+      .kpi .v{font-size:22px;font-weight:800;letter-spacing:-.5px;margin-top:5px}
+      .kpi .s{font-size:10.5px;color:#94a3b8;margin-top:2px}
+      table{width:100%;border-collapse:collapse;font-size:11px;margin-top:4px}
+      th,td{padding:7px 9px;text-align:left;border-bottom:1px solid #eef2f7}
+      thead th{background:#1f56b8;color:#fff;font-weight:600;font-size:10.5px;border:none}
+      thead th.r,td.r{text-align:right}thead th.c,td.c{text-align:center}
+      tbody tr:nth-child(even){background:#f7faff}
+      .pill{display:inline-block;font-size:10px;font-weight:600;padding:2px 8px;border-radius:100px}
+      .foot{margin-top:30px;padding-top:12px;border-top:1px solid #e6ecf4;font-size:10px;color:#94a3b8;display:flex;justify-content:space-between}
+      @media print{.noprint{display:none}body{padding:0}.wrap{padding:14px 18px}thead th{-webkit-print-color-adjust:exact;print-color-adjust:exact}.kpi,tbody tr:nth-child(even){-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+      .btnbar{position:fixed;top:12px;right:16px;display:flex;gap:8px;z-index:9}
+      .btnbar button{font:600 12px/1 'IBM Plex Sans Thai',sans-serif;padding:9px 15px;border-radius:8px;border:none;cursor:pointer;background:#2a6fdb;color:#fff;box-shadow:0 4px 14px rgba(35,72,150,.3)}
+      .btnbar button.sec{background:#fff;color:#475569;border:1px solid #cbd5e1;box-shadow:none}`;
+    const head = `
+      <div class="hd">
+        <img src="${logoUrl}" alt="Water POG" onerror="this.style.display='none'"/>
+        <div><div class="t1">Project Control — ${kind === 'summary' ? 'Executive Summary' : 'รายละเอียดโครงการ'}</div>
+        <div class="t2">Water POG · ระบบติดตามโครงการ (Engineering & Finance)</div></div>
+        <div class="meta">ขอบเขต: <b>${esc(scopeLabel || 'ทั้งหมด')}</b><br/>จำนวน <b class="num">${rows.length.toLocaleString()}</b> โครงการ<br/>ออกรายงาน <b>${genStr}</b></div>
+      </div>`;
+    const stPill = (st) => { const m = STATUS_META[st] || { th: st, bg: '#f1f5f9', color: '#475569' }; return `<span class="pill" style="background:${m.bg};color:${m.color}">${esc(m.th)}</span>`; };
+
+    let body = '';
+    if (kind === 'summary') {
+      const pcs = pipelineCounts(rows).filter(p => p.count > 0);
+      const years = forecastYears(rows);
+      const lg = lgByBank(rows);
+      body += `<h2>ภาพรวม (Executive KPI)</h2><div class="kpis">
+        <div class="kpi"><div class="lbl">โครงการทั้งหมด</div><div class="v num">${sum.count.toLocaleString()}</div><div class="s">มูลค่าสัญญารวม ฿${fmtCompact(sum.contractTotal)}</div></div>
+        <div class="kpi"><div class="lbl">กำลังดำเนินการ</div><div class="v num" style="color:#1f56b8">${sum.wip.toLocaleString()}</div><div class="s">฿${fmtCompact(sum.wipAmt)}</div></div>
+        <div class="kpi"><div class="lbl">เสร็จสิ้น</div><div class="v num" style="color:#16a34a">${sum.finish.toLocaleString()}</div><div class="s">฿${fmtCompact(sum.finishAmt)}</div></div>
+        <div class="kpi"><div class="lbl">ยกเลิก</div><div class="v num" style="color:#ef4444">${sum.cancelled.toLocaleString()}</div><div class="s">฿${fmtCompact(sum.cancelAmt)}</div></div>
+        <div class="kpi"><div class="lbl">รับแล้ว (Received)</div><div class="v num" style="color:#15803d">฿${fmtCompact(sum.received)}</div></div>
+        <div class="kpi"><div class="lbl">ยอดค้างรับ (AR)</div><div class="v num" style="color:#b45309">฿${fmtCompact(sum.outstandingAR)}</div></div>
+        <div class="kpi"><div class="lbl">คาดรับใน 30 วัน</div><div class="v num" style="color:#2563eb">฿${fmtCompact(sum.forecast30)}</div><div class="s">60 วัน ฿${fmtCompact(sum.forecast60)}</div></div>
+        <div class="kpi"><div class="lbl">วงเงิน LG รวม</div><div class="v num">฿${fmtCompact(sum.lgTotal)}</div></div>
+      </div>`;
+      body += `<h2>สถานะโครงการ (Pipeline)</h2><table><thead><tr><th>สถานะย่อย</th><th class="r">จำนวน</th></tr></thead><tbody>
+        ${pcs.map(p => `<tr><td>${esc(p.th)} <span style="color:#94a3b8">· ${esc(p.en)}</span></td><td class="r num">${p.count}</td></tr>`).join('')}</tbody></table>`;
+      years.forEach(y => {
+        const ms = cashflowByMonth(rows, y).filter(m => m.gross > 0);
+        if (!ms.length) return;
+        const tot = ms.reduce((s, m) => s + m.gross, 0);
+        body += `<h2>กระแสเงินสดคาดการณ์ ปี ${y + 543}</h2><table><thead><tr><th>เดือน</th><th class="r">คาดรับ (Gross)</th><th class="c">จำนวนงวด</th></tr></thead><tbody>
+          ${ms.map(m => `<tr><td>${m.month} ${y + 543}</td><td class="r num">฿${fmtBaht(m.gross)}</td><td class="c num">${m.count}</td></tr>`).join('')}
+          <tr style="font-weight:800;background:#eaf2ff"><td>รวม</td><td class="r num">฿${fmtBaht(tot)}</td><td></td></tr></tbody></table>`;
+      });
+      if (lg.length) {
+        body += `<h2>หลักประกัน (LG Monitoring)</h2><table><thead><tr><th>ธนาคาร</th><th class="c">จำนวน</th><th class="r">วงเงิน</th></tr></thead><tbody>
+          ${lg.map(b => `<tr><td><b style="color:${b.color}">${esc(b.bank)}</b></td><td class="c num">${b.count}</td><td class="r num">฿${fmtBaht(b.amount)}</td></tr>`).join('')}</tbody></table>`;
+      }
+    } else {
+      const sorted = rows.slice().sort((a, b) => (b.contractAmt || 0) - (a.contractAmt || 0));
+      body += `<h2>ทะเบียนโครงการ (${rows.length.toLocaleString()} โครงการ)</h2>
+        <table><thead><tr>
+          <th>โครงการ</th><th>เลขสัญญา</th><th class="c">ปีงบ</th><th>จังหวัด</th>
+          <th class="r">มูลค่าสัญญา</th><th class="c">สถานะ</th><th>สถานะย่อย</th><th class="c">%</th>
+          <th class="r">รับแล้ว</th><th class="r">ค้างรับ</th>
+          <th class="r">คาดรับ ง.1</th><th class="c">วันที่ ง.1</th><th class="r">คาดรับ ง.2</th><th class="c">วันที่ ง.2</th>
+          <th>ผู้รับโอนสิทธิ</th>
+        </tr></thead><tbody>
+        ${sorted.map(r => `<tr>
+          <td>${esc(r.site || r.name)}</td>
+          <td class="num">${/^(XL|WS)-/i.test(r.contractNo) ? '<span style="color:#94a3b8">(ไม่มีเลข)</span>' : esc(r.contractNo)}</td>
+          <td class="c num">${r.fy ? 'FY' + r.fy : '—'}</td>
+          <td>${esc(r.province || '—')}</td>
+          <td class="r num">${r.contractAmt ? '฿' + fmtBaht(r.contractAmt) : '—'}</td>
+          <td class="c">${stPill(r.status)}</td>
+          <td>${esc(r.projectStatus || '—')}</td>
+          <td class="c num">${r.progress != null ? r.progress + '%' : '—'}</td>
+          <td class="r num">${r.received > 0 ? '฿' + fmtBaht(r.received) : '—'}</td>
+          <td class="r num" style="color:#b45309">${r.outstandingAR > 0 ? '฿' + fmtBaht(r.outstandingAR) : '—'}</td>
+          <td class="r num">${r.fc1Amount > 0 ? '฿' + fmtBaht(r.fc1Amount) : '—'}</td>
+          <td class="c num">${r.fc1Date ? fmtDate(r.fc1Date) : '—'}</td>
+          <td class="r num">${r.fc2Amount > 0 ? '฿' + fmtBaht(r.fc2Amount) : '—'}</td>
+          <td class="c num">${r.fc2Date ? fmtDate(r.fc2Date) : '—'}</td>
+          <td>${esc(r.assignee || '—')}</td>
+        </tr>`).join('')}</tbody></table>`;
+    }
+    const html = `<!doctype html><html lang="th"><head><meta charset="utf-8"/>
+      <title>Project Control — ${kind === 'summary' ? 'Summary' : 'Detail'} · ${TODAY}</title>
+      <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700;800&family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet"/>
+      <style>${STY}</style></head><body>
+      <div class="btnbar noprint"><button class="sec" onclick="window.close()">ปิด</button><button onclick="window.print()">🖨️ พิมพ์ / บันทึก PDF</button></div>
+      <div class="wrap">${head}${body}
+        <div class="foot"><span>Water POG · Project Control Console</span><span>เอกสารสร้างอัตโนมัติ · ${genStr}</span></div>
+      </div></body></html>`;
+    const w = window.open('', '_blank');
+    if (!w) { alert('เบราว์เซอร์บล็อก popup — โปรดอนุญาตเพื่อเปิดรายงาน'); return; }
+    w.document.open(); w.document.write(html); w.document.close();
   }
 
   window.PCU = {
@@ -539,7 +724,7 @@
     fmtBaht, fmtCompact, fmtDate, daysFromToday,
     STATUS_META, SUB_PIPELINE, SUB_ORDER, REGION_EN, BANK_COLORS, CREDITOR_NAMES,
     deriveProjects, summarize, pipelineCounts, cashflowByMonth, forecastYears, lgByBank, debtByCreditor,
-    exportCSV, loadFinanceMaster, setFinanceField, contractAmtOf,
+    exportCSV, openReport, loadFinanceMaster, setFinanceField, contractAmtOf,
     loadLocalProjects, saveLocalProjects, parseProjectControl,
   };
 })();
@@ -556,6 +741,8 @@
       { id: 'name', label: 'Project Name', th: 'ชื่อโครงการ', type: 'text', width: 290, freezable: true, value: r => r.site || r.name },
       { id: 'contractNo', label: 'Contract No.', th: 'เลขที่สัญญา', type: 'text', width: 110, freezable: true, value: r => r.contractNo },
       { id: 'fy', label: 'Fiscal Year', th: 'ปีงบ', type: 'enum', width: 72, align: 'center', value: r => r.fy ? 'FY' + r.fy : '' },
+      { id: 'start', label: 'Start', th: 'วันที่เริ่มต้น', type: 'date', width: 108, align: 'center', value: r => r.start, sortVal: r => r.start || '' },
+      { id: 'finish', label: 'Finish', th: 'วันที่สิ้นสุด', type: 'date', width: 108, align: 'center', value: r => r.finish, sortVal: r => r.finish || '' },
       { id: 'region', label: 'Region', th: 'ภูมิภาค', type: 'enum', width: 100, value: r => r.regionEn || r.region },
       { id: 'province', label: 'Province', th: 'จังหวัด', type: 'enum', width: 110, value: r => r.province },
       { id: 'type', label: 'Type', th: 'ประเภท', type: 'enum', width: 70, align: 'center', value: r => r.type },
@@ -565,17 +752,18 @@
       { id: 'projectStatus', label: 'Sub Status', th: 'สถานะย่อย', type: 'enum', width: 150, value: r => r.projectStatus, sortVal: r => U.SUB_ORDER[r.projectStatus] },
       { id: 'outstandingAR', label: 'Outstanding AR', th: 'ยอดค้างรับ', type: 'num', width: 128, align: 'right', value: r => r.outstandingAR },
       { id: 'received', label: 'Received', th: 'รับแล้ว', type: 'num', width: 120, align: 'right', value: r => r.received },
-      { id: 'forecastReceive', label: 'Forecast Receive', th: 'คาดว่าจะรับ', type: 'num', width: 130, align: 'right', value: r => r.forecastReceive },
-      { id: 'forecastDate', label: 'Forecast Date', th: 'กำหนดรับเงิน', type: 'date', width: 120, align: 'center', value: r => r.forecastDate },
+      { id: 'forecastReceive', label: 'Forecast Receive', th: 'คาดรับรวม', type: 'num', width: 122, align: 'right', value: r => r.forecastReceive },
+      { id: 'fc1Date', label: 'Forecast Date 1', th: 'กำหนดรับ งวด 1', type: 'date', width: 124, align: 'center', value: r => r.fc1Date, sortVal: r => r.fc1Date || '' },
+      { id: 'fc1Amount', label: 'Forecast Receive 1', th: 'คาดรับ งวด 1', type: 'num', width: 124, align: 'right', value: r => r.fc1Amount },
+      { id: 'fc2Date', label: 'Forecast Date 2', th: 'กำหนดรับ งวด 2', type: 'date', width: 124, align: 'center', value: r => r.fc2Date, sortVal: r => r.fc2Date || '' },
+      { id: 'fc2Amount', label: 'Forecast Receive 2', th: 'คาดรับ งวด 2', type: 'num', width: 124, align: 'right', value: r => r.fc2Amount },
       { id: 'forecastNet', label: 'Net Forecast', th: 'รับสุทธิ', type: 'num', width: 120, align: 'right', value: r => r.forecastNet },
       { id: 'assignee', label: 'Assignee', th: 'ผู้รับโอนสิทธิ', type: 'enum', width: 110, value: r => r.assignee },
       { id: 'lgBank', label: 'LG Bank', th: 'ธนาคาร LG', type: 'enum', width: 90, align: 'center', value: r => r.lg ? r.lg.bank : '' },
       { id: 'lgAmount', label: 'LG Amount', th: 'วงเงิน LG', type: 'num', width: 104, align: 'right', value: r => r.lg ? r.lg.amount : null },
-      { id: 'start', label: 'Start', th: 'เริ่มงาน', type: 'date', width: 110, align: 'center', value: r => r.start },
-      { id: 'finish', label: 'Finish', th: 'สิ้นสุด', type: 'date', width: 110, align: 'center', value: r => r.finish },
     ];
   }
-  const DEFAULT_VISIBLE = ['name', 'contractNo', 'fy', 'type', 'contractAmt', 'progress', 'status', 'projectStatus', 'outstandingAR', 'forecastReceive', 'forecastDate', 'forecastNet'];
+  const DEFAULT_VISIBLE = ['name', 'contractNo', 'fy', 'start', 'finish', 'type', 'contractAmt', 'progress', 'status', 'projectStatus', 'outstandingAR', 'fc1Date', 'fc1Amount', 'fc2Date', 'fc2Amount'];
   const DEFAULT_FROZEN = ['name', 'contractNo'];
 
   function rowCondStyle(r, cf) {
