@@ -1258,7 +1258,7 @@ function CashFlowDashboard({ data, setData, toast }) {
           ovKey={`${ovPrefix}.strategic`}
           hint={
             (strategicNet < 0 ? '⚠️ ติดลบ · ' : '') +
-            'B/F + IV คาดรับ + เงินกู้ − รายจ่ายตามดิว − จ่ายสภาพคล่อง'
+            `B/F ${fmtNum(monthBFAvailable, 0)} + IV ${fmtNum(ivForecast, 0)} + เงินกู้ ${fmtNum(loanForecast, 0)} − ค่าใช้จ่าย ${fmtNum(outflowForecast, 0)} · ใช้ยอด PLAN ทั้งหมด`
           }
           icon={strategicNet < 0 ? 'arrow_down' : 'arrow_up'}
         />
