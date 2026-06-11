@@ -1130,7 +1130,7 @@ function CashFlowDashboard({ data, setData, toast }) {
       {/* Header */}
       <div className="page-head anim-in">
         <div>
-          <h1 className="page-title">แผนประมาณการจ่ายรายสัปดาห์</h1>
+          <h1 className="page-title">Weekly Forecast</h1>
           <div className="page-sub">
             Weekly Cash Flow Forecast · {monthNames[month - 1]} {year + 543} · ข้อมูล ณ {fmtDate(today.toISOString().slice(0, 10))}
           </div>
@@ -1258,7 +1258,7 @@ function CashFlowDashboard({ data, setData, toast }) {
           ovKey={`${ovPrefix}.strategic`}
           hint={
             (strategicNet < 0 ? '⚠️ ติดลบ · ' : '') +
-            `B/F ${fmtNum(monthBFAvailable, 0)} + IV ${fmtNum(ivForecast, 0)} + เงินกู้ ${fmtNum(loanForecast, 0)} − ค่าใช้จ่าย ${fmtNum(outflowForecast, 0)} · ใช้ยอด PLAN ทั้งหมด`
+            `B/F ${fmtNum(monthBFAvailable, 0)} + IV ${fmtNum(ivForecast, 0)} + เงินกู้ ${fmtNum(loanForecast, 0)} − ค่าใช้จ่าย ${fmtNum(outflowForecast, 0)}`
           }
           icon={strategicNet < 0 ? 'arrow_down' : 'arrow_up'}
         />
@@ -1317,6 +1317,13 @@ function CashFlowDashboard({ data, setData, toast }) {
             <PlanRow label="เงินกู้/สินเชื่อหมุนเวียน"  current={planLoan.current} rest={planLoan.rest} total={planLoan.current + planLoan.rest}
               editMode={editMode} ovKey={`${ovPrefix}.s01.loan`}
               onCellClick={(p) => openDrillDown('loan', p, `เงินกู้/สินเชื่อ · ${p === 'current' ? weeks[nowWeek]?.label : p === 'rest' ? 'สัปดาห์ที่เหลือ' : 'TOTAL'}`)} />
+            {/* รวมรับ — รับเงินโครงการ + เงินกู้ (ไม่รวมยอดยกมา) — คู่กับ "รวมรายจ่าย" ด้านล่าง */}
+            <tr style={{ background: 'var(--good-bg)', fontWeight: 700 }}>
+              <td style={{ textAlign: 'right', paddingRight: 14, fontSize: cfScale(16) }}>รวมรับ</td>
+              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--good)' }}>{fmtNum(inflowCurrent, 0)}</td>
+              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--good)' }}>{fmtNum(inflowRest, 0)}</td>
+              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--good)' }}>{fmtNum(inflowCurrent + inflowRest, 0)}</td>
+            </tr>
 
             {/* ── OUTFLOW section ─────────────────────────────────────── */}
             <tr style={{ background: 'color-mix(in oklch, var(--bad) 8%, transparent)' }}>
@@ -1354,7 +1361,7 @@ function CashFlowDashboard({ data, setData, toast }) {
               return (
                 <tr style={{ background: 'var(--warn-bg)', fontWeight: 700 }}>
                   <td style={{ padding: `${cfScale(10)} ${cfScale(14)}`, color: 'var(--warn)' }}>
-                    💰 คงเหลือรายสัปดาห์ (สิ้นช่วง)
+                    💰 คงเหลือรายสัปดาห์
                   </td>
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums',
                     color: netCurDisp < 0 ? 'var(--bad)' : 'var(--good)' }}>
@@ -1382,7 +1389,6 @@ function CashFlowDashboard({ data, setData, toast }) {
                 <tr style={{ background: 'var(--brand-50)', fontWeight: 800 }}>
                   <td style={{ padding: `${cfScale(12)} ${cfScale(14)}`, color: 'var(--brand-700)' }}>
                     💼 ยอดคงเหลือสุทธิปลายงวด
-                    <span style={{ display: 'block', fontSize: cfScale(11), fontWeight: 600, color: 'var(--ink-500)', marginTop: 2 }}>จากเงินจริงวันนี้ · Final Net Position</span>
                   </td>
                   <td colSpan={2}></td>
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums',
@@ -1402,7 +1408,7 @@ function CashFlowDashboard({ data, setData, toast }) {
       <div data-print-page>
       <SectionTitle num="02"
         title="ติดตามจ่ายจริงรายสัปดาห์"
-        subtitle="Weekly Actual Tracking · เปรียบเทียบ Plan vs Actual ทั้ง 5 สัปดาห์ของเดือน"
+        subtitle="Weekly Actual Tracking · เปรียบเทียบ Plan vs Actual"
       />
 
       <div className="grid anim-in cf-week-grid" style={{

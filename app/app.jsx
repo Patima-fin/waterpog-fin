@@ -351,7 +351,7 @@ function App() {
     daily: { label: 'รายงานรับเงินประจำวัน', title: 'Daily Revenue', icon: 'daily' },
     warroom1: { label: 'War Room — รายรับ (หน้า 1)', title: 'Revenue Collection', icon: 'receivables' },
     warroom2: { label: 'War Room — รายปี (หน้า 2)', title: 'Annual Cash Flow', icon: 'forecast' },
-    cashflow: { label: 'แผนประมาณการจ่ายรายสัปดาห์', title: 'Weekly Cash Flow', icon: 'chart' },
+    cashflow: { label: 'Weekly Forecast', title: 'Weekly Forecast', icon: 'chart' },
     debt:        { label: 'ภาระหนี้ทั้งหมด',       title: 'Debt Register',   icon: 'money' },
     debt_ledger: { label: 'Debt Ledger · ดอกเบี้ย', title: 'Debt Ledger',     icon: 'money' },
     iv_report:   { label: 'รายงานติดตาม IV',         title: 'IV Tracking Report', icon: 'invoice' },
@@ -619,7 +619,7 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
             ['daily',    'รายงานรับเงินรายวัน',    'daily'],
             ['warroom1', 'War Room · รายรับ',       'receivables'],
             ['warroom2', 'War Room · รายปี',        'forecast'],
-            ['cashflow', 'กระแสเงินสดรายสัปดาห์', 'chart'],
+            ['cashflow', 'Weekly Forecast', 'chart'],
             ['pnl',      'งบกำไรขาดทุน (P&L)',     'forecast'],
             ['budget',   'Budget Control Center',  'projects'],
           ])}
