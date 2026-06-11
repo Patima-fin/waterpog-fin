@@ -1132,7 +1132,7 @@ function CashFlowDashboard({ data, setData, toast }) {
         <div>
           <h1 className="page-title">Weekly Forecast</h1>
           <div className="page-sub">
-            Weekly Cash Flow Forecast · {monthNames[month - 1]} {year + 543} · ข้อมูล ณ {fmtDate(today.toISOString().slice(0, 10))}
+            {monthNames[month - 1]} {year + 543} · ข้อมูล ณ {fmtDate(today.toISOString().slice(0, 10))}
           </div>
         </div>
         <div className="page-head-r">
@@ -1317,12 +1317,13 @@ function CashFlowDashboard({ data, setData, toast }) {
             <PlanRow label="เงินกู้/สินเชื่อหมุนเวียน"  current={planLoan.current} rest={planLoan.rest} total={planLoan.current + planLoan.rest}
               editMode={editMode} ovKey={`${ovPrefix}.s01.loan`}
               onCellClick={(p) => openDrillDown('loan', p, `เงินกู้/สินเชื่อ · ${p === 'current' ? weeks[nowWeek]?.label : p === 'rest' ? 'สัปดาห์ที่เหลือ' : 'TOTAL'}`)} />
-            {/* รวมรับ — รับเงินโครงการ + เงินกู้ (ไม่รวมยอดยกมา) — คู่กับ "รวมรายจ่าย" ด้านล่าง */}
+            {/* รวมรับ — ยอด 3 รายการรวมกัน (ยกมา + รับเงินโครงการ + เงินกู้) = เงินคาดว่าใช้ได้ทั้งหมดในงวด */}
+            {/*   เป็นจริงเสมอว่า รวมรับ − รวมรายจ่าย = คงเหลือ (ต่อคอลัมน์) */}
             <tr style={{ background: 'var(--good-bg)', fontWeight: 700 }}>
               <td style={{ textAlign: 'right', paddingRight: 14, fontSize: cfScale(16) }}>รวมรับ</td>
-              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--good)' }}>{fmtNum(inflowCurrent, 0)}</td>
-              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--good)' }}>{fmtNum(inflowRest, 0)}</td>
-              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--good)' }}>{fmtNum(inflowCurrent + inflowRest, 0)}</td>
+              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--good)' }}>{fmtNum(weekBF + inflowCurrent, 0)}</td>
+              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--good)' }}>{fmtNum(netEndOfCurrentWeek + inflowRest, 0)}</td>
+              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--good)' }}>{fmtNum(weekBF + inflowCurrent + inflowRest, 0)}</td>
             </tr>
 
             {/* ── OUTFLOW section ─────────────────────────────────────── */}
