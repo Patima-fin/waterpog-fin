@@ -561,12 +561,6 @@ body.present-mode .present-page .kpi:hover {
   z-index: 6;
   position: relative;
 }
-/* everything else fades back so the focus pops */
-body.present-mode .present-page:has(.card:hover, .kpi:hover) .card:not(:hover),
-body.present-mode .present-page:has(.card:hover, .kpi:hover) .kpi:not(:hover) {
-  opacity: .38;
-  filter: saturate(.7);
-}
 /* row-level spotlight: point at a single line in any table */
 body.present-mode .present-page .tbl tbody tr {
   transition: background .2s var(--ease), opacity .2s var(--ease), box-shadow .2s var(--ease);
@@ -575,16 +569,12 @@ body.present-mode .present-page .tbl tbody tr:hover {
   background: color-mix(in oklch, var(--brand-500) 15%, white) !important;
   box-shadow: inset 4px 0 0 0 var(--brand-500);
 }
-body.present-mode .present-page .tbl tbody:has(tr:hover) tr:not(:hover) { opacity: .42; }
 /* don't carry the spotlight into print / reduced motion */
 body.present-mode.no-anim .present-page .card:hover,
 body.present-mode.no-anim .present-page .kpi:hover { transform: none; }
 @media print {
   body.present-mode .present-page .card:hover,
   body.present-mode .present-page .kpi:hover { transform: none; box-shadow: none; }
-  body.present-mode .present-page:has(.card:hover, .kpi:hover) .card:not(:hover),
-  body.present-mode .present-page:has(.card:hover, .kpi:hover) .kpi:not(:hover),
-  body.present-mode .present-page .tbl tbody:has(tr:hover) tr:not(:hover) { opacity: 1; filter: none; }
 }
 
 /* ── ปุ่มสลับโหมดนำเสนอ (Topbar) ───────────────────────────────────────── */
