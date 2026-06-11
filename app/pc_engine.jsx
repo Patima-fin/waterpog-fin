@@ -193,14 +193,21 @@
       let pct = toNum(p['% งวด ' + n]);
       const sumPay = toNum(p['Summary Payment ' + n]);
       const mv = toNum(p['มูลค่า งวด ' + n]);
-      if (pct == null && mv == null && sumPay == null && n > 2) break;
-      if (pct == null && mv == null && sumPay == null) continue;
-      const amount = mv != null ? mv : (pct != null ? Math.round(contract * pct) / 100 : (sumPay || 0));
-      if (!amount && !pct) continue;
       const deliveryDate = isoOf(p['วันที่ส่งมอบงาน งวด ' + n]) || isoOf(p['Receive Date' + (n === 1 ? '' : n)]);
       const acceptDate = isoOf(p['วันที่เซ็น/รับ ใบตรวจรับ งวดที่ ' + n]) || isoOf(p['วันที่เซ็น/รับ ใบตรวจรับ งวด ' + n]);
-      const delivered = isDelivered(p, n);
-      const paid = isDelivered(p, n) && /done|paid|รับ/i.test(String(p['Payment ' + n + ' Status'] || ''));
+      const hasDateEvidence = !!(deliveryDate || acceptDate);
+      // break/skip: need at least one data source (financial columns OR date evidence)
+      if (pct == null && mv == null && sumPay == null && !hasDateEvidence && n > 2) break;
+      if (pct == null && mv == null && sumPay == null && !hasDateEvidence) continue;
+      let amount = mv != null ? mv : (pct != null ? Math.round(contract * pct) / 100 : (sumPay || 0));
+      if (!amount && !pct) {
+        // date evidence only (no financial columns) — treat as single installment = full contract
+        if (hasDateEvidence && n === 1) { amount = contract || 0; pct = 100; }
+        else continue;
+      }
+      const delivered = isDelivered(p, n) || !!deliveryDate;
+      // Summary Payment N filled → paid (engineer confirms receipt); also accept Payment Status field
+      const paid = hasSum(p, n) || (delivered && /done|paid|รับ/i.test(String(p['Payment ' + n + ' Status'] || '')));
       // forecast: acceptDate||deliveryDate + creditTerm
       let forecastDate = null;
       if (!paid && amount > 0) {
@@ -357,7 +364,10 @@
         splitForecast(insts, outstandingAR, status.main, isoOf(p['Finish']));
       // per-งวด flags (สำหรับ advanced filter)
       const reqdInsts = insts.filter(i => i.amount > 0 || (i.percent != null && i.percent > 0));
-      const i1 = reqdInsts[0], i2 = reqdInsts[1];
+      // Align with splitForecast: single-installment → งวด 1 = none (d1/a1/p1 all false), งวด 2 = 100%
+      const _fSingle = reqdInsts.length === 1;
+      const _fi1 = _fSingle ? null : reqdInsts[0];
+      const _fi2plus = _fSingle ? reqdInsts : reqdInsts.slice(1);
 
       // finance master (manual): assignee, LG, debt, debtDeduction, remark
       const assignee = (f.assignee != null ? f.assignee : (p['ผู้รับโอนสิทธิ์'] || '')) || '';
@@ -391,8 +401,8 @@
         fc2Amount: fc2.amount || 0, fc2Date: fc2.date || null,
         forecastLines,
         // per-งวด flags (advanced filter)
-        d1: !!(i1 && i1.delivered), a1: !!(i1 && i1.acceptDate), p1: !!(i1 && i1.paid),
-        d2: !!(i2 && i2.delivered), a2: !!(i2 && i2.acceptDate), p2: !!(i2 && i2.paid),
+        d1: !!(_fi1 && _fi1.delivered), a1: !!(_fi1 && _fi1.acceptDate), p1: !!(_fi1 && _fi1.paid),
+        d2: _fi2plus.some(i => i.delivered), a2: _fi2plus.some(i => !!i.acceptDate), p2: _fi2plus.some(i => i.paid),
         assignee, lg, debt, creditTerm: (f.creditTerm != null ? f.creditTerm : 30), remark: f.remark || (p['Remark'] || ''),
         installments: insts,
         _manualStatus: p.manualStatus || p._manualStatus || '',
