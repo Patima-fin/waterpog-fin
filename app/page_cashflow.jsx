@@ -1252,13 +1252,13 @@ function CashFlowDashboard({ data, setData, toast }) {
         <BalanceCard
           big
           tone={strategicNet < 0 ? 'bad' : 'good'}
-          label="คาดการณ์สิ้นเดือน (Strategic)"
+          label="คาดการณ์สิ้นเดือน · ตามแผน"
           value={strategicNet}
           editMode={editMode}
           ovKey={`${ovPrefix}.strategic`}
           hint={
             (strategicNet < 0 ? '⚠️ ติดลบ · ' : '') +
-            `B/F ${fmtNum(monthBFAvailable, 0)} + IV ${fmtNum(ivForecast, 0)} + เงินกู้ ${fmtNum(loanForecast, 0)} − ค่าใช้จ่าย ${fmtNum(outflowForecast, 0)} · ใช้ยอด PLAN ทั้งหมด`
+            `B/F ${fmtNum(monthBFAvailable, 0)} + IV ${fmtNum(ivForecast, 0)} + เงินกู้ ${fmtNum(loanForecast, 0)} − ค่าใช้จ่าย ${fmtNum(outflowForecast, 0)} · มุม "ตามแผนทั้งเดือน" (≠ Final Net ด้านล่าง ที่คิดจากเงินจริงวันนี้)`
           }
           icon={strategicNet < 0 ? 'arrow_down' : 'arrow_up'}
         />
@@ -1381,7 +1381,7 @@ function CashFlowDashboard({ data, setData, toast }) {
               return (
                 <tr style={{ background: 'var(--brand-50)', fontWeight: 800 }}>
                   <td style={{ padding: `${cfScale(12)} ${cfScale(14)}`, color: 'var(--brand-700)' }}>
-                    💼 ยอดคงเหลือสุทธิปลายงวด (Final Net Position)
+                    💼 ยอดคงเหลือสุทธิปลายงวด · จากเงินจริงวันนี้ (Final Net Position)
                   </td>
                   <td colSpan={2}></td>
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums',
