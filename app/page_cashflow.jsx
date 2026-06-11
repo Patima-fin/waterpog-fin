@@ -1252,13 +1252,13 @@ function CashFlowDashboard({ data, setData, toast }) {
         <BalanceCard
           big
           tone={strategicNet < 0 ? 'bad' : 'good'}
-          label="คาดการณ์สิ้นเดือน · ตามแผน"
+          label="คาดการณ์สิ้นเดือน (Strategic)"
           value={strategicNet}
           editMode={editMode}
           ovKey={`${ovPrefix}.strategic`}
           hint={
             (strategicNet < 0 ? '⚠️ ติดลบ · ' : '') +
-            `B/F ${fmtNum(monthBFAvailable, 0)} + IV ${fmtNum(ivForecast, 0)} + เงินกู้ ${fmtNum(loanForecast, 0)} − ค่าใช้จ่าย ${fmtNum(outflowForecast, 0)} · มุม "ตามแผนทั้งเดือน" (≠ Final Net ด้านล่าง ที่คิดจากเงินจริงวันนี้)`
+            `B/F ${fmtNum(monthBFAvailable, 0)} + IV ${fmtNum(ivForecast, 0)} + เงินกู้ ${fmtNum(loanForecast, 0)} − ค่าใช้จ่าย ${fmtNum(outflowForecast, 0)} · ใช้ยอด PLAN ทั้งหมด`
           }
           icon={strategicNet < 0 ? 'arrow_down' : 'arrow_up'}
         />
@@ -1381,7 +1381,8 @@ function CashFlowDashboard({ data, setData, toast }) {
               return (
                 <tr style={{ background: 'var(--brand-50)', fontWeight: 800 }}>
                   <td style={{ padding: `${cfScale(12)} ${cfScale(14)}`, color: 'var(--brand-700)' }}>
-                    💼 ยอดคงเหลือสุทธิปลายงวด · จากเงินจริงวันนี้ (Final Net Position)
+                    💼 ยอดคงเหลือสุทธิปลายงวด
+                    <span style={{ display: 'block', fontSize: cfScale(11), fontWeight: 600, color: 'var(--ink-500)', marginTop: 2 }}>จากเงินจริงวันนี้ · Final Net Position</span>
                   </td>
                   <td colSpan={2}></td>
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums',
@@ -2088,7 +2089,7 @@ function PlanRow({ label, current, rest, total, subtle, negative, carrySigned, o
         onMouseEnter={e => hover(e, true)}
         onMouseLeave={e => hover(e, false)}
         title={clickable && current ? 'คลิกเพื่อดูรายการรายตัว' : ''}
-        style={cellStyle(current, { background: 'color-mix(in oklch, var(--brand-50) 50%, transparent)' })}>
+        style={cellStyle(current)}>
         {renderCell(current, 'current')}
       </td>
       <td
@@ -2104,7 +2105,7 @@ function PlanRow({ label, current, rest, total, subtle, negative, carrySigned, o
         onMouseEnter={e => hover(e, true)}
         onMouseLeave={e => hover(e, false)}
         title={clickable && total ? 'คลิกเพื่อดูรายการรายตัว' : ''}
-        style={cellStyle(total, { fontWeight: 600, background: 'var(--ink-50)' })}>
+        style={cellStyle(total, { fontWeight: 600 })}>
         {renderCell(total, 'total')}
       </td>
     </tr>
