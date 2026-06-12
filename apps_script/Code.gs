@@ -113,6 +113,8 @@ function doPost(e) {
       case 'replaceAll': result = replaceAll(entity, payload, body.baseIds, { allowShrink: body.allowShrink === true }); break;
       case 'applyDiff':  result = applyDiff(entity, body.upserts, body.deletes, body.baseIds, { allowShrink: body.allowShrink === true }); break;  // ★ row-level + server guard
       case 'setKV':      result = setKV(entity, payload);          break;
+      case 'plImportMonth':     result = plImportMonth(body);      break;  // P&L add-on (ดู PnL.additions.gs)
+      case 'budgetImportMonth': result = budgetImportMonth(body);  break;  // Budget Control add-on (ดู Budget.additions.gs)
       default: result = { error: 'unknown action: ' + action };
     }
     if (!result || !result.error) {
