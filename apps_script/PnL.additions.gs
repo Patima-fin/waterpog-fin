@@ -101,7 +101,7 @@ function plImportMonth(body) {
       entity: PL_SHEET_BASE,
       action: 'plImportMonth',
       rowsAffected: rows.length,
-      summary: 'นำเข้า P&L เดือน ' + month + ' (' + audit + ') · เพิ่มใหม่ ' + res.created + ' · อัปเดต ' + res.updated,
+      summary: 'นำเข้า P&L เดือน ' + month + ' (' + audit + ') · เพิ่มใหม่ ' + res.created + ' · อัปเดต ' + res.updated + ' · เคลียร์บัญชีหาย ' + (res.cleared ? res.cleared.length : 0),
     });
   } catch (e) { /* ignore */ }
 
@@ -112,6 +112,7 @@ function plImportMonth(body) {
     imported: rows.length,
     created: res.created,
     updated: res.updated,
+    cleared: res.cleared || [],   // บัญชีที่หายจากไฟล์ใหม่ → ถูกเคลียร์ยอดเดือนนี้
   };
 }
 
@@ -141,8 +142,10 @@ function plUpsertBase_(ss, month, rows) {
   var now = new Date();
   var created = 0, updated = 0;
   var appendRows = [];
+  var fileCodes = {};
 
   rows.forEach(function (r) {
+    fileCodes[r.code] = 1;
     var idx = rowByCode[r.code];
     if (idx !== undefined) {
       values[idx][cMonth] = r.amount;
@@ -162,14 +165,28 @@ function plUpsertBase_(ss, month, rows) {
     }
   });
 
-  // เขียนกลับเฉพาะส่วน data (แถว 2 เป็นต้นไป) ถ้ามีการแก้
-  if (updated && values.length > 1) {
+  // ยึดไฟล์ใหม่: บัญชีที่เคยมียอดเดือนนี้ แต่ไม่อยู่ในไฟล์ใหม่ → เคลียร์ m{month} = 0
+  // (กันยอดค้างจาก import ครั้งก่อน เช่นบัญชีพัก 7900002) + เก็บรายการไว้ฟ้องผู้ใช้
+  var cleared = [];
+  for (var j = 1; j < values.length; j++) {
+    var c = String(values[j][cCode] || '').trim();
+    if (!c || fileCodes[c]) continue;
+    var prev = Number(values[j][cMonth]) || 0;
+    if (Math.abs(prev) > 0.005) {
+      values[j][cMonth] = 0;
+      if (cUpd !== undefined) values[j][cUpd] = now;
+      cleared.push({ code: c, name: cName !== undefined ? String(values[j][cName] || '') : '', amount: prev });
+    }
+  }
+
+  // เขียนกลับเฉพาะส่วน data (แถว 2 เป็นต้นไป) — เขียนเมื่อมีการแก้ (update หรือ clear)
+  if ((updated || cleared.length) && values.length > 1) {
     sh.getRange(2, 1, values.length - 1, headers.length).setValues(values.slice(1));
   }
   if (appendRows.length) {
     sh.getRange(sh.getLastRow() + 1, 1, appendRows.length, headers.length).setValues(appendRows);
   }
-  return { created: created, updated: updated };
+  return { created: created, updated: updated, cleared: cleared };
 }
 
 /* เดากลุ่มจาก prefix ของรหัสบัญชี (ตรงกับ PL_inferGroup ใน frontend) */

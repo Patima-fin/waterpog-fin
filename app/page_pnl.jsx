@@ -170,6 +170,10 @@ function PL_inferGroup(code, name) {
   const c = String(code || '').replace(/[^0-9]/g, '');
   const n = String(name || '');
   if (!c) return null;
+  // 0) บัญชีพัก / งบดุล — ไม่อยู่ในงบกำไรขาดทุน (เช่น 7900002 ลูกหนี้-เจ้าหนี้ ตั้งพัก)
+  //    กันออกถาวร ไม่ว่าจะหลุดมาในไฟล์หรือค้างจาก import เก่า
+  if (/ตั้งพัก|พักรอ|suspense|clearing/i.test(n)) return null;
+  if (c.slice(0, 2) === '79') return null;
   // 1) ground-truth จาก TYP.xlsx ก่อน — แม่นยำ 100% สำหรับ 168 บัญชีที่บัญชีระบุไว้
   if (PL_KNOWN_ACCOUNTS[c]) return PL_KNOWN_ACCOUNTS[c];
   // prefix rules
@@ -256,6 +260,11 @@ function PL_parseRows(rows) {
   let used = 0;
   rows.forEach(r => {
     const code = cKey ? r[cKey] : '';
+    const nameLkp0 = nKey ? r[nKey] : '';
+    // บัญชีพัก / งบดุล ไม่อยู่ในงบกำไรขาดทุน — กันออกแม้ group ที่เก็บไว้จะเป็น admin
+    // (เช่น 7900002 ลูกหนี้-เจ้าหนี้ ตั้งพัก ที่ค้างจาก import เก่า)
+    const codeNum = String(code || '').replace(/[^0-9]/g, '');
+    if (codeNum.slice(0, 2) === '79' || /ตั้งพัก|พักรอ|suspense|clearing/i.test(String(nameLkp0))) return;
     let g = gKey ? String(r[gKey] || '').trim() : '';
     if (!PL_GROUP_META[g]) g = '';
     if (!g && tKey) { const lbl = String(r[tKey] || '').trim(); g = PL_TYPE_TO_GROUP[lbl] || ''; }
@@ -502,7 +511,14 @@ function PnLPage({ data, setData, toast }) {
       const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) }).then(r => r.json());
       if (resp && resp.error) { toast('นำเข้าไม่สำเร็จ: ' + resp.error); }
       else {
-        toast('นำเข้าเดือน ' + PL_MONTHS_TH[impMonth - 1] + ' สำเร็จ — กำลังรีเฟรช');
+        const cl = (resp && resp.cleared) || [];
+        if (cl.length) {
+          // ฟ้องบัญชีที่หายจากไฟล์ใหม่ → ถูกเคลียร์ยอดเดือนนี้ (ยึดข้อมูลไฟล์ใหม่)
+          const names = cl.slice(0, 4).map(a => (a.code || '') + ' ' + (a.name || '')).join(', ');
+          toast('นำเข้าเดือน ' + PL_MONTHS_TH[impMonth - 1] + ' สำเร็จ · ตัด ' + cl.length + ' บัญชีที่ไม่อยู่ในไฟล์ออก (' + names + (cl.length > 4 ? ' …' : '') + ') — กำลังรีเฟรช');
+        } else {
+          toast('นำเข้าเดือน ' + PL_MONTHS_TH[impMonth - 1] + ' สำเร็จ — กำลังรีเฟรช');
+        }
         setNewAccts(null); setFile(null); setUploadOpen(false);
         setTimeout(loadData, 1200);   // re-read ฐาน DATA after backend aggregates
       }
