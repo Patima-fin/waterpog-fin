@@ -541,44 +541,130 @@
     return Object.values(m).sort((a, b) => b.total - a.total);
   }
 
-  // ── export column registry ───────────────────────────────────────────────
-  // ผู้ใช้เลือกได้ว่าจะ export คอลัมน์ไหน — จาก "คอลัมน์วิศวกรทั้งหมด" (raw 120 ช่อง)
-  // + คอลัมน์คำนวณ (สถานะ/คาดรับ/ค้างรับ ฯลฯ) · แต่ละ def = {key,label,type,get,group}
-  // ลำดับคอลัมน์วิศวกรตามไฟล์ Excel จริง (Main all*)
-  const PC_ENG_COL_ORDER = [
-    'No.','Tender No.','Project No.','เลขที่สัญญา WTP-SUB','Contract No.',
-    'พื้นที่','Type','งานก่อสร้าง','ก่อสร้างจริง','งานขาย','Region','Province',
-    'Start','Finish','Timeline','Duration','จำนวนวันที่โดนปรับจริง',
-    'กำหนดส่งมอบงานงวด 1','ระยะเวลาก่อสรางจริง (วัน)','งบประมาณ','Ref.code','เงินตามใบจัดสรร',
-    'ประกาศผู้ชนะ','เซ็นสัญญา','เลขที่สัญญา','ยกเลิกโครงการ',
-    'สัญญา-Subcontract','PR-Subcontract','PR Consult',
-    'มูลค่าสัญญาที่เซ็น','มูลค่าสัญญาที่เซ็น (รวมVAT)',
-    '% งวด 1','% งวด 2','มูลค่า งวด 1','มูลค่า งวด 2',
-    '% ค่าปรับต่อวัน','บาท/วัน','ระยะเวลาการรับประกัน','แบบแปลน ver.','ฝั่งเดียว','สองฝั่ง','Customer',
-    'งานเสาเข็ม','ความยาวเสาเข็ม (m)','จำนวนเสาเข็ม ACFS TANK','จำนวนเสาเข็ม ACC TANK',
-    'จำนวนเสาเข็ม UFS TANK','จำนวนเสาเข็ม PF TANK','มูลค่างานเพิ่มเสาเข็ม',
-    '1.งานทดสอบการรับน้ำหนักบรรทุกดิน และงานเสาเข็ม (10%)','ขั้น 1 วันที่แล้วเสร็จ',
-    '2.งานฐานราก (10%)','ขั้น 2 วันที่แล้วเสร็จ','3.งาน PnP  (20%)','ขั้น 3 วันที่แล้วเสร็จ',
-    '4.งาน ACFS, SFX และงานระบบ (50%)','ขั้น 4 วันที่แล้วเสร็จ',
-    '5.งาน Commissioning Test & Jar Test (10%)','ขั้น 5 วันที่แล้วเสร็จ','% (POG+STANK)',
-    '1. งานฐานพื้นคอนกรีต (10%)','ขั้น 1 วันที่แล้วเสร็จ2',
-    '2.1 งานติดตั้ง RO (50%)','2.2 งานติดตั้งโรงเรือน RO (20%)','2.3 งานประสานระบบไฟฟ้าและระบบประปา (10%)','ขั้น 2 วันที่แล้วเสร็จ2',
-    '3 งาน Commissioning Test (10%)','ขั้น 3 วันที่แล้วเสร็จ2','% (POG DRINK)',
-    'นส.ส่งมอบงาน งวด 1','วันที่ส่ง นส.มอบงาน งวด 1','วันที่ส่งมอบงาน งวด 1',
-    'นส.ส่งมอบงาน งวด 2','วันที่ส่ง นส.มอบงาน งวด 2','วันที่ส่งมอบงาน งวด 2',
-    'นส.ส่งมอบงาน งวด 3','วันที่ส่ง นส.มอบงานงวด 3','วันที่ส่งมอบงานงวด 3',
-    'ใบตรวจรับการจัดซื้อ/จัดจ้าง งวด 1','วันที่เซ็น/รับ ใบตรวจรับ งวดที่ 1',
-    'ใบตรวจรับการจัดซื้อ/จัดจ้าง งวด 2','วันที่เซ็น/รับ ใบตรวจรับ งวดที่ 2',
-    'Payment 1','Summary Payment 1','Payment 1 Status','Receive Date',
-    'Payment 2','Summary Payment 2','Payment 2 Status','Receive Date2',
-    'Payment 3','Summary Payment 3','Payment 3 Status','Receive Date3',
-    'TOTAL','Receive','BOQ','Forecast Income งวด 1','Forecast Income งวด 2',
-    'หยุดเวลา','แจ้งเข้าดำเนินการ','ขยายเวลา','แนบท้ายสัญญา','แนบท้ายสัญญา-Subcontract','วันที่แนบท้ายสัญญา-Subcontract',
-    'ไฟล์สำรวจโครงการ','Close Project','Google Map URL','ผู้รับโอนสิทธิ์',
-    'ขั้น 1','ขั้น 2','ขั้น 3','ขั้น 4','ขั้น 5','รับรู้รายได้',
-    '% Progress','Remark','จำนวนเสาเข็ม ACFS','วันที่เซ็น/รับ ใบตรวจรับ งวด 2',
-    'สถานะโครงการ','ภาระหนี้',
+  // ── column spec (จากไฟล์ "โครงสร้างไฟล์.xlsx" ที่ฝ่ายการเงินจัดประเภท) ─────────
+  // cat = ประเภท · web = แสดงในเว็บ (1 ต้องมี, 2 ถ้ามี, 0 ไม่โชว์) · exp = ให้เลือกตอน export
+  // เป็น single source of truth สำหรับ: grid columns + advanced filter + export picker
+  const PC_COL_SPEC = [
+    {key:"No.",cat:"พื้นฐาน",web:0,exp:0},
+    {key:"Tender No.",cat:"พื้นฐาน",web:0,exp:0},
+    {key:"Project No.",cat:"พื้นฐาน",web:0,exp:0},
+    {key:"เลขที่สัญญา WTP-SUB",cat:"พื้นฐาน",web:0,exp:0},
+    {key:"Contract No.",cat:"พื้นฐาน",web:1,exp:1},
+    {key:"พื้นที่",cat:"พื้นฐาน",web:1,exp:1},
+    {key:"Type",cat:"พื้นฐาน",web:1,exp:1},
+    {key:"งานก่อสร้าง",cat:"พื้นฐาน",web:0,exp:0},
+    {key:"ก่อสร้างจริง",cat:"พื้นฐาน",web:0,exp:0},
+    {key:"งานขาย",cat:"พื้นฐาน",web:0,exp:0},
+    {key:"Region",cat:"พื้นฐาน",web:0,exp:1},
+    {key:"Province",cat:"พื้นฐาน",web:0,exp:1},
+    {key:"Start",cat:"พื้นฐาน",web:1,exp:1},
+    {key:"Finish",cat:"พื้นฐาน",web:1,exp:1},
+    {key:"Timeline",cat:"พื้นฐาน",web:1,exp:1},
+    {key:"Duration",cat:"พื้นฐาน",web:0,exp:0},
+    {key:"จำนวนวันที่โดนปรับจริง",cat:"พื้นฐาน",web:0,exp:0},
+    {key:"กำหนดส่งมอบงานงวด 1",cat:"พื้นฐาน",web:1,exp:1},
+    {key:"ระยะเวลาก่อสรางจริง (วัน)",cat:"พื้นฐาน",web:0,exp:1},
+    {key:"งบประมาณ",cat:"พื้นฐาน",web:1,exp:1},
+    {key:"Ref.code",cat:"พื้นฐาน",web:0,exp:0},
+    {key:"เงินตามใบจัดสรร",cat:"พื้นฐาน",web:2,exp:1},
+    {key:"ประกาศผู้ชนะ",cat:"พื้นฐาน",web:0,exp:0},
+    {key:"เซ็นสัญญา",cat:"พื้นฐาน",web:0,exp:0},
+    {key:"เลขที่สัญญา",cat:"พื้นฐาน",web:0,exp:0},
+    {key:"ยกเลิกโครงการ",cat:"พื้นฐาน",web:0,exp:0},
+    {key:"สัญญา-Subcontract",cat:"พื้นฐาน",web:0,exp:0},
+    {key:"PR-Subcontract",cat:"พื้นฐาน",web:0,exp:0},
+    {key:"PR Consult",cat:"พื้นฐาน",web:0,exp:0},
+    {key:"มูลค่าสัญญาที่เซ็น",cat:"พื้นฐาน",web:0,exp:0},
+    {key:"มูลค่าสัญญาที่เซ็น (รวมVAT)",cat:"พื้นฐาน",web:2,exp:1},
+    {key:"% งวด 1",cat:"พื้นฐาน",web:0,exp:1},
+    {key:"% งวด 2",cat:"พื้นฐาน",web:0,exp:1},
+    {key:"มูลค่า งวด 1",cat:"พื้นฐาน",web:1,exp:1},
+    {key:"มูลค่า งวด 2",cat:"พื้นฐาน",web:1,exp:1},
+    {key:"% ค่าปรับต่อวัน",cat:"พื้นฐาน",web:0,exp:0},
+    {key:"บาท/วัน",cat:"พื้นฐาน",web:0,exp:0},
+    {key:"ระยะเวลาการรับประกัน",cat:"พื้นฐาน",web:0,exp:0},
+    {key:"แบบแปลน ver.",cat:"พื้นฐาน",web:0,exp:0},
+    {key:"ฝั่งเดียว",cat:"พื้นฐาน",web:0,exp:0},
+    {key:"สองฝั่ง",cat:"พื้นฐาน",web:0,exp:0},
+    {key:"Customer",cat:"พื้นฐาน",web:0,exp:0},
+    {key:"งานเสาเข็ม",cat:"เสาเข็ม",web:0,exp:0},
+    {key:"ความยาวเสาเข็ม (m)",cat:"เสาเข็ม",web:0,exp:0},
+    {key:"จำนวนเสาเข็ม ACFS TANK",cat:"เสาเข็ม",web:0,exp:0},
+    {key:"จำนวนเสาเข็ม ACC TANK",cat:"เสาเข็ม",web:0,exp:0},
+    {key:"จำนวนเสาเข็ม UFS TANK",cat:"เสาเข็ม",web:0,exp:0},
+    {key:"จำนวนเสาเข็ม PF TANK",cat:"เสาเข็ม",web:0,exp:0},
+    {key:"มูลค่างานเพิ่มเสาเข็ม",cat:"เสาเข็ม",web:0,exp:0},
+    {key:"1.งานทดสอบการรับน้ำหนักบรรทุกดิน และงานเสาเข็ม (10%)",cat:"ความคืบหน้า",web:0,exp:1},
+    {key:"ขั้น 1 วันที่แล้วเสร็จ",cat:"ความคืบหน้า",web:0,exp:1},
+    {key:"2.งานฐานราก (10%)",cat:"ความคืบหน้า",web:0,exp:1},
+    {key:"ขั้น 2 วันที่แล้วเสร็จ",cat:"ความคืบหน้า",web:0,exp:1},
+    {key:"3.งาน PnP  (20%)",cat:"ความคืบหน้า",web:0,exp:1},
+    {key:"ขั้น 3 วันที่แล้วเสร็จ",cat:"ความคืบหน้า",web:0,exp:1},
+    {key:"4.งาน ACFS, SFX และงานระบบ (50%)",cat:"ความคืบหน้า",web:0,exp:1},
+    {key:"ขั้น 4 วันที่แล้วเสร็จ",cat:"ความคืบหน้า",web:0,exp:1},
+    {key:"5.งาน Commissioning Test & Jar Test (10%)",cat:"ความคืบหน้า",web:0,exp:1},
+    {key:"ขั้น 5 วันที่แล้วเสร็จ",cat:"ความคืบหน้า",web:0,exp:1},
+    {key:"% (POG+STANK)",cat:"ความคืบหน้า",web:2,exp:2},
+    {key:"1. งานฐานพื้นคอนกรีต (10%)",cat:"ความคืบหน้า",web:0,exp:0},
+    {key:"ขั้น 1 วันที่แล้วเสร็จ2",cat:"ความคืบหน้า",web:0,exp:0},
+    {key:"2.1 งานติดตั้ง RO (50%)",cat:"ความคืบหน้า",web:0,exp:0},
+    {key:"2.2 งานติดตั้งโรงเรือน RO (20%)",cat:"ความคืบหน้า",web:0,exp:0},
+    {key:"2.3 งานประสานระบบไฟฟ้าและระบบประปา (10%)",cat:"ความคืบหน้า",web:0,exp:0},
+    {key:"ขั้น 2 วันที่แล้วเสร็จ2",cat:"ความคืบหน้า",web:0,exp:0},
+    {key:"3 งาน Commissioning Test (10%)",cat:"ความคืบหน้า",web:0,exp:0},
+    {key:"ขั้น 3 วันที่แล้วเสร็จ2",cat:"ความคืบหน้า",web:0,exp:0},
+    {key:"% (POG DRINK)",cat:"ความคืบหน้า",web:2,exp:2},
+    {key:"นส.ส่งมอบงาน งวด 1",cat:"ส่งมอบ/รับเงิน",web:0,exp:0},
+    {key:"วันที่ส่ง นส.มอบงาน งวด 1",cat:"ส่งมอบ/รับเงิน",web:1,exp:1},
+    {key:"วันที่ส่งมอบงาน งวด 1",cat:"ส่งมอบ/รับเงิน",web:0,exp:0},
+    {key:"นส.ส่งมอบงาน งวด 2",cat:"ส่งมอบ/รับเงิน",web:0,exp:0},
+    {key:"วันที่ส่ง นส.มอบงาน งวด 2",cat:"ส่งมอบ/รับเงิน",web:1,exp:1},
+    {key:"วันที่ส่งมอบงาน งวด 2",cat:"ส่งมอบ/รับเงิน",web:0,exp:0},
+    {key:"ใบตรวจรับการจัดซื้อ/จัดจ้าง งวด 1",cat:"ส่งมอบ/รับเงิน",web:1,exp:1},
+    {key:"วันที่เซ็น/รับ ใบตรวจรับ งวดที่ 1",cat:"ส่งมอบ/รับเงิน",web:0,exp:0},
+    {key:"ใบตรวจรับการจัดซื้อ/จัดจ้าง งวด 2",cat:"ส่งมอบ/รับเงิน",web:1,exp:1},
+    {key:"วันที่เซ็น/รับ ใบตรวจรับ งวด 2",cat:"ส่งมอบ/รับเงิน",web:0,exp:0},
+    {key:"Payment 1",cat:"ส่งมอบ/รับเงิน",web:0,exp:0},
+    {key:"Summary Payment 1",cat:"ส่งมอบ/รับเงิน",web:1,exp:1},
+    {key:"Payment 1 Status",cat:"ส่งมอบ/รับเงิน",web:0,exp:0},
+    {key:"Receive Date",cat:"ส่งมอบ/รับเงิน",web:1,exp:1},
+    {key:"Payment 2",cat:"ส่งมอบ/รับเงิน",web:0,exp:0},
+    {key:"Summary Payment 2",cat:"ส่งมอบ/รับเงิน",web:1,exp:1},
+    {key:"Payment 2 Status",cat:"ส่งมอบ/รับเงิน",web:0,exp:0},
+    {key:"Receive Date2",cat:"ส่งมอบ/รับเงิน",web:1,exp:1},
+    {key:"Payment 3",cat:"ส่งมอบ/รับเงิน",web:0,exp:0},
+    {key:"Summary Payment 3",cat:"ส่งมอบ/รับเงิน",web:2,exp:2},
+    {key:"Payment 3 Status",cat:"ส่งมอบ/รับเงิน",web:2,exp:2},
+    {key:"Receive Date3",cat:"ส่งมอบ/รับเงิน",web:0,exp:0},
+    {key:"TOTAL",cat:"ส่งมอบ/รับเงิน",web:1,exp:1},
+    {key:"Receive",cat:"ส่งมอบ/รับเงิน",web:1,exp:1},
+    {key:"BOQ",cat:"อื่นๆ",web:0,exp:0},
+    {key:"Forecast Income งวด 1",cat:"อื่นๆ",web:0,exp:0},
+    {key:"Forecast Income งวด 2",cat:"อื่นๆ",web:0,exp:0},
+    {key:"หยุดเวลา",cat:"อื่นๆ",web:2,exp:1},
+    {key:"แจ้งเข้าดำเนินการ",cat:"อื่นๆ",web:0,exp:1},
+    {key:"ขยายเวลา",cat:"อื่นๆ",web:0,exp:1},
+    {key:"แนบท้ายสัญญา",cat:"อื่นๆ",web:0,exp:0},
+    {key:"แนบท้ายสัญญา-Subcontract",cat:"อื่นๆ",web:0,exp:0},
+    {key:"วันที่แนบท้ายสัญญา-Subcontract",cat:"อื่นๆ",web:0,exp:0},
+    {key:"ไฟล์สำรวจโครงการ",cat:"อื่นๆ",web:0,exp:0},
+    {key:"Close Project",cat:"อื่นๆ",web:0,exp:0},
+    {key:"Google Map URL",cat:"อื่นๆ",web:0,exp:0},
+    {key:"ผู้รับโอนสิทธิ์",cat:"อื่นๆ",web:0,exp:0},
+    {key:"ขั้น 1",cat:"อื่นๆ",web:0,exp:0},
+    {key:"ขั้น 2",cat:"อื่นๆ",web:0,exp:0},
+    {key:"ขั้น 3",cat:"อื่นๆ",web:0,exp:0},
+    {key:"ขั้น 4",cat:"อื่นๆ",web:0,exp:0},
+    {key:"ขั้น 5",cat:"อื่นๆ",web:0,exp:0},
+    {key:"รับรู้รายได้",cat:"อื่นๆ",web:0,exp:0},
+    {key:"% Progress",cat:"อื่นๆ",web:0,exp:0},
+    {key:"Remark",cat:"อื่นๆ",web:0,exp:0},
+    {key:"จำนวนเสาเข็ม ACFS",cat:"เสาเข็ม",web:0,exp:0},
   ];
+  const PC_CAT_ORDER = ['พื้นฐาน','เสาเข็ม','ความคืบหน้า','ส่งมอบ/รับเงิน','อื่นๆ'];
+  const PC_SPEC_BY_KEY = {}; PC_COL_SPEC.forEach(s => { PC_SPEC_BY_KEY[s.key] = s; });
+  const PC_ENG_COL_ORDER = PC_COL_SPEC.map(s => s.key);
+  function pcColCat(key) { const s = PC_SPEC_BY_KEY[key]; return s ? s.cat : 'อื่นๆ'; }
   const PC_EXPORT_EXCLUDE = new Set(['id','status','expectedPay1','expectedPay2','_sheet','_raw']);
   function pcColType(key) {
     const k = String(key);
@@ -606,17 +692,18 @@
       { key: '__assignee', label: 'ผู้รับโอนสิทธิ', type: 'text', group: 'คำนวณ', get: r => r.assignee },
     ];
   }
-  // คืน def ทุกคอลัมน์ที่เลือก export ได้ (คำนวณ + วิศวกรที่มีจริงในข้อมูล)
+  // คืน def ทุกคอลัมน์ที่เลือก export ได้ (คำนวณ + วิศวกร แยกตามประเภทของฝ่ายการเงิน)
   function buildExportColumns(rows) {
     const present = new Set();
     (rows || []).forEach(r => { const raw = r._raw || {}; Object.keys(raw).forEach(k => present.add(k)); });
     const ordered = PC_ENG_COL_ORDER.filter(k => present.has(k) && !PC_EXPORT_EXCLUDE.has(k));
     present.forEach(k => { if (!PC_EXPORT_EXCLUDE.has(k) && PC_ENG_COL_ORDER.indexOf(k) < 0) ordered.push(k); });
-    const eng = ordered.map(k => ({ key: 'raw:' + k, label: k, type: pcColType(k), group: 'วิศวกร', get: ((kk) => (r) => (r._raw || {})[kk])(k) }));
+    const eng = ordered.map(k => ({ key: 'raw:' + k, label: k, type: pcColType(k), group: pcColCat(k), get: ((kk) => (r) => (r._raw || {})[kk])(k) }));
     return pcDerivedCols().concat(eng);
   }
-  // default selection (= คอลัมน์รายละเอียดเดิม) keys
-  const PC_EXPORT_DEFAULT = ['__name','raw:Contract No.','__fy','raw:Province','raw:Type','__contract','__status','__substatus','__progress','__received','__ar','__fc1','__fc1d','__fc2','__fc2d','__assignee'];
+  // default selection = คอลัมน์วิเคราะห์หลัก (คำนวณ) + คอลัมน์วิศวกรที่ฝ่ายการเงินมาร์ก exp 1/2
+  const PC_EXPORT_DEFAULT = ['__status','__substatus','__progress','__ar','__fc1','__fc1d','__fc2','__fc2d']
+    .concat(PC_COL_SPEC.filter(s => s.exp > 0).map(s => 'raw:' + s.key));
 
   // ── per-cell formatting ──────────────────────────────────────────────────
   function pcCellText(col, row) {
@@ -1039,6 +1126,7 @@
     STATUS_META, SUB_PIPELINE, SUB_ORDER, REGION_EN, BANK_COLORS, CREDITOR_NAMES,
     deriveProjects, summarize, pipelineCounts, cashflowByMonth, forecastYears, lgByBank, debtByCreditor,
     exportCSV, exportXLSX, openReport, buildExportColumns, PC_EXPORT_DEFAULT, pcColType,
+    PC_COL_SPEC, PC_CAT_ORDER, pcColCat,
     loadFinanceMaster, setFinanceField, contractAmtOf,
     loadLocalProjects, saveLocalProjects, parseProjectControl,
   };
@@ -1052,7 +1140,7 @@
   const STATUS_SORT = { 'ยังไม่ลงนาม': 0, 'Work in progress': 1, 'Finish': 2, 'ยกเลิก': 3 };
 
   function makeColumns() {
-    return [
+    const base = [
       { id: 'name', label: 'Project Name', th: 'ชื่อโครงการ', type: 'text', width: 290, freezable: true, value: r => r.site || r.name },
       { id: 'contractNo', label: 'Contract No.', th: 'เลขที่สัญญา', type: 'text', width: 110, freezable: true, value: r => r.contractNo },
       { id: 'fy', label: 'Fiscal Year', th: 'ปีงบ', type: 'enum', width: 72, align: 'center', value: r => r.fy ? 'FY' + r.fy : '' },
@@ -1077,8 +1165,30 @@
       { id: 'lgBank', label: 'LG Bank', th: 'ธนาคาร LG', type: 'enum', width: 90, align: 'center', value: r => r.lg ? r.lg.bank : '' },
       { id: 'lgAmount', label: 'LG Amount', th: 'วงเงิน LG', type: 'num', width: 104, align: 'right', value: r => r.lg ? r.lg.amount : null },
     ];
+    // ── raw engineer columns (จาก PC_COL_SPEC) — ทุกคอลัมน์ที่วิศวกรมี ให้โชว์/ฟิลเตอร์ได้
+    // ข้ามคอลัมน์ที่มี derived column แทนอยู่แล้ว (กันซ้ำ)
+    const RAW_SKIP = { 'Contract No.':1, 'พื้นที่':1, 'Type':1, 'Start':1, 'Finish':1, 'Region':1, 'Province':1, 'มูลค่าสัญญาที่เซ็น (รวมVAT)':1 };
+    const raws = (U.PC_COL_SPEC || []).filter(s => !RAW_SKIP[s.key]).map(s => {
+      const kind = U.pcColType(s.key);           // money | date | pct | text
+      const gType = (kind === 'money' || kind === 'pct') ? 'num' : (kind === 'date' ? 'date' : 'text');
+      const w = kind === 'money' ? 124 : kind === 'date' ? 118 : kind === 'pct' ? 92 : Math.min(230, Math.max(110, s.key.length * 8.5));
+      const get = (kk, knd) => (r) => {
+        const v = (r._raw || {})[kk];
+        if (knd === 'money' || knd === 'pct') return U.toNum(v);
+        if (knd === 'date') return U.isoOf(v) || '';
+        return (v == null ? '' : v);
+      };
+      return { id: 'raw:' + s.key, label: s.key, th: s.key, type: gType, kind, cat: s.cat,
+        width: Math.round(w), align: gType === 'num' ? 'right' : (gType === 'date' ? 'center' : undefined),
+        value: get(s.key, kind), raw: true };
+    });
+    return base.concat(raws);
   }
-  const DEFAULT_VISIBLE = ['name', 'contractNo', 'fy', 'start', 'finish', 'type', 'contractAmt', 'progress', 'status', 'projectStatus', 'outstandingAR', 'fc1Date', 'fc1Amount', 'fc2Date', 'fc2Amount'];
+  // default-visible = core identity/analytics + คอลัมน์ที่ฝ่ายการเงินมาร์ก web 1/2
+  const DERIVED_FOR_RAW = { 'Contract No.':'contractNo', 'พื้นที่':'name', 'Type':'type', 'Start':'start', 'Finish':'finish', 'Region':'region', 'Province':'province', 'มูลค่าสัญญาที่เซ็น (รวมVAT)':'contractAmt' };
+  const _CORE_VIS = ['name', 'contractNo', 'fy', 'type', 'start', 'finish', 'progress', 'status', 'projectStatus', 'outstandingAR'];
+  const _WEB_VIS = (U.PC_COL_SPEC || []).filter(s => s.web > 0).map(s => DERIVED_FOR_RAW[s.key] || ('raw:' + s.key));
+  const DEFAULT_VISIBLE = [..._CORE_VIS, ..._WEB_VIS].filter((v, i, a) => a.indexOf(v) === i);
   const DEFAULT_FROZEN = ['name', 'contractNo'];
 
   function rowCondStyle(r, cf) {

@@ -305,7 +305,14 @@ function PcCellRender(col, r) {
     case 'lgAmount': return r.lg ? <span className="num">฿{U.fmtBaht(r.lg.amount)}</span> : '—';
     case 'start': return r.start ? <span className="num" style={{ fontSize: 11 }}>{U.fmtDate(r.start)}</span> : '—';
     case 'finish': return r.finish ? <span className="num" style={{ fontSize: 11 }}>{U.fmtDate(r.finish)}</span> : '—';
-    default: { const v = col.value(r); return v == null || v === '' ? '—' : String(v); }
+    default: {
+      const v = col.value(r);
+      // raw engineer columns carry col.kind (money/date/pct/text) for nice formatting
+      if (col.kind === 'money') return <span className="num">{v == null || v === '' ? '—' : '฿' + U.fmtBaht(v)}</span>;
+      if (col.kind === 'pct') return <span className="num">{v == null || v === '' ? '—' : Math.round(+v) + '%'}</span>;
+      if (col.kind === 'date') return v ? <span className="num" style={{ fontSize: 11 }}>{U.fmtDate(v)}</span> : '—';
+      return v == null || v === '' ? '—' : <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }} title={String(v)}>{String(v)}</span>;
+    }
   }
 }
 
@@ -475,25 +482,47 @@ function PcGrid({ rows, allCols, state, setState, onOpenRow }) {
 function PcGridToolbar({ allCols, state, setState, rows, visibleColObjs, scopeLabel, onAdvanced, advCount }) {
   const [colMenu, setColMenu] = pcSt(false);
   const [expMenu, setExpMenu] = pcSt(false);
+  const [colSearch, setColSearch] = pcSt('');
   const activeFilters = Object.values(state.colFilters).filter(Boolean).length;
   const gridRows = () => PCGrid.applySort(PCGrid.applyColFilters(rows, allCols, state.colFilters), allCols, state.sort);
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
       <div style={{ position: 'relative' }}>
         <button onClick={() => setColMenu(v => !v)} style={{ ...pcBtn, display: 'inline-flex', alignItems: 'center', gap: 6 }}><PcI.columns size={14} />คอลัมน์ ({visibleColObjs.length}/{allCols.length})</button>
-        {colMenu && (
-          <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 60, background: '#fff', border: '1px solid #d3dcea', borderRadius: 9, boxShadow: '0 16px 44px rgba(13,31,58,.16)', padding: 8, width: 230, maxHeight: 360, overflow: 'auto' }}>
-            {allCols.map(c => { const vis = !state.hidden.includes(c.id); const fz = state.frozen.includes(c.id);
+        {colMenu && (() => {
+          const cats = [['', 'หลัก / คำนวณ']].concat((PCU.PC_CAT_ORDER || []).map(c => [c, 'วิศวกร · ' + c]));
+          const q = colSearch.trim().toLowerCase();
+          const match = c => !q || (c.label + ' ' + (c.th || '')).toLowerCase().includes(q);
+          const setHidden = (id, vis) => setState(s => ({ ...s, hidden: vis ? [...s.hidden, id] : s.hidden.filter(x => x !== id) }));
+          return (
+          <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 60, background: '#fff', border: '1px solid #d3dcea', borderRadius: 9, boxShadow: '0 16px 44px rgba(13,31,58,.16)', padding: 8, width: 280, maxHeight: 440, overflow: 'auto' }}>
+            <input value={colSearch} onChange={e => setColSearch(e.target.value)} placeholder="ค้นหาคอลัมน์…" style={{ width: '100%', height: 30, border: '1px solid #d3dcea', borderRadius: 7, padding: '0 9px', fontSize: 11.5, marginBottom: 6, outline: 'none' }} />
+            {cats.map(([cat, title]) => {
+              const items = allCols.filter(c => (cat === '' ? !c.cat : c.cat === cat) && match(c));
+              if (!items.length) return null;
+              const allOn = items.every(c => !state.hidden.includes(c.id));
               return (
-                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 2px', fontSize: 11.5 }}>
-                  <input type="checkbox" checked={vis} onChange={() => setState(s => ({ ...s, hidden: vis ? [...s.hidden, c.id] : s.hidden.filter(x => x !== c.id) }))} />
-                  <span style={{ flex: 1 }}>{c.label}</span>
-                  <button onClick={() => setState(s => ({ ...s, frozen: fz ? s.frozen.filter(x => x !== c.id) : [...s.frozen, c.id] }))} title="ตรึงคอลัมน์" style={{ border: 'none', background: fz ? 'var(--brand-100)' : 'transparent', color: fz ? 'var(--brand-700)' : '#cbd5e1', borderRadius: 4, padding: 2, cursor: 'pointer' }}><PcI.lock size={12} /></button>
+                <div key={cat || 'core'} style={{ marginBottom: 4 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 4px', position: 'sticky', top: 0, background: '#f8fafc', borderRadius: 5 }}>
+                    <input type="checkbox" checked={allOn} ref={el => { if (el) el.indeterminate = !allOn && items.some(c => !state.hidden.includes(c.id)); }}
+                      onChange={() => setState(s => { const h = new Set(s.hidden); allOn ? items.forEach(c => h.add(c.id)) : items.forEach(c => h.delete(c.id)); return { ...s, hidden: [...h] }; })} />
+                    <b style={{ fontSize: 10.5, color: '#475569' }}>{title}</b><span style={{ fontSize: 9.5, color: '#94a3b8' }}>({items.length})</span>
+                  </div>
+                  {items.map(c => { const vis = !state.hidden.includes(c.id); const fz = state.frozen.includes(c.id);
+                    return (
+                      <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 2px 2px 12px', fontSize: 11.5 }}>
+                        <input type="checkbox" checked={vis} onChange={() => setHidden(c.id, vis)} />
+                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.label}>{c.label}</span>
+                        {c.freezable && <button onClick={() => setState(s => ({ ...s, frozen: fz ? s.frozen.filter(x => x !== c.id) : [...s.frozen, c.id] }))} title="ตรึงคอลัมน์" style={{ border: 'none', background: fz ? 'var(--brand-100)' : 'transparent', color: fz ? 'var(--brand-700)' : '#cbd5e1', borderRadius: 4, padding: 2, cursor: 'pointer' }}><PcI.lock size={12} /></button>}
+                      </div>
+                    );
+                  })}
                 </div>
               );
             })}
           </div>
-        )}
+          );
+        })()}
       </div>
       <button onClick={() => setState(s => ({ ...s, density: s.density === 'compact' ? 'regular' : 'compact' }))} style={pcBtn}>{state.density === 'compact' ? '☰ กระชับ' : '≡ ปกติ'}</button>
       <button onClick={() => setState(s => ({ ...s, cf: !s.cf }))} style={{ ...pcBtn, background: state.cf ? 'var(--brand-50)' : '#fff', color: state.cf ? 'var(--brand-700)' : '#64748b' }}>🎨 ไฮไลต์</button>
@@ -540,7 +569,7 @@ function PcExportModal({ rows, scopeLabel, onClose }) {
   const filteredCols = colSearch.trim()
     ? allCols.filter(c => (c.label + ' ' + c.group).toLowerCase().includes(colSearch.trim().toLowerCase()))
     : allCols;
-  const groups = [['คำนวณ', 'คอลัมน์คำนวณ (จากระบบ)'], ['วิศวกร', 'คอลัมน์วิศวกร (จากไฟล์ Excel ทั้งหมด)']];
+  const groups = [['คำนวณ', 'คอลัมน์คำนวณ (จากระบบ)']].concat((PCU.PC_CAT_ORDER || []).map(c => [c, 'วิศวกร · ' + c]));
   const card = (o, active, onClick) => (
     <button key={o.k} onClick={onClick} style={{
       textAlign: 'left', padding: '11px 13px', borderRadius: 11, cursor: 'pointer',
@@ -808,7 +837,17 @@ function pcAdvFields() {
     { key: 'd2', label: 'ส่งมอบงวด 2 แล้ว', type: 'bool', get: r => !!r.d2 },
     { key: 'a2', label: 'ได้ใบตรวจรับ งวด 2', type: 'bool', get: r => !!r.a2 },
     { key: 'p2', label: 'รับเงินงวด 2 แล้ว', type: 'bool', get: r => !!r.p2 },
-  ];
+  ].concat(pcAdvRawFields());
+}
+// raw engineer columns ที่ฝ่ายการเงินมาร์กไว้ (web หรือ exp) → ฟิลเตอร์ได้ในขั้นสูง
+function pcAdvRawFields() {
+  const DUP = { 'Type': 1, 'Region': 1, 'Province': 1, 'มูลค่าสัญญาที่เซ็น (รวมVAT)': 1 };
+  return (PCU.PC_COL_SPEC || []).filter(s => (s.web > 0 || s.exp > 0) && !DUP[s.key]).map(s => {
+    const kind = PCU.pcColType(s.key);
+    const type = (kind === 'money' || kind === 'pct') ? 'num' : kind === 'date' ? 'date' : 'enum';
+    return { key: 'raw:' + s.key, label: s.cat + ' · ' + s.key, type, raw: true,
+      get: ((kk, knd) => (r) => { const v = (r._raw || {})[kk]; if (knd === 'money' || knd === 'pct') return PCU.toNum(v) || 0; if (knd === 'date') return PCU.isoOf(v) || ''; return v == null ? '' : v; })(s.key, kind) };
+  });
 }
 function pcApplyAdvanced(rows, conds, mode) {
   const active = (conds || []).filter(c => c.field && c.op);
@@ -819,6 +858,7 @@ function pcApplyAdvanced(rows, conds, mode) {
     const v = f.get(r);
     if (f.type === 'bool') return c.op === 'false' ? v === false : v === true;
     if (f.type === 'num') { const n = +v, t = +c.value; if (c.value === '' || isNaN(t)) return true; return c.op === 'lte' ? n <= t : c.op === 'eq' ? n === t : n >= t; }
+    if (f.type === 'date') { if (!c.value) return true; const iso = String(v || ''); if (!iso) return false; return c.op === 'before' ? iso <= c.value : c.op === 'after' ? iso >= c.value : iso === c.value; }
     if (c.value == null || c.value === '') return true;
     return c.op === 'isNot' ? String(v) !== String(c.value) : String(v) === String(c.value);
   };
@@ -830,7 +870,7 @@ function PcAdvancedFilter({ rows, conds, mode, onApply, onClose }) {
   const [cs, setCs] = pcSt(() => (conds && conds.length ? conds.map(c => ({ ...c })) : [{ field: 'assignee', op: 'is', value: '' }]));
   const [md, setMd] = pcSt(mode || 'AND');
   const optsFor = (fkey) => { const f = fmap[fkey]; if (!f) return []; const s = new Set(); rows.forEach(r => { const v = f.get(r); if (v !== '' && v != null) s.add(String(v)); }); return [...s].sort((a, b) => a.localeCompare(b, 'th')); };
-  const opDefault = (t) => t === 'bool' ? 'true' : t === 'num' ? 'gte' : 'is';
+  const opDefault = (t) => t === 'bool' ? 'true' : t === 'num' ? 'gte' : t === 'date' ? 'after' : 'is';
   const setRow = (i, patch) => setCs(cs => cs.map((c, k) => k === i ? { ...c, ...patch } : c));
   const addRow = () => setCs(cs => [...cs, { field: 'assignee', op: 'is', value: '' }]);
   const delRow = (i) => setCs(cs => cs.filter((_, k) => k !== i));
@@ -870,6 +910,10 @@ function PcAdvancedFilter({ rows, conds, mode, onApply, onClose }) {
                 {f.type === 'num' && (<>
                   <select value={c.op} onChange={e => setRow(i, { op: e.target.value })} style={{ ...sel, minWidth: 70 }}><option value="gte">≥</option><option value="lte">≤</option><option value="eq">=</option></select>
                   <input type="number" value={c.value} onChange={e => setRow(i, { value: e.target.value })} placeholder="ค่า" style={{ ...sel, width: 120 }} />
+                </>)}
+                {f.type === 'date' && (<>
+                  <select value={c.op} onChange={e => setRow(i, { op: e.target.value })} style={{ ...sel, minWidth: 90 }}><option value="after">ตั้งแต่</option><option value="before">ก่อน</option><option value="on">ตรงวันที่</option></select>
+                  <input type="date" value={c.value} onChange={e => setRow(i, { value: e.target.value })} style={{ ...sel, width: 150 }} />
                 </>)}
                 {f.type === 'enum' && (<>
                   <select value={c.op} onChange={e => setRow(i, { op: e.target.value })} style={{ ...sel, minWidth: 100 }}><option value="is">เท่ากับ</option><option value="isNot">ไม่เท่ากับ</option></select>
@@ -957,7 +1001,7 @@ function PcUploadDiff({ diff, stats, onClose }) {
 // ═══════════════════════════════════════════════════════════════════════════
 // MAIN PAGE
 // ═══════════════════════════════════════════════════════════════════════════
-const PC_STATE_KEY = 'wtp-pc-gridstate-v2';
+const PC_STATE_KEY = 'wtp-pc-gridstate-v3';
 function pcDefaultState() {
   return { order: PCGrid.makeColumns().map(c => c.id), hidden: PCGrid.makeColumns().map(c => c.id).filter(id => !PCGrid.DEFAULT_VISIBLE.includes(id)),
     frozen: PCGrid.DEFAULT_FROZEN.slice(), widths: {}, sort: [], colFilters: {}, page: 1, pageSize: 50, cf: true, density: 'compact' };
