@@ -224,7 +224,16 @@ function getEntity(name) {
 }
 
 /* ── 4. TABLE I/O ───────────────────────────────────────────────── */
-function _ss() { return SpreadsheetApp.getActiveSpreadsheet(); }
+// ใช้ active spreadsheet ถ้ามี (สคริปต์ผูกกับชีต) มิฉะนั้น fallback openById
+// → ทำงานได้ทั้ง bound และ standalone · กัน getActiveSpreadsheet() = null
+// (เช่นในบาง context ของ web app) ที่ทำให้ plImportMonth ฯลฯ พังด้วย null
+var SHEET_ID_FALLBACK = '1Q0enboLihOYiYCn7otK9zXBlk6Yy8oHfoAXaFnGujwA';
+function _ss() {
+  var ss = null;
+  try { ss = SpreadsheetApp.getActiveSpreadsheet(); } catch (_) {}
+  if (!ss && SHEET_ID_FALLBACK) { try { ss = SpreadsheetApp.openById(SHEET_ID_FALLBACK); } catch (_) {} }
+  return ss;
+}
 function _sh(name) {
   var sh = _ss().getSheetByName(name);
   if (!sh) throw new Error('ไม่พบชีต: ' + name);
