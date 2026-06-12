@@ -294,10 +294,11 @@
   function deriveProgress(p, status, insts, received, contract) {
     if (status.main === 'ยกเลิก') return 0;
     if (status.main === 'ยังไม่ลงนาม') return 0;
-    // PRIMARY: physical construction progress จากคอลัมน์ POG (ตามที่ฝ่ายงานยึด)
+    // รับเงินครบ / ปิดโครงการ → 100% เสมอ (มาก่อน POG — โครงจบแล้วถึง POG จะ < 100 ก็ตาม)
+    if (status.main === 'Finish') return 100;
+    // PRIMARY (ระหว่างทาง): ความคืบหน้างานก่อสร้างจริงจากคอลัมน์ POG (ตามที่ฝ่ายงานยึด)
     const pog = pogProgress(p);
     if (pog != null && pog > 0) return Math.min(100, Math.round(pog));
-    if (status.main === 'Finish') return 100;
     // FALLBACK 1: ถ่วงน้ำหนักตามงวดงาน (เมื่อไม่มีค่า POG)
     const reqd = insts.filter(i => i.amount > 0 || i.percent > 0);
     if (reqd.length) {
@@ -394,6 +395,29 @@
       ivs.forEach(iv => { (rcByIv[iv.ivNo || iv.invoiceNo] || []).forEach(rc => { received += toNum(rc.grossAmount || rc.netReceived) || 0; }); });
       if (!received) received = insts.filter(i => i.paid).reduce((s, i) => s + i.amount, 0);
       received = Math.min(received, contract || received);
+
+      // ── ลิงก์ใบแจ้งหนี้ (IV) + ใบเสร็จ เข้าแต่ละงวด ──────────────────────────────
+      // จับคู่ด้วย period == เลขงวดก่อน · ถ้าโครงงวดเดียวแต่ period ไม่ตรง (วิศวกร
+      // บันทึกใต้คอลัมน์งวด 2) → ผูก IV แรกให้งวดนั้น · consume กัน IV ผูกซ้ำ
+      const ivPool = ivs.slice();
+      insts.forEach(it => {
+        let idx = ivPool.findIndex(iv => String(iv.period == null ? '' : iv.period).replace(/[^0-9]/g, '') === String(it.no));
+        if (idx < 0 && insts.length === 1 && ivPool.length) idx = 0; // งวดเดียว → IV แรก
+        if (idx < 0) return;
+        const iv = ivPool.splice(idx, 1)[0];
+        const rcs = rcByIv[iv.ivNo || iv.invoiceNo] || [];
+        const net = rcs.reduce((s, rc) => s + (toNum(rc.netReceived || rc.grossAmount) || 0), 0);
+        const rcDate = rcs.map(rc => isoOf(rc.receiptDate)).filter(Boolean).sort()[0] || null;
+        it.invoice = {
+          ivNo: iv.ivNo || iv.invoiceNo || '',
+          status: iv.status || '',
+          invoiceDate: isoOf(iv.invoiceDate) || null,
+          dueDate: isoOf(iv.dueDate) || null,
+          balance: toNum(iv.balance),
+          receivedNet: net || 0,
+          receivedDate: rcDate,
+        };
+      });
 
       const status = deriveStatus(p, contract, received, insts);
       const progress = deriveProgress(p, status, insts, received, contract);

@@ -708,13 +708,13 @@ function PcDrawer({ row, canEdit, onClose, onSaveFinance }) {
                 let note;
                 if (row.status === 'ยกเลิก') note = 'โครงการยกเลิก → ความคืบหน้า 0%';
                 else if (row.status === 'ยังไม่ลงนาม') note = 'ยังไม่ลงนามสัญญา → ความคืบหน้า 0%';
+                else if (row.status === 'Finish') note = 'รับเงินครบ / ปิดโครงการ → 100% (โครงการจบแล้ว)';
                 else if (pd.source === 'pog') {
                   const which = (pd.pogStank != null && pd.pogStank > 0)
                     ? `งานหอถัง+ระบบ (POG+STANK) = ${pd.pogStank}%`
                     : (pd.pogDrink != null && pd.pogDrink > 0) ? `งานน้ำดื่ม (POG DRINK) = ${pd.pogDrink}%` : `${pd.pog}%`;
                   note = `ความคืบหน้างานก่อสร้างจริงจากฝ่ายงาน — ${which}`;
                 }
-                else if (row.status === 'Finish') note = 'รับเงินครบตามสัญญา → 100%';
                 else if (pd.total > 0) note = `ไม่มีค่า % งานก่อสร้าง → คำนวณจากงวดงาน ถ่วงน้ำหนักตาม % งวด — ส่งมอบ ${pd.delivered}/${pd.total} งวด · ตรวจรับ ${pd.accepted} งวด · รับเงิน ${pd.paid} งวด (เกณฑ์: ส่งมอบ = 75% · ตรวจรับ = 90% · รับเงิน = 100% ของน้ำหนักงวดนั้น)`;
                 else if (row.received > 0 && row.contractAmt > 0) note = `ไม่มีข้อมูลงวดงาน → คำนวณจาก รับแล้ว ฿${U.fmtBaht(row.received)} ÷ มูลค่าสัญญา ฿${U.fmtBaht(row.contractAmt)}`;
                 else note = 'ลงนาม/เริ่มงานแล้ว แต่ยังไม่มีค่า % งานก่อสร้าง → ตั้งต้นที่ระดับเริ่มต้น';
@@ -758,6 +758,30 @@ function PcDrawer({ row, canEdit, onClose, onSaveFinance }) {
                     <span style={{ color: '#64748b' }}>ตรวจรับ: <span className="num">{U.fmtDate(i.acceptDate)}</span></span>
                     <span style={{ color: '#64748b' }}>คาดรับเงิน: <span className="num" style={{ color: '#0e9f9a' }}>{U.fmtDate(i.forecastDate)}</span></span>
                   </div>
+                  {(() => {
+                    const iv = i.invoice;
+                    const META = (window.WTPData && WTPData.IV_STATUS_META) || {};
+                    if (!iv || !iv.ivNo) return (
+                      <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed #e6ecf4', fontSize: 11, color: '#cbd5e1' }}>
+                        🧾 ใบแจ้งหนี้: ยังไม่มี IV ผูกกับงวดนี้
+                      </div>
+                    );
+                    const sm = META[iv.status] || { label: iv.status || '—', badge: 'b-gray' };
+                    const badgeColor = iv.status === 'paid' ? { bg: '#dcfce7', c: '#15803d' }
+                      : iv.status === 'issue' ? { bg: '#fee2e2', c: '#b91c1c' }
+                      : iv.status === 'tracking' ? { bg: '#dceaff', c: '#1f56b8' }
+                      : { bg: '#fffbeb', c: '#b45309' };
+                    return (
+                      <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed #e6ecf4', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3px 12px', fontSize: 11.5 }}>
+                        <span style={{ color: '#64748b' }}>🧾 ใบแจ้งหนี้: <b className="num" style={{ color: 'var(--brand-700)' }}>{iv.ivNo}</b></span>
+                        <span style={{ color: '#64748b' }}>สถานะ IV: <span style={{ fontWeight: 600, padding: '1px 8px', borderRadius: 100, background: badgeColor.bg, color: badgeColor.c }}>{sm.label}</span></span>
+                        {iv.invoiceDate && <span style={{ color: '#64748b' }}>วันที่วางบิล: <span className="num">{U.fmtDate(iv.invoiceDate)}</span></span>}
+                        {iv.receivedNet > 0
+                          ? <span style={{ color: '#64748b' }}>รับเงินจริง: <b className="num" style={{ color: '#15803d' }}>฿{U.fmtBaht(iv.receivedNet)}</b>{iv.receivedDate ? <span className="num" style={{ color: '#94a3b8' }}> · {U.fmtDate(iv.receivedDate)}</span> : ''}</span>
+                          : <span style={{ color: '#64748b' }}>รับเงินจริง: <span style={{ color: '#cbd5e1' }}>ยังไม่รับ</span></span>}
+                      </div>
+                    );
+                  })()}
                 </div>
               ))}
             </div>
