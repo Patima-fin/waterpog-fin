@@ -431,7 +431,45 @@
         _manualStatus: p.manualStatus || p._manualStatus || '',
       });
     }
-    return out;
+    return dedupeProjectRows(out);
+  }
+
+  // ── dedupe safety net ────────────────────────────────────────────────────────
+  // กันโครงซ้ำที่หลุดมาจาก sync (เช่น โครงไม่มีเลขสัญญา code=null โผล่ 2 แถว) โดย:
+  //  • โครงที่มี "เลขสัญญาจริง" (ไม่ใช่ XL-/WS-) → เก็บไว้เสมอ (เลขต่างกัน = คนละสัญญา
+  //    ที่ประมูลใหม่/คนละปีงบ — ไม่ยุบ); เลขจริงซ้ำกันเป๊ะ → เก็บตัวข้อมูลครบสุด
+  //  • โครงไม่มีเลข/เลขสังเคราะห์ (XL-/WS-) → ถ้ามีพี่น้องชื่อ+ปีงบเดียวกันที่มีเลขจริง
+  //    อยู่แล้ว → ตัดทิ้ง (เป็น placeholder รอลงนามที่ถูกแทนแล้ว); ถ้าไม่มี → เก็บแค่ตัวเดียว
+  function dedupeProjectRows(rows) {
+    const norm = (s) => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
+    const isReal = (c) => !!c && !/^(XL|WS)-/i.test(String(c));
+    const completeness = (r) => Object.keys(r._raw || {}).filter(k => { const v = r._raw[k]; return v != null && v !== ''; }).length;
+    // name+fy ที่มีเลขสัญญาจริงอยู่แล้ว
+    const realNF = new Set();
+    rows.forEach(r => { if (isReal(r.contractNo)) realNF.add(norm(r.site) + '|' + r.fy); });
+    const byRealCode = new Map();   // เลขจริง → row ครบสุด
+    const bySynthNF = new Map();    // name+fy (ไม่มีเลขจริง) → row ครบสุด
+    const result = [];
+    for (const r of rows) {
+      if (isReal(r.contractNo)) {
+        const k = String(r.contractNo).trim();
+        const prev = byRealCode.get(k);
+        if (!prev) { byRealCode.set(k, r); result.push(r); }
+        else if (completeness(r) > completeness(prev)) {
+          const i = result.indexOf(prev); if (i >= 0) result[i] = r; byRealCode.set(k, r);
+        }
+        continue;
+      }
+      // synthetic/empty code
+      const nf = norm(r.site) + '|' + r.fy;
+      if (realNF.has(nf)) continue;          // ถูกแทนด้วยโครงที่มีเลขจริงแล้ว
+      const prev = bySynthNF.get(nf);
+      if (!prev) { bySynthNF.set(nf, r); result.push(r); }
+      else if (completeness(r) > completeness(prev)) {
+        const i = result.indexOf(prev); if (i >= 0) result[i] = r; bySynthNF.set(nf, r);
+      }
+    }
+    return result;
   }
 
   // ── aggregations ────────────────────────────────────────────────────────────
@@ -503,13 +541,109 @@
     return Object.values(m).sort((a, b) => b.total - a.total);
   }
 
+  // ── export column registry ───────────────────────────────────────────────
+  // ผู้ใช้เลือกได้ว่าจะ export คอลัมน์ไหน — จาก "คอลัมน์วิศวกรทั้งหมด" (raw 120 ช่อง)
+  // + คอลัมน์คำนวณ (สถานะ/คาดรับ/ค้างรับ ฯลฯ) · แต่ละ def = {key,label,type,get,group}
+  // ลำดับคอลัมน์วิศวกรตามไฟล์ Excel จริง (Main all*)
+  const PC_ENG_COL_ORDER = [
+    'No.','Tender No.','Project No.','เลขที่สัญญา WTP-SUB','Contract No.',
+    'พื้นที่','Type','งานก่อสร้าง','ก่อสร้างจริง','งานขาย','Region','Province',
+    'Start','Finish','Timeline','Duration','จำนวนวันที่โดนปรับจริง',
+    'กำหนดส่งมอบงานงวด 1','ระยะเวลาก่อสรางจริง (วัน)','งบประมาณ','Ref.code','เงินตามใบจัดสรร',
+    'ประกาศผู้ชนะ','เซ็นสัญญา','เลขที่สัญญา','ยกเลิกโครงการ',
+    'สัญญา-Subcontract','PR-Subcontract','PR Consult',
+    'มูลค่าสัญญาที่เซ็น','มูลค่าสัญญาที่เซ็น (รวมVAT)',
+    '% งวด 1','% งวด 2','มูลค่า งวด 1','มูลค่า งวด 2',
+    '% ค่าปรับต่อวัน','บาท/วัน','ระยะเวลาการรับประกัน','แบบแปลน ver.','ฝั่งเดียว','สองฝั่ง','Customer',
+    'งานเสาเข็ม','ความยาวเสาเข็ม (m)','จำนวนเสาเข็ม ACFS TANK','จำนวนเสาเข็ม ACC TANK',
+    'จำนวนเสาเข็ม UFS TANK','จำนวนเสาเข็ม PF TANK','มูลค่างานเพิ่มเสาเข็ม',
+    '1.งานทดสอบการรับน้ำหนักบรรทุกดิน และงานเสาเข็ม (10%)','ขั้น 1 วันที่แล้วเสร็จ',
+    '2.งานฐานราก (10%)','ขั้น 2 วันที่แล้วเสร็จ','3.งาน PnP  (20%)','ขั้น 3 วันที่แล้วเสร็จ',
+    '4.งาน ACFS, SFX และงานระบบ (50%)','ขั้น 4 วันที่แล้วเสร็จ',
+    '5.งาน Commissioning Test & Jar Test (10%)','ขั้น 5 วันที่แล้วเสร็จ','% (POG+STANK)',
+    '1. งานฐานพื้นคอนกรีต (10%)','ขั้น 1 วันที่แล้วเสร็จ2',
+    '2.1 งานติดตั้ง RO (50%)','2.2 งานติดตั้งโรงเรือน RO (20%)','2.3 งานประสานระบบไฟฟ้าและระบบประปา (10%)','ขั้น 2 วันที่แล้วเสร็จ2',
+    '3 งาน Commissioning Test (10%)','ขั้น 3 วันที่แล้วเสร็จ2','% (POG DRINK)',
+    'นส.ส่งมอบงาน งวด 1','วันที่ส่ง นส.มอบงาน งวด 1','วันที่ส่งมอบงาน งวด 1',
+    'นส.ส่งมอบงาน งวด 2','วันที่ส่ง นส.มอบงาน งวด 2','วันที่ส่งมอบงาน งวด 2',
+    'นส.ส่งมอบงาน งวด 3','วันที่ส่ง นส.มอบงานงวด 3','วันที่ส่งมอบงานงวด 3',
+    'ใบตรวจรับการจัดซื้อ/จัดจ้าง งวด 1','วันที่เซ็น/รับ ใบตรวจรับ งวดที่ 1',
+    'ใบตรวจรับการจัดซื้อ/จัดจ้าง งวด 2','วันที่เซ็น/รับ ใบตรวจรับ งวดที่ 2',
+    'Payment 1','Summary Payment 1','Payment 1 Status','Receive Date',
+    'Payment 2','Summary Payment 2','Payment 2 Status','Receive Date2',
+    'Payment 3','Summary Payment 3','Payment 3 Status','Receive Date3',
+    'TOTAL','Receive','BOQ','Forecast Income งวด 1','Forecast Income งวด 2',
+    'หยุดเวลา','แจ้งเข้าดำเนินการ','ขยายเวลา','แนบท้ายสัญญา','แนบท้ายสัญญา-Subcontract','วันที่แนบท้ายสัญญา-Subcontract',
+    'ไฟล์สำรวจโครงการ','Close Project','Google Map URL','ผู้รับโอนสิทธิ์',
+    'ขั้น 1','ขั้น 2','ขั้น 3','ขั้น 4','ขั้น 5','รับรู้รายได้',
+    '% Progress','Remark','จำนวนเสาเข็ม ACFS','วันที่เซ็น/รับ ใบตรวจรับ งวด 2',
+    'สถานะโครงการ','ภาระหนี้',
+  ];
+  const PC_EXPORT_EXCLUDE = new Set(['id','status','expectedPay1','expectedPay2','_sheet','_raw']);
+  function pcColType(key) {
+    const k = String(key);
+    if (/วันที่|^Start$|^Finish$|เซ็นสัญญา|กำหนดส่งมอบ|แจ้งเข้า|ประกาศผู้ชนะ|Receive Date|Forecast Income|Close Project|แล้วเสร็จ/.test(k)) return 'date';
+    if (/^%|\(\d+%\)|% Progress/.test(k)) return 'pct';
+    if (/มูลค่า|Payment|^Summary|งบประมาณ|เงินตามใบจัดสรร|บาท\/วัน|^TOTAL$|^Receive$|^BOQ$/.test(k)) return 'money';
+    return 'text';
+  }
+  // คอลัมน์คำนวณ (ไม่ได้มาจากไฟล์ Excel ตรงๆ)
+  function pcDerivedCols() {
+    return [
+      { key: '__name', label: 'โครงการ (พื้นที่)', type: 'text', group: 'คำนวณ', get: r => r.site || r.name },
+      { key: '__fy', label: 'ปีงบ', type: 'text', group: 'คำนวณ', get: r => r.fy ? 'FY' + r.fy : '' },
+      { key: '__region', label: 'ภาค', type: 'text', group: 'คำนวณ', get: r => r.regionEn || r.region || '' },
+      { key: '__status', label: 'สถานะ', type: 'text', group: 'คำนวณ', get: r => (STATUS_META[r.status] && STATUS_META[r.status].th) || r.status || '' },
+      { key: '__substatus', label: 'สถานะย่อย', type: 'text', group: 'คำนวณ', get: r => r.projectStatus || '' },
+      { key: '__progress', label: 'ความคืบหน้า %', type: 'pct', group: 'คำนวณ', get: r => r.progress },
+      { key: '__contract', label: 'มูลค่าสัญญา (รวม VAT)', type: 'money', group: 'คำนวณ', get: r => r.contractAmt },
+      { key: '__received', label: 'รับแล้ว', type: 'money', group: 'คำนวณ', get: r => r.received },
+      { key: '__ar', label: 'ค้างรับ (Outstanding AR)', type: 'money', group: 'คำนวณ', get: r => r.outstandingAR },
+      { key: '__fc1', label: 'คาดรับ งวด 1', type: 'money', group: 'คำนวณ', get: r => r.fc1Amount },
+      { key: '__fc1d', label: 'วันที่คาดรับ งวด 1', type: 'date', group: 'คำนวณ', get: r => r.fc1Date },
+      { key: '__fc2', label: 'คาดรับ งวด 2', type: 'money', group: 'คำนวณ', get: r => r.fc2Amount },
+      { key: '__fc2d', label: 'วันที่คาดรับ งวด 2', type: 'date', group: 'คำนวณ', get: r => r.fc2Date },
+      { key: '__assignee', label: 'ผู้รับโอนสิทธิ', type: 'text', group: 'คำนวณ', get: r => r.assignee },
+    ];
+  }
+  // คืน def ทุกคอลัมน์ที่เลือก export ได้ (คำนวณ + วิศวกรที่มีจริงในข้อมูล)
+  function buildExportColumns(rows) {
+    const present = new Set();
+    (rows || []).forEach(r => { const raw = r._raw || {}; Object.keys(raw).forEach(k => present.add(k)); });
+    const ordered = PC_ENG_COL_ORDER.filter(k => present.has(k) && !PC_EXPORT_EXCLUDE.has(k));
+    present.forEach(k => { if (!PC_EXPORT_EXCLUDE.has(k) && PC_ENG_COL_ORDER.indexOf(k) < 0) ordered.push(k); });
+    const eng = ordered.map(k => ({ key: 'raw:' + k, label: k, type: pcColType(k), group: 'วิศวกร', get: ((kk) => (r) => (r._raw || {})[kk])(k) }));
+    return pcDerivedCols().concat(eng);
+  }
+  // default selection (= คอลัมน์รายละเอียดเดิม) keys
+  const PC_EXPORT_DEFAULT = ['__name','raw:Contract No.','__fy','raw:Province','raw:Type','__contract','__status','__substatus','__progress','__received','__ar','__fc1','__fc1d','__fc2','__fc2d','__assignee'];
+
+  // ── per-cell formatting ──────────────────────────────────────────────────
+  function pcCellText(col, row) {
+    const v = col.get ? col.get(row) : '';
+    if (v == null || v === '') return '';
+    if (col.type === 'money') { const n = toNum(v); return n != null ? fmtBaht(n) : String(v); }
+    if (col.type === 'pct') { const n = toNum(v); return n != null ? (Math.round(n) + '%') : String(v); }
+    if (col.type === 'date') { const iso = isoOf(v); return iso ? fmtDate(iso) : String(v); }
+    return String(v);
+  }
+  // คืน {v,t,z} สำหรับ xlsx cell (money/pct = number จริง + format)
+  function pcCellXl(col, row) {
+    const v = col.get ? col.get(row) : '';
+    if (col.type === 'money') { const n = toNum(v); return n != null ? { v: n, t: 'n', z: FMT_BAHT } : { v: '', t: 's' }; }
+    if (col.type === 'pct') { const n = toNum(v); return n != null ? { v: Math.round(n), t: 'n', z: FMT_PCT } : { v: '', t: 's' }; }
+    if (col.type === 'date') { const iso = isoOf(v); return { v: iso ? fmtDate(iso) : (v == null ? '' : String(v)), t: 's' }; }
+    return { v: (v == null ? '' : String(v)), t: 's' };
+  }
+
   // ── export ────────────────────────────────────────────────────────────────
-  function exportCSV(rows, columns, filename) {
-    const head = columns.map(c => '"' + c.label.replace(/"/g, '""') + '"').join(',');
-    const body = rows.map(r => columns.map(c => {
-      let v = c.value ? c.value(r) : '';
-      if (v == null) v = ''; v = String(v).replace(/"/g, '""');
-      return '"' + v + '"';
+  function exportCSV(rows, cols, filename) {
+    const q = (s) => '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"';
+    const head = cols.map(c => q(c.label)).join(',');
+    const body = rows.map(r => cols.map(c => {
+      // money/pct → raw number (ไม่มี comma) เพื่อให้ Excel/Sheet คำนวณต่อได้
+      if (c.type === 'money' || c.type === 'pct') { const n = toNum(c.get ? c.get(r) : ''); return n != null ? n : ''; }
+      return q(pcCellText(c, r));
     }).join(',')).join('\n');
     const csv = '﻿' + head + '\n' + body;
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -620,65 +754,51 @@
     XLSX.utils.book_append_sheet(wb, ws, 'สรุป');
   }
 
-  function buildDetailSheet_(wb, rows, scopeLabel, genStr) {
+  function buildDetailSheet_(wb, rows, scopeLabel, genStr, cols) {
     const sorted = rows.slice().sort((a, b) => (b.contractAmt || 0) - (a.contractAmt || 0));
-    const headers = ['โครงการ', 'เลขสัญญา', 'ปีงบ', 'จังหวัด', 'ภาค', 'ประเภท', 'มูลค่าสัญญา (รวม VAT)',
-      'สถานะ', 'สถานะย่อย', 'ความคืบหน้า %', 'รับแล้ว', 'ค้างรับ',
-      'คาดรับ งวด 1', 'วันที่ งวด 1', 'คาดรับ งวด 2', 'วันที่ งวด 2', 'ผู้รับโอนสิทธิ'];
+    if (!cols || !cols.length) cols = buildExportColumns(rows).filter(c => PC_EXPORT_DEFAULT.indexOf(c.key) >= 0);
+    const lastCol = cols.length - 1;
+    const headRow = 3;
     const aoa = [
       [`ทะเบียนโครงการ · Project Detail — ${rows.length} โครงการ`],
       [`ขอบเขต: ${scopeLabel || 'ทั้งหมด'}`, '', '', '', `ออกรายงาน ${genStr}`],
       [],
-      headers,
+      cols.map(c => c.label),
     ];
-    const headRow = 3;
-    sorted.forEach(r => {
-      aoa.push([
-        r.site || r.name,
-        /^(XL|WS)-/i.test(r.contractNo) ? '(ไม่มีเลข)' : r.contractNo,
-        r.fy ? 'FY' + r.fy : '',
-        r.province || '', r.regionEn || r.region || '', r.type || '',
-        r.contractAmt || 0,
-        (STATUS_META[r.status] && STATUS_META[r.status].th) || r.status || '',
-        r.projectStatus || '',
-        r.progress != null ? r.progress : '',
-        r.received || 0, r.outstandingAR || 0,
-        r.fc1Amount || 0, r.fc1Date ? fmtDate(r.fc1Date) : '',
-        r.fc2Amount || 0, r.fc2Date ? fmtDate(r.fc2Date) : '',
-        r.assignee || '',
-      ]);
-    });
+    sorted.forEach(r => aoa.push(cols.map(c => {
+      const cell = pcCellXl(c, r);
+      return cell.v;  // value only; format applied below
+    })));
     const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws['!cols'] = [{ wch: 42 }, { wch: 12 }, { wch: 7 }, { wch: 14 }, { wch: 10 }, { wch: 8 }, { wch: 16 },
-      { wch: 13 }, { wch: 13 }, { wch: 11 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 13 }];
-    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 6 } }];
+    // column widths by type
+    ws['!cols'] = cols.map(c => ({ wch: c.key === '__name' || c.key === 'raw:พื้นที่' ? 42 : c.type === 'money' ? 15 : c.type === 'date' ? 13 : c.label.length > 18 ? 22 : 13 }));
+    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: Math.min(6, lastCol) } }];
     ws['!rows'] = [{ hpt: 26 }, {}, {}, { hpt: 30 }];
     ws['!freeze'] = { xSplit: 1, ySplit: headRow + 1 };
-    const lastCol = headers.length - 1;
     pcXlRow(ws, 0, 0, lastCol, PCXL.title);
     pcXlRow(ws, 1, 0, lastCol, PCXL.sub);
     pcXlRow(ws, headRow, 0, lastCol, PCXL.th);
-    const moneyCols = [6, 10, 11, 12, 14], pctCols = [9];
     for (let i = 0; i < sorted.length; i++) {
       const r = headRow + 1 + i;
       pcXlRow(ws, r, 0, lastCol, (i % 2) ? PCXL.cellAlt : PCXL.cell);
-      moneyCols.forEach(c => pcXlFmt(ws, r, c, FMT_BAHT, 'right'));
-      pctCols.forEach(c => pcXlFmt(ws, r, c, FMT_PCT, 'center'));
-      [2, 13, 15].forEach(c => pcXlFmt(ws, r, c, null, 'center'));
-      // ค้างรับ เป็นสีแดงถ้ามากกว่า 0
-      if ((sorted[i].outstandingAR || 0) > 0) pcXlSet(ws, r, 11, { font: { sz: 10, bold: true, color: { rgb: 'B45309' } } });
+      cols.forEach((c, ci) => {
+        if (c.type === 'money') pcXlFmt(ws, r, ci, FMT_BAHT, 'right');
+        else if (c.type === 'pct') pcXlFmt(ws, r, ci, FMT_PCT, 'center');
+        else if (c.type === 'date') pcXlFmt(ws, r, ci, null, 'center');
+        // ค้างรับ แดงถ้า > 0
+        if (c.key === '__ar' && (sorted[i].outstandingAR || 0) > 0) pcXlSet(ws, r, ci, { font: { sz: 10, bold: true, color: { rgb: 'B45309' } } });
+      });
     }
-    // also enable autofilter on header
     ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: headRow, c: 0 }, e: { r: headRow + sorted.length, c: lastCol } }) };
     XLSX.utils.book_append_sheet(wb, ws, 'รายละเอียด');
   }
 
-  function exportXLSX(kind, rows, scopeLabel) {
+  function exportXLSX(kind, rows, scopeLabel, cols) {
     if (!window.XLSX) { alert('SheetJS ยังไม่โหลด — รีเฟรชหน้า'); return; }
     const wb = XLSX.utils.book_new();
     const genStr = fmtDate(TODAY, 'long');
     if (kind === 'summary' || kind === 'both') buildSummarySheet_(wb, rows, scopeLabel, genStr);
-    if (kind === 'detail' || kind === 'both') buildDetailSheet_(wb, rows, scopeLabel, genStr);
+    if (kind === 'detail' || kind === 'both') buildDetailSheet_(wb, rows, scopeLabel, genStr, cols);
     const suffix = kind === 'summary' ? 'summary' : kind === 'detail' ? 'detail' : 'full';
     XLSX.writeFile(wb, `project-control-${suffix}-${TODAY}.xlsx`);
   }
@@ -804,7 +924,7 @@
 
   // ── Investor-grade report (HTML → print/PDF) · มีโลโก้ + โทน brand-blue ──────
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
-  function openReport(kind, rows, scopeLabel) {
+  function openReport(kind, rows, scopeLabel, cols) {
     const logoUrl = new URL('waterpog_Logo-02.png', location.href).href;
     const sum = summarize(rows);
     const today = new Date(); const genStr = fmtDate(TODAY, 'long');
@@ -881,31 +1001,20 @@
     };
     const buildDetailBody = () => {
       const sorted = rows.slice().sort((a, b) => (b.contractAmt || 0) - (a.contractAmt || 0));
-      return `<h2>ทะเบียนโครงการ (${rows.length.toLocaleString()} โครงการ)</h2>
-        <table><thead><tr>
-          <th>โครงการ</th><th>เลขสัญญา</th><th class="c">ปีงบ</th><th>จังหวัด</th>
-          <th class="r">มูลค่าสัญญา</th><th class="c">สถานะ</th><th>สถานะย่อย</th><th class="c">%</th>
-          <th class="r">รับแล้ว</th><th class="r">ค้างรับ</th>
-          <th class="r">คาดรับ ง.1</th><th class="c">วันที่ ง.1</th><th class="r">คาดรับ ง.2</th><th class="c">วันที่ ง.2</th>
-          <th>ผู้รับโอนสิทธิ</th>
-        </tr></thead><tbody>
-        ${sorted.map(r => `<tr>
-          <td>${esc(r.site || r.name)}</td>
-          <td class="num">${/^(XL|WS)-/i.test(r.contractNo) ? '<span style="color:#94a3b8">(ไม่มีเลข)</span>' : esc(r.contractNo)}</td>
-          <td class="c num">${r.fy ? 'FY' + r.fy : '—'}</td>
-          <td>${esc(r.province || '—')}</td>
-          <td class="r num">${r.contractAmt ? '฿' + fmtBaht(r.contractAmt) : '—'}</td>
-          <td class="c">${stPill(r.status)}</td>
-          <td>${esc(r.projectStatus || '—')}</td>
-          <td class="c num">${r.progress != null ? r.progress + '%' : '—'}</td>
-          <td class="r num">${r.received > 0 ? '฿' + fmtBaht(r.received) : '—'}</td>
-          <td class="r num" style="color:#b45309">${r.outstandingAR > 0 ? '฿' + fmtBaht(r.outstandingAR) : '—'}</td>
-          <td class="r num">${r.fc1Amount > 0 ? '฿' + fmtBaht(r.fc1Amount) : '—'}</td>
-          <td class="c num">${r.fc1Date ? fmtDate(r.fc1Date) : '—'}</td>
-          <td class="r num">${r.fc2Amount > 0 ? '฿' + fmtBaht(r.fc2Amount) : '—'}</td>
-          <td class="c num">${r.fc2Date ? fmtDate(r.fc2Date) : '—'}</td>
-          <td>${esc(r.assignee || '—')}</td>
-        </tr>`).join('')}</tbody></table>`;
+      const useCols = (cols && cols.length) ? cols
+        : buildExportColumns(rows).filter(c => PC_EXPORT_DEFAULT.indexOf(c.key) >= 0);
+      const align = (t) => t === 'money' ? ' class="r"' : (t === 'pct' || t === 'date') ? ' class="c"' : '';
+      const cellHtml = (c, r) => {
+        const txt = pcCellText(c, r);
+        if (c.key === '__ar') return `<td class="r num" style="color:#b45309">${txt ? '฿' + txt : '—'}</td>`;
+        if (c.type === 'money') return `<td class="r num">${txt ? '฿' + txt : '—'}</td>`;
+        if (c.type === 'pct') return `<td class="c num">${txt || '—'}</td>`;
+        if (c.type === 'date') return `<td class="c num">${txt || '—'}</td>`;
+        return `<td>${esc(txt || '—')}</td>`;
+      };
+      return `<h2>ทะเบียนโครงการ (${rows.length.toLocaleString()} โครงการ · ${useCols.length} คอลัมน์)</h2>
+        <table><thead><tr>${useCols.map(c => `<th${align(c.type)}>${esc(c.label)}</th>`).join('')}</tr></thead><tbody>
+        ${sorted.map(r => `<tr>${useCols.map(c => cellHtml(c, r)).join('')}</tr>`).join('')}</tbody></table>`;
     };
     let body = '';
     if (kind === 'summary') body = buildSummaryBody();
@@ -929,7 +1038,8 @@
     fmtBaht, fmtCompact, fmtDate, daysFromToday,
     STATUS_META, SUB_PIPELINE, SUB_ORDER, REGION_EN, BANK_COLORS, CREDITOR_NAMES,
     deriveProjects, summarize, pipelineCounts, cashflowByMonth, forecastYears, lgByBank, debtByCreditor,
-    exportCSV, exportXLSX, openReport, loadFinanceMaster, setFinanceField, contractAmtOf,
+    exportCSV, exportXLSX, openReport, buildExportColumns, PC_EXPORT_DEFAULT, pcColType,
+    loadFinanceMaster, setFinanceField, contractAmtOf,
     loadLocalProjects, saveLocalProjects, parseProjectControl,
   };
 })();

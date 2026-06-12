@@ -508,59 +508,118 @@ function PcGridToolbar({ allCols, state, setState, rows, visibleColObjs, scopeLa
 }
 
 // ── Export modal — เลือกเนื้อหา (สรุป/ละเอียด/ทั้งคู่) × รูปแบบไฟล์ (PDF/Excel/CSV) ──
-function PcExportModal({ rows, visibleColObjs, scopeLabel, onClose }) {
+function PcExportModal({ rows, scopeLabel, onClose }) {
   const [content, setContent] = pcSt('summary');
   const [format, setFormat] = pcSt('pdf');
+  const allCols = pcMemo(() => PCU.buildExportColumns(rows), [rows]);
+  const [sel, setSel] = pcSt(() => new Set(PCU.PC_EXPORT_DEFAULT.filter(k => allCols.some(c => c.key === k))));
+  const [colSearch, setColSearch] = pcSt('');
+  // คอลัมน์มีผลเฉพาะตอน export "รายละเอียด/ทั้งคู่" หรือ CSV (สรุปไม่มีตารางรายโครงการ)
+  const needCols = content !== 'summary' || format === 'csv';
   const contents = [
     { k: 'summary', icon: '📊', title: 'สรุป', desc: 'ภาพรวม KPI · pipeline · cashflow · LG — สำหรับนักลงทุน' },
-    { k: 'detail',  icon: '📋', title: 'รายละเอียด', desc: 'ทะเบียนโครงการครบทุกคอลัมน์ · เรียงตามมูลค่า' },
+    { k: 'detail',  icon: '📋', title: 'รายละเอียด', desc: 'ตารางรายโครงการ · เลือกคอลัมน์ได้' },
     { k: 'both',    icon: '📑', title: 'สรุป + รายละเอียด', desc: 'รวมทั้งสองส่วนในไฟล์เดียว' },
   ];
   const formats = [
     { k: 'pdf',  icon: '📄', title: 'PDF', desc: 'พร้อมโลโก้ Water POG · โทนฟ้า · เปิดหน้าใหม่แล้วสั่งพิมพ์/บันทึก' },
     { k: 'xlsx', icon: '📗', title: 'Excel (.xlsx)', desc: 'ตกแต่งสี + format ตัวเลข · ดาวน์โหลดทันที' },
-    { k: 'csv',  icon: '🗒️', title: 'CSV', desc: 'ข้อมูลดิบตามคอลัมน์ที่แสดงในตาราง' },
+    { k: 'csv',  icon: '🗒️', title: 'CSV', desc: 'ข้อมูลดิบ เปิดต่อใน Excel/Sheet ได้' },
   ];
+  const selCols = () => allCols.filter(c => sel.has(c.key));
   const doExport = () => {
     if (!rows.length) { alert('ไม่มีโครงการที่จะส่งออก'); return; }
-    if (format === 'pdf') PCU.openReport(content, rows, scopeLabel);
-    else if (format === 'xlsx') PCU.exportXLSX(content, rows, scopeLabel);
-    else PCU.exportCSV(rows, visibleColObjs, 'project-control-' + PCU.TODAY);
+    if (needCols && sel.size === 0) { alert('เลือกอย่างน้อย 1 คอลัมน์'); return; }
+    const cols = selCols();
+    if (format === 'pdf') PCU.openReport(content, rows, scopeLabel, cols);
+    else if (format === 'xlsx') PCU.exportXLSX(content, rows, scopeLabel, cols);
+    else PCU.exportCSV(rows, cols, 'project-control-' + PCU.TODAY);
     onClose();
   };
+  const toggle = (k) => setSel(s => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; });
+  const filteredCols = colSearch.trim()
+    ? allCols.filter(c => (c.label + ' ' + c.group).toLowerCase().includes(colSearch.trim().toLowerCase()))
+    : allCols;
+  const groups = [['คำนวณ', 'คอลัมน์คำนวณ (จากระบบ)'], ['วิศวกร', 'คอลัมน์วิศวกร (จากไฟล์ Excel ทั้งหมด)']];
   const card = (o, active, onClick) => (
     <button key={o.k} onClick={onClick} style={{
-      textAlign: 'left', padding: '12px 14px', borderRadius: 11, cursor: 'pointer',
+      textAlign: 'left', padding: '11px 13px', borderRadius: 11, cursor: 'pointer',
       border: `2px solid ${active ? 'var(--brand-500)' : '#e3e9f2'}`,
       background: active ? 'var(--brand-50)' : '#fff', transition: 'all .12s',
     }}>
-      <div style={{ fontSize: 21, marginBottom: 3 }}>{o.icon}</div>
-      <div style={{ fontWeight: 800, fontSize: 13, color: active ? 'var(--brand-700)' : 'var(--ink-700)' }}>{o.title}</div>
-      <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 3, lineHeight: 1.45 }}>{o.desc}</div>
+      <div style={{ fontSize: 20, marginBottom: 2 }}>{o.icon}</div>
+      <div style={{ fontWeight: 800, fontSize: 12.5, color: active ? 'var(--brand-700)' : 'var(--ink-700)' }}>{o.title}</div>
+      <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 3, lineHeight: 1.4 }}>{o.desc}</div>
     </button>
   );
   const lbl = { fontSize: 11, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: .5, fontWeight: 700, marginBottom: 8 };
+  const chip = (txt, on, fn) => (
+    <button onClick={fn} style={{ padding: '3px 10px', borderRadius: 14, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${on ? 'var(--brand-400)' : '#d3dcea'}`, background: on ? 'var(--brand-50)' : '#fff', color: on ? 'var(--brand-700)' : '#64748b' }}>{txt}</button>
+  );
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(8,18,34,.42)', zIndex: 730, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, width: 'min(620px,97vw)', boxShadow: '0 24px 60px rgba(13,31,58,.28)', overflow: 'hidden' }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, width: 'min(680px,97vw)', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 60px rgba(13,31,58,.28)', overflow: 'hidden' }}>
         <div style={{ background: 'linear-gradient(135deg,var(--brand-600),var(--brand-500))', color: '#fff', padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div><div style={{ fontSize: 16, fontWeight: 800 }}>ส่งออกรายงาน — เลือกรูปแบบ</div><div style={{ fontSize: 10.5, opacity: .85 }}>{rows.length.toLocaleString()} โครงการ · ขอบเขต: {scopeLabel || 'ทั้งหมด'}</div></div>
           <button onClick={onClose} style={{ border: 'none', background: 'rgba(255,255,255,.18)', color: '#fff', borderRadius: 8, width: 30, height: 30, display: 'grid', placeItems: 'center', cursor: 'pointer' }}><PcI.close size={16} /></button>
         </div>
-        <div style={{ padding: 18 }}>
+        <div style={{ padding: 18, overflow: 'auto', flex: 1 }}>
           <div style={lbl}>1. เนื้อหา</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 18 }}>
             {contents.map(o => card(o, content === o.k, () => setContent(o.k)))}
           </div>
           <div style={lbl}>2. รูปแบบไฟล์</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-            {formats.map(o => card(o, format === o.k, () => { setFormat(o.k); if (o.k === 'csv') setContent('detail'); }))}
+            {formats.map(o => card(o, format === o.k, () => { setFormat(o.k); if (o.k === 'csv' && content === 'summary') setContent('detail'); }))}
           </div>
-          {format === 'csv' && <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 10 }}>* CSV ส่งออกข้อมูลดิบตามคอลัมน์ที่แสดงในตาราง (ไม่แยกสรุป/ละเอียด)</div>}
+          {needCols && (
+            <div style={{ marginTop: 18 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <span style={lbl}>3. เลือกคอลัมน์ที่จะส่งออก</span>
+                <span style={{ fontSize: 11, color: 'var(--brand-700)', fontWeight: 700 }}>{sel.size}/{allCols.length}</span>
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                  {chip('เลือกทั้งหมด', false, () => setSel(new Set(allCols.map(c => c.key))))}
+                  {chip('ค่าเริ่มต้น', false, () => setSel(new Set(PCU.PC_EXPORT_DEFAULT.filter(k => allCols.some(c => c.key === k)))))}
+                  {chip('ล้าง', false, () => setSel(new Set()))}
+                </div>
+              </div>
+              <input value={colSearch} onChange={e => setColSearch(e.target.value)} placeholder="ค้นหาคอลัมน์…"
+                style={{ width: '100%', height: 32, border: '1px solid #d3dcea', borderRadius: 8, padding: '0 10px', fontSize: 12, marginBottom: 8, outline: 'none' }} />
+              <div style={{ maxHeight: 230, overflow: 'auto', border: '1px solid #eef2f7', borderRadius: 10, padding: '6px 4px' }}>
+                {groups.map(([g, title]) => {
+                  const items = filteredCols.filter(c => c.group === g);
+                  if (!items.length) return null;
+                  const allOn = items.every(c => sel.has(c.key));
+                  return (
+                    <div key={g} style={{ marginBottom: 6 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', position: 'sticky', top: 0, background: '#f8fafc', borderRadius: 6 }}>
+                        <input type="checkbox" checked={allOn} ref={el => { if (el) el.indeterminate = !allOn && items.some(c => sel.has(c.key)); }}
+                          onChange={() => setSel(s => { const n = new Set(s); allOn ? items.forEach(c => n.delete(c.key)) : items.forEach(c => n.add(c.key)); return n; })} />
+                        <b style={{ fontSize: 11, color: '#475569' }}>{title}</b>
+                        <span style={{ fontSize: 10, color: '#94a3b8' }}>({items.length})</span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 8px', padding: '2px 6px' }}>
+                        {items.map(c => (
+                          <label key={c.key} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 4px', fontSize: 11.5, cursor: 'pointer', minWidth: 0 }}>
+                            <input type="checkbox" checked={sel.has(c.key)} onChange={() => toggle(c.key)} />
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.label}>{c.label}</span>
+                            {c.type !== 'text' && <span style={{ fontSize: 9, color: '#cbd5e1', flex: '0 0 auto' }}>{c.type === 'money' ? '฿' : c.type === 'date' ? '📅' : '%'}</span>}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
-        <div style={{ padding: '12px 18px', borderTop: '1px solid #eef2f7', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button onClick={onClose} style={pcBtn}>ยกเลิก</button>
-          <button onClick={doExport} style={{ ...pcBtn, background: 'var(--brand-600)', color: '#fff', border: 'none', padding: '0 20px', display: 'inline-flex', alignItems: 'center', gap: 6 }}><PcI.download size={14} />ส่งออก {rows.length.toLocaleString()} โครงการ</button>
+        <div style={{ padding: '12px 18px', borderTop: '1px solid #eef2f7', display: 'flex', alignItems: 'center', gap: 8 }}>
+          {needCols && <span style={{ fontSize: 11, color: '#94a3b8' }}>ส่งออก {sel.size} คอลัมน์</span>}
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+            <button onClick={onClose} style={pcBtn}>ยกเลิก</button>
+            <button onClick={doExport} style={{ ...pcBtn, background: 'var(--brand-600)', color: '#fff', border: 'none', padding: '0 20px', display: 'inline-flex', alignItems: 'center', gap: 6 }}><PcI.download size={14} />ส่งออก {rows.length.toLocaleString()} โครงการ</button>
+          </div>
         </div>
       </div>
     </div>
