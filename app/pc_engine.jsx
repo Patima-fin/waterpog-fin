@@ -29,18 +29,36 @@
     else return Math.round(n).toLocaleString('en-US');
     return v.toLocaleString('en-US', { maximumFractionDigits: Math.abs(v) >= 100 ? 0 : 1 }) + suf;
   }
+  // แปลงวันที่ทุกฟอร์แมตที่เจอในไฟล์วิศวกร → ISO (YYYY-MM-DD)
+  // รองรับ: Date object · 22/May/26 · ISO · n/n/n (ปี 2 หรือ 4 หลัก, สลับ D/M ↔ M/D)
+  // ฮิวริสติกแยก D/M กับ M/D: ถ้าเลขตัวใด > 12 ใช้ตัวนั้นเป็น "วัน" · ถ้ากำกวม →
+  // ปี 4 หลัก = D/M/Y (พิมพ์มือแบบไทย) · ปี 2 หลัก = M/D/Y (Excel auto-format แบบ US)
   function isoOf(v) {
-    if (!v) return null;
-    if (v instanceof Date) return v.toISOString().slice(0, 10);
+    if (v == null || v === '') return null;
+    if (v instanceof Date) return isNaN(v) ? null : v.toISOString().slice(0, 10);
     const s = String(v).trim();
+    if (!s || s === '-') return null;
     let m = s.match(/^(\d{1,2})[\/\-]([A-Za-z]{3})[\/\-](\d{2,4})$/); // 22/May/26
     if (m) {
       const mi = EN_MONTHS.findIndex(x => x.toLowerCase() === m[2].toLowerCase());
       if (mi >= 0) { let y = +m[3]; if (y < 100) y += 2000; return `${y}-${String(mi+1).padStart(2,'0')}-${m[1].padStart(2,'0')}`; }
     }
-    m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/); // dd/mm/yyyy
-    if (m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
-    if (/^\d{4}-\d{2}(-\d{2})?/.test(s)) return s.length === 7 ? s + '-01' : s.slice(0, 10);
+    if (/^\d{4}-\d{1,2}(-\d{1,2})?/.test(s)) { // ISO (อาจมีเลขหลักเดียว)
+      const p = s.split(/[-T ]/); const y = +p[0], mo = +p[1], d = +(p[2] || 1);
+      if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) return `${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      return null;
+    }
+    m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/); // n/n/n (ปี 2 หรือ 4 หลัก)
+    if (m) {
+      const a = +m[1], b = +m[2]; let y = +m[3]; const fourDigit = m[3].length === 4;
+      if (y < 100) y += 2000;
+      let day, mon;
+      if (a > 12 && b <= 12) { day = a; mon = b; }        // ชัดเจน D/M
+      else if (b > 12 && a <= 12) { mon = a; day = b; }   // ชัดเจน M/D
+      else { if (fourDigit) { day = a; mon = b; } else { mon = a; day = b; } } // กำกวม → ฮิวริสติก
+      if (mon < 1 || mon > 12 || day < 1 || day > 31) return null;
+      return `${y}-${String(mon).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    }
     return null;
   }
   function fmtDate(iso, mode = 'short') {
@@ -940,11 +958,11 @@
     const _clean = (name) => String(name || '').trim().replace(/\s+/g, '_').slice(0, 36);
     const CANON = /^[A-Z]{2,5}\d{2,5}(-[A-Z]{2,6})?$/;
     const finalizeCode = (raw, sheet) => { const c = String(raw || '').trim(); if (!c) return ''; if (/^(XL|WS)-/.test(c)) return c; if (CANON.test(c)) return c; return c + '-' + _yr(sheet); };
-    const isoDate = (v) => { if (!v) return ''; if (v instanceof Date) return v.toISOString().slice(0, 10);
-      const s = String(v).trim(); let m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/); if (m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
-      if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10); return s; };
-    const DATE_COLS = new Set(['Start','Finish','เซ็นสัญญา','แจ้งเข้าดำเนินการ','ประกาศผู้ชนะ','Receive Date','Receive Date2','Receive Date3',
-      'วันที่ส่งมอบงาน งวด 1','วันที่ส่งมอบงาน งวด 2','วันที่ส่งมอบงานงวด 3','วันที่เซ็น/รับ ใบตรวจรับ งวดที่ 1','วันที่เซ็น/รับ ใบตรวจรับ งวด 2','กำหนดส่งมอบงานงวด 1']);
+    // normalize ทุกวันที่ → ISO ด้วย isoOf (รองรับ M/D, ปี 2 หลัก ฯลฯ) เก็บรูปแบบเดียวกันหมด
+    const isoDate = (v) => isoOf(v) || (v == null ? '' : String(v).trim());
+    // คอลัมน์วันที่ทั้งหมด = ทุก key ใน PC_COL_SPEC ที่ pcColType = 'date' (+ เผื่อชื่อแปรผัน)
+    const DATE_COLS = new Set(PC_COL_SPEC.filter(s => pcColType(s.key) === 'date').map(s => s.key)
+      .concat(['Receive Date3','วันที่ส่งมอบงานงวด 3','วันที่เซ็น/รับ ใบตรวจรับ งวดที่ 1','วันที่ส่งมอบงาน งวด 1','วันที่ส่งมอบงาน งวด 2']));
 
     // preserve ids + snapshot สถานะเดิม (สำหรับ diff หลัง upload)
     const idByCode = {}; let maxId = 0;
