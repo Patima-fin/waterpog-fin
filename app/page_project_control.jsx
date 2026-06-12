@@ -572,10 +572,16 @@ function PcExportModal({ rows, scopeLabel, onClose }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
             {formats.map(o => card(o, format === o.k, () => { setFormat(o.k); if (o.k === 'csv' && content === 'summary') setContent('detail'); }))}
           </div>
+          {!needCols && (
+            <div style={{ marginTop: 16, display: 'flex', alignItems: 'flex-start', gap: 8, padding: '11px 13px', background: 'var(--brand-50)', border: '1px solid var(--brand-100)', borderRadius: 10, fontSize: 11.5, color: 'var(--brand-700)', lineHeight: 1.5 }}>
+              <span style={{ fontSize: 15 }}>💡</span>
+              <span>อยากเลือกคอลัมน์ที่จะส่งออกเอง? กด <b>“รายละเอียด”</b> หรือ <b>“สรุป + รายละเอียด”</b> ด้านบน — จะมีช่องให้เลือกจากคอลัมน์วิศวกรทั้งหมด · (“สรุป” = ภาพรวม KPI ไม่มีตารางรายโครงการ จึงไม่ต้องเลือกคอลัมน์)</span>
+            </div>
+          )}
           {needCols && (
             <div style={{ marginTop: 18 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <span style={lbl}>3. เลือกคอลัมน์ที่จะส่งออก</span>
+                <span style={lbl}>3. เลือกคอลัมน์ที่จะส่งออก <span style={{ textTransform: 'none', fontWeight: 400, color: '#94a3b8' }}>(จากคอลัมน์วิศวกรทั้งหมด)</span></span>
                 <span style={{ fontSize: 11, color: 'var(--brand-700)', fontWeight: 700 }}>{sel.size}/{allCols.length}</span>
                 <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
                   {chip('เลือกทั้งหมด', false, () => setSel(new Set(allCols.map(c => c.key))))}
