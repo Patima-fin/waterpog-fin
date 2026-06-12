@@ -1117,7 +1117,10 @@ function ProjectControlPage({ data, setData, toast }) {
       // 2) push เข้า cloud sheet (ทีมเห็นเหมือนกัน) — Finance Master ไม่ถูกแตะ (แยก localStorage)
       setData(d => ({ ...d, projects: merged }));
       setFinVer(v => v + 1); // recalc forecast/dashboard
-      setUploadInfo({ status: 'ok', msg: `อัปเดตแล้ว · ${stats.totalRows} โครงการ · ใหม่ ${stats.newCount} · ยกเลิก ${stats.cancelledCount} · คงไว้ ${stats.keptCount} · sync เข้า Google Sheet…` });
+      // 2b) บังคับ push ขึ้นชีททันที — กัน sync (debounce) แพ้การรีเฟรช/นำทาง
+      //     ทำให้คอลัมน์เต็ม (งวด/ส่งมอบ/Summary) ขึ้นชีทแน่นอน ไม่ค้างแค่ในเครื่อง
+      try { if (window.WTPData && WTPData.forceSyncNow) setTimeout(() => { try { WTPData.forceSyncNow(); } catch (_) {} }, 400); } catch (_) {}
+      setUploadInfo({ status: 'ok', msg: `อัปเดตแล้ว · ${stats.totalRows} โครงการ · ใหม่ ${stats.newCount} · ยกเลิก ${stats.cancelledCount} · คงไว้ ${stats.keptCount} · กำลัง sync เข้า Google Sheet (รอ ~10 วิ อย่าเพิ่งรีเฟรช)…` });
       if (diff) setDiffModal({ diff, stats }); // แสดงสรุปความเปลี่ยนแปลง
       toast && toast('อัปโหลด Project Control สำเร็จ · ' + stats.totalRows + ' โครงการ');
       setTimeout(() => setUploadInfo(null), 6000);
