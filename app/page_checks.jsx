@@ -269,12 +269,11 @@ const ChecksPage = ({ data: propData, setData, toast }) => {
                 <FilterableColHeader label="เลขอ้างอิง"   colKey="referenceNo" sort={sort} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={sorted} getValue={colDisplay} />
                 <FilterableColHeader label="สถานะ"         sortKey="status"   colKey="status"    sort={sort} sortToggle={requestSort} colFilters={colFilters} setColFilters={setColFilters} openCol={openCol} setOpenCol={setOpenCol} allRows={sorted} getValue={colDisplay} />
                 <th>หมายเหตุ</th>
-                <th></th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 && (
-                <tr><td colSpan={(userCanDelete && bulkMode) ? 11 : 10} style={{ textAlign:'center', color:'#8a94a6', padding:32 }}>ไม่พบข้อมูล</td></tr>
+                <tr><td colSpan={(userCanDelete && bulkMode) ? 10 : 9} style={{ textAlign:'center', color:'#8a94a6', padding:32 }}>ไม่พบข้อมูล</td></tr>
               )}
               {filtered.map(c => {
                 const isOverdue = c.status === 'pending' && c.checkDate < today;
@@ -305,18 +304,6 @@ const ChecksPage = ({ data: propData, setData, toast }) => {
                     <td style={{ fontSize: 11, color:'#718096' }}>{c.referenceNo || '—'}</td>
                     <td><span className={`badge ${meta.color}`}>{meta.label}</span></td>
                     <td style={{ fontSize: 11, color:'#718096' }}>{c.note || '—'}</td>
-                    <td onClick={e => e.stopPropagation()}>
-                      <div style={{ display:'flex', gap: 4 }}>
-                        {userCanEdit && (
-                          <button className="btn btn-ghost" style={{ padding:'2px 8px', fontSize: 11 }}
-                                  onClick={() => openEdit(c)}>แก้ไข</button>
-                        )}
-                        {userCanDelete && (
-                          <button className="btn btn-ghost" style={{ padding:'2px 8px', fontSize: 11, color:'#e53e3e' }}
-                                  onClick={() => handleDelete(c.id)}>ลบ</button>
-                        )}
-                      </div>
-                    </td>
                   </tr>
                 );
               })}
@@ -330,7 +317,7 @@ const ChecksPage = ({ data: propData, setData, toast }) => {
                   <td style={{ textAlign:'right', fontVariantNumeric:'tabular-nums' }}>
                     {fmtMoney(filtered.reduce((s,c)=>s+(parseFloat(c.amount)||0), 0))}
                   </td>
-                  <td colSpan={6}></td>
+                  <td colSpan={5}></td>
                 </tr>
               </tfoot>
             )}
@@ -511,6 +498,12 @@ const ChecksPage = ({ data: propData, setData, toast }) => {
               </div>
 
               <div className="modal-foot">
+                {userCanDelete && (
+                  <button className="btn btn-ghost" style={{ color:'#e53e3e', marginRight:'auto' }}
+                          onClick={() => { const id = view.id; setView(null); handleDelete(id); }}>
+                    <Icon name="trash" size={14} /> ลบ
+                  </button>
+                )}
                 <button className="btn btn-ghost" onClick={() => setView(null)}>ปิด</button>
                 <button className="btn btn-primary" onClick={() => { setView(null); openEdit(view); }}>
                   <Icon name="edit" size={14} /> แก้ไข

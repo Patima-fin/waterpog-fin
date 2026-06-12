@@ -2368,6 +2368,22 @@ function DebtLedgerPage({ data, setData, toast }) {
     totalInterest    += s.totalInterest;
   });
 
+  // ── แจ้งเตือนสัญญาครบกำหนด — เฉพาะสัญญา Active ที่ใกล้/เลย maturityDate (ภายใน 60 วัน)
+  //    ช่วยตรวจว่าต่อสัญญา / ขยายเวลา / เปลี่ยนสัญญาแล้วหรือยัง (สัญญาเยอะ ต้องการตัวช่วยกวาดตา)
+  const maturityAlerts = (() => {
+    const todayD = new Date(today + 'T00:00:00');
+    const out = [];
+    activeMasters.forEach(m => {
+      if (!m.maturityDate) return;
+      const d = new Date(String(m.maturityDate).slice(0, 10) + 'T00:00:00');
+      if (isNaN(d)) return;
+      const days = Math.round((d - todayD) / 86400000);
+      if (days <= 60) out.push({ m, days });
+    });
+    return out.sort((a, b) => a.days - b.days);
+  })();
+  const matOverdue = maturityAlerts.filter(a => a.days < 0).length;
+
   const colDisplayVal = (m, key) => {
     const s = summaryByContract[m.contractNo] || {};
     switch (key) {
@@ -2477,6 +2493,46 @@ function DebtLedgerPage({ data, setData, toast }) {
         <KpiTile animate={false} label="ดอกเบี้ยรวม (คำนวณ)"    value={totalInterest}        accent="oklch(52% 0.16 145)"   icon="arrow_up" />
         <KpiTile animate={false} label="สัญญา Active"            value={activeMasters.length} accent="var(--brand-500)"      icon="bank" unit=" สัญญา" digits={0} />
       </div>
+
+      {/* ── แจ้งเตือนสัญญาครบกำหนด (Active ที่ใกล้/เลยวันครบ ภายใน 60 วัน) ───────────── */}
+      {maturityAlerts.length > 0 && (
+        <div className="card anim-in" style={{ padding: '12px 16px', marginBottom: 12,
+          borderLeft: `4px solid ${matOverdue ? 'var(--bad)' : 'oklch(70% 0.16 70)'}`,
+          background: matOverdue ? 'color-mix(in oklch, var(--bad) 5%, var(--surface))' : 'color-mix(in oklch, oklch(70% 0.16 70) 7%, var(--surface))' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <span style={{ fontSize: 16 }}>⏰</span>
+            <span style={{ fontWeight: 800, fontSize: 14, color: 'var(--ink-800)' }}>
+              สัญญาครบกำหนด — ต้องตรวจสอบ {maturityAlerts.length} สัญญา
+            </span>
+            {matOverdue > 0 && (
+              <span style={{ fontSize: 11, fontWeight: 800, background: 'var(--bad)', color: '#fff', borderRadius: 6, padding: '2px 8px' }}>
+                เลยกำหนดแล้ว {matOverdue}
+              </span>
+            )}
+            <span style={{ fontSize: 11.5, color: 'var(--ink-500)', marginLeft: 'auto' }}>ต่อสัญญา / ขยายเวลา / เปลี่ยนสัญญาแล้วหรือยัง?</span>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {maturityAlerts.map(({ m, days }) => {
+              const over = days < 0, urgent = days >= 0 && days <= 30;
+              const col  = over ? 'var(--bad)' : urgent ? 'oklch(58% 0.16 60)' : 'var(--brand-600)';
+              const bg   = over ? 'color-mix(in oklch, var(--bad) 12%, #fff)' : urgent ? 'color-mix(in oklch, oklch(70% 0.16 60) 16%, #fff)' : 'color-mix(in oklch, var(--brand-500) 10%, #fff)';
+              return (
+                <button key={m.id || m.contractNo} onClick={() => setSelectedMaster(m)}
+                  title="เปิดดูสัญญา"
+                  style={{ textAlign: 'left', cursor: 'pointer', border: `1px solid ${col}`, background: bg,
+                    borderRadius: 9, padding: '6px 10px', fontFamily: 'inherit', minWidth: 180 }}>
+                  <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--ink-800)' }}>
+                    {m.contractNo || '—'} {m.borrowerName ? `· ${m.borrowerName}` : ''}
+                  </div>
+                  <div style={{ fontSize: 11, color: col, fontWeight: 700, marginTop: 2 }}>
+                    ครบ {fmtDate(m.maturityDate)} · {over ? `เลย ${Math.abs(days)} วัน` : days === 0 ? 'ครบวันนี้!' : `อีก ${days} วัน`}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="card" style={{ padding: '10px 14px', marginBottom: 12, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
         <div className="tabnav" style={{ flex: 'none' }}>

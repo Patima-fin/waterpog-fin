@@ -441,7 +441,7 @@ function WarRoomPage2({ data, setData, toast }) {
   }));
 
   return (
-    <div className="page bg-pattern present-page">
+    <div className="page bg-pattern present-page wr-page">
       <div className="page-head anim-in">
         <div>
           <h1 className="page-title">Estimated Annual Cash Flow from Existing Projects</h1>

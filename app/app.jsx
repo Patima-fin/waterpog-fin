@@ -83,6 +83,9 @@ function App() {
     localStorage.setItem('wtp-session', JSON.stringify(session));
     setCurrentUser(session);
     setIsLoggedIn(true);
+    // ทุกคนที่ login เข้ามาต้องเจอหน้า Home ก่อนเสมอ (ไม่ว่า hash เดิมจะค้างหน้าไหน)
+    try { window.location.hash = '#home'; } catch (_) {}
+    setRoute('home');
   };
   const handleLogout = () => {
     localStorage.removeItem('wtp-session');
@@ -772,7 +775,7 @@ function PresentModeToggle() {
 function Topbar({ route, routes, data, onReset, onMenuClick }) {
   const r = routes[route] || routes.daily;
   const today = new Date().toLocaleDateString('th-TH-u-ca-gregory', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
-  const isPresentation = ['daily', 'warroom1', 'warroom2', 'cashflow'].includes(route);
+  const isPresentation = ['daily', 'warroom1', 'warroom2', 'cashflow', 'pnl', 'projects'].includes(route);
   return (
     <div className="topbar">
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>

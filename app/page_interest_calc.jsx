@@ -19,7 +19,7 @@ function monthKey(dateStr) { return dateStr.slice(0, 7); }
 function monthLabel(dateStr) {
   var MONTH = ['','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
   var d = new Date(dateStr + '-01');
-  return MONTH[d.getMonth()+1] + ' ' + (d.getFullYear()+543);
+  return MONTH[d.getMonth()+1] + ' ' + d.getFullYear();
 }
 function monthStart(dateStr) {
   return dateStr.slice(0,7) + '-01';
@@ -36,7 +36,7 @@ function quarterOf(dateStr) {
 }
 function quarterLabel(year, q) {
   var RANGES = ['','ม.ค.–มี.ค.','เม.ย.–มิ.ย.','ก.ค.–ก.ย.','ต.ค.–ธ.ค.'];
-  return 'Q'+q+' ('+RANGES[q]+') '+(year+543);
+  return 'Q'+q+' ('+RANGES[q]+') '+year;
 }
 
 /* ── Interest schedule generator ────────────────────────────────────── */

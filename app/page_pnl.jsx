@@ -290,8 +290,9 @@ function PL_parseRows(rows) {
 function PL_compute(d, lastMonth) {
   const salesRevenue  = PL_addArr(d.saleGoods, d.service);
   const totalRevenue  = PL_addArr(salesRevenue, d.otherIncome);
-  const constructCost = PL_addArr(d.cogs, d.costService);
-  const totalCost     = PL_addArr(constructCost, d.commission);
+  // ต้นทุนงานก่อสร้าง = Cost of goods sold + Cost of service + Commission (รวม 3 รายการ)
+  const constructCost = PL_addArr(PL_addArr(d.cogs, d.costService), d.commission);
+  const totalCost     = constructCost;
   const grossProfit   = totalRevenue.map((v, i) => v - totalCost[i]);
   const gpMargin      = grossProfit.map((v, i) => totalRevenue[i] ? (v / totalRevenue[i] * 100) : NaN);
   const totalSGA      = PL_addArr(PL_addArr(d.selling, d.admin), d.finance);
@@ -572,9 +573,8 @@ function PnLPage({ data, setData, toast }) {
     { label: 'รวมรายได้',                   arr: c.totalRevenue, cls: 'pnl-strong' },
     { label: 'Cost of goods sold',          arr: d.cogs,        indent: true, key: 'cogs' },
     { label: 'Cost of service',             arr: d.costService, indent: true, key: 'costService' },
-    { label: 'ต้นทุนงานก่อสร้าง',           arr: c.constructCost, cls: 'pnl-sub' },
     { label: 'Commission',                  arr: d.commission,  indent: true, key: 'commission' },
-    { label: 'รวมต้นทุนงานก่อสร้าง',         arr: c.totalCost,   cls: 'pnl-strong' },
+    { label: 'ต้นทุนงานก่อสร้าง',           arr: c.constructCost, cls: 'pnl-strong' },
     { label: 'Gross Profit',                arr: c.grossProfit, cls: 'pnl-gp' },
     { label: '% margin',                    arr: c.gpMargin,    cls: 'pnl-pct', pct: true, totalVal: (PL_sum(c.totalRevenue, lastMonth) ? PL_sum(c.grossProfit, lastMonth) / PL_sum(c.totalRevenue, lastMonth) * 100 : NaN) },
     { label: 'Selling expenses',            arr: d.selling,     indent: true, key: 'selling' },
@@ -629,7 +629,7 @@ function PnLPage({ data, setData, toast }) {
   };
 
   return (
-    <div className="page pnl-page" ref={pageRef}>
+    <div className="page pnl-page present-page" ref={pageRef}>
       {/* ── HERO BANNER ────────────────────────────────────────────────── */}
       <div className="anim-in" style={{
         background: 'linear-gradient(135deg, #2563eb 0%, #1e3a8a 100%)',

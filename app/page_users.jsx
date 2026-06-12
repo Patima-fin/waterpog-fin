@@ -51,6 +51,11 @@ function UsersPage({ data, setData, toast }) {
   const [roleFilter, setRoleFilter] = uState('all');
   const [edit, setEdit] = uState(null);   // null | {} (new) | row (edit)
   const [showPw, setShowPw] = uState({});  // { rowId: bool }
+  const [sort, setSort] = uState({ key: 'username', dir: 'asc' });
+
+  const uSortVal = (u, key) => String(u[key] || '').toLowerCase();
+  const toggleSort = (key) => setSort(s =>
+    s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
 
   const filtered = uMemo(() => {
     let xs = combinedRows;
@@ -59,10 +64,17 @@ function UsersPage({ data, setData, toast }) {
       const q = query.toLowerCase();
       xs = xs.filter(u =>
         (u.username || '').toLowerCase().includes(q) ||
-        (u.displayName || '').toLowerCase().includes(q));
+        (u.displayName || '').toLowerCase().includes(q) ||
+        (u.department || '').toLowerCase().includes(q));
     }
+    xs = xs.slice().sort((a, b) => {
+      const va = uSortVal(a, sort.key), vb = uSortVal(b, sort.key);
+      if (va < vb) return sort.dir === 'asc' ? -1 : 1;
+      if (va > vb) return sort.dir === 'asc' ?  1 : -1;
+      return 0;
+    });
     return xs;
-  }, [combinedRows, query, roleFilter]);
+  }, [combinedRows, query, roleFilter, sort]);
 
   // KPI
   const roleCounts = uMemo(() => {
@@ -100,7 +112,7 @@ function UsersPage({ data, setData, toast }) {
 
   const togglePw = (id) => setShowPw(prev => ({ ...prev, [id]: !prev[id] }));
 
-  const emptyUser = { username: '', password: '', displayName: '', role: 'staff', active: 'true', note: '' };
+  const emptyUser = { username: '', password: '', displayName: '', role: 'staff', active: 'true', department: '', note: '' };
 
   return (
     <div className="page">
@@ -117,6 +129,7 @@ function UsersPage({ data, setData, toast }) {
             columns={[
               { key: 'username',    label: 'Username' },
               { key: 'displayName', label: 'ชื่อผู้ใช้' },
+              { key: 'department',  label: 'หน่วยงาน' },
               { key: 'role',        label: 'Role' },
               { key: 'active',      label: 'สถานะ' },
               { key: 'note',        label: 'หมายเหตุ' },
@@ -159,26 +172,37 @@ function UsersPage({ data, setData, toast }) {
       {/* Table */}
       <div className="card anim-in" style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'min(560px, calc(100vh - 400px))' }}>
-          <table className="tbl" style={{ minWidth: 900 }}>
+          <table className="tbl" style={{ minWidth: 980 }}>
             <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--surface)' }}>
               <tr>
-                <th style={{ width: 140 }}>Username</th>
-                <th>ชื่อผู้ใช้</th>
-                <th style={{ width: 130 }}>Role</th>
-                <th style={{ width: 180 }}>Password</th>
-                <th style={{ width: 90 }}>แหล่ง</th>
-                <th style={{ width: 110 }}></th>
+                {[
+                  { k: 'username',    label: 'Username',  w: 140 },
+                  { k: 'displayName', label: 'ชื่อผู้ใช้' },
+                  { k: 'department',  label: 'หน่วยงาน',  w: 150 },
+                  { k: 'role',        label: 'Role',      w: 130 },
+                  { k: null,          label: 'Password',  w: 180 },
+                  { k: '_source',     label: 'แหล่ง',     w: 90 },
+                  { k: null,          label: '',          w: 110 },
+                ].map((c, ci) => (
+                  <th key={ci}
+                      onClick={() => c.k && toggleSort(c.k)}
+                      style={{ width: c.w, cursor: c.k ? 'pointer' : 'default', userSelect: 'none', whiteSpace: 'nowrap', verticalAlign: 'middle' }}
+                      title={c.k ? 'คลิกเพื่อเรียงลำดับ' : undefined}>
+                    {c.label}
+                    {c.k && <span style={{ marginLeft: 4, color: sort.key === c.k ? 'var(--brand-600)' : 'var(--ink-300)', fontSize: 10 }}>{sort.key === c.k ? (sort.dir === 'asc' ? '▲' : '▼') : '⇅'}</span>}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 && (
-                <tr><td colSpan={6} style={{ padding: 36, textAlign: 'center' }} className="muted">ไม่พบผู้ใช้ที่ตรงกับเงื่อนไข</td></tr>
+                <tr><td colSpan={7} style={{ padding: 36, textAlign: 'center' }} className="muted">ไม่พบผู้ใช้ที่ตรงกับเงื่อนไข</td></tr>
               )}
               {filtered.map(u => {
                 const meta = ROLE_LABELS[u.role] || { label: u.role || '—', color: 'b-gray' };
                 const isConfig = u._source === 'config';
                 return (
-                  <tr key={u.id} style={{ opacity: isConfig ? 0.7 : 1 }}>
+                  <tr key={u.id} style={{ opacity: isConfig ? 0.7 : 1, verticalAlign: 'middle' }}>
                     <td style={{ fontFamily: 'ui-monospace', fontWeight: 600, color: 'var(--brand-700)' }}>
                       {u.username}
                     </td>
@@ -186,16 +210,21 @@ function UsersPage({ data, setData, toast }) {
                       <div style={{ fontWeight: 500 }}>{u.displayName || '—'}</div>
                       {u.note && <div className="muted" style={{ fontSize: 11 }}>{u.note}</div>}
                     </td>
+                    <td style={{ fontSize: 12.5, color: 'var(--ink-700)' }}>
+                      {u.department ? u.department : <span className="muted">—</span>}
+                    </td>
                     <td>
                       <Badge kind={meta.color} dot={false}>{meta.label}</Badge>
                     </td>
-                    <td style={{ fontFamily: 'ui-monospace', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ flex: 1, color: 'var(--ink-600)', letterSpacing: showPw[u.id] ? 0 : 2 }}>
-                        {showPw[u.id] ? (u.password || '—') : (u.password ? '••••••••' : '—')}
-                      </span>
-                      <button onClick={() => togglePw(u.id)} className="btn btn-ghost btn-sm" style={{ padding: '2px 6px', fontSize: 11 }}>
-                        {showPw[u.id] ? 'ซ่อน' : 'แสดง'}
-                      </button>
+                    <td style={{ fontFamily: 'ui-monospace', fontSize: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ flex: 1, color: 'var(--ink-600)', letterSpacing: showPw[u.id] ? 0 : 2 }}>
+                          {showPw[u.id] ? (u.password || '—') : (u.password ? '••••••••' : '—')}
+                        </span>
+                        <button onClick={() => togglePw(u.id)} className="btn btn-ghost btn-sm" style={{ padding: '2px 6px', fontSize: 11 }}>
+                          {showPw[u.id] ? 'ซ่อน' : 'แสดง'}
+                        </button>
+                      </div>
                     </td>
                     <td>
                       {u._source === 'config' && <Badge kind="b-amber" dot={false}>config.js</Badge>}
@@ -318,10 +347,16 @@ function UserEditModal({ row, onSave, onClose }) {
           </select>
         </div>
         <div className="field">
+          <label>หน่วยงาน</label>
+          <input className="input" value={draft.department || ''}
+            onChange={e => set('department', e.target.value)}
+            placeholder="เช่น การเงิน / บัญชี / จัดซื้อ" />
+        </div>
+        <div className="field" style={{ gridColumn: '1/-1' }}>
           <label>หมายเหตุ</label>
           <input className="input" value={draft.note || ''}
             onChange={e => set('note', e.target.value)}
-            placeholder="ฝ่าย / หน่วยงาน" />
+            placeholder="หมายเหตุเพิ่มเติม" />
         </div>
         <div className="field" style={{ gridColumn: '1/-1' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>

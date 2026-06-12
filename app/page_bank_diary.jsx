@@ -240,6 +240,7 @@ function bdBuildAccountView(acct, matchedChecks, matchedForecasts, matchedTransf
   const pvGroups = {};
   (matchedPVs || [])
     .filter(p => p.date && p.date >= asOfRef
+              && Math.abs(bdNum(p.amount)) > 0   // ข้าม PV ยอด 0 (มักเป็นการตัดมัดจำ ไม่มีผลต่อยอดการ์ด)
               && !(p.chqNo && countedChq.has(bdDigits(p.chqNo)))
               && !(p.apNo && countedAP.has(String(p.apNo).trim())))
     .forEach(p => {
@@ -1029,6 +1030,7 @@ function BankAccountCard({ view, today, periodEnd, periodLabel, onQuickTransfer,
         <div style={{ position:'relative', padding:'14px 16px', display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:10 }}>
           <div style={{ minWidth:0 }}>
             <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+              <HpBankLogo name={acct.bankName} />
               <span style={{ fontWeight:800, fontSize:16, letterSpacing:0.5, textShadow:'0 1px 2px rgba(0,0,0,0.18)' }}>{brand.label}</span>
               {isShort && <span style={{ fontSize:10, fontWeight:800, background:'#fff', color:'#dc2626', borderRadius:5, padding:'2px 7px', whiteSpace:'nowrap', boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }}>⚠ ไม่พอในช่วง “{periodLabel}”</span>}
             </div>

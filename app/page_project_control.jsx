@@ -161,7 +161,7 @@ function PcCashflow({ rows }) {
         </div>
         {years.length > 1 && (
           <select value={yr} onChange={e => setYear(+e.target.value)} style={{ fontSize: 11, padding: '3px 6px', borderRadius: 6, border: '1px solid #d3dcea' }}>
-            {years.map(y => <option key={y} value={y}>{y + 543}</option>)}
+            {years.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
         )}
       </div>
@@ -185,7 +185,7 @@ function PcCashflow({ rows }) {
           <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, width: 'min(680px,96vw)', maxHeight: '82vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 60px rgba(13,31,58,.28)', overflow: 'hidden' }}>
             <div style={{ background: 'linear-gradient(135deg,var(--brand-600),var(--brand-500))', color: '#fff', padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <div style={{ fontSize: 10.5, opacity: .8 }}>กระแสเงินสดคาดการณ์ · {yr + 543}</div>
+                <div style={{ fontSize: 10.5, opacity: .8 }}>กระแสเงินสดคาดการณ์ · {yr}</div>
                 <div style={{ fontSize: 16, fontWeight: 800 }}>{drill.month} · คาดรับ ฿{PCU.fmtBaht(drill.gross)} <span style={{ fontSize: 12, fontWeight: 500, opacity: .85 }}>({drill.count} งวด)</span></div>
               </div>
               <button onClick={() => setDrill(null)} style={{ border: 'none', background: 'rgba(255,255,255,.18)', color: '#fff', borderRadius: 8, width: 30, height: 30, display: 'grid', placeItems: 'center', cursor: 'pointer' }}><PcI.close size={16} /></button>
@@ -1003,7 +1003,7 @@ function ProjectControlPage({ data, setData, toast }) {
   };
 
   return (
-    <div className="page" style={{ maxWidth: 1680, padding: '0 0 40px' }}>
+    <div className="page present-page" style={{ maxWidth: 1680, padding: '0 0 40px' }}>
       {/* ===== blue toolbar (page header) ===== */}
       <div style={{ background: 'linear-gradient(135deg,var(--brand-600),var(--brand-500))', borderRadius: 16, padding: '14px 18px', color: '#fff', boxShadow: '0 10px 26px rgba(35,72,150,.22)', marginBottom: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>

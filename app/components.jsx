@@ -619,10 +619,13 @@ function StatusPill({ value, options, onChange, size = 'md' }) {
   const opt = options.find(o => o.value === value) || options[0];
   return (
     <select
-      className={`badge dot ${opt.kind || 'b-gray'}`}
+      className={`badge ${opt.kind || 'b-gray'}`}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       style={{
+        // ★ ต้อง inline-block — `.badge` เป็น inline-flex ซึ่งทำให้ <select> ใน Chrome
+        //   ซ่อนข้อความ option ที่เลือก เหลือแค่ลูกศร (ดูเป็น "จุด") + ไม่ขึ้นสี
+        display: 'inline-block',
         border: 'none',
         padding: size === 'sm' ? '2px 18px 2px 18px' : '4px 22px 4px 22px',
         fontSize: size === 'sm' ? 11 : 12,

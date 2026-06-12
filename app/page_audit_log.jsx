@@ -44,6 +44,18 @@ function AuditLogPage({ data, toast }) {
   const [actionFilter, setActionFilter] = alState('all');
   const [entityFilter, setEntityFilter] = alState('all');
   const [limit, setLimit] = alState(200);   // tail length
+  const [sort, setSort]   = alState({ key: 'timestamp', dir: 'desc' });
+
+  // ค่าใช้สำหรับ sort ต่อคอลัมน์ (date→ms, number→num, อื่นๆ→ตัวพิมพ์เล็ก)
+  const sortVal = (r, key) => {
+    if (key === 'timestamp')    return new Date(r.timestamp || 0).getTime();
+    if (key === 'rowsAffected') return Number(r.rowsAffected) || 0;
+    if (key === 'user')         return String(r.displayName || r.user || '').toLowerCase();
+    return String(r[key] || '').toLowerCase();
+  };
+  const toggleSort = (key) => setSort(s =>
+    s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' }
+                  : { key, dir: key === 'timestamp' || key === 'rowsAffected' ? 'desc' : 'asc' });
 
   const load = () => {
     if (!window.WTPData || !window.WTPData.fetchSheetRows) {
@@ -86,8 +98,14 @@ function AuditLogPage({ data, toast }) {
         (r.entity || '').toLowerCase().includes(q) ||
         (r.summary || '').toLowerCase().includes(q));
     }
+    xs = xs.slice().sort((a, b) => {
+      const va = sortVal(a, sort.key), vb = sortVal(b, sort.key);
+      if (va < vb) return sort.dir === 'asc' ? -1 : 1;
+      if (va > vb) return sort.dir === 'asc' ?  1 : -1;
+      return 0;
+    });
     return xs.slice(0, limit);
-  }, [rows, query, actionFilter, entityFilter, limit]);
+  }, [rows, query, actionFilter, entityFilter, limit, sort]);
 
   const entityOptions = alMemo(() => {
     if (!rows) return [];
@@ -233,13 +251,25 @@ function AuditLogPage({ data, toast }) {
             <table className="tbl" style={{ minWidth: 1000 }}>
               <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--surface)' }}>
                 <tr>
-                  <th style={{ width: 165 }}>เวลา</th>
-                  <th style={{ width: 140 }}>ผู้ใช้</th>
-                  <th style={{ width: 80 }}>Role</th>
-                  <th style={{ width: 100 }}>การกระทำ</th>
-                  <th style={{ width: 130 }}>ตาราง</th>
-                  <th style={{ width: 70, textAlign: 'right' }}>จำนวนแถว</th>
-                  <th>รายละเอียด</th>
+                  {[
+                    { k: 'timestamp',    label: 'เวลา',       w: 160 },
+                    { k: 'user',         label: 'ผู้ใช้',      w: 140 },
+                    { k: 'role',         label: 'Role',       w: 80 },
+                    { k: 'action',       label: 'การกระทำ',   w: 100 },
+                    { k: 'entity',       label: 'ตาราง',      w: 130 },
+                    { k: 'rowsAffected', label: 'จำนวนแถว',   w: 78,  align: 'right' },
+                    { k: 'summary',      label: 'รายละเอียด (แก้ไขรายการไหน)' },
+                  ].map(c => (
+                    <th key={c.k}
+                        onClick={() => toggleSort(c.k)}
+                        style={{ width: c.w, textAlign: c.align || 'left', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
+                        title="คลิกเพื่อเรียงลำดับ">
+                      {c.label}
+                      <span style={{ marginLeft: 4, color: sort.key === c.k ? 'var(--brand-600)' : 'var(--ink-300)', fontSize: 10 }}>
+                        {sort.key === c.k ? (sort.dir === 'asc' ? '▲' : '▼') : '⇅'}
+                      </span>
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -248,8 +278,13 @@ function AuditLogPage({ data, toast }) {
                 )}
                 {filtered.map((r, i) => {
                   const a = AL_ACTION_META[r.action] || { label: r.action || '—', color: 'b-gray' };
+                  // ระบุให้ชัดว่า "แก้รายการไหน": ใช้ summary จากชีต (มักมี key/แถว);
+                  // ถ้าไม่มี ก็ประกอบจาก action + ตาราง + จำนวนแถว
+                  const detailText = r.summary
+                    || `${a.label} ${r.entity || ''}${r.rowsAffected ? ` · ${r.rowsAffected} แถว` : ''}`.trim()
+                    || '—';
                   return (
-                    <tr key={i}>
+                    <tr key={i} style={{ verticalAlign: 'top' }}>
                       <td style={{ fontSize: 11, fontFamily: 'ui-monospace', color: 'var(--ink-600)', whiteSpace: 'nowrap' }}>
                         {fmtTimestamp(r.timestamp)}
                       </td>
@@ -271,9 +306,14 @@ function AuditLogPage({ data, toast }) {
                       <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
                         {r.rowsAffected != null ? r.rowsAffected : '—'}
                       </td>
-                      <td style={{ fontSize: 11, color: 'var(--ink-500)', maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-                          title={r.summary || ''}>
-                        {r.summary || '—'}
+                      <td style={{ fontSize: 11.5, color: 'var(--ink-600)', whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: 1.45 }}
+                          title={detailText}>
+                        {r.action === 'update' && r.entity && (
+                          <span style={{ fontFamily: 'ui-monospace', fontSize: 10.5, color: 'var(--brand-700)', background: 'var(--brand-50)', borderRadius: 4, padding: '1px 5px', marginRight: 5 }}>
+                            {r.entity}
+                          </span>
+                        )}
+                        {detailText}
                       </td>
                     </tr>
                   );

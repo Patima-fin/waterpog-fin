@@ -242,7 +242,7 @@ const ReceiptsPage = ({ data }) => {
                   isFirst ? (
                     <tr key={'hd-'+r.id} style={{ background:'linear-gradient(90deg,#eff6ff,#f8fafc)' }}>
                       <td colSpan={10} style={{ padding:'7px 12px', fontWeight:700, fontSize:12, color:'#2a6fdb', borderBottom:'1px solid #e2e8f0', borderTop: i>0?'2px solid #bfdbfe':undefined }}>
-                        {RC_MONTH_FULL[rcMonth(r.receiptDate)]} {rcYear(r.receiptDate)+543}
+                        {RC_MONTH_FULL[rcMonth(r.receiptDate)]} {rcYear(r.receiptDate)}
                       </td>
                     </tr>
                   ) : null,

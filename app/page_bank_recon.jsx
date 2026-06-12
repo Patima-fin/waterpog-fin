@@ -93,7 +93,7 @@ const BR_MONTHS_TH = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ
 function brFmtMonth(ym) {
   const [y, m] = String(ym || '').split('-').map(Number);
   if (!y || !m) return ym || '—';
-  return `${BR_MONTHS_TH[m - 1]} ${y + 543}`;
+  return `${BR_MONTHS_TH[m - 1]} ${y}`;
 }
 
 // decode text/CSV → string · ลอง UTF-8 ก่อน (SCB) ถ้าไม่ใช่ fallback windows-874/TIS-620 (KBANK/BBL ภาษาไทยเก่า)
@@ -230,11 +230,18 @@ function brMonthlyView(lines) {
 //   3 ถัง: matched · missing (เกิดจริงแต่ยังไม่ลงระบบ) · unmatchedPv (ลงระบบแต่ยังไม่ออกจริง)
 function brReconcile(opts) {
   const lines = opts.lines || [], pvs = opts.pvs || [], reconState = opts.reconState || {};
+  // refPool = PV ทั้งระบบที่มีเลขที่ PV — ใช้เฉพาะ pass 0 (จับด้วยเลข PV ที่ statement อ้างถึงตรงๆ)
+  // เพื่อให้รายการที่ statement พิมพ์เลข PV ไว้แล้ว ไม่หลุดเป็น "ขาดบันทึก" เพียงเพราะ PV ลงคนละเดือน/คนละช่องบัญชี
+  const refPool = opts.refPool || pvs;
   const tol = opts.amtTol != null ? opts.amtTol : 0.01;
   const win = opts.dateWindow != null ? opts.dateWindow : 3;
   const outLines = lines.filter(l => l.amount < 0);
   const inLines  = lines.filter(l => l.amount > 0);
   const pvAvail  = pvs.map((p, i) => ({ p, i, used: false }));
+  // PV ใน refPool ที่ไม่อยู่ใน scope (คนละเดือน/บัญชี) → ใช้ได้เฉพาะ pass 0 และไม่โผล่ในถัง unmatchedPv
+  const pvKey = p => (p.id != null ? 'i' + p.id : 'k' + p.pvNo + '@' + p.date + '@' + p.amount);
+  const scopedKeys = new Set(pvs.map(pvKey));
+  const refExtra = refPool.filter(p => p.pvNo && !scopedKeys.has(pvKey(p))).map((p, i) => ({ p, i: 'x' + i, used: false, extra: true }));
   const matched = [], recorded = [];
   const toMatch = [];
   outLines.forEach(l => {
@@ -247,7 +254,7 @@ function brReconcile(opts) {
   // ── pass 0: ref = เลขที่ PV ใน statement (เช่น SCB คอลัมน์ Note = PVxxxx) — แม่นสุด ──
   //   รองรับ 1 PV หลายขา (เลข PV เดียวกันหลายบรรทัด → จับเป็นกลุ่มเดียว)
   const pvByNo = {};
-  pvAvail.forEach(c => { const k = brNormRef(c.p.pvNo); if (k) (pvByNo[k] = pvByNo[k] || []).push(c); });
+  pvAvail.concat(refExtra).forEach(c => { const k = brNormRef(c.p.pvNo); if (k) (pvByNo[k] = pvByNo[k] || []).push(c); });
   const linesByPv = {}, rest = [];
   toMatch.forEach(l => {
     const k = brFindPvInRef(l.ref, pvByNo);
@@ -374,9 +381,12 @@ function BankReconPage({ data, setData, toast }) {
       .filter(p => p.amount > 0 && p.date && brMonthOf(p.date) === month && bdAcctMatchesCheck(acct.accountNo, p.bankAc));
   }, [data.pvVouchers, acct && acct.accountNo, month]);
 
+  // PV ทั้งระบบที่มีเลขที่ PV (ทุกบัญชี/ทุกเดือน) — ให้ pass 0 จับด้วยเลข PV ที่ statement อ้างถึงตรงๆ
+  const pvRefPool = brMemo(() => (data.pvVouchers || []).map(bdNormPV).filter(p => p.amount > 0 && p.pvNo), [data.pvVouchers]);
+
   const lines = brMemo(() => ((linesAll[accountNo] || {})[month]) || [], [linesAll, accountNo, month]);
   const monthly = brMemo(() => brMonthlyView(lines), [lines]);
-  const recon = brMemo(() => brReconcile({ lines, pvs: pvForAcct, reconState }), [lines, pvForAcct, reconState]);
+  const recon = brMemo(() => brReconcile({ lines, pvs: pvForAcct, refPool: pvRefPool, reconState }), [lines, pvForAcct, pvRefPool, reconState]);
 
   // เดือนที่มีข้อมูล statement ของบัญชีนี้ (ไว้สลับเร็ว)
   const monthsWithData = brMemo(() => Object.keys(linesAll[accountNo] || {}).sort().reverse(), [linesAll, accountNo]);
@@ -483,6 +493,7 @@ function BankReconPage({ data, setData, toast }) {
 
       {/* Account selector */}
       <div className="card anim-in" style={{ padding: 12, marginBottom: 16, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        {acct && <HpBankLogo name={acct.bankName} />}
         <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink-600)' }}>บัญชี:</span>
         <select className="select input" value={accountNo} onChange={e => setAccountNo(e.target.value)} style={{ minWidth: 320, fontSize: 13, padding: '6px 10px' }}>
           {accounts.map(a => (

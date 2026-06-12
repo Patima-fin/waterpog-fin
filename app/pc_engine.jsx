@@ -48,9 +48,9 @@
     const d = new Date(iso + 'T00:00:00');
     if (isNaN(d)) return '—';
     const dd = String(d.getDate()).padStart(2, '0');
-    const yyBE = d.getFullYear() + 543;
-    if (mode === 'long') return `${dd} ${TH_MONTHS[d.getMonth()]} ${yyBE}`;
-    return `${dd}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(yyBE).slice(2)}`;
+    const yyCE = d.getFullYear();   // ค.ศ. เท่านั้น (ทั้งระบบใช้ DD/MM/YYYY ค.ศ.)
+    if (mode === 'long') return `${dd} ${TH_MONTHS[d.getMonth()]} ${yyCE}`;
+    return `${dd}/${String(d.getMonth() + 1).padStart(2, '0')}/${yyCE}`;
   }
   function daysFromToday(iso) {
     if (!iso) return null;
@@ -584,9 +584,9 @@
       const ms = cashflowByMonth(rows, y).filter(m => m.gross > 0);
       if (!ms.length) return;
       const tot = ms.reduce((s, m) => s + m.gross, 0);
-      sections.push(aoa.length); aoa.push([`กระแสเงินสดคาดการณ์ ปี ${y + 543}`]);
+      sections.push(aoa.length); aoa.push([`กระแสเงินสดคาดการณ์ ปี ${y}`]);
       ths.push(aoa.length); aoa.push(['เดือน', 'คาดรับ (Gross) บาท', 'จำนวนงวด']);
-      ms.forEach(m => { moneyCells.push([aoa.length, 1]); aoa.push([`${m.month} ${y + 543}`, m.gross, m.count]); });
+      ms.forEach(m => { moneyCells.push([aoa.length, 1]); aoa.push([`${m.month} ${y}`, m.gross, m.count]); });
       moneyCells.push([aoa.length, 1]); totals.push(aoa.length); aoa.push(['รวม', tot, ms.reduce((s, m) => s + m.count, 0)]);
       aoa.push([]);
     });
@@ -869,8 +869,8 @@
         const ms = cashflowByMonth(rows, y).filter(m => m.gross > 0);
         if (!ms.length) return;
         const tot = ms.reduce((s, m) => s + m.gross, 0);
-        body += `<h2>กระแสเงินสดคาดการณ์ ปี ${y + 543}</h2><table><thead><tr><th>เดือน</th><th class="r">คาดรับ (Gross)</th><th class="c">จำนวนงวด</th></tr></thead><tbody>
-          ${ms.map(m => `<tr><td>${m.month} ${y + 543}</td><td class="r num">฿${fmtBaht(m.gross)}</td><td class="c num">${m.count}</td></tr>`).join('')}
+        body += `<h2>กระแสเงินสดคาดการณ์ ปี ${y}</h2><table><thead><tr><th>เดือน</th><th class="r">คาดรับ (Gross)</th><th class="c">จำนวนงวด</th></tr></thead><tbody>
+          ${ms.map(m => `<tr><td>${m.month} ${y}</td><td class="r num">฿${fmtBaht(m.gross)}</td><td class="c num">${m.count}</td></tr>`).join('')}
           <tr style="font-weight:800;background:#eaf2ff"><td>รวม</td><td class="r num">฿${fmtBaht(tot)}</td><td></td></tr></tbody></table>`;
       });
       if (lg.length) {

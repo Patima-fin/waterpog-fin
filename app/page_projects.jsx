@@ -337,7 +337,10 @@ const fmtD = (d) => {
 };
 
 // ── Status pill component ──────────────────────────────────────────────────
-function StatusPill({ status }) {
+// NOTE: renamed from StatusPill → PjStatusPill to avoid clobbering the global
+// select-based StatusPill in components.jsx (used by page_invoices). All files
+// share one global scope, and this file loads AFTER components.jsx.
+function PjStatusPill({ status }) {
   const meta = PROJ_STATUS[status] || { label: status, color: '#475569', bg: '#f1f5f9', dot: '#64748b' };
   return (
     <span style={{
@@ -564,7 +567,7 @@ function ProjectsPage({ data, setData, toast }) {
             <div style={{ fontWeight: 700, fontFamily: 'ui-monospace', fontSize: 12, color: isSynth ? '#94a3b8' : '#1e40af' }}>
               {isSynth ? <span title={p._code}>(ไม่มีเลขสัญญา)</span> : p._code}
             </div>
-            <div style={{ marginTop: 3 }}><StatusPill status={p._status} /></div>
+            <div style={{ marginTop: 3 }}><PjStatusPill status={p._status} /></div>
           </div>
         );
       }
@@ -576,7 +579,7 @@ function ProjectsPage({ data, setData, toast }) {
       case 'start': return fmtD(p._start);
       case 'finish': return fmtD(p._finish);
       case 'contractValue': return <span style={{ fontWeight: 600 }}>{fmtMoney(p._contractValue)}</span>;
-      case 'statusDetail': return <StatusPill status={p._status} />;
+      case 'statusDetail': return <PjStatusPill status={p._status} />;
       case 'progressPct': {
         if (p._progressPct == null) return <span style={{ color: '#94a3b8' }}>—</span>;
         const v = Math.max(0, Math.min(100, p._progressPct));
@@ -1864,7 +1867,7 @@ function ProjectDrawer({ project, allEnriched, onClose, onSave }) {
             }}>✕</button>
           </div>
           <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <StatusPill status={p._status} />
+            <PjStatusPill status={p._status} />
             {p._province && <span style={{ fontSize: 10.5, background: 'rgba(255,255,255,0.18)', padding: '3px 8px', borderRadius: 10 }}>📍 {p._province}</span>}
             {p._type && <span style={{ fontSize: 10.5, background: 'rgba(255,255,255,0.18)', padding: '3px 8px', borderRadius: 10 }}>{p._type}</span>}
             {p._assignee && <span style={{ fontSize: 10.5, background: 'rgba(255,255,255,0.18)', padding: '3px 8px', borderRadius: 10 }}>🏦 {p._assignee}</span>}
@@ -1951,7 +1954,7 @@ function OverviewTab({ p, onSave }) {
         </div>
         {!statusEdit ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <StatusPill status={p._status} />
+            <PjStatusPill status={p._status} />
             {manualStatus && (
               <span style={{ fontSize: 10.5, color: '#64748b' }}>
                 · auto จะเป็น "<em>{(PROJ_STATUS[(() => {

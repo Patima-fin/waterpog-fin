@@ -306,7 +306,7 @@ function StsDetailSubModal({ open, title, record, onClose }) {
 // ── Drawer for a single receipt ───────────────────────────────────────────
 // Same layout as page_sts_calc (full calculator-style view) — but pulls real
 // data from the matched receipt + debtMaster contract instead of being editable.
-function StsCalcDrawer({ projectReceipts, match, calcResult, isOpen, onClose, onConfirm, params, setParams, debtEvents }) {
+function StsCalcDrawer({ projectReceipts, match, calcResult, isOpen, onClose, onConfirm, onPrint, onCancelReview, canEdit, params, setParams, debtEvents }) {
   if (!isOpen) return null;
   const contract = match?.sts;
   // Use the latest receipt as the "primary" for display labels (project name / code)
@@ -637,13 +637,27 @@ function StsCalcDrawer({ projectReceipts, match, calcResult, isOpen, onClose, on
         {/* Footer */}
         <div style={{ padding: '12px 18px', background: '#f8fafc', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', bottom: 0, zIndex: 5 }}>
           <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>
-            {calcResult ? `✓ บันทึกแล้ว ${calcResult.calculatedAt ? new Date(calcResult.calculatedAt).toLocaleString('th-TH') : ''}` : 'ยังไม่บันทึก'}
+            {calcResult ? `✓ บันทึกแล้ว ${calcResult.calculatedAt ? (fmtDate(calcResult.calculatedAt.slice(0, 10)) + ' ' + String(calcResult.calculatedAt).slice(11, 16)) : ''}` : 'ยังไม่บันทึก'}
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            {calcResult && onCancelReview && canEdit && (
+              <button onClick={() => onCancelReview()} className="btn btn-ghost" style={{ color: '#e53e3e' }}
+                title="ย้อนสถานะกลับเป็น 'รอ review' (กรณีกดบันทึกผิด)">
+                ⤺ ยกเลิกการตรวจ
+              </button>
+            )}
+            {calcResult && onPrint && (
+              <button onClick={() => onPrint()} className="btn btn-ghost"
+                title="ปริ้นใบคำนวณนี้เป็น PDF (A4)">
+                <Icon name="print" size={14} /> ปริ้น PDF
+              </button>
+            )}
             <button onClick={onClose} className="btn btn-ghost">ปิด</button>
-            <button onClick={() => onConfirm(c)} className="btn btn-primary">
-              {calcResult ? 'บันทึกใหม่' : 'ยืนยัน + บันทึก'}
-            </button>
+            {canEdit && (
+              <button onClick={() => onConfirm(c)} className="btn btn-primary">
+                {calcResult ? 'บันทึกใหม่' : 'ยืนยัน + บันทึก'}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -657,6 +671,103 @@ function StsCalcDrawer({ projectReceipts, match, calcResult, isOpen, onClose, on
       />
     </div>
   );
+}
+
+// ── A4 PDF report (ปริ้นรายการที่ตรวจแล้ว — เดี่ยว/หลายรายการ) ──────────────────
+function buildStsReportHTML(groups, params, debtEvents) {
+  const esc = s => String(s == null ? '' : s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  let logo = '';
+  try { logo = new URL('waterpog_Logo-02.png', location.href).href; } catch (_) {}
+  const today = fmtDate(new Date().toISOString().slice(0, 10));
+  const sections = groups.map(g => {
+    const c = computeStsRowMulti(g.receipts, g.match, params, debtEvents);
+    const contract = g.match.sts || {};
+    const wci = g.match.wci;
+    const sortedReceipts = [...g.receipts].sort((a, b) => (a.receiptDate || '').localeCompare(b.receiptDate || ''));
+    const stsDraws = contract ? expandDrawdowns(contract, debtEvents) : [];
+    const wciDraws = wci ? expandDrawdowns(wci, debtEvents) : [];
+    const drawRows = (draws, tag) => draws.map((d, i) => `<tr><td>${tag} #${i + 1}</td><td>${esc(fmtDate(d.date) || d.date)}</td><td class="r">${bMoney2(d.amount)}</td><td>${esc(d.note || '')}</td></tr>`).join('');
+    const rcptRows = sortedReceipts.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.receiptNo || '')}</td><td>${esc(fmtDate(r.receiptDate) || '')}</td><td>${esc(r.invoiceNo || '')}</td><td class="r">${bMoney2(r.grossAmount)}</td></tr>`).join('');
+    const legRows = [
+      ...c.stsLegs.map(l => `<tr><td>STS</td><td>${esc(fmtDate(l.drawdown) || '')}</td><td class="r">${l.days}</td><td class="r">${bMoney2(l.principal)}</td><td class="r">${(l.rate * 100).toFixed(2)}%</td><td class="r">${bMoney2(l.interest)}</td></tr>`),
+      ...c.wciLegs.map(l => `<tr><td>WCI</td><td>${esc(fmtDate(l.drawdown) || '')}</td><td class="r">${l.days}</td><td class="r">${bMoney2(l.principal)}</td><td class="r">${(l.rate * 100).toFixed(2)}%</td><td class="r">${bMoney2(l.interest)}</td></tr>`),
+    ].join('');
+    return `
+    <section class="sheet">
+      <div class="head">
+        ${logo ? `<img class="logo" src="${logo}"/>` : ''}
+        <div>
+          <h1>ใบคำนวณค่าบริการเอนคอมพาส (STS)</h1>
+          <div class="sub">โครงการ ${esc(g.jobNo)} · สัญญา ${esc(contract.contractNo || '—')} · พิมพ์เมื่อ ${esc(today)}</div>
+        </div>
+      </div>
+      <table class="info">
+        <tr><td class="k">ชื่อโครงการ</td><td>${esc(contract.projectName || sortedReceipts[sortedReceipts.length - 1]?.projectName || '—')}</td>
+            <td class="k">มูลค่าสัญญา (รวม VAT)</td><td class="r">${bMoney2(Number(contract.contractValueIncVAT) || c.baseAmount || 0)}</td></tr>
+        <tr><td class="k">Mgmt fee</td><td>${(c.mgmtRate * 100).toFixed(2)}%</td>
+            <td class="k">วันรับเงินใบล่าสุด</td><td>${esc(fmtDate(c.latestDate) || '—')}</td></tr>
+      </table>
+      <h2>เงินกู้ STS / WCI</h2>
+      <table class="grid"><thead><tr><th>รายการ</th><th>วันที่</th><th class="r">จำนวนเงิน</th><th>หมายเหตุ</th></tr></thead>
+        <tbody>${drawRows(stsDraws, 'STS')}${drawRows(wciDraws, 'WCI')}</tbody></table>
+      <h2>รับเงินจากราชการ (${sortedReceipts.length} ใบ)</h2>
+      <table class="grid"><thead><tr><th>#</th><th>เลขที่ใบรับ</th><th>วันที่รับ</th><th>ใบแจ้งหนี้</th><th class="r">จำนวนเงิน</th></tr></thead>
+        <tbody>${rcptRows}<tr class="tot"><td colspan="4" class="r">รวมยอดรับทั้งโครงการ</td><td class="r">${bMoney2(c.baseAmount)}</td></tr></tbody></table>
+      <h2>รายละเอียดดอกเบี้ย</h2>
+      <table class="grid"><thead><tr><th>ฝ่าย</th><th>วันที่กู้</th><th class="r">วัน</th><th class="r">เงินต้น</th><th class="r">อัตรา</th><th class="r">ดอกเบี้ย</th></tr></thead>
+        <tbody>${legRows}
+          <tr class="tot"><td colspan="5" class="r">รวมดอกเบี้ย STS</td><td class="r">${bMoney2(c.stsInterest)}</td></tr>
+          <tr class="tot"><td colspan="5" class="r">รวมดอกเบี้ย WCI</td><td class="r">${bMoney2(c.wciInterest)}</td></tr>
+        </tbody></table>
+      <div class="summary">
+        <h2>สรุปสำหรับเอนคอมพาส</h2>
+        <table class="sum">
+          <tr><td>ค่าบริการ (เต็ม) ${(c.mgmtRate * 100).toFixed(2)}% × ยอดรับ</td><td class="r">${bMoney2(c.mgmtGross)}</td></tr>
+          <tr><td>(−) หักดอกเบี้ยรวม (STS + WCI)</td><td class="r">−${bMoney2(c.interest)}</td></tr>
+          <tr class="b"><td>= ค่าบริการสุทธิ</td><td class="r">${bMoney2(c.mgmtNet)}</td></tr>
+          <tr><td>(−) WHT ค่าบริการ ${(params.whtMgmt * 100).toFixed(0)}%</td><td class="r">−${bMoney2(c.whtOnMgmt)}</td></tr>
+          <tr><td>(+) WHT ดอกเบี้ย ${(params.whtInterest * 100).toFixed(0)}% (รับคืน)</td><td class="r">+${bMoney2(c.whtOnInt)}</td></tr>
+          <tr class="grand"><td>สุทธิจ่ายเอนคอมพาส</td><td class="r">${bMoney2(c.encompassPayable)}</td></tr>
+        </table>
+      </div>
+      <div class="sign"><div>ผู้จัดทำ ___________________</div><div>ผู้ตรวจสอบ ___________________</div><div>ผู้อนุมัติ ___________________</div></div>
+    </section>`;
+  }).join('');
+  return `<!doctype html><html lang="th"><head><meta charset="utf-8"><title>STS Report</title>
+  <style>
+   @page { size: A4 portrait; margin: 14mm 12mm; }
+   * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+   body { font-family: "IBM Plex Sans Thai","Sarabun",system-ui,sans-serif; color:#1a2333; margin:0; font-size:12px; }
+   .sheet { page-break-after: always; padding-bottom: 6mm; }
+   .sheet:last-child { page-break-after: auto; }
+   .head { display:flex; align-items:center; gap:14px; border-bottom:2.5px solid #2a6fdb; padding-bottom:8px; margin-bottom:12px; }
+   .logo { height:44px; }
+   h1 { font-size:17px; margin:0; color:#1a4490; }
+   .sub { font-size:11px; color:#5a6478; margin-top:3px; }
+   h2 { font-size:12.5px; color:#1a4490; margin:13px 0 5px; border-left:3px solid #2a6fdb; padding-left:7px; }
+   table { width:100%; border-collapse:collapse; }
+   .info td { padding:4px 7px; border:1px solid #d6deeb; font-size:11.5px; }
+   .info .k { background:#eef4fc; font-weight:700; width:130px; color:#33425f; }
+   .grid th { background:#2a6fdb; color:#fff; font-weight:600; padding:5px 7px; font-size:11px; text-align:left; }
+   .grid td { padding:4px 7px; border-bottom:1px solid #e6ecf5; font-size:11px; }
+   .grid tbody tr:nth-child(even) td { background:#f6f9fd; }
+   .r { text-align:right; font-variant-numeric:tabular-nums; }
+   .tot td { background:#fff3d6 !important; font-weight:700; }
+   .summary { margin-top:14px; break-inside:avoid; }
+   .sum td { padding:6px 10px; border-bottom:1px solid #e6ecf5; font-size:12px; }
+   .sum .b td { background:#eafaf0; font-weight:700; }
+   .sum .grand td { background:#1a4490; color:#fff; font-weight:800; font-size:14px; }
+   .sign { display:flex; justify-content:space-between; margin-top:28px; font-size:11px; color:#33425f; }
+  </style></head><body onload="setTimeout(function(){window.print();},250)">${sections}</body></html>`;
+}
+
+function openStsReport(groups, params, debtEvents) {
+  if (!groups || !groups.length) { alert('ยังไม่ได้เลือกรายการที่จะปริ้น'); return; }
+  const w = window.open('', '_blank');
+  if (!w) { alert('เปิดหน้าต่างปริ้นไม่ได้ — โปรดอนุญาต popup สำหรับเว็บนี้'); return; }
+  w.document.open();
+  w.document.write(buildStsReportHTML(groups, params, debtEvents));
+  w.document.close();
 }
 
 // ── Main page ────────────────────────────────────────────────────────────
@@ -673,6 +784,8 @@ function StsWorkflowPage({ data, setData, toast }) {
   });
   const [openJobNo, setOpenJobNo] = React.useState(null);
   const [filter, setFilter] = React.useState('all'); // all | pending | done
+  const [selected, setSelected] = React.useState(new Set()); // jobNo ที่เลือกไว้ปริ้น
+  const canEdit = window.WTPAuth ? window.WTPAuth.can('canEdit') : true;
 
   // STS contract index
   const stsIdx = React.useMemo(() => buildStsIndex(debtMaster), [debtMaster]);
@@ -758,6 +871,37 @@ function StsWorkflowPage({ data, setData, toast }) {
     setOpenJobNo(null);
   };
 
+  // ── ยกเลิกการตรวจ — ลบผลคำนวณของทุกใบรับในโครงการ → สถานะกลับเป็น "รอ review" ──
+  const handleCancelReview = (jobNo) => {
+    const g = groupedProjects.find(x => x.jobNo === jobNo);
+    if (!g) return;
+    if (!confirm(`ยกเลิกการตรวจโครงการ ${g.jobNo}?\nสถานะจะกลับเป็น "รอ review" (ลบผลคำนวณ ${g.results.length} รายการ)`)) return;
+    const receiptIds = new Set(g.receipts.map(r => r.id));
+    if (setData) {
+      setData(d => ({ ...d, stsCalcResult: ((d.stsCalcResult) || []).filter(x => !receiptIds.has(x.pendingCalcId)) }));
+    }
+    if (toast) toast(`ยกเลิกการตรวจโครงการ ${g.jobNo} แล้ว`);
+    setOpenJobNo(null);
+  };
+
+  // ── ปริ้น PDF (A4) ── เลือกได้หลายรายการ
+  const toggleSelect = (jobNo) => setSelected(prev => {
+    const next = new Set(prev);
+    next.has(jobNo) ? next.delete(jobNo) : next.add(jobNo);
+    return next;
+  });
+  const selectableJobs = filtered.map(g => g.jobNo);
+  const allSelected = selectableJobs.length > 0 && selectableJobs.every(j => selected.has(j));
+  const toggleSelectAll = () => setSelected(allSelected ? new Set() : new Set(selectableJobs));
+  const printSelected = () => {
+    const groups = groupedProjects.filter(g => selected.has(g.jobNo));
+    openStsReport(groups, params, debtEvents);
+  };
+  const printOne = (jobNo) => {
+    const g = groupedProjects.find(x => x.jobNo === jobNo);
+    if (g) openStsReport([g], params, debtEvents);
+  };
+
   const openGroup = groupedProjects.find(g => g.jobNo === openJobNo);
 
   return (
@@ -784,7 +928,12 @@ function StsWorkflowPage({ data, setData, toast }) {
           <button className={filter === 'pending' ? 'active' : ''} onClick={() => setFilter('pending')}>รอ review ({pendingCount})</button>
           <button className={filter === 'done'    ? 'active' : ''} onClick={() => setFilter('done')}>ตรวจแล้ว ({doneCount})</button>
         </div>
-        <div style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--ink-500)' }}>
+        <button className="btn btn-ghost btn-sm" disabled={selected.size === 0} onClick={printSelected}
+          style={{ marginLeft: 'auto', opacity: selected.size === 0 ? 0.5 : 1 }}
+          title="ปริ้นรายการที่เลือกเป็น PDF (A4) — เลือกหลายรายการได้">
+          <Icon name="print" size={14} /> ปริ้น PDF{selected.size > 0 ? ` (${selected.size})` : ''}
+        </button>
+        <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>
           Mgmt {(params.mgmtRate*100).toFixed(1)}% · WHT mgmt {(params.whtMgmt*100).toFixed(0)}% / int {(params.whtInterest*100).toFixed(0)}%
         </div>
       </div>
@@ -805,6 +954,10 @@ function StsWorkflowPage({ data, setData, toast }) {
             <table className="tbl" style={{ minWidth: 1180, fontSize: 12 }}>
               <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--surface)' }}>
                 <tr>
+                  <th style={{ width: 34, textAlign: 'center' }}>
+                    <input type="checkbox" checked={allSelected} onChange={toggleSelectAll}
+                      style={{ cursor: 'pointer' }} title="เลือก/ยกเลิกทั้งหมด" />
+                  </th>
                   <th style={{ width: 100 }}>รหัสโครงการ</th>
                   <th style={{ width: 60, textAlign: 'right' }}>ใบรับ</th>
                   <th style={{ width: 110 }}>รับเงินล่าสุด</th>
@@ -826,7 +979,11 @@ function StsWorkflowPage({ data, setData, toast }) {
                   const partial = isProjectPartial(g);
                   return (
                     <tr key={g.jobNo} onClick={() => setOpenJobNo(g.jobNo)}
-                        style={{ cursor: 'pointer', background: done ? '#f0fdf4' : partial ? '#fffbeb' : undefined }}>
+                        style={{ cursor: 'pointer', background: selected.has(g.jobNo) ? 'var(--brand-50)' : done ? '#f0fdf4' : partial ? '#fffbeb' : undefined }}>
+                      <td style={{ textAlign: 'center' }} onClick={e => e.stopPropagation()}>
+                        <input type="checkbox" checked={selected.has(g.jobNo)} onChange={() => toggleSelect(g.jobNo)}
+                          style={{ cursor: 'pointer' }} />
+                      </td>
                       <td style={{ fontFamily: 'ui-monospace', fontSize: 11, fontWeight: 600 }}>{g.jobNo}</td>
                       <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
                         {g.receipts.length}
@@ -863,6 +1020,9 @@ function StsWorkflowPage({ data, setData, toast }) {
         isOpen={!!openGroup}
         onClose={() => setOpenJobNo(null)}
         onConfirm={handleConfirm}
+        onPrint={() => openGroup && printOne(openGroup.jobNo)}
+        onCancelReview={() => openGroup && handleCancelReview(openGroup.jobNo)}
+        canEdit={canEdit}
         params={params}
         setParams={setParams}
         debtEvents={debtEvents}

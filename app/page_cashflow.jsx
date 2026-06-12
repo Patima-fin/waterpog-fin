@@ -1132,13 +1132,13 @@ function CashFlowDashboard({ data, setData, toast }) {
         <div>
           <h1 className="page-title">Weekly Forecast</h1>
           <div className="page-sub">
-            {monthNames[month - 1]} {year + 543} · ข้อมูล ณ {fmtDate(today.toISOString().slice(0, 10))}
+            {monthNames[month - 1]} {year} · ข้อมูล ณ {fmtDate(today.toISOString().slice(0, 10))}
           </div>
         </div>
         <div className="page-head-r">
           <button className="btn btn-ghost" onClick={goPrevMonth} title="เดือนก่อน">‹</button>
           <div style={{ padding: '6px 12px', background: 'var(--ink-50)', borderRadius: 8, fontSize: 13, fontWeight: 600 }}>
-            {monthNames[month - 1]} {year + 543}
+            {monthNames[month - 1]} {year}
           </div>
           <button className="btn btn-ghost" onClick={goNextMonth} title="เดือนถัดไป">›</button>
           <span className="no-present" style={{ display: 'contents' }}><CloudSyncStatusButton /></span>
@@ -1197,7 +1197,7 @@ function CashFlowDashboard({ data, setData, toast }) {
               value={monthBFAvailable}
               editMode={editMode}
               ovKey={`${ovPrefix}.bf`}
-              hint={`ต้นเดือน · ${monthNames[month - 1]} ${year + 543}`}
+              hint={`ต้นเดือน · ${monthNames[month - 1]} ${year}`}
               icon="coin"
             />
             <BalanceCard

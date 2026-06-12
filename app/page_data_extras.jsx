@@ -48,7 +48,8 @@ function DataCrudPage({ data, setData, toast, config }) {
     return String(raw);
   };
 
-  const rows = data[config.dataKey] || [];
+  // config.hideRow(row, data) → true = ซ่อนจากการแสดงผล (ไม่แตะข้อมูลในชีต — แค่ไม่โชว์)
+  const rows = (data[config.dataKey] || []).filter(r => !(config.hideRow && config.hideRow(r, data)));
 
   const filtered = dxMemo(() => {
     let xs = rows;
@@ -1492,8 +1493,31 @@ function ForecastEntriesPage({ data, setData, toast }) {
     return [{ value: '', label: '— เลือกบัญชี —' }, ...accounts];
   }, [data.bankAccounts]);
 
+  // ── ซ่อนรายการที่ "ตัด PV แล้ว + ไม่อยู่ในเจ้าหนี้คงค้างแล้ว" ออกจากหน้าประมาณการรายจ่าย ──
+  //    เฉพาะแถววางแผนจ่าย AP (EXPENSE_TYPE='AP', ยังไม่ ACTUAL/BOOKED) ที่ REF_DOC:
+  //    (1) มี PV ตัดไปแล้ว (∈ pvVouchers.AP_No) และ (2) ไม่อยู่ในเจ้าหนี้ (∉ payables.vchno)
+  //    ใช้ "ซ่อน" แทน "ลบจริง" — เพื่อไม่ไปชน guard กันข้อมูลหายของ sync layer (ปลอดภัยกว่า)
+  const staleApIds = dxMemo(() => {
+    const norm = (s) => String(s == null ? '' : s).trim();
+    const fe = data.forecastEntries || [], pv = data.pvVouchers || [], ap = data.payables || [];
+    if (!fe.length || !pv.length) return new Set();
+    const paid = new Set(pv.map(p => norm(p.AP_No)).filter(Boolean));
+    const pay  = new Set(ap.map(p => norm(p.vchno)).filter(Boolean));
+    const ids = new Set();
+    fe.forEach(e => {
+      const et  = norm(e.EXPENSE_TYPE || e.expense_type).toUpperCase();
+      const st  = norm(e.STATUS || e.status).toUpperCase();
+      const ref = norm(e.REF_DOC || e.ref_doc);
+      if (et !== 'AP' || !ref) return;
+      if (st === 'ACTUAL' || st === 'BOOKED' || st === 'DONE') return;
+      if (paid.has(ref) && !pay.has(ref)) ids.add(e.id);
+    });
+    return ids;
+  }, [data.forecastEntries, data.pvVouchers, data.payables]);
+
   return (
     <DataCrudPage data={data} setData={setData} toast={toast} config={{
+      hideRow: (r) => staleApIds.has(r.id),
       title: 'Manual Expense · ค่าใช้จ่ายที่บันทึกเอง',
       sub: 'RAW_MANUAL_EXPENSE · รายการที่ยังไม่อยู่ในระบบ AP · วาง RAW ได้เลย',
       dataKey: 'forecastEntries',
@@ -1619,7 +1643,7 @@ function DataBankPage({ data, setData, toast }) {
       emptyRow: { DATE: data.meta.asOf, BANK_NAME: '', Bank_AC: '', BALANCE: 0, AVAILABLE_BALANCE: 0, HOLD_AMOUNT: 0, NOTE: '' },
       tableMaxHeight: 'min(480px, calc(100vh - 400px))',
       columns: [
-        { key: 'BANK_NAME',          label: 'ธนาคาร', width: 130, render: r => <div style={{ fontWeight: 700, color: 'var(--brand-700)' }}>{r.BANK_NAME || r.bankName}</div> },
+        { key: 'BANK_NAME',          label: 'ธนาคาร', width: 175, render: r => <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontWeight: 700, color: 'var(--brand-700)' }}><HpBankLogo name={r.BANK_NAME || r.bankName} /><span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.BANK_NAME || r.bankName}</span></div> },
         { key: 'Bank_AC',            label: 'เลขที่บัญชี', width: 160, mono: true },
         { key: 'BALANCE',            label: 'ยอดคงเหลือ (฿)', align: 'right', width: 160, render: r => {
           const v = Number(r.BALANCE ?? r.balance ?? 0);
@@ -2587,8 +2611,8 @@ function DataPayablePage({ data, setData, toast }) {
             </tbody>
             <tfoot>
               <tr style={{ background: 'var(--brand-50)', fontWeight: 700 }}>
-                <td colSpan={6} style={{ padding: '8px 14px', fontSize: 12, color: 'var(--brand-700)' }}>รวม {filtered.length} รายการ</td>
-                <td className="num" style={{ padding: '8px 14px', color: 'var(--bad)' }}>{fmtNum(fNet, 2)}</td>
+                <td colSpan={7} style={{ padding: '8px 14px', fontSize: 12, color: 'var(--brand-700)' }}>รวม {filtered.length} รายการ</td>
+                <td className="num" style={{ padding: '8px 14px', textAlign: 'right', color: 'var(--bad)', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(fNet, 2)}</td>
                 <td />
               </tr>
             </tfoot>

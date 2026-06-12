@@ -374,7 +374,7 @@ function DailyBalancePage({ data, setData, toast }) {
           <thead>
             <tr>
               <th style={{ width: 32, textAlign: 'center' }}>#</th>
-              <th style={{ width: 90 }}>ธนาคาร</th>
+              <th style={{ width: 150 }}>ธนาคาร</th>
               <th style={{ width: 130 }}>เลขที่บัญชี</th>
               <th style={{ width: 130, textAlign: 'right' }}>ยอดเมื่อวาน</th>
               <th style={{ width: 160, textAlign: 'right' }}>ยอดวันนี้</th>
@@ -398,7 +398,12 @@ function DailyBalancePage({ data, setData, toast }) {
               return (
                 <tr key={r.ac} style={{ background: r.saved ? 'color-mix(in oklch, var(--good) 5%, transparent)' : undefined }}>
                   <td style={{ textAlign: 'center', color: 'var(--ink-400)' }}>{i + 1}</td>
-                  <td style={{ fontWeight: 600, color: 'var(--brand-700)' }}>{r.a.BANK_NAME || '—'}</td>
+                  <td style={{ fontWeight: 600, color: 'var(--brand-700)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                      <HpBankLogo name={r.a.BANK_NAME} />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.a.BANK_NAME || '—'}</span>
+                    </div>
+                  </td>
                   <td style={{ fontFamily: 'ui-monospace', fontSize: 12 }}>{r.ac}</td>
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--ink-500)', fontSize: 12 }}>
                     {r.yestBal != null ? fmtNum(r.yestBal, 2) : <span className="muted">—</span>}
@@ -486,7 +491,7 @@ function DailyBalancePage({ data, setData, toast }) {
             <thead>
               <tr>
                 <th style={{ width: 40, textAlign: 'center' }}>#</th>
-                <th style={{ width: 110 }}>ธนาคาร</th>
+                <th style={{ width: 150 }}>ธนาคาร</th>
                 <th style={{ width: 160 }}>เลขที่บัญชี</th>
                 <th style={{ width: 140, textAlign: 'right' }}>ยอดล่าสุด</th>
                 <th style={{ width: 180, textAlign: 'right' }}>ยอดใหม่ (ถ้าเปลี่ยน)</th>
@@ -498,7 +503,12 @@ function DailyBalancePage({ data, setData, toast }) {
               {dormantRows.map((r, i) => (
                 <tr key={r.ac} style={{ background: r.saved ? 'color-mix(in oklch, var(--good) 5%, transparent)' : undefined }}>
                   <td style={{ textAlign: 'center', color: 'var(--ink-400)' }}>{i + 1}</td>
-                  <td style={{ fontWeight: 600 }}>{r.a.BANK_NAME || '—'}</td>
+                  <td style={{ fontWeight: 600 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                      <HpBankLogo name={r.a.BANK_NAME} />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.a.BANK_NAME || '—'}</span>
+                    </div>
+                  </td>
                   <td style={{ fontFamily: 'ui-monospace', fontSize: 12 }}>{r.ac}</td>
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--ink-600)' }}>
                     {r.yestBal != null ? fmtNum(r.yestBal, 2) : <span className="muted">—</span>}
