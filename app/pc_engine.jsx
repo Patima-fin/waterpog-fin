@@ -238,8 +238,26 @@
         dueDate: isoOf(p['กำหนดส่งมอบงานงวด ' + n]) || null,
         deliveryDate, acceptDate, delivered, paid,
         paymentAmount: paid ? amount : 0,
+        summaryPayment: sumPay || 0,   // ยอดจ่ายจริงของงวดนี้ (Summary Payment N)
         forecastDate,
       });
+    }
+    // ── ส่งงวดเดียว 100% (จ่ายรวม): บางโครงสัญญาแบ่งหลายงวด แต่ส่งจริงงวดเดียว ──
+    // สัญญาณ = งวดใดงวดหนึ่งมี Summary Payment ≈ มูลค่าสัญญาเต็ม (จ่ายรวมทั้งสัญญา)
+    // → งวดนั้นใช้ "ยอดจ่ายจริง" เป็นมูลค่า (mergedFull) · งวดก่อนที่ไม่ได้ส่ง/จ่าย = absorbed
+    if (contract > 0) {
+      const full = insts.find(i => i.summaryPayment > 0 && i.summaryPayment >= contract * 0.99);
+      if (full) {
+        full.amount = full.summaryPayment;     // ยึดยอดจ่ายจริง (เช่น 5,400,000)
+        full.paymentAmount = full.summaryPayment;
+        full.mergedFull = true;                 // งวดนี้ = ส่งงวดเดียว 100% รวมงวดก่อน
+        insts.forEach(i => {
+          if (i !== full && !i.paid && !i.delivered && i.summaryPayment === 0) {
+            i.absorbed = true;                   // ถูกยกไปรวมในงวดที่จ่ายจริง — ไม่ใช่ค้างส่ง
+            i.absorbedInto = full.no;
+          }
+        });
+      }
     }
     return insts;
   }
@@ -337,8 +355,9 @@
   // งวดเดียว → งวด 1 = 0, งวด 2 = 100% · หลายงวด → งวด 1 = งวดแรก, งวด 2 = ยุบงวด 2+
   // คืน fc1/fc2 (amount+date), lines (สำหรับ cashflow drill), forecastReceive รวม
   function splitForecast(insts, outstandingAR, statusMain, finishIso) {
-    const reqd = insts.filter(i => i.amount > 0 || (i.percent != null && i.percent > 0));
-    const fcOf = (i) => (i && !i.paid && i.amount > 0)
+    // งวดที่ถูกยกไปรวมในงวดสุดท้าย (absorbed) ไม่ใช่งวดที่ต้องรับเงินต่างหาก → ตัดออก
+    const reqd = insts.filter(i => !i.absorbed && (i.amount > 0 || (i.percent != null && i.percent > 0)));
+    const fcOf = (i) => (i && !i.paid && !i.absorbed && i.amount > 0)
       ? { amount: i.amount, date: i.forecastDate || null }
       : { amount: 0, date: null };
     let fc1 = { amount: 0, date: null }, fc2 = { amount: 0, date: null };

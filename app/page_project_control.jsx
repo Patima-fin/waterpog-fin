@@ -757,13 +757,18 @@ function PcDrawer({ row, canEdit, onClose, onSaveFinance }) {
                     </div>;
               })()}
               {row.installments.map(i => (
-                <div key={i.no} style={{ ...pcCard, padding: 12 }}>
+                <div key={i.no} style={{ ...pcCard, padding: 12, opacity: i.absorbed ? 0.7 : 1, background: i.absorbed ? '#f8fafc' : '#fff' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                    <span style={{ fontWeight: 700, fontSize: 13 }}>งวด {i.no} {i.percent != null ? <span style={{ color: '#94a3b8', fontWeight: 500 }}>· {i.percent}%</span> : ''}</span>
-                    <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 9px', borderRadius: 100, background: i.paid ? '#dcfce7' : i.delivered ? '#dceaff' : '#f1f5f9', color: i.paid ? '#15803d' : i.delivered ? '#1f56b8' : '#64748b' }}>{i.paid ? 'จ่ายแล้ว' : i.acceptDate ? 'ตรวจรับแล้ว' : i.delivered ? 'ส่งมอบแล้ว' : 'ยังไม่ส่ง'}</span>
+                    <span style={{ fontWeight: 700, fontSize: 13 }}>งวด {i.no} {i.percent != null ? <span style={{ color: '#94a3b8', fontWeight: 500 }}>· {i.percent}%</span> : ''}
+                      {i.mergedFull ? <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#15803d', background: '#dcfce7', padding: '1px 7px', borderRadius: 100 }}>ส่งงวดเดียว 100% · รวมงวดก่อน</span> : ''}</span>
+                    <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 9px', borderRadius: 100,
+                      background: i.absorbed ? '#f1f5f9' : i.paid ? '#dcfce7' : i.delivered ? '#dceaff' : '#fef3c7',
+                      color: i.absorbed ? '#94a3b8' : i.paid ? '#15803d' : i.delivered ? '#1f56b8' : '#b45309' }}>
+                      {i.absorbed ? 'รวมในงวดสุดท้าย' : i.paid ? 'จ่ายแล้ว' : i.acceptDate ? 'ตรวจรับแล้ว' : i.delivered ? 'ส่งมอบแล้ว' : 'ยังไม่ส่ง'}</span>
                   </div>
+                  {i.absorbed && <div style={{ fontSize: 10.5, color: '#94a3b8', marginBottom: 6 }}>ไม่ได้ส่งงวดนี้แยก — ยกไปรวมจ่ายในงวด {i.absorbedInto} (ส่งงวดเดียว 100%)</div>}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px 12px', fontSize: 11.5 }}>
-                    <span style={{ color: '#64748b' }}>มูลค่า: <b className="num" style={{ color: 'var(--ink-900)' }}>฿{U.fmtBaht(i.amount)}</b></span>
+                    <span style={{ color: '#64748b' }}>มูลค่า{i.mergedFull ? ' (จ่ายจริง)' : i.absorbed ? ' (ตามแผน)' : ''}: <b className="num" style={{ color: 'var(--ink-900)' }}>฿{U.fmtBaht(i.amount)}</b></span>
                     <span style={{ color: '#64748b' }}>ส่งมอบ: <span className="num">{U.fmtDate(i.deliveryDate)}</span></span>
                     <span style={{ color: '#64748b' }}>ตรวจรับ: <span className="num">{U.fmtDate(i.acceptDate)}</span></span>
                     <span style={{ color: '#64748b' }}>คาดรับเงิน: <span className="num" style={{ color: '#0e9f9a' }}>{U.fmtDate(i.forecastDate)}</span></span>
