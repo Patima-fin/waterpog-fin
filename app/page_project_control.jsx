@@ -745,7 +745,17 @@ function PcDrawer({ row, canEdit, onClose, onSaveFinance }) {
           )}
           {tab === 'installments' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {row.installments.length === 0 && <div style={{ color: '#94a3b8', fontSize: 12, textAlign: 'center', padding: 30 }}>ไม่มีข้อมูลงวดงาน</div>}
+              {row.installments.length === 0 && (() => {
+                // ตรวจว่าเป็น "ข้อมูลยังไม่ซิงค์" (ชีท 35 คอลัมน์ ไม่มีคอลัมน์งวด) หรือไม่มีงวดจริง
+                const raw = row._raw || {};
+                const hasInstCols = ('% งวด 1' in raw) || ('Summary Payment 1' in raw) || ('มูลค่า งวด 1' in raw) || ('วันที่ส่งมอบงาน งวด 1' in raw);
+                return hasInstCols
+                  ? <div style={{ color: '#94a3b8', fontSize: 12, textAlign: 'center', padding: 30 }}>ไม่มีข้อมูลงวดงาน</div>
+                  : <div style={{ margin: '16px 4px', padding: '14px 16px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, fontSize: 12, color: '#92400e', lineHeight: 1.6 }}>
+                      ⏳ <b>ข้อมูลงวดยังไม่ซิงค์เข้าระบบ</b><br/>
+                      ชีทกลางยังมีแค่คอลัมน์พื้นฐาน (ยังไม่มีคอลัมน์งวด/ส่งมอบ/Summary) — ทุกโครงการจะแสดงงวดครบ<b>พร้อมกัน</b>หลัง <b>deploy backend (Code.standalone.gs) + อัปโหลด Excel โครงการอีก 1 รอบ</b> · ไม่ต้องไล่แก้ทีละโครง
+                    </div>;
+              })()}
               {row.installments.map(i => (
                 <div key={i.no} style={{ ...pcCard, padding: 12 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
