@@ -397,14 +397,10 @@
       received = Math.min(received, contract || received);
 
       // ── ลิงก์ใบแจ้งหนี้ (IV) + ใบเสร็จ เข้าแต่ละงวด ──────────────────────────────
-      // จับคู่ด้วย period == เลขงวดก่อน · ถ้าโครงงวดเดียวแต่ period ไม่ตรง (วิศวกร
-      // บันทึกใต้คอลัมน์งวด 2) → ผูก IV แรกให้งวดนั้น · consume กัน IV ผูกซ้ำ
+      // 3 ชั้น (consume กันผูกซ้ำ): (1) period == เลขงวด · (2) ยอด IV ≈ มูลค่างวด
+      // (เผื่อ period ว่าง/ไม่ตรง เช่นวิศวกรบันทึกสลับงวด) · (3) งวดเดียว → IV แรกที่เหลือ
       const ivPool = ivs.slice();
-      insts.forEach(it => {
-        let idx = ivPool.findIndex(iv => String(iv.period == null ? '' : iv.period).replace(/[^0-9]/g, '') === String(it.no));
-        if (idx < 0 && insts.length === 1 && ivPool.length) idx = 0; // งวดเดียว → IV แรก
-        if (idx < 0) return;
-        const iv = ivPool.splice(idx, 1)[0];
+      const attachIv = (it, iv) => {
         const rcs = rcByIv[iv.ivNo || iv.invoiceNo] || [];
         const net = rcs.reduce((s, rc) => s + (toNum(rc.netReceived || rc.grossAmount) || 0), 0);
         const rcDate = rcs.map(rc => isoOf(rc.receiptDate)).filter(Boolean).sort()[0] || null;
@@ -417,7 +413,20 @@
           receivedNet: net || 0,
           receivedDate: rcDate,
         };
+      };
+      // pass 1: period == เลขงวด
+      insts.forEach(it => {
+        const idx = ivPool.findIndex(iv => String(iv.period == null ? '' : iv.period).replace(/[^0-9]/g, '') === String(it.no));
+        if (idx >= 0) attachIv(it, ivPool.splice(idx, 1)[0]);
       });
+      // pass 2: ยอด IV ≈ มูลค่างวด (±1%)
+      insts.forEach(it => {
+        if (it.invoice || !(it.amount > 0)) return;
+        const idx = ivPool.findIndex(iv => { const b = toNum(iv.balance); return b != null && Math.abs(b - it.amount) <= Math.max(1, it.amount * 0.01); });
+        if (idx >= 0) attachIv(it, ivPool.splice(idx, 1)[0]);
+      });
+      // pass 3: งวดเดียว → IV แรกที่เหลือ
+      if (insts.length === 1 && !insts[0].invoice && ivPool.length) attachIv(insts[0], ivPool.shift());
 
       const status = deriveStatus(p, contract, received, insts);
       const progress = deriveProgress(p, status, insts, received, contract);
