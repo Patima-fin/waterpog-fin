@@ -424,6 +424,8 @@ function CashFlowDashboard({ data, setData, toast }) {
       if (status === 'CANCELED') return;
       const isLoan = String(fe.EXPENSE_TYPE || fe.CATEGORY || '').toUpperCase() === 'LOAN';
       if (isLoan) return;
+      // จ่ายจริงจากหน้ากระทบยอด (BANK_RECON) = actual ล้วน ไม่เคยเป็นแผน → ไม่นับเป็นประมาณการ (กันยอดเบิ้ล)
+      if (String(fe.EXPENSE_TYPE || '').toUpperCase() === 'BANK_RECON') return;
       const amt = Number(fe.AMOUNT || fe.amount || 0);
       if (amt >= 0) return;   // outflow only
       const date = fe.PAYMENT_DATE || fe.DATE || fe.paymentDate;
@@ -667,6 +669,7 @@ function CashFlowDashboard({ data, setData, toast }) {
       const isLoan = String(fe.EXPENSE_TYPE || fe.CATEGORY || '').toUpperCase() === 'LOAN';
       const status = String(fe.STATUS || '').toUpperCase();
       if (status === 'CANCELED') return;
+      if (String(fe.EXPENSE_TYPE || '').toUpperCase() === 'BANK_RECON') return;  // จ่ายจริงจากกระทบยอด = actual ไม่นับเป็นประมาณการ
       const amt  = Number(fe.AMOUNT || fe.amount || 0);
       const date = fe.PAYMENT_DATE || fe.DATE;
       if (!inMonth(date, nextYear, nextMonth)) return;
