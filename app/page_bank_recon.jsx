@@ -491,25 +491,42 @@ function BankReconPage({ data, setData, toast }) {
         </div>
       </div>
 
-      {/* Account selector */}
-      <div className="card anim-in" style={{ padding: 12, marginBottom: 16, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-        {acct && <HpBankLogo name={acct.bankName} />}
-        <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink-600)' }}>บัญชี:</span>
-        <select className="select input" value={accountNo} onChange={e => setAccountNo(e.target.value)} style={{ minWidth: 320, fontSize: 13, padding: '6px 10px' }}>
-          {accounts.map(a => (
-            <option key={a.accountNo} value={a.accountNo}>
-              {bdBrand(brBrandKey(a)).label} ···{bdLast4(a.accountNo)} — {a.accountName || a.bankName || a.accountNo}
-            </option>
-          ))}
-        </select>
+      {/* Account selector — ปุ่มแบงค์ กดคลิกเดียวเข้าเลย (เลิกใช้ dropdown) */}
+      <div className="card anim-in" style={{ padding: 12, marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink-600)' }}>บัญชี:</span>
+          <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
+            {accounts.map(a => {
+              const active = a.accountNo === accountNo;
+              const b = bdBrand(brBrandKey(a));
+              return (
+                <button key={a.accountNo} type="button" onClick={() => setAccountNo(a.accountNo)}
+                  title={a.accountName || a.bankName || a.accountNo}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontFamily: 'inherit',
+                    border: `2px solid ${active ? b.color : 'var(--line)'}`,
+                    background: active ? `color-mix(in oklch, ${b.color} 10%, #fff)` : '#fff',
+                    borderRadius: 11, padding: '5px 13px 5px 6px',
+                    fontSize: 12.5, fontWeight: active ? 700 : 600,
+                    color: active ? b.color : 'var(--ink-600)',
+                    boxShadow: active ? `0 2px 10px color-mix(in oklch, ${b.color} 28%, transparent)` : 'none',
+                    transition: 'all .14s',
+                  }}>
+                  <HpBankLogo name={a.bankName} />
+                  <span>{b.label} <span style={{ opacity: .7, fontWeight: 500 }}>···{bdLast4(a.accountNo)}</span></span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
         {monthsWithData.length > 0 && (
-          <span style={{ fontSize: 11.5, color: 'var(--ink-500)' }}>
-            มี statement: {monthsWithData.map(m => (
-              <button key={m} onClick={() => setMonth(m)} style={{ border: 'none', background: m === month ? 'var(--brand-500)' : 'var(--ink-100)', color: m === month ? '#fff' : 'var(--ink-700)', borderRadius: 5, padding: '2px 8px', margin: '0 3px', cursor: 'pointer', fontSize: 11 }}>{brFmtMonth(m)}</button>
+          <div style={{ fontSize: 11.5, color: 'var(--ink-500)', marginTop: 10, display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+            <span>มี statement:</span>
+            {monthsWithData.map(m => (
+              <button key={m} onClick={() => setMonth(m)} style={{ border: 'none', background: m === month ? 'var(--brand-500)' : 'var(--ink-100)', color: m === month ? '#fff' : 'var(--ink-700)', borderRadius: 5, padding: '2px 8px', cursor: 'pointer', fontSize: 11 }}>{brFmtMonth(m)}</button>
             ))}
-          </span>
+          </div>
         )}
-        {acct && <span style={{ marginLeft: 'auto' }}>{brBrandChip(acct)}</span>}
       </div>
 
       {/* KPI — ยกมา / เข้า / ออก / คงเหลือ + cross-check */}

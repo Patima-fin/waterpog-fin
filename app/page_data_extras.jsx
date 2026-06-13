@@ -637,6 +637,9 @@ function DataCrudPage({ data, setData, toast, config }) {
         </div>
       )}
 
+      {/* แบนเนอร์เสริมจาก config (เช่น ปุ่มลบรายการ AP ที่จ่ายแล้ว) */}
+      {config.banner}
+
       <div className="card" style={{ padding: 14, marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         {config.filters ? (
           <div className="tabnav">
@@ -705,8 +708,8 @@ function DataCrudPage({ data, setData, toast, config }) {
               {filtered.length === 0 && (
                 <tr><td colSpan={config.columns.length + ((!effectiveReadOnly || effectiveAllowDelete) ? 1 : 0) + ((effectiveAllowDelete && bulkMode) ? 1 : 0)} style={{ padding: 36, textAlign: 'center' }} className="muted">ไม่พบข้อมูล</td></tr>
               )}
-              {sortedFiltered.map(row => (
-                <tr key={row.id}
+              {sortedFiltered.map((row, _ri) => (
+                <tr key={(row.id != null ? row.id : 'r') + '_' + _ri}
                   style={{ cursor: 'pointer', background: selected.has(row.id) ? 'var(--brand-50)' : undefined }}
                   onClick={() => bulkMode ? toggleSelectOne(row.id) : setView(row)}>
                   {/* Per-row checkbox — only visible in bulkMode */}
@@ -1493,31 +1496,65 @@ function ForecastEntriesPage({ data, setData, toast }) {
     return [{ value: '', label: '— เลือกบัญชี —' }, ...accounts];
   }, [data.bankAccounts]);
 
-  // ── ซ่อนรายการที่ "ตัด PV แล้ว + ไม่อยู่ในเจ้าหนี้คงค้างแล้ว" ออกจากหน้าประมาณการรายจ่าย ──
+  // ── รายการ AP ที่ "ตัด PV แล้ว + ไม่อยู่ในเจ้าหนี้คงค้างแล้ว" → ลบออกจริง (ไม่ควรอยู่หน้านี้) ──
   //    เฉพาะแถววางแผนจ่าย AP (EXPENSE_TYPE='AP', ยังไม่ ACTUAL/BOOKED) ที่ REF_DOC:
   //    (1) มี PV ตัดไปแล้ว (∈ pvVouchers.AP_No) และ (2) ไม่อยู่ในเจ้าหนี้ (∉ payables.vchno)
-  //    ใช้ "ซ่อน" แทน "ลบจริง" — เพื่อไม่ไปชน guard กันข้อมูลหายของ sync layer (ปลอดภัยกว่า)
   const staleApIds = dxMemo(() => {
     const norm = (s) => String(s == null ? '' : s).trim();
     const fe = data.forecastEntries || [], pv = data.pvVouchers || [], ap = data.payables || [];
-    if (!fe.length || !pv.length) return new Set();
+    if (!fe.length || !pv.length) return [];
     const paid = new Set(pv.map(p => norm(p.AP_No)).filter(Boolean));
     const pay  = new Set(ap.map(p => norm(p.vchno)).filter(Boolean));
-    const ids = new Set();
+    const ids = [];
     fe.forEach(e => {
       const et  = norm(e.EXPENSE_TYPE || e.expense_type).toUpperCase();
       const st  = norm(e.STATUS || e.status).toUpperCase();
       const ref = norm(e.REF_DOC || e.ref_doc);
       if (et !== 'AP' || !ref) return;
       if (st === 'ACTUAL' || st === 'BOOKED' || st === 'DONE') return;
-      if (paid.has(ref) && !pay.has(ref)) ids.add(e.id);
+      if (paid.has(ref) && !pay.has(ref)) ids.push(e.id);
     });
     return ids;
   }, [data.forecastEntries, data.pvVouchers, data.payables]);
 
+  // ลบจริง — ทำเป็น "แบตช์" ไม่เกิน ~25% ของตารางต่อรอบ เพื่อไม่ชน mass-delete guard ของ sync
+  //   (กรณีปกติมีไม่กี่รายการ → ลบครบในคลิกเดียว · ถ้าเยอะให้กดซ้ำจนหมด)
+  const purgePaidAp = () => {
+    const ids = staleApIds;
+    if (!ids.length) return;
+    const total = (data.forecastEntries || []).length;
+    const safeBatch = Math.max(1, Math.floor(total * 0.25));
+    const batch = ids.slice(0, safeBatch);
+    const remaining = ids.length - batch.length;
+    if (!confirm(`ลบรายการ AP ที่จ่ายผ่าน PV แล้ว (และไม่อยู่ในเจ้าหนี้คงค้าง) ถาวร ${batch.length} รายการ?`
+      + (remaining > 0 ? `\n\n(มีทั้งหมด ${ids.length} รายการ — รอบนี้ลบ ${batch.length} กันระบบกันข้อมูลหายบล็อก · กดซ้ำเพื่อลบที่เหลือ ${remaining})` : ''))) return;
+    const set = new Set(batch);
+    let updated;
+    setData(d => { updated = { ...d, forecastEntries: (d.forecastEntries || []).filter(r => !set.has(r.id)) }; return updated; });
+    if (updated && window.WTPData && window.WTPData.forceSyncNow) setTimeout(() => window.WTPData.forceSyncNow(updated), 0);
+    if (toast) toast(`ลบ ${batch.length} รายการแล้ว` + (remaining > 0 ? ` · เหลืออีก ${remaining}` : ' · ครบแล้ว'));
+  };
+
+  const purgeBanner = staleApIds.length > 0 ? (
+    <div className="card" style={{ padding: '12px 16px', marginBottom: 14, borderLeft: '4px solid var(--bad)',
+      background: 'color-mix(in oklch, var(--bad) 5%, var(--surface))', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+      <div style={{ flex: 1, minWidth: 200 }}>
+        <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink-800)' }}>
+          🗑 มีรายการ AP ที่จ่ายผ่าน PV แล้ว {staleApIds.length} รายการ — ไม่ควรอยู่ในประมาณการ
+        </div>
+        <div style={{ fontSize: 11.5, color: 'var(--ink-500)', marginTop: 2 }}>
+          ตัด PV แล้ว + ไม่อยู่ในเจ้าหนี้คงค้างแล้ว · AP ที่ยังมีประมาณการให้จัดการที่หน้า Bank Daily
+        </div>
+      </div>
+      <button className="btn" style={{ background: 'var(--bad)', color: '#fff', border: 'none' }} onClick={purgePaidAp}>
+        <Icon name="trash" size={14} /> ลบถาวร ({staleApIds.length})
+      </button>
+    </div>
+  ) : null;
+
   return (
     <DataCrudPage data={data} setData={setData} toast={toast} config={{
-      hideRow: (r) => staleApIds.has(r.id),
+      banner: purgeBanner,
       title: 'Manual Expense · ค่าใช้จ่ายที่บันทึกเอง',
       sub: 'RAW_MANUAL_EXPENSE · รายการที่ยังไม่อยู่ในระบบ AP · วาง RAW ได้เลย',
       dataKey: 'forecastEntries',

@@ -1297,7 +1297,7 @@
 
     if (loading || !data || !view) {
       return (
-        <div className="page bcc-page">
+        <div className="page bcc-page present-page">
           <div className="page-head"><div><h1 className="page-title">Budget Control Center</h1><div className="page-sub">กำลังโหลดข้อมูลจาก BUDGET HO…</div></div></div>
           <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--ink-400)' }}>กำลังโหลด…</div>
         </div>
@@ -1305,7 +1305,7 @@
     }
 
     return (
-      <div className="page bcc-page">
+      <div className="page bcc-page present-page">
         <div className="page-head anim-in">
           <div>
             <h1 className="page-title">📊 Budget Control Center

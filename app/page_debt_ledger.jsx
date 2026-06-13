@@ -1496,6 +1496,7 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [overrideRow, setOverrideRow] = React.useState(null);
   const [filter,      setFilter]      = React.useState('all'); // all | unpaid | paid
+  const [drawerTab,   setDrawerTab]   = React.useState('interest'); // แท็บใน popup: 'interest' (ดอกเบี้ย) | 'principal' (คืนเงินกู้)
   // evtModal = null | { kind:'repayment'|'drawdown', event?:<existing event to edit> }
   const [evtModal,    setEvtModal]    = React.useState(null);
   const [rolloverOpen, setRolloverOpen] = React.useState(false);
@@ -1631,8 +1632,14 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
           </div>
         </div>
 
+        {/* แท็บใน popup: แยก "คืนเงินกู้" กับ "ดอกเบี้ย" ให้ไม่รก กดสลับได้ */}
+        <div className="tabnav" style={{ marginBottom: 14 }}>
+          <button className={drawerTab === 'principal' ? 'active' : ''} onClick={() => setDrawerTab('principal')}>💵 คืนเงินกู้ (เงินต้น)</button>
+          <button className={drawerTab === 'interest' ? 'active' : ''} onClick={() => setDrawerTab('interest')}>📈 ดอกเบี้ย</button>
+        </div>
+
         {/* Quick action bar — repayment / drawdown / rollover */}
-        {canEdit && master.status === 'Active' && (
+        {drawerTab === 'principal' && canEdit && master.status === 'Active' && (
           <div style={{
             display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14,
             padding: '8px 12px', borderRadius: 10,
@@ -1703,7 +1710,7 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
         )}
 
         {/* Drawdown/repayment events */}
-        {myEvents.length > 0 && (
+        {drawerTab === 'principal' && myEvents.length > 0 && (
           <div style={{ marginBottom: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
               <Icon name="invoice" size={14} style={{ color: 'var(--brand-600)' }} />
@@ -1799,6 +1806,8 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
           </div>
         )}
 
+        {/* ── แท็บ "ดอกเบี้ย": ตัวกรอง + ตารางดอกเบี้ยรายเดือน + เทียบคำนวณ ── */}
+        {drawerTab === 'interest' && (<>
         {/* Filter tabs */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <div className="tabnav">
@@ -2079,6 +2088,7 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
           })()}
         </div>
         )}
+        </>)}
       </Modal>
 
       {/* nested popups */}

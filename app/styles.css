@@ -543,7 +543,10 @@ button { font: inherit; color: inherit; }
             + การ์ดมุมมน 20px  · ปิดแล้ว: หน้าตาปกติทุกอย่าง
    ════════════════════════════════════════════════════════════════════════ */
 body.present-mode .present-page .card,
-body.present-mode .present-page .kpi {
+body.present-mode .present-page .kpi,
+body.present-mode .present-page .hero-pill,
+body.present-mode .present-page .pnl-hero,
+body.present-mode .present-page .pnl-kpi-card {
   border-radius: 20px;                /* การ์ดแบบมนๆ เฉพาะตอนเปิดโหมดนำเสนอ */
   transition: transform .28s var(--ease), box-shadow .28s var(--ease),
               opacity .28s var(--ease), filter .28s var(--ease);
@@ -551,9 +554,12 @@ body.present-mode .present-page .kpi {
 /* การ์ดที่มีแถบสีซ้าย (kpi-accent) → clip ให้แถบโค้งตามมุมการ์ด ไม่โผล่เป็นเหลี่ยม */
 body.present-mode .present-page .card:has(> .kpi-accent),
 body.present-mode .present-page .kpi:has(> .kpi-accent) { overflow: hidden; }
-/* the block you point at — lift + glowing brand ring */
+/* the block you point at — lift + glowing brand ring (รวม hero / KPI ที่เป็น div ธรรมดา) */
 body.present-mode .present-page .card:hover,
-body.present-mode .present-page .kpi:hover {
+body.present-mode .present-page .kpi:hover,
+body.present-mode .present-page .hero-pill:hover,
+body.present-mode .present-page .pnl-hero:hover,
+body.present-mode .present-page .pnl-kpi-card:hover {
   transform: translateY(-4px);
   box-shadow:
     0 22px 55px -16px color-mix(in oklch, var(--brand-500) 60%, transparent),
@@ -561,13 +567,20 @@ body.present-mode .present-page .kpi:hover {
   z-index: 6;
   position: relative;
 }
-/* row-level spotlight: point at a single line in any table */
-body.present-mode .present-page .tbl tbody tr {
+/* row-level spotlight: point at a single line in ANY table (รวม .pnl-report/.pnl-budget/.pnl-det-tbl ที่ไม่ใช่ .tbl) */
+body.present-mode .present-page table tbody tr {
   transition: background .2s var(--ease), opacity .2s var(--ease), box-shadow .2s var(--ease);
 }
-body.present-mode .present-page .tbl tbody tr:hover {
-  background: color-mix(in oklch, var(--brand-500) 15%, white) !important;
+body.present-mode .present-page table tbody tr:hover {
+  background: color-mix(in oklch, var(--brand-500) 13%, white) !important;
   box-shadow: inset 4px 0 0 0 var(--brand-500);
+}
+/* cell-level spotlight: เห็นชัดว่าชี้อยู่ "เซลล์ไหน" ของแถวนั้น (เข้มกว่าแถว + กรอบในเซลล์) */
+body.present-mode .present-page table tbody td { transition: background .15s var(--ease), box-shadow .15s var(--ease); }
+body.present-mode .present-page table tbody td:hover {
+  background: color-mix(in oklch, var(--brand-500) 30%, white) !important;
+  box-shadow: inset 0 0 0 2px var(--brand-500);
+  position: relative; z-index: 1;
 }
 /* don't carry the spotlight into print / reduced motion */
 body.present-mode.no-anim .present-page .card:hover,
@@ -633,10 +646,11 @@ body.present-mode .no-present { display: none !important; }
    หน้านี้ใช้ขนาดตัวอักษรแบบ inline px เยอะ → สเกลด้วย zoom เพื่อให้ "layout + ขนาด
    ตัวอักษร" ใหญ่ขึ้นพอดีจอ คล้าย Weekly Forecast เฉพาะตอนนำเสนอ (sidebar ซ่อน เต็มจอ).
    โหมดปกติไม่แตะ (zoom เป็นค่าเริ่มต้น). ปรับขั้นตามความกว้างจอเหมือน --cf-k */
-body.present-mode .wr-page { zoom: 1.08; }
-@media (min-width: 1450px) { body.present-mode .wr-page { zoom: 1.16; } }
-@media (min-width: 1650px) { body.present-mode .wr-page { zoom: 1.24; } }
-@media (min-width: 1900px) { body.present-mode .wr-page { zoom: 1.32; } }
+/* คาลิเบรตให้ตัวอักษรใหญ่เท่า Weekly Forecast (เซลล์ตาราง cf ~16px เทียบ wr ~12px ⇒ ×1.3+) */
+body.present-mode .wr-page { zoom: 1.3; }
+@media (min-width: 1450px) { body.present-mode .wr-page { zoom: 1.4; } }
+@media (min-width: 1650px) { body.present-mode .wr-page { zoom: 1.5; } }
+@media (min-width: 1900px) { body.present-mode .wr-page { zoom: 1.6; } }
 
 /* Dense layout option */
 .dense .card, .dense .kpi { padding: 14px; }

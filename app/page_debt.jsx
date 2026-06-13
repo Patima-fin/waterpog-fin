@@ -21,6 +21,14 @@ const DEBT_CATEGORIES = Object.keys(CATEGORY_META);
 // กลุ่มใหญ่ BANK / NON-BANK (ผู้ใช้เคาะ: BANK = ธนาคารอย่างเดียว · ที่เหลือทั้งหมด = NON-BANK)
 const DEBT_BANK_CATS = ['ธนาคาร'];
 const isDebtBankCat = (cat) => DEBT_BANK_CATS.includes(cat);
+// NON-BANK แยกเป็น 2 กลุ่มย่อย: "สินเชื่อโอนสิทธิ์" (LIT/ลีซอิท, STS, WCI, Project, FS) vs "นักลงทุน" (ที่เหลือ)
+function isAssignmentDebtCat(cat) {
+  const c = String(cat || '').trim();
+  if (/non-?wci/i.test(c)) return false;                 // Non-WCI = นักลงทุน
+  return /ลีซอิท/.test(c) || /\blit\b/i.test(c)
+      || /\bsts\b/i.test(c) || /\bwci\b/i.test(c)
+      || /project/i.test(c) || /\bfs\b/i.test(c) || /โอนสิทธิ/.test(c);
+}
 function metaFor(cat) {
   return CATEGORY_META[cat] || { color: '#525252', bg: '#f5f5f5', label: cat || '—' };
 }
@@ -54,21 +62,25 @@ function DebtCategoryMiniCard({ cat, rawRows }) {
   );
 }
 
-/* การ์ดกลุ่มใหญ่ BANK / NON-BANK — ย่อ=ยอดรวม Active (THB + USD แยก) · กดกางดูการ์ดรายหมวดข้างใน */
-function DebtGroupCard({ label, color, cats, rawRows, defaultOpen }) {
+/* การ์ดกลุ่มใหญ่ BANK / NON-BANK — ย่อ=ยอดรวม Active (THB + USD แยก) · กดกางดูข้างใน
+   subGroups (option) = กลุ่มย่อยซ้อนในการ์ดเดียว (เช่น NON-BANK → สินเชื่อโอนสิทธิ์ / นักลงทุน)
+   nested = การ์ดย่อยซ้อนในการ์ดใหญ่ (สไตล์บางลง) */
+function DebtGroupCard({ label, color, cats, rawRows, defaultOpen, subGroups, nested }) {
   const [open, setOpen] = React.useState(!!defaultOpen);
   const present = cats.filter(c => rawRows.some(r => r.debtCategory === c));
   const active  = rawRows.filter(r => cats.includes(r.debtCategory) && r.status === 'Active');
   const thbBal  = active.filter(r => r.currency !== 'USD').reduce((s, r) => s + (Number(r.balance || r.principalAmount) || 0), 0);
   const usdBal  = active.filter(r => r.currency === 'USD').reduce((s, r) => s + (Number(r.balance || r.principalAmount) || 0), 0);
   return (
-    <div className="card" style={{ flex: '1 1 360px', padding: 0, overflow: 'hidden', borderLeft: `5px solid ${color}` }}>
+    <div className="card" style={{ flex: nested ? '1 1 auto' : '1 1 360px', width: nested ? '100%' : undefined,
+      padding: 0, overflow: 'hidden', borderLeft: `${nested ? 4 : 5}px solid ${color}`,
+      boxShadow: nested ? 'none' : undefined, background: nested ? 'var(--ink-25, #fafbfc)' : undefined }}>
       <div onClick={() => setOpen(o => !o)}
-        style={{ cursor: 'pointer', padding: '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+        style={{ cursor: 'pointer', padding: nested ? '10px 14px' : '14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
           <span style={{ fontSize: 13, color, transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>▶</span>
           <div>
-            <div style={{ fontWeight: 800, fontSize: 15, color }}>{label}</div>
+            <div style={{ fontWeight: 800, fontSize: nested ? 13.5 : 15, color }}>{label}</div>
             <div style={{ fontSize: 11, color: 'var(--ink-500)', marginTop: 2 }}>
               {present.length} หมวด · {active.length} สัญญา Active · กดเพื่อดูรายละเอียด
             </div>
@@ -76,17 +88,21 @@ function DebtGroupCard({ label, color, cats, rawRows, defaultOpen }) {
         </div>
         <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
           <div style={{ fontSize: 10, color: 'var(--ink-400)' }}>คงเหลือ Active</div>
-          <div style={{ fontWeight: 800, fontSize: 20, fontVariantNumeric: 'tabular-nums',
+          <div style={{ fontWeight: 800, fontSize: nested ? 16 : 20, fontVariantNumeric: 'tabular-nums',
                        color: thbBal > 0 ? 'var(--bad)' : 'var(--ink-300)' }}>{fmtNum(thbBal, 0)}</div>
           {usdBal > 0 && <div style={{ fontSize: 11, color: 'var(--ink-500)', fontVariantNumeric: 'tabular-nums' }}>+ {fmtNum(usdBal, 0)} USD</div>}
         </div>
       </div>
       {open && (
-        present.length === 0
-          ? <div style={{ padding: '0 16px 14px', fontSize: 12, color: 'var(--ink-400)' }}>— ไม่มีรายการในกลุ่มนี้ —</div>
-          : <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', padding: '0 14px 14px' }}>
-              {present.map(cat => <DebtCategoryMiniCard key={cat} cat={cat} rawRows={rawRows} />)}
+        subGroups
+          ? <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '0 14px 14px' }}>
+              {subGroups.map(sg => <DebtGroupCard key={sg.label} label={sg.label} color={sg.color} cats={sg.cats} rawRows={rawRows} nested />)}
             </div>
+          : present.length === 0
+            ? <div style={{ padding: '0 16px 14px', fontSize: 12, color: 'var(--ink-400)' }}>— ไม่มีรายการในกลุ่มนี้ —</div>
+            : <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', padding: '0 14px 14px' }}>
+                {present.map(cat => <DebtCategoryMiniCard key={cat} cat={cat} rawRows={rawRows} />)}
+              </div>
       )}
     </div>
   );
@@ -721,15 +737,21 @@ function DebtPage({ data, setData, toast }) {
       {/* ── Summary by group (BANK / NON-BANK) — ย่อ=ยอดรวม · กดกางดูรายหมวด ── */}
       {/* NON-BANK = "ทุกหมวดที่ไม่ใช่ธนาคาร" ดึงจากหมวดจริงในข้อมูล (รวมหมวดนอก list เช่น WCI-Project) กันยอดหาย */}
       {(() => {
-        const allCats   = [...new Set(rawRows.map(r => String(r.debtCategory || '').trim()).filter(Boolean))];
-        const bankCats  = allCats.filter(isDebtBankCat);
-        const otherCats = allCats.filter(c => !isDebtBankCat(c));
+        const allCats    = [...new Set(rawRows.map(r => String(r.debtCategory || '').trim()).filter(Boolean))];
+        const bankCats   = allCats.filter(isDebtBankCat);
+        const otherCats  = allCats.filter(c => !isDebtBankCat(c));
+        const assignCats = otherCats.filter(isAssignmentDebtCat);    // สินเชื่อโอนสิทธิ์
+        const investCats = otherCats.filter(c => !isAssignmentDebtCat(c)); // นักลงทุน
         return (
           <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
             <DebtGroupCard label="BANK · ธนาคาร" color="#475569"
               cats={bankCats.length ? bankCats : DEBT_BANK_CATS} rawRows={rawRows} />
             <DebtGroupCard label="NON-BANK · นอกธนาคาร" color="#7c3aed"
-              cats={otherCats} rawRows={rawRows} />
+              cats={otherCats} rawRows={rawRows}
+              subGroups={[
+                { label: 'สินเชื่อโอนสิทธิ์', color: '#15803d', cats: assignCats },
+                { label: 'นักลงทุน',          color: '#7c3aed', cats: investCats },
+              ]} />
           </div>
         );
       })()}

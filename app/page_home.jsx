@@ -44,6 +44,11 @@ function hpK(n) {
   if (v >= 1e6) return hpMln(n);
   return `${Math.round(hpNum(n) / 1000).toLocaleString('th-TH')}K`;
 }
+// ช่วงวันที่ของสัปดาห์ (DD/MM–DD/MM ค.ศ.) — ใช้เป็นป้ายแทน W1/W2 ให้ตรงสัปดาห์จริง
+function hpWeekRange(w) {
+  const f = (iso) => { const d = parseDateFlexible(iso); return d ? `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}` : '—'; };
+  return `${f(w.startISO)}–${f(w.endISO)}`;
+}
 
 // tambon (ต.) or province (จ.) extracted from a free-text project name
 function hpPlace(name, preferProvince) {
@@ -352,6 +357,7 @@ function hpBuildAlerts(data, asOf, weekProj) {
 
 function HomePage({ data }) {
   const [cat, setCat] = hmState('all');
+  const [weekDrill, setWeekDrill] = hmState(null); // สัปดาห์ที่กดดูรายละเอียด
   const asOf = new Date().toISOString().slice(0, 10); // live reference (meta.asOf is stale)
 
   const session = (() => {
@@ -374,24 +380,30 @@ function HomePage({ data }) {
   }, [data.cashflowSnapshots]);
 
   // ── weekly cash projection (current cash + forecast net per week, 5 weeks) ──
+  //   cash0 = Σ ยอดคงเหลือธนาคารปัจจุบัน · net/สัปดาห์ = Σ forecastEntries (PLANNED) ตาม PAYMENT_DATE
+  //   weeks[] เก็บรายละเอียดราย entry ไว้ให้ drill (กดดูที่มาตัวเลขได้)
   const weekProj = hmMemo(() => {
     const cash0 = (data.bankAccounts || []).reduce((s, a) => s + hpBankBalance(a, snapByAc), 0);
     const fes = (data.forecastEntries || []).map(hpNormFe).filter(e => e.date && hpFePlanned(e));
     const asOfD = parseDateFlexible(asOf);
-    const closing = [];
+    const weeks = [];
     let running = cash0;
     for (let i = 0; i < 5; i++) {
       const ws = new Date(asOfD); ws.setDate(asOfD.getDate() + i * 7);
       const we = new Date(ws);  we.setDate(ws.getDate() + 6);
-      const net = fes.reduce((s, e) => {
-        const d = parseDateFlexible(e.date);
-        return (d && d >= ws && d <= we) ? s + e.amt : s;
-      }, 0);
+      const entries = fes.filter(e => { const d = parseDateFlexible(e.date); return d && d >= ws && d <= we; })
+        .sort((a, b) => (a.date < b.date ? -1 : 1));
+      const net = entries.reduce((s, e) => s + e.amt, 0);
+      const start = running;
       running += net;
-      closing.push(running);
+      weeks.push({
+        i, start, net, closing: running, entries,
+        startISO: ws.toISOString().slice(0, 10), endISO: we.toISOString().slice(0, 10),
+      });
     }
+    const closing = weeks.map(w => w.closing);
     return {
-      cash0, closing, snapByAc,
+      cash0, closing, weeks, snapByAc,
       minClosing: closing.length ? Math.min(...closing) : 0,
     };
   }, [data.bankAccounts, data.forecastEntries, snapByAc, asOf]);
@@ -606,29 +618,33 @@ function HomePage({ data }) {
           </div>
         </div>
 
-        {/* Weekly cash projection */}
+        {/* Weekly cash projection — ป้าย = ช่วงวันที่จริง · กดดูที่มาได้ */}
         <div className="hp-card">
           <div className="hp-card-hd">
             <span>เงินสดคาดการณ์รายสัปดาห์</span>
-            <span className="hp-card-tag">W1 ปัจจุบัน</span>
+            {weekProj.weeks[0] && <span className="hp-card-tag">สัปดาห์นี้ {hpWeekRange(weekProj.weeks[0])}</span>}
           </div>
           <div className="hp-weeks">
-            {weekProj.closing.map((v, i) => {
+            {weekProj.weeks.map((w) => {
+              const v = w.closing;
               const h = Math.round(Math.abs(v) / weekMax * 92) + 8;
-              const cur = i === 0;
+              const cur = w.i === 0;
               return (
-                <div className="hp-week" key={i}>
+                <button className="hp-week" key={w.i} type="button"
+                  onClick={() => setWeekDrill(w)}
+                  title={`${hpWeekRange(w)} · กดดูที่มา (${w.entries.length} รายการ)`}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', font: 'inherit', padding: 0 }}>
                   <div className="hp-week-val">{hpMln(v)}</div>
                   <div className="hp-week-bar-wrap">
                     <div className={`hp-week-bar${v < 0 ? ' neg' : ''}${cur ? ' cur' : ''}`} style={{ height: h }} />
                   </div>
-                  <div className={`hp-week-lbl${cur ? ' cur' : ''}`}>W{i + 1}</div>
-                </div>
+                  <div className={`hp-week-lbl${cur ? ' cur' : ''}`}>{hpWeekRange(w)}</div>
+                </button>
               );
             })}
-            {weekProj.closing.length === 0 && <div className="hp-next-empty">— ไม่มีข้อมูล —</div>}
+            {weekProj.weeks.length === 0 && <div className="hp-next-empty">— ไม่มีข้อมูล —</div>}
           </div>
-          <div className="hp-week-note">{weekAllNeg ? 'ทุกสัปดาห์ติดลบ — ต้องเสริมสภาพคล่อง' : `เงินสดตั้งต้น ${hpMln(weekProj.cash0)} · ประมาณการจาก Forecast`}</div>
+          <div className="hp-week-note">{weekAllNeg ? 'ทุกสัปดาห์ติดลบ — ต้องเสริมสภาพคล่อง' : `เงินสดตั้งต้น ${hpMln(weekProj.cash0)} (Σ ยอดธนาคาร) · บวกประมาณการ Forecast · กดแท่งดูที่มา`}</div>
         </div>
 
         {/* Banks */}
@@ -650,6 +666,45 @@ function HomePage({ data }) {
           </div>
         </div>
       </div>
+
+      {/* Week drill — ที่มาของเงินสดคาดการณ์รายสัปดาห์ */}
+      {weekDrill && (
+        <Modal open={true} maxWidth={560} onClose={() => setWeekDrill(null)}
+          title={`เงินสดคาดการณ์ · ${hpWeekRange(weekDrill)}${weekDrill.i === 0 ? ' (สัปดาห์นี้)' : ''}`}
+          footer={<button className="btn btn-ghost" onClick={() => setWeekDrill(null)}>ปิด</button>}>
+          <div style={{ fontSize: 13 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 2px', borderBottom: '1px solid var(--ink-100)' }}>
+              <span style={{ color: 'var(--ink-600)' }}>ยอดยกมา (ต้นสัปดาห์)</span>
+              <b style={{ fontVariantNumeric: 'tabular-nums' }}>{hpMln(weekDrill.start)}</b>
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--ink-500)', margin: '10px 2px 4px', fontWeight: 600 }}>
+              ประมาณการในสัปดาห์ ({weekDrill.entries.length} รายการ · จาก Forecast)
+            </div>
+            {weekDrill.entries.length === 0 && (
+              <div className="muted" style={{ padding: '12px 2px' }}>— ไม่มีรายการประมาณการในสัปดาห์นี้ —</div>
+            )}
+            {weekDrill.entries.map((e, k) => (
+              <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '5px 2px', borderBottom: '1px solid var(--ink-50, #f1f5f9)' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.label || '(ไม่มีรายละเอียด)'}</div>
+                  <div style={{ fontSize: 10.5, color: 'var(--ink-400)' }}>{fmtDate(e.date)}{e.cat ? ` · หมวด ${e.cat}` : ''}</div>
+                </div>
+                <b style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', color: e.amt < 0 ? 'var(--bad)' : 'var(--good)' }}>
+                  {e.amt > 0 ? '+' : ''}{hpMln(e.amt)}
+                </b>
+              </div>
+            ))}
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 2px', marginTop: 4, borderTop: '2px solid var(--ink-100)' }}>
+              <span style={{ fontWeight: 600 }}>ประมาณการสุทธิสัปดาห์นี้</span>
+              <b style={{ fontVariantNumeric: 'tabular-nums', color: weekDrill.net < 0 ? 'var(--bad)' : 'var(--good)' }}>{weekDrill.net > 0 ? '+' : ''}{hpMln(weekDrill.net)}</b>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 2px', background: 'var(--brand-50)', borderRadius: 8, marginTop: 6 }}>
+              <span style={{ fontWeight: 700, color: 'var(--brand-700)' }}>ยอดเงินสดคาดการณ์ (สิ้นสัปดาห์)</span>
+              <b style={{ fontVariantNumeric: 'tabular-nums', fontSize: 15, color: weekDrill.closing < 0 ? 'var(--bad)' : 'var(--brand-700)' }}>{hpMln(weekDrill.closing)}</b>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

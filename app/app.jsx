@@ -775,7 +775,7 @@ function PresentModeToggle() {
 function Topbar({ route, routes, data, onReset, onMenuClick }) {
   const r = routes[route] || routes.daily;
   const today = new Date().toLocaleDateString('th-TH-u-ca-gregory', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
-  const isPresentation = ['daily', 'warroom1', 'warroom2', 'cashflow', 'pnl', 'projects'].includes(route);
+  const isPresentation = ['daily', 'warroom1', 'warroom2', 'cashflow', 'pnl', 'projects', 'budget'].includes(route);
   return (
     <div className="topbar">
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>

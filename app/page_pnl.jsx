@@ -647,7 +647,7 @@ function PnLPage({ data, setData, toast }) {
   return (
     <div className="page pnl-page present-page" ref={pageRef}>
       {/* ── HERO BANNER ────────────────────────────────────────────────── */}
-      <div className="anim-in" style={{
+      <div className="anim-in pnl-hero" style={{
         background: 'linear-gradient(135deg, #2563eb 0%, #1e3a8a 100%)',
         borderRadius: 16, padding: '22px 28px', color: 'white',
         marginBottom: 18, boxShadow: '0 10px 28px rgba(30, 58, 138, 0.18)',
@@ -740,7 +740,7 @@ function PnLPage({ data, setData, toast }) {
             cardBg: k.net < 0 ? 'linear-gradient(180deg, #fef2f2 0%, #ffffff 100%)' : 'white',
             cardBorder: k.net < 0 ? '#fecaca' : '#e2e8f0' },
         ].map((tile, i) => (
-          <div key={i} style={{
+          <div key={i} className="pnl-kpi-card" style={{
             background: tile.cardBg || 'white',
             borderRadius: 12, padding: 18,
             border: '1px solid ' + (tile.cardBorder || '#e2e8f0'),
