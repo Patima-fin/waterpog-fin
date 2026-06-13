@@ -990,12 +990,14 @@ function CashFlowDashboard({ data, setData, toast }) {
       if (findWeekIdx(date, weeks) !== weekIdx) return;
       const c = categorizeForecastEntry(fe);
       if (!wantCat(c)) return;
+      // รายการที่บันทึกจ่ายจริงผ่านหน้ากระทบยอด (BANK_RECON) → ป้าย "STM" ไม่ใช่ "Forecast" (มันคือจ่ายจริง ไม่ใช่ประมาณการ)
+      const isRecon = String(fe.EXPENSE_TYPE || '').toUpperCase() === 'BANK_RECON';
       items.push({
-        source: 'Forecast', date,
+        source: isRecon ? 'STM' : 'Forecast', date,
         name: fe.DESCRIPTION || '—',
         ref: fe.JOB_NO || '',
         amount: -Math.abs(amt), isPaid: true,
-        note: `จ่ายจริง (${status}) · ${CATEGORY_LABELS_SHORT[c]}`,
+        note: `จ่ายจริง${isRecon ? ' · กระทบยอด (STM)' : ` (${status})`} · ${CATEGORY_LABELS_SHORT[c]}`,
         detail: [
           ['รายการ', fe.DESCRIPTION || '—'],
           ['Job No.', fe.JOB_NO || '—'],
@@ -1003,7 +1005,7 @@ function CashFlowDashboard({ data, setData, toast }) {
           ['วันที่จ่ายจริง', fmtDate(date) || date],
           ['หมวด', `${c} · ${CATEGORY_LABELS_SHORT[c] || '—'}`],
           ['ยอดจ่ายจริง', fmtNum(Math.abs(amt), 2) + ' ฿'],
-          ['สถานะ', status],
+          ['สถานะ', isRecon ? `${status} · กระทบยอด` : status],
           ['บัญชี', fe.Bank_AC || '—'],
           ['หมายเหตุ', fe.NOTE || '—'],
         ],
@@ -1024,6 +1026,8 @@ function CashFlowDashboard({ data, setData, toast }) {
       if (status === 'CANCELED') return;
       const isLoan = String(fe.EXPENSE_TYPE || fe.CATEGORY || '').toUpperCase() === 'LOAN';
       if (isLoan) return;
+      // จ่ายจริงจากกระทบยอด (BANK_RECON) ไม่ใช่ประมาณการ → ตัดออก ให้ list ตรงกับยอดในช่อง (mirror forecastByWeekCat)
+      if (String(fe.EXPENSE_TYPE || '').toUpperCase() === 'BANK_RECON') return;
       const amt = Number(fe.AMOUNT || fe.amount || 0);
       if (amt >= 0) return;   // outflow only
       const date = fe.PAYMENT_DATE || fe.DATE || fe.paymentDate;
@@ -1961,20 +1965,6 @@ function PlanVsActualCard({ tone, icon, label, plan, actual, hint, editMode, ovK
         </div>
         <Badge kind={pct >= 100 ? 'b-green' : pct >= 50 ? 'b-blue' : 'b-amber'} dot={false}>{pct.toFixed(1)}%</Badge>
       </div>
-      {(lockedAt || lockEditable) && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, fontSize: 11, color: 'var(--ink-500)' }}>
-          <span title="ยอด Plan ถูกจับไว้ตั้งแต่ต้นเดือน — ไม่เปลี่ยนเมื่อรับเงินจริง">
-            {lockedAt ? `🔒 ล็อกแผน ${fmtLockedAtInt(lockedAt)}` : '🔓 ยังไม่ได้ล็อกแผนเดือนนี้'}
-          </span>
-          {lockEditable && onLock && (
-            <button className="btn btn-ghost no-present"
-              style={{ padding: '1px 8px', fontSize: 11, lineHeight: 1.6 }}
-              onClick={onLock}>
-              {lockedAt ? 'ล็อกใหม่' : 'ล็อกแผนเดือนนี้'}
-            </button>
-          )}
-        </div>
-      )}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: cfScale(14) }}>
         <div>
           <div style={{ fontSize: cfScale(11), color: 'var(--ink-500)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>Plan</div>
@@ -2000,6 +1990,20 @@ function PlanVsActualCard({ tone, icon, label, plan, actual, hint, editMode, ovK
           </span>
         </div>
       </div>
+      {(lockedAt || lockEditable) && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: cfScale(12), paddingTop: cfScale(10), borderTop: '1px solid var(--ink-100)', fontSize: 11, color: 'var(--ink-500)' }}>
+          <span title="ยอด Plan ถูกจับไว้ตั้งแต่ต้นเดือน — ไม่เปลี่ยนเมื่อรับเงินจริง">
+            {lockedAt ? `🔒 ล็อกแผน ${fmtLockedAtInt(lockedAt)}` : '🔓 ยังไม่ได้ล็อกแผนเดือนนี้'}
+          </span>
+          {lockEditable && onLock && (
+            <button className="btn btn-ghost no-present"
+              style={{ padding: '1px 8px', fontSize: 11, lineHeight: 1.6 }}
+              onClick={onLock}>
+              {lockedAt ? 'ล็อกใหม่' : 'ล็อกแผนเดือนนี้'}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
