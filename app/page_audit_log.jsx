@@ -6,12 +6,20 @@
 
 const { useState: alState, useEffect: alEffect, useMemo: alMemo } = React;
 
+// ป้าย/สีของแต่ละ action — คีย์ต้องตรงกับค่า `action` จริงในชีต auditLog
+//   ค่าจริงที่ backend บันทึก: applyDiff (CRUD รายแถว) · replaceAll (sync เต็มตาราง)
+//   · budgetImportMonth / plImportMonth (นำเข้า) — ไม่มี add/update/delete แยก
 const AL_ACTION_META = {
-  add:        { label: 'เพิ่ม',         color: 'b-green' },
-  update:     { label: 'แก้ไข',         color: 'b-amber' },
-  delete:     { label: 'ลบ',            color: 'b-red' },
-  replaceAll: { label: 'อัพเดททั้งหมด', color: 'b-blue' },
+  applyDiff:         { label: 'แก้ไขข้อมูล',  color: 'b-amber' },
+  replaceAll:        { label: 'Sync',         color: 'b-blue'  },
+  budgetImportMonth: { label: 'นำเข้า Budget', color: 'b-green' },
+  plImportMonth:     { label: 'นำเข้า P&L',   color: 'b-green' },
+  // legacy fallbacks (เผื่อชีตเก่า/แหล่งอื่นใช้คำเหล่านี้)
+  add:    { label: 'เพิ่ม', color: 'b-green' },
+  update: { label: 'แก้ไข', color: 'b-amber' },
+  delete: { label: 'ลบ',   color: 'b-red'   },
 };
+const AL_ACTION_LABEL = (a) => (AL_ACTION_META[a] && AL_ACTION_META[a].label) || a || '—';
 
 // Normalise a raw row from the auditLog Sheet — Google Sheets may store
 // header names with different casing/spelling depending on who created the
@@ -112,6 +120,14 @@ function AuditLogPage({ data, toast }) {
     return [...new Set(rows.map(r => r.entity).filter(Boolean))].sort();
   }, [rows]);
 
+  // แท็บกรอง action สร้างจากค่าจริงในข้อมูล (เรียงตามจำนวนมาก→น้อย) → ทุกแท็บกดแล้วเจอเสมอ
+  const actionOptions = alMemo(() => {
+    if (!rows) return [];
+    const c = {};
+    rows.forEach(r => { if (r.action) c[r.action] = (c[r.action] || 0) + 1; });
+    return Object.keys(c).sort((a, b) => c[b] - c[a]).map(a => ({ key: a, count: c[a] }));
+  }, [rows]);
+
   const totals = alMemo(() => {
     if (!rows) return { all: 0, byAction: {}, byUser: {} };
     const byAction = {}, byUser = {};
@@ -187,8 +203,8 @@ function AuditLogPage({ data, toast }) {
       {rows && (
         <div className="grid grid-4 anim-stagger" style={{ marginBottom: 16 }}>
           <KpiTile animate={false} label="บันทึกทั้งหมด" value={totals.all}              accent="var(--brand-500)"      icon="invoice" unit=" รายการ" digits={0} />
-          <KpiTile animate={false} label="เพิ่ม"          value={totals.byAction.add || 0}      accent="var(--good)"           icon="plus"    unit=" ครั้ง" digits={0} />
-          <KpiTile animate={false} label="แก้ไข + ลบ"      value={(totals.byAction.update || 0) + (totals.byAction.delete || 0)} accent="oklch(60% 0.18 55)" icon="edit" unit=" ครั้ง" digits={0} />
+          <KpiTile animate={false} label="แก้ไขข้อมูล"    value={totals.byAction.applyDiff || 0} accent="oklch(60% 0.18 55)"    icon="edit"    unit=" ครั้ง" digits={0} />
+          <KpiTile animate={false} label="นำเข้า"         value={(totals.byAction.budgetImportMonth || 0) + (totals.byAction.plImportMonth || 0)} accent="var(--good)" icon="plus" unit=" ครั้ง" digits={0} />
           <KpiTile animate={false} label="Sync rounds"   value={totals.byAction.replaceAll || 0}    accent="oklch(52% 0.16 220)"   icon="refresh" unit=" ครั้ง" digits={0} />
         </div>
       )}
@@ -196,11 +212,14 @@ function AuditLogPage({ data, toast }) {
       {/* Filter bar */}
       <div className="card" style={{ padding: 10, marginBottom: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <div className="tabnav" style={{ flex: 'none' }}>
-          <button className={actionFilter === 'all' ? 'active' : ''} onClick={() => setActionFilter('all')}>ทั้งหมด</button>
-          <button className={actionFilter === 'add' ? 'active' : ''} onClick={() => setActionFilter('add')}>เพิ่ม</button>
-          <button className={actionFilter === 'update' ? 'active' : ''} onClick={() => setActionFilter('update')}>แก้ไข</button>
-          <button className={actionFilter === 'delete' ? 'active' : ''} onClick={() => setActionFilter('delete')}>ลบ</button>
-          <button className={actionFilter === 'replaceAll' ? 'active' : ''} onClick={() => setActionFilter('replaceAll')}>Sync</button>
+          <button className={actionFilter === 'all' ? 'active' : ''} onClick={() => setActionFilter('all')}>
+            ทั้งหมด{rows ? ` (${rows.length})` : ''}
+          </button>
+          {actionOptions.map(o => (
+            <button key={o.key} className={actionFilter === o.key ? 'active' : ''} onClick={() => setActionFilter(o.key)}>
+              {AL_ACTION_LABEL(o.key)} ({o.count})
+            </button>
+          ))}
         </div>
         <select className="input" value={entityFilter} onChange={e => setEntityFilter(e.target.value)} style={{ width: 'auto', minWidth: 140 }}>
           <option value="all">ทุกตาราง</option>
