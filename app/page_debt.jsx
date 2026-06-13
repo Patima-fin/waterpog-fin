@@ -100,8 +100,35 @@ function DebtGroupCard({ label, color, cats, rawRows, defaultOpen, subGroups, ne
             </div>
           : present.length === 0
             ? <div style={{ padding: '0 16px 14px', fontSize: 12, color: 'var(--ink-400)' }}>— ไม่มีรายการในกลุ่มนี้ —</div>
-            : <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', padding: '0 14px 14px' }}>
-                {present.map(cat => <DebtCategoryMiniCard key={cat} cat={cat} rawRows={rawRows} />)}
+            : <div style={{ padding: '0 14px 12px' }}>
+                {/* รายการหมวดแบบลิสต์กระชับ — อ่านง่ายกว่าการ์ดเรียงเต็ม (ละลานตา) */}
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                  <tbody>
+                    {present.map((cat, ci) => {
+                      const m = metaFor(cat);
+                      const catRows = rawRows.filter(r => r.debtCategory === cat);
+                      const act = catRows.filter(r => r.status === 'Active');
+                      const bal = act.reduce((s, r) => s + (Number(r.balance || r.principalAmount) || 0), 0);
+                      const isUSD = act.some(r => r.currency === 'USD');
+                      return (
+                        <tr key={cat} style={{ borderTop: ci === 0 ? '1px solid var(--ink-100)' : '1px solid var(--ink-50, #f1f5f9)' }}>
+                          <td style={{ padding: '8px 6px' }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+                              <span style={{ width: 10, height: 10, borderRadius: 3, background: m.color, flexShrink: 0 }} />
+                              <span style={{ fontWeight: 700, color: m.color }}>{m.label}</span>
+                            </span>
+                          </td>
+                          <td style={{ padding: '8px 6px', textAlign: 'right', color: 'var(--ink-500)', whiteSpace: 'nowrap' }}>
+                            <b style={{ color: 'var(--ink-700)' }}>{act.length}</b><span style={{ color: 'var(--ink-300)' }}>/{catRows.length}</span> สัญญา
+                          </td>
+                          <td style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', color: bal > 0 ? 'var(--bad)' : 'var(--ink-300)' }}>
+                            {fmtNum(bal, 0)}{isUSD && <span style={{ fontSize: 9, color: 'var(--ink-400)' }}> USD</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
       )}
     </div>

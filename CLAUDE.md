@@ -98,5 +98,21 @@ Live at **https://patima-fin.github.io/waterpog-fin/** — GitHub Pages serves t
 - **ภาระหนี้ทั้งหมด** (`page_debt`): one **combined NON-BANK card** (`DebtGroupCard` got `subGroups`+`nested` props) — expand it to reveal 2 nested sub-groups “สินเชื่อโอนสิทธิ์” (`isAssignmentDebtCat`: LIT/ลีซอิท, STS, WCI, *Project*, FS; Non-WCI excluded) + “นักลงทุน” (the rest), each itself expandable to its category mini-cards. (Not 3 separate top-level cards — keep it tidy: one place, expand what you want.)
 - **Debt Ledger popup** (`page_debt_ledger` drawer): split into **2 tabs** (`drawerTab` state, default `'interest'`) — 💵 คืนเงินกู้ (เงินต้น) = action bar + รายการรับ/คืนเงินกู้ table · 📈 ดอกเบี้ย = filter tabs + schedule + auto-compare. Status/lineage blocks stay above the tabs.
 
+## 2026-06-13 batch (round 3 — 7 fixes)
+- **`YmdPicker` (global, `components.jsx`)** — cascade ปี→เดือน→วัน (3 `<select>`, ค.ศ.) แทน `<input type="date">` ในตัว **กรอง** วันที่. `value`=ISO|'' · `onChange(iso)` (ปี+เดือนพอ → emit, วัน default 1; ไม่มีปี/เดือน → ''). ใช้ที่: Bank Diary AP "กรองครบกำหนด" (from/to), Project Control advanced-filter + date-range, Daily Balance วันที่บันทึก. **ฟอร์มกรอกข้อมูล (invoice/maturity ฯลฯ) ยังเป็น `<input type=date>` ตามเดิม** (นี่คือ "filter" เท่านั้น).
+- **`ErrorBoundary` (global, `components.jsx`) wraps the page** in `app.jsx` (`<ErrorBoundary key={route}>{page}</ErrorBoundary>`) — render error ของหน้าไหนโชว์ fallback (⚠️ + ลองอีกครั้ง/รีโหลด) แทน "จอขาวหายทั้งหน้า". `key={route}` → reset เมื่อเปลี่ยนหน้า.
+- **Bank Reconciliation: สำรอง/กู้คืน** (💾 สำรอง / ↩️ กู้คืน บน header) — export/import JSON ของ `BankReconStore` (lines+state+mapping) กันข้อมูล localStorage หาย/ย้ายเครื่อง. (แนวทางถาวรยังเป็น Supabase ตาม [[data-backend-migration]].)
+- **Weekly Forecast `PlanVsActualCard`** ได้ `overflow:hidden` → แถบ `.kpi-accent` ซ้ายโค้งตามมุมการ์ดในโหมดปกติ (เหมือนโหมดนำเสนอ).
+- **ภาระหนี้: กล่อง BANK/NON-BANK กางแล้ว** เปลี่ยนจากการ์ดรายหมวดเรียงเต็ม (ละลานตา) → **ลิสต์ตารางกระชับ** (จุดสี + ชื่อหมวด · n/ทั้งหมด สัญญา · คงเหลือ). `DebtCategoryMiniCard` เลิกใช้แล้ว.
+- **Debt Ledger popup tabs** = segmented control เด่นชัด (พื้น `--ink-100`, แท็บ active เป็น gradient brand + เงา) แทน `.tabnav` จืดๆ.
+- **ประวัติรับเงิน** เพิ่มตัวกรอง **ปี** (`filterYear` + `yearNos`) คู่กับเดือน.
+- **Bank Daily AP** แถวที่วางแผนแล้วโชว์ **📅 จ่าย DD/MM/YYYY** (`plannedDateByRef` = map AP→PAYMENT_DATE ของ forecast ที่ผูก REF_DOC).
+
+## 2026-06-13 — Bank Reconciliation now syncs to dedicated Sheet tabs
+- **กระทบยอดธนาคารเลิกเป็น localStorage-only แล้ว** — เพิ่ม 2 entity tables ใหม่ที่ sync ผ่านระบบเดิม: **`bankReconLines`** (statement lines แบบ flat: `id,accountNo,ym,date,amount,desc,ref,balance,idx`) + **`bankReconState`** (`id`=lineId, `decision`, `forecastId`). ทีมเห็นร่วม + รอด browser clear.
+- **⚠️ ต้อง re-paste `Code.gs` (หรือ `Code.standalone.gs` ตัวที่ deploy) ลง Apps Script + redeploy** — เพิ่มแล้วใน: `SHEETS`, `getEntity`, `JSON_FIELDS`, `ENTITY_HEADERS`, `_entitySheet` map, `initEmpty` writeTable, `SERVER_VERSION='20260613a-bankrecon'`. **ก่อน redeploy: recon เขียน push จะ error (`CRUD ไม่รองรับ entity`) แต่หน้ายังทำงาน local ได้ (localStorage cache)** — degrade graceful. แท็บถูกสร้างอัตโนมัติตอน write ครั้งแรก (applyDiff `insertSheet`).
+- **Client wiring**: `data_sync.js` (CRUD_ENTITIES + sheetOrder ต่อท้าย + read/assemble), `data.js` (CRUD_KEYS + seed `[]`), `page_bank_recon.jsx` (`brLinesToRows`/`brRowsToLines`/`brStateToRows`/`brRowsToState` + hydration effect cloud→local + `pushReconLines`/`pushReconState` ทุก write). localStorage `BankReconStore` ยังเป็น cache/offline.
+- **gviz-อ่านแท็บผิดเป็นขยะ (gotcha):** ขอ gviz `?sheet=bankReconLines` ตอนแท็บยังไม่ถูกสร้าง → Google คืน "ชีตแรก" มาเป็นขยะ (เช่น META KV). hydration จึง **กรองเฉพาะแถวที่มี `accountNo`+`ym`** (และ state ต้องมี `id`+`decision`) ก่อน — ขยะถูกทิ้ง ไม่ทับ/ล้าง cache. หลังแท็บถูกสร้าง gviz คืนค่าถูกต้อง.
+
 ## Repo rule: keep CLAUDE.md current
 **Every time you `git push`, update this `CLAUDE.md`** to reflect anything that changed (architecture, conventions, new pages, gotchas). Treat it as part of the push, like the `?v=` bump.

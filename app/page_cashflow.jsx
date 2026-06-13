@@ -1950,7 +1950,7 @@ function PlanVsActualCard({ tone, icon, label, plan, actual, hint, editMode, ovK
   };
   const t = tones[tone] || tones.info;
   return (
-    <div className="card" style={{ padding: cfScale(18), position: 'relative' }}>
+    <div className="card" style={{ padding: cfScale(18), position: 'relative', overflow: 'hidden' }}>
       <div className="kpi-accent" style={{ background: t.accent }} />
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: cfScale(13), color: 'var(--ink-700)', fontWeight: 600 }}>

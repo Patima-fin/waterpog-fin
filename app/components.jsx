@@ -644,6 +644,76 @@ function StatusPill({ value, options, onChange, size = 'md' }) {
   );
 }
 
+// ─── YmdPicker — ตัวเลือกวันที่แบบ ปี → เดือน → วัน (cascade) ─────────────────
+// ใช้แทน <input type="date"> ในตัวกรอง เพื่อเลือกง่ายขึ้น (ไม่ต้องเลื่อนปฏิทินหาวัน)
+// value = ISO 'YYYY-MM-DD' (ค.ศ.) | '' · onChange(iso) · เลือกปีก่อน → เดือน → วัน
+const YMD_MONTHS = ['', 'ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+function YmdPicker({ value, onChange, minYear, maxYear, style, size }) {
+  const cur = new Date();
+  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(String(value || ''));
+  const y = m ? +m[1] : '';
+  const mo = m ? +m[2] : '';
+  const d = m ? +m[3] : '';
+  const y0 = minYear || (cur.getFullYear() - 6);
+  const y1 = maxYear || (cur.getFullYear() + 2);
+  const years = []; for (let yy = y1; yy >= y0; yy--) years.push(yy);
+  const daysIn = (yy, mm) => (yy && mm) ? new Date(yy, mm, 0).getDate() : 31;
+  // ปี+เดือนพอ → คืน ISO (วัน default 1 ถ้ายังไม่เลือก) · ไม่มีปี/เดือน → '' (ล้างตัวกรอง)
+  const emit = (ny, nmo, nd) => {
+    if (!ny || !nmo) { onChange(''); return; }
+    const dd = Math.min(nd || 1, daysIn(ny, nmo));
+    onChange(`${ny}-${String(nmo).padStart(2, '0')}-${String(dd).padStart(2, '0')}`);
+  };
+  const sel = {
+    padding: size === 'sm' ? '4px 6px' : '6px 8px', border: '1px solid var(--line)', borderRadius: 7,
+    fontSize: size === 'sm' ? 12 : 12.5, fontFamily: 'inherit', background: 'var(--panel)', color: 'var(--ink-800)', cursor: 'pointer',
+  };
+  return (
+    <span style={{ display: 'inline-flex', gap: 5, ...style }}>
+      <select style={{ ...sel, minWidth: 64 }} value={y} onChange={e => emit(+e.target.value || '', mo, d)} title="ปี (ค.ศ.)">
+        <option value="">ปี</option>
+        {years.map(yy => <option key={yy} value={yy}>{yy}</option>)}
+      </select>
+      <select style={{ ...sel, minWidth: 62 }} value={mo} onChange={e => emit(y, +e.target.value || '', d)} disabled={!y} title="เดือน">
+        <option value="">เดือน</option>
+        {YMD_MONTHS.slice(1).map((mm, i) => <option key={i + 1} value={i + 1}>{mm}</option>)}
+      </select>
+      <select style={{ ...sel, minWidth: 54 }} value={d} onChange={e => emit(y, mo, +e.target.value || '')} disabled={!mo} title="วัน">
+        <option value="">วัน</option>
+        {Array.from({ length: daysIn(y, mo) }, (_, i) => i + 1).map(dd => <option key={dd} value={dd}>{dd}</option>)}
+      </select>
+    </span>
+  );
+}
+
+// ─── ErrorBoundary — กันหน้า "หายทั้งหน้า" เมื่อข้อมูลมีปัญหา (โชว์ fallback แทนจอขาว) ──
+class ErrorBoundary extends React.Component {
+  constructor(p) { super(p); this.state = { err: null }; }
+  static getDerivedStateFromError(err) { return { err }; }
+  componentDidCatch(err, info) { try { console.error('[WTP] page render error:', err, info); } catch (_) {} }
+  render() {
+    if (!this.state.err) return this.props.children;
+    return (
+      <div className="page">
+        <div className="card" style={{ padding: 32, textAlign: 'center', maxWidth: 640, margin: '40px auto' }}>
+          <div style={{ fontSize: 34, marginBottom: 10 }}>⚠️</div>
+          <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--ink-800)', marginBottom: 8 }}>หน้านี้เกิดข้อผิดพลาด</div>
+          <div style={{ fontSize: 12.5, color: 'var(--ink-500)', marginBottom: 14 }}>
+            ข้อมูลบางส่วนอาจมีปัญหา — ระบบส่วนอื่นยังทำงานปกติ · ลอง “ลองอีกครั้ง” หรือไปหน้าอื่นก่อน
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--ink-400)', fontFamily: 'ui-monospace', background: 'var(--ink-50,#f8fafc)', borderRadius: 8, padding: '8px 10px', marginBottom: 14, wordBreak: 'break-word', textAlign: 'left' }}>
+            {String((this.state.err && this.state.err.message) || this.state.err)}
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+            <button className="btn btn-ghost" onClick={() => this.setState({ err: null })}>ลองอีกครั้ง</button>
+            <button className="btn btn-primary" onClick={() => location.reload()}>รีโหลดหน้า</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+}
+
 // ─── Manual Override System (Cloud-shared) ──────────────────────────────────
 // คีย์เลขมือทับค่าที่ระบบคำนวณ — sync ผ่าน Google Sheets (มองเห็นทุก user)
 // data.manualOverrides = [{ id, key, value, updatedBy, updatedAt }, ...]

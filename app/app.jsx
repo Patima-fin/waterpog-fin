@@ -417,7 +417,8 @@ function App() {
       <div className="main">
         <Topbar route={route} routes={routes} data={data} onReset={resetDemo} onMenuClick={openSb} />
         <div data-screen-label={route}>
-          {page}
+          {/* key={route} → boundary รีเซ็ตเมื่อเปลี่ยนหน้า (หน้าอื่นไม่พังตาม) */}
+          <ErrorBoundary key={route}>{page}</ErrorBoundary>
         </div>
       </div>
 

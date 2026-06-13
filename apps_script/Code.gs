@@ -37,11 +37,13 @@ var SHEETS = {
   CHECKS:        'checks',
   AUDIT_LOG:     'auditLog',
   USERS:         'users',
+  BANK_RECON_LINES: 'bankReconLines',   // กระทบยอด: รายการเดินบัญชีจาก statement
+  BANK_RECON_STATE: 'bankReconState',   // กระทบยอด: สถานะการกระทบ (lineId → decision)
 };
 
 // ── เวอร์ชันเซิร์ฟเวอร์ — bump ทุกครั้งที่ deploy (ดูคำอธิบายใน Code.standalone.gs) ──
 // client ping ค่านี้ตอนเปิดแอป → เห็นชัดว่าเซิร์ฟเวอร์เวอร์ชันไหนรันจริง (กันลืม redeploy)
-var SERVER_VERSION = '20260609a-serverguard';
+var SERVER_VERSION = '20260613a-bankrecon';
 
 /* ── 1. MENU ────────────────────────────────────────────────────── */
 function onOpen() {
@@ -219,6 +221,8 @@ function getEntity(name) {
     case 'receipts':              return readTable(SHEETS.RECEIPTS);
     case 'bankEntries':           return readTable(SHEETS.BANK_ENTRIES);
     case 'checks':                return readTable(SHEETS.CHECKS);
+    case 'bankReconLines':        return readTable(SHEETS.BANK_RECON_LINES);
+    case 'bankReconState':        return readTable(SHEETS.BANK_RECON_STATE);
   }
   return { error: 'unknown entity: ' + name };
 }
@@ -251,6 +255,8 @@ var JSON_FIELDS = {
   receipts:       [],
   bankEntries:    [],
   checks:         [],
+  bankReconLines: [],
+  bankReconState: [],
 };
 
 function readTable(name) {
@@ -554,6 +560,16 @@ var ENTITY_HEADERS = {
     'id','checkNo','checkDate','payee','amount','bankName','accountNo',
     'referenceNo','linkedProjectCode','status','note'
   ],
+
+  // ── bankReconLines: รายการเดินบัญชีจาก statement (กระทบยอด · flat rows) ──
+  bankReconLines: [
+    'id','accountNo','ym','date','amount','desc','ref','balance','idx'
+  ],
+
+  // ── bankReconState: สถานะการกระทบยอด (id = lineId → decision/forecastId) ──
+  bankReconState: [
+    'id','decision','forecastId'
+  ],
 };
 
 function _entitySheet(entity) {
@@ -569,6 +585,8 @@ function _entitySheet(entity) {
     bankEntries:    SHEETS.BANK_ENTRIES,
     checks:         SHEETS.CHECKS,
     users:          SHEETS.USERS,
+    bankReconLines: SHEETS.BANK_RECON_LINES,
+    bankReconState: SHEETS.BANK_RECON_STATE,
   };
   if (!map[entity]) throw new Error('CRUD ไม่รองรับ entity: ' + entity);
   return { name: map[entity], headers: ENTITY_HEADERS[entity] };
@@ -841,6 +859,8 @@ function initEmpty() {
   writeTable(SHEETS.RECEIPTS,     ENTITY_HEADERS.receipts,         []);
   writeTable(SHEETS.BANK_ENTRIES, ENTITY_HEADERS.bankEntries,      []);
   writeTable(SHEETS.CHECKS,       ENTITY_HEADERS.checks,           []);
+  writeTable(SHEETS.BANK_RECON_LINES, ENTITY_HEADERS.bankReconLines, []);
+  writeTable(SHEETS.BANK_RECON_STATE, ENTITY_HEADERS.bankReconState, []);
 
   // Add column notes/hints to help user fill in data
   _addColumnHints_();

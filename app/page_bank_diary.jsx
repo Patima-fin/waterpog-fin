@@ -1420,7 +1420,7 @@ function BDForecastPanel({ forecasts, periodEnd, periodLabel, today, totalRealBa
 }
 
 /* ── AP Panel — เจ้าหนี้คงค้างให้เลือกจ่าย (เดี่ยว/หลายรายการ → สร้างประมาณการ) ── */
-function BDApPanel({ apList, plannedRefs, bankAccounts, defaultBank, today, periodEnd, periodLabel, onPlan, onBulkApply, onBulkReschedule, onBulkUnplan, onEditPlanned, onSetCategory, canEdit }) {
+function BDApPanel({ apList, plannedRefs, plannedDateByRef, bankAccounts, defaultBank, today, periodEnd, periodLabel, onPlan, onBulkApply, onBulkReschedule, onBulkUnplan, onEditPlanned, onSetCategory, canEdit }) {
   const [collapsed, setCollapsed] = React.useState(true);        // ย่อไว้ก่อน — กดหัวการ์ดเพื่อกาง
   const [query, setQuery]     = React.useState('');
   const [showAll, setShowAll] = React.useState(false);
@@ -1577,11 +1577,9 @@ function BDApPanel({ apList, plannedRefs, bankAccounts, defaultBank, today, peri
       {/* Due-date filter */}
       <div style={{ display:'flex', flexWrap:'wrap', alignItems:'center', gap:8, padding:'8px 16px', borderBottom:'1px solid #fef0e0', background:'#fffaf3' }}>
         <span style={{ fontSize:11, fontWeight:600, color:'#9a3412' }}>กรองครบกำหนด:</span>
-        <input type="date" value={dueFrom} onChange={e => setDueFrom(e.target.value)}
-          style={{ padding:'4px 8px', border:'1.5px solid #fed7aa', borderRadius:6, fontSize:11, fontFamily:'inherit', outline:'none' }} />
+        <YmdPicker value={dueFrom} onChange={setDueFrom} size="sm" />
         <span style={{ fontSize:11, color:'#a0aec0' }}>ถึง</span>
-        <input type="date" value={dueTo} onChange={e => setDueTo(e.target.value)}
-          style={{ padding:'4px 8px', border:'1.5px solid #fed7aa', borderRadius:6, fontSize:11, fontFamily:'inherit', outline:'none' }} />
+        <YmdPicker value={dueTo} onChange={setDueTo} size="sm" />
         <button onClick={() => { setDueFrom(''); setDueTo(today); }} style={{ padding:'4px 10px', borderRadius:14, fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'inherit', border:'1px solid #fed7aa', background:'#fff', color:'#c2410c' }}>เลยกำหนด</button>
         <button onClick={() => { setDueFrom(today); setDueTo(periodEnd); }} style={{ padding:'4px 10px', borderRadius:14, fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'inherit', border:'1px solid #fed7aa', background:'#fff', color:'#c2410c' }}>ในช่วง “{periodLabel}”</button>
         {(dueFrom || dueTo) && <button onClick={() => { setDueFrom(''); setDueTo(''); }} style={{ padding:'4px 10px', borderRadius:14, fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'inherit', border:'1px solid #e2e8f0', background:'#fff', color:'#64748b' }}>ล้างตัวกรอง</button>}
@@ -1708,7 +1706,12 @@ function BDApPanel({ apList, plannedRefs, bankAccounts, defaultBank, today, peri
                   <td style={{ textAlign:'right', whiteSpace:'nowrap' }}>
                     {planned ? (
                       <span style={{ display:'inline-flex', alignItems:'center', gap:6, justifyContent:'flex-end' }}>
-                        <span style={{ background:'#c6f6d5', color:'#276749', fontSize:11, fontWeight:600, borderRadius:12, padding:'2px 9px' }}>✓ วางแผนแล้ว</span>
+                        <span style={{ display:'inline-flex', flexDirection:'column', alignItems:'flex-end', lineHeight:1.25 }}>
+                          <span style={{ background:'#c6f6d5', color:'#276749', fontSize:11, fontWeight:600, borderRadius:12, padding:'2px 9px' }}>✓ วางแผนแล้ว</span>
+                          {plannedDateByRef && plannedDateByRef[a.vchno] && (
+                            <span style={{ fontSize:10.5, color:'#15803d', fontWeight:600, marginTop:2 }}>📅 จ่าย {fmtDate(plannedDateByRef[a.vchno])}</span>
+                          )}
+                        </span>
                         {canEdit && onEditPlanned && (
                           <button onClick={() => onEditPlanned(a)} title="แก้ไข / เลื่อนวันจ่าย"
                             style={{ background:'none', border:'none', cursor:'pointer', fontSize:13, padding:'2px 4px', lineHeight:1 }}>✏️</button>
@@ -1782,6 +1785,12 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
   // AP (เจ้าหนี้คงค้าง) + เซ็ตเลขที่ที่วางแผนจ่ายแล้ว (มี forecast อ้างถึง REF_DOC) กันวางซ้ำ
   const apList     = React.useMemo(() => rawPayables.map(bdNormAP), [rawPayables]);
   const plannedRefs = React.useMemo(() => new Set(forecasts.filter(f => f.refDoc).map(f => f.refDoc)), [forecasts]);
+  // map เลขที่ AP (REF_DOC) → วันที่วางแผนจ่าย (PAYMENT_DATE ของ forecast ที่ผูกไว้)
+  const plannedDateByRef = React.useMemo(() => {
+    const m = {};
+    forecasts.forEach(f => { if (f.refDoc) { const d = f.payDate || f.date; if (d && !m[f.refDoc]) m[f.refDoc] = d; } });
+    return m;
+  }, [forecasts]);
   // แนบ remark ให้ forecast (จาก AP ผ่าน refDoc → fallback NOTE ของ forecast เอง) เพื่อโชว์ในรายการ/กลุ่ม
   const apRemarkByRef = React.useMemo(() => {
     const m = {};
@@ -2220,6 +2229,7 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
         <BDApPanel
           apList={apList}
           plannedRefs={plannedRefs}
+          plannedDateByRef={plannedDateByRef}
           bankAccounts={accounts}
           defaultBank={AP_DEFAULT_BANK}
           today={today}

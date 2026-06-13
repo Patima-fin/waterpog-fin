@@ -45,7 +45,8 @@
                        'debtMaster', 'bankTransfers',
                        'stsServiceFee', 'stsPendingCalc', 'stsCalcResult',
                        'debtEvents', 'users', 'cashflowSnapshots',
-                       'followUpsLog', 'manualOverrides'];
+                       'followUpsLog', 'manualOverrides',
+                       'bankReconLines', 'bankReconState'];   // กระทบยอดธนาคาร (sync แท็บแยก)
 
   // jsonFields per entity — for proper rowsToObjects parsing during safety re-fetch
   var ENTITY_JSON_FIELDS = {
@@ -331,6 +332,8 @@
       'cashflowSnapshots',      // daily bank balance snapshots
       'followUpsLog',           // flat log of all invoice follow-ups
       'manualOverrides',        // shared manual KPI overrides (visible to all users)
+      'bankReconLines',         // กระทบยอด: รายการเดินบัญชีจาก statement (flat rows)
+      'bankReconState',         // กระทบยอด: สถานะการกระทบ (lineId → decision)
     ];
 
     return mapLimit(sheetOrder, SHEET_FETCH_CONC, function (n) { return fetchSheet(n); }).then(function (settled) {
@@ -397,6 +400,8 @@
       var cashflowSnapshots = rowsToObjects(results[i++]);
       var followUpsLog      = rowsToObjects(results[i++]);
       var manualOverrides   = rowsToObjects(results[i++]);
+      var bankReconLines    = rowsToObjects(results[i++]);
+      var bankReconState    = rowsToObjects(results[i++]);
 
       var data = {
         meta: {
@@ -492,6 +497,8 @@
         cashflowSnapshots: cashflowSnapshots,
         followUpsLog:      followUpsLog,
         manualOverrides:   manualOverrides,
+        bankReconLines:    bankReconLines,
+        bankReconState:    bankReconState,
       };
 
       // Anti-bounce guard: ถ้า entity มี edit ค้าง (ยังไม่ push) หรือเพิ่ง push

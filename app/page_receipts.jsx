@@ -110,10 +110,19 @@ const ReceiptsPage = ({ data }) => {
 
   // Filters
   const [filterMonth, setFilterMonth] = React.useState('all');
+  const [filterYear, setFilterYear]   = React.useState('all');
   const [search, setSearch]           = React.useState('');
+
+  // ปีที่มีข้อมูล (ค.ศ.) เรียงใหม่→เก่า
+  const yearNos = React.useMemo(function(){
+    var ys = {};
+    receipts.forEach(function(r){ var y = rcYear(r.receiptDate); if (y) ys[y] = 1; });
+    return Object.keys(ys).map(Number).sort(function(a,b){ return b-a; });
+  }, [receipts]);
 
   const filtered = React.useMemo(function(){
     return receipts.filter(function(r){
+      if (filterYear !== 'all' && rcYear(r.receiptDate) !== parseInt(filterYear,10)) return false;
       if (filterMonth !== 'all' && rcMonth(r.receiptDate) !== parseInt(filterMonth,10)) return false;
       if (search){
         var q = search.toLowerCase();
@@ -125,7 +134,7 @@ const ReceiptsPage = ({ data }) => {
       }
       return true;
     });
-  }, [receipts, filterMonth, search]);
+  }, [receipts, filterMonth, filterYear, search]);
 
   // Deduction rate
   const deductPct = totalGross > 0 ? (totalDeduct / totalGross * 100).toFixed(1) : '0.0';
@@ -210,6 +219,10 @@ const ReceiptsPage = ({ data }) => {
 
       {/* ── Filter bar ── */}
       <div style={{ display:'flex', gap:10, marginBottom:14, flexWrap:'wrap', alignItems:'center' }}>
+        <select style={inp} value={filterYear} onChange={function(e){ setFilterYear(e.target.value); }}>
+          <option value="all">ทุกปี</option>
+          {yearNos.map(function(y){ return <option key={y} value={y}>{y}</option>; })}
+        </select>
         <select style={inp} value={filterMonth} onChange={function(e){ setFilterMonth(e.target.value); }}>
           <option value="all">ทุกเดือน</option>
           {monthNos.map(function(mo){ return <option key={mo} value={mo}>{RC_MONTH_FULL[mo]}</option>; })}

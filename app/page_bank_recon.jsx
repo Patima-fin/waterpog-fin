@@ -32,6 +32,47 @@ const BankReconStore = {
   setState(v)  { this._set(BR_LS_STATE, v); },
 };
 
+// ── แปลง nested {acct:{ym:[line]}} ↔ flat rows (sync เป็น entity table bankReconLines) ──
+//    cloud = แหล่งข้อมูลจริง (ทีมเห็นร่วม) · localStorage = cache/ออฟไลน์
+function brLinesToRows(linesAll) {
+  const rows = [];
+  Object.keys(linesAll || {}).forEach(acct => {
+    const byYm = linesAll[acct] || {};
+    Object.keys(byYm).forEach(ym => {
+      (byYm[ym] || []).forEach(l => rows.push({
+        id: l.id, accountNo: acct, ym: ym, date: l.date || '', amount: l.amount,
+        desc: l.desc || '', ref: l.ref || '', balance: (l.balance == null ? '' : l.balance), idx: (l._idx == null ? 0 : l._idx),
+      }));
+    });
+  });
+  return rows;
+}
+function brRowsToLines(rows) {
+  const out = {};
+  (rows || []).forEach(r => {
+    const acct = r.accountNo, ym = r.ym;
+    if (!acct || !ym) return;
+    (out[acct] = out[acct] || {});
+    (out[acct][ym] = out[acct][ym] || []).push({
+      id: r.id, date: r.date || '', amount: Number(r.amount) || 0, desc: r.desc || '',
+      ref: r.ref || '', balance: (r.balance === '' || r.balance == null) ? null : Number(r.balance),
+      bankAcct: acct, _idx: Number(r.idx) || 0,
+    });
+  });
+  Object.keys(out).forEach(a => Object.keys(out[a]).forEach(y => out[a][y].sort((x, z) => (x._idx || 0) - (z._idx || 0))));
+  return out;
+}
+function brStateToRows(stateMap) {
+  return Object.keys(stateMap || {}).map(id => ({
+    id: id, decision: (stateMap[id] && stateMap[id].decision) || '', forecastId: (stateMap[id] && stateMap[id].forecastId) || '',
+  }));
+}
+function brRowsToState(rows) {
+  const m = {};
+  (rows || []).forEach(r => { if (r && r.id != null && r.id !== '') m[r.id] = { decision: r.decision || '', forecastId: r.forecastId || '' }; });
+  return m;
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 // brand key (ไทย/อังกฤษ) — ใช้เป็น key ของ mapping (บัญชีแบรนด์เดียวกัน map ครั้งเดียว)
 function brBrandKey(acct) {
@@ -374,6 +415,28 @@ function BankReconPage({ data, setData, toast }) {
   brEffect(() => { if (!accountNo && accounts.length) setAccountNo(accounts[0].accountNo); }, [accounts]);
   const acct = accounts.find(a => a.accountNo === accountNo) || accounts[0] || null;
 
+  // ── Hydrate จาก cloud (synced entity bankReconLines/State) → cloud ชนะ, อัป localStorage cache ──
+  //    push ตอนเขียน (import/ลบ/บันทึก) ไปที่ data ผ่าน setData → sync ขึ้นชีตเอง
+  const brCloudSig = brRef(null);
+  brEffect(() => {
+    // กรองเฉพาะแถวที่เป็น recon จริง — กัน gviz อ่านแท็บผิด (เช่นแท็บ bankReconLines ยังไม่ถูกสร้าง
+    //   → คืนชีตแรกมาเป็นขยะ) มาทับ/ล้าง cache ในเครื่อง
+    const rows   = (data.bankReconLines || []).filter(r => r && r.accountNo && r.ym);
+    const stRows = (data.bankReconState || []).filter(r => r && r.id != null && r.id !== '' && r.decision);
+    if (!rows.length && !stRows.length) return;          // ยังไม่มีข้อมูล recon จริงจาก cloud → คง local cache
+    const sig = JSON.stringify(rows) + '~' + JSON.stringify(stRows);
+    if (sig === brCloudSig.current) return;              // ไม่เปลี่ยน → ข้าม (กัน setState ซ้ำ)
+    brCloudSig.current = sig;
+    const nested = brRowsToLines(rows);
+    const stMap  = brRowsToState(stRows);
+    setLinesAll(nested);   BankReconStore.setLines(nested);
+    setReconState(stMap);  BankReconStore.setState(stMap);
+  }, [data.bankReconLines, data.bankReconState]);
+
+  // push ขึ้น cloud (entity table) — เก็บ localStorage เป็น cache ควบคู่
+  const pushReconLines = (nested) => { if (setData) setData(d => ({ ...d, bankReconLines: brLinesToRows(nested) })); };
+  const pushReconState = (stMap)  => { if (setData) setData(d => ({ ...d, bankReconState: brStateToRows(stMap) })); };
+
   // PV ของบัญชี+เดือนนี้ (outflow) — ผูกบัญชีด้วย bdAcctMatchesCheck (เลขท้าย 4)
   const pvForAcct = brMemo(() => {
     if (!acct) return [];
@@ -424,7 +487,7 @@ function BankReconPage({ data, setData, toast }) {
     const byMonth = {};
     newLines.forEach(l => { (byMonth[brMonthOf(l.date)] = byMonth[brMonthOf(l.date)] || []).push(l); });
     Object.keys(byMonth).forEach(m => { acctBucket[m] = byMonth[m]; });   // ทับเฉพาะเดือนที่อยู่ในไฟล์
-    const nl = { ...linesAll, [acct.accountNo]: acctBucket }; setLinesAll(nl); BankReconStore.setLines(nl);
+    const nl = { ...linesAll, [acct.accountNo]: acctBucket }; setLinesAll(nl); BankReconStore.setLines(nl); pushReconLines(nl);
     const months = Object.keys(byMonth).sort();
     if (months.length) setMonth(months[months.length - 1]);
     setPreview(null);
@@ -433,7 +496,7 @@ function BankReconPage({ data, setData, toast }) {
   const clearMonth = () => {
     if (!acct || !window.confirm(`ลบ statement ของ ${brFmtMonth(month)} บัญชีนี้?`)) return;
     const acctBucket = { ...(linesAll[acct.accountNo] || {}) }; delete acctBucket[month];
-    const nl = { ...linesAll, [acct.accountNo]: acctBucket }; setLinesAll(nl); BankReconStore.setLines(nl);
+    const nl = { ...linesAll, [acct.accountNo]: acctBucket }; setLinesAll(nl); BankReconStore.setLines(nl); pushReconLines(nl);
   };
 
   // ── บันทึก "เกิดจริงแต่ยังไม่ลงระบบ" → forecastEntries STATUS=ACTUAL (เด้งเข้า Cashflow) ──
@@ -451,7 +514,7 @@ function BankReconPage({ data, setData, toast }) {
     };
     setData(d => ({ ...d, forecastEntries: [...(d.forecastEntries || []), row] }));
     const ns = { ...reconState, [line.id]: { decision: 'recorded', forecastId: id } };
-    setReconState(ns); BankReconStore.setState(ns);
+    setReconState(ns); BankReconStore.setState(ns); pushReconState(ns);
     setRecordLine(null);
     if (toast) toast('บันทึกจ่ายจริงแล้ว → เด้งเข้า Actual หน้า Cashflow');
   };
@@ -459,7 +522,7 @@ function BankReconPage({ data, setData, toast }) {
     if (readOnly) return;
     if (forecastId) setData(d => ({ ...d, forecastEntries: (d.forecastEntries || []).filter(e => e.id !== forecastId) }));
     const ns = { ...reconState }; delete ns[line.id];
-    setReconState(ns); BankReconStore.setState(ns);
+    setReconState(ns); BankReconStore.setState(ns); pushReconState(ns);
     if (toast) toast('ยกเลิกบันทึก — ลบออกจาก Actual แล้ว');
   };
 
@@ -467,6 +530,34 @@ function BankReconPage({ data, setData, toast }) {
     const [y, m] = month.split('-').map(Number);
     const d = new Date(y, m - 1 + delta, 1);
     setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  };
+
+  // ── สำรอง/กู้คืนข้อมูลกระทบยอด (statement + สถานะ + column map) เป็นไฟล์ JSON ──
+  //    หน้านี้เก็บใน localStorage เครื่องเดียว → ไฟล์สำรองกันข้อมูลหาย/ย้ายเครื่องได้
+  const backupRef = React.useRef(null);
+  const exportBackup = () => {
+    const payload = { _type: 'wtp-bankrecon-backup', _at: new Date().toISOString(),
+      lines: BankReconStore.getLines(), state: BankReconStore.getState(), mapping: BankReconStore.getMapping() };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = 'bankrecon-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    if (toast) toast('ดาวน์โหลดไฟล์สำรองข้อมูลกระทบยอดแล้ว');
+  };
+  const importBackup = (file) => {
+    const r = new FileReader();
+    r.onload = () => {
+      try {
+        const o = JSON.parse(r.result);
+        if (!o || o._type !== 'wtp-bankrecon-backup') { if (toast) toast('ไฟล์สำรองไม่ถูกต้อง'); return; }
+        if (!confirm('กู้คืนข้อมูลกระทบยอดจากไฟล์สำรอง?\n(ทับข้อมูลปัจจุบันในเครื่องนี้)')) return;
+        if (o.lines)   { setLinesAll(o.lines);     BankReconStore.setLines(o.lines);   pushReconLines(o.lines); }
+        if (o.state)   { setReconState(o.state);   BankReconStore.setState(o.state);   pushReconState(o.state); }
+        if (o.mapping) { setMapAll(o.mapping);     BankReconStore.setMapping(o.mapping); }
+        if (toast) toast('กู้คืนข้อมูลสำรองแล้ว — sync ขึ้นชีตให้ทีมด้วย');
+      } catch (e) { if (toast) toast('อ่านไฟล์สำรองไม่ได้: ' + (e.message || e)); }
+    };
+    r.readAsText(file);
   };
 
   if (!accounts.length) {
@@ -487,9 +578,13 @@ function BankReconPage({ data, setData, toast }) {
           <button className="btn btn-ghost" onClick={() => goMonth(-1)} title="เดือนก่อน">‹</button>
           <div style={{ padding: '6px 12px', background: 'var(--ink-50)', borderRadius: 8, fontSize: 13, fontWeight: 600, minWidth: 96, textAlign: 'center' }}>{brFmtMonth(month)}</div>
           <button className="btn btn-ghost" onClick={() => goMonth(1)} title="เดือนถัดไป">›</button>
+          <button className="btn btn-ghost" onClick={exportBackup} title="ดาวน์โหลดไฟล์สำรองข้อมูลกระทบยอด (กันข้อมูลหาย / ย้ายเครื่อง)">💾 สำรอง</button>
+          {!readOnly && <button className="btn btn-ghost" onClick={() => backupRef.current && backupRef.current.click()} title="กู้คืนจากไฟล์สำรอง">↩️ กู้คืน</button>}
           {!readOnly && <button className="btn btn-primary" onClick={() => fileRef.current && fileRef.current.click()} title="นำเข้าไฟล์รายการเดินบัญชี (CSV/Excel)">📥 นำเข้า statement</button>}
         </div>
       </div>
+      <input ref={backupRef} type="file" accept="application/json,.json" style={{ display: 'none' }}
+        onChange={e => { const f = e.target.files && e.target.files[0]; if (f) importBackup(f); e.target.value = ''; }} />
 
       {/* Account selector — ปุ่มแบงค์ กดคลิกเดียวเข้าเลย (เลิกใช้ dropdown) */}
       <div className="card anim-in" style={{ padding: 12, marginBottom: 16 }}>

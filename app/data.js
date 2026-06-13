@@ -534,6 +534,9 @@
     //   transferRef: ID ร่วมสำหรับ paired inter-account transfer
     //   status: confirmed | estimate | planned | completed
     // ────────────────────────────────────────────────────────────────────────
+    // กระทบยอดธนาคาร — sync แท็บแยก (statement lines + สถานะการกระทบ)
+    bankReconLines: [],
+    bankReconState: [],
     bankEntries: [
       // ── กรุงเทพ 123-4-56789-0 (Main) ────────────────────────────────────
       { id: id(), entryDate: '2026-05-25', bankName: 'กรุงเทพ', accountNo: '123-4-56789-0', entryType: 'outflow_check',
@@ -594,7 +597,8 @@
   const CRUD_KEYS = ['projects','invoices','forecastEntries','bankAccounts','pvVouchers',
     'payables','debtLedger','receipts','bankEntries','checks','debtMaster','bankTransfers',
     'stsServiceFee','stsPendingCalc','stsCalcResult','debtEvents','users',
-    'cashflowSnapshots','followUpsLog','manualOverrides'];
+    'cashflowSnapshots','followUpsLog','manualOverrides',
+    'bankReconLines','bankReconState'];
   const isOnline = () => !!(window.WTP_CONFIG && window.WTP_CONFIG.SHEET_ID);
   // ค่าตั้งต้นเมื่อ localStorage ว่าง:
   //   offline → seed mock เต็ม (โหมดสาธิต)

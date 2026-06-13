@@ -1632,10 +1632,27 @@ function InterestSchedulePopup({ master, ledgerRows, events, onClose,
           </div>
         </div>
 
-        {/* แท็บใน popup: แยก "คืนเงินกู้" กับ "ดอกเบี้ย" ให้ไม่รก กดสลับได้ */}
-        <div className="tabnav" style={{ marginBottom: 14 }}>
-          <button className={drawerTab === 'principal' ? 'active' : ''} onClick={() => setDrawerTab('principal')}>💵 คืนเงินกู้ (เงินต้น)</button>
-          <button className={drawerTab === 'interest' ? 'active' : ''} onClick={() => setDrawerTab('interest')}>📈 ดอกเบี้ย</button>
+        {/* แท็บใน popup — segmented control เด่นชัดแต่กระชับ (ไม่ยืดเต็มกว้าง) */}
+        <div style={{ display: 'inline-flex', gap: 4, marginBottom: 12, background: 'var(--ink-100, #eef1f6)', borderRadius: 9, padding: 3, border: '1px solid var(--line)' }}>
+          {[
+            { k: 'principal', label: '💵 คืนเงินต้น' },
+            { k: 'interest',  label: '📈 ดอกเบี้ย' },
+          ].map(t => {
+            const on = drawerTab === t.k;
+            return (
+              <button key={t.k} type="button" onClick={() => setDrawerTab(t.k)}
+                style={{
+                  padding: '6px 14px', borderRadius: 7, border: 'none', cursor: 'pointer',
+                  fontSize: 12.5, fontWeight: 700, fontFamily: 'inherit',
+                  background: on ? 'linear-gradient(135deg, var(--brand-500), var(--brand-700))' : 'transparent',
+                  color: on ? '#fff' : 'var(--ink-500)',
+                  boxShadow: on ? '0 2px 7px color-mix(in oklch, var(--brand-500) 38%, transparent)' : 'none',
+                  transition: 'all .15s',
+                }}>
+                {t.label}
+              </button>
+            );
+          })}
         </div>
 
         {/* Quick action bar — repayment / drawdown / rollover */}

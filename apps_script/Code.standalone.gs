@@ -22,7 +22,7 @@ var SHEET_ID = '1Q0enboLihOYiYCn7otK9zXBlk6Yy8oHfoAXaFnGujwA';
 // client จะ ping ค่านี้ตอนเปิดแอป แล้ว log คู่กับ build ฝั่งหน้าเว็บ → เห็นชัดว่า
 // "โค้ดเซิร์ฟเวอร์ที่รันจริง" เป็นเวอร์ชันไหน (กันกรณีลืม redeploy แล้วไม่รู้ตัว =
 // LockService/applyDiff ไม่ทำงานแต่เงียบ จนข้อมูลหายแล้วงงว่าทำไม)
-var SERVER_VERSION = '20260609a-serverguard';
+var SERVER_VERSION = '20260613a-bankrecon';
 
 var SHEETS = {
   META:          'meta',
@@ -59,6 +59,8 @@ var SHEETS = {
   CASHFLOW_SNAPS:   'cashflowSnapshots', // daily snapshot of each bank balance
   FOLLOWUPS_LOG:    'followUpsLog',     // flat log of every follow-up entry across all invoices
   MANUAL_OVERRIDES: 'manualOverrides',  // shared manual overrides (Warroom/Cashflow KPIs) — visible to all users
+  BANK_RECON_LINES: 'bankReconLines',   // กระทบยอด: รายการเดินบัญชีจาก statement
+  BANK_RECON_STATE: 'bankReconState',   // กระทบยอด: สถานะการกระทบ (lineId → decision)
 };
 
 /* ── 1. WEB APP ENDPOINTS ───────────────────────────────────────── */
@@ -242,6 +244,8 @@ function getEntity(name) {
     case 'cashflowSnapshots':     return readTable(SHEETS.CASHFLOW_SNAPS);
     case 'followUpsLog':          return readTable(SHEETS.FOLLOWUPS_LOG);
     case 'manualOverrides':       return readTable(SHEETS.MANUAL_OVERRIDES);
+    case 'bankReconLines':        return readTable(SHEETS.BANK_RECON_LINES);
+    case 'bankReconState':        return readTable(SHEETS.BANK_RECON_STATE);
   }
   return { error: 'unknown entity: ' + name };
 }
@@ -268,6 +272,8 @@ var JSON_FIELDS = {
   stsServiceFee:   [],
   stsPendingCalc:  [],
   stsCalcResult:   ['debtIds'],
+  bankReconLines:  [],
+  bankReconState:  [],
 };
 
 function readTable(name) {
@@ -618,6 +624,13 @@ var ENTITY_HEADERS = {
     'interestTotal','serviceFeeFull','serviceFeeNet',
     'encompassPayableId','note'
   ],
+  // ── กระทบยอดธนาคาร (added 2026-06-13) ──────────────────────────────
+  bankReconLines: [
+    'id','accountNo','ym','date','amount','desc','ref','balance','idx'
+  ],
+  bankReconState: [
+    'id','decision','forecastId'
+  ],
 };
 
 function _entitySheet(entity) {
@@ -642,6 +655,8 @@ function _entitySheet(entity) {
     cashflowSnapshots: SHEETS.CASHFLOW_SNAPS,
     followUpsLog:    SHEETS.FOLLOWUPS_LOG,
     manualOverrides: SHEETS.MANUAL_OVERRIDES,
+    bankReconLines:  SHEETS.BANK_RECON_LINES,
+    bankReconState:  SHEETS.BANK_RECON_STATE,
   };
   if (!map[entity]) throw new Error('CRUD ไม่รองรับ entity: ' + entity);
   return { name: map[entity], headers: ENTITY_HEADERS[entity] };

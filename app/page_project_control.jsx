@@ -339,8 +339,8 @@ function PcColFilterDropdown({ col, rows, value, onChange, onClose }) {
         <input type="number" placeholder="min" value={mn} onChange={e => setMn(e.target.value)} style={pcInp} />
         <input type="number" placeholder="max" value={mx} onChange={e => setMx(e.target.value)} style={pcInp} /></div>)}
       {col.type === 'date' && (<div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <input type="date" value={from} onChange={e => setFrom(e.target.value)} style={pcInp} />
-        <input type="date" value={to} onChange={e => setTo(e.target.value)} style={pcInp} /></div>)}
+        <YmdPicker value={from} onChange={setFrom} size="sm" />
+        <YmdPicker value={to} onChange={setTo} size="sm" /></div>)}
       {col.type === 'text' && <input placeholder="contains…" value={q} onChange={e => setQ(e.target.value)} style={pcInp} />}
       {col.type === 'enum' && (<>
         <input placeholder="ค้นหา…" value={search} onChange={e => setSearch(e.target.value)} style={{ ...pcInp, marginBottom: 6 }} />
@@ -952,7 +952,7 @@ function PcAdvancedFilter({ rows, conds, mode, onApply, onClose }) {
                 </>)}
                 {f.type === 'date' && (<>
                   <select value={c.op} onChange={e => setRow(i, { op: e.target.value })} style={{ ...sel, minWidth: 90 }}><option value="after">ตั้งแต่</option><option value="before">ก่อน</option><option value="on">ตรงวันที่</option></select>
-                  <input type="date" value={c.value} onChange={e => setRow(i, { value: e.target.value })} style={{ ...sel, width: 150 }} />
+                  <YmdPicker value={c.value} onChange={v => setRow(i, { value: v })} size="sm" />
                 </>)}
                 {f.type === 'enum' && (<>
                   <select value={c.op} onChange={e => setRow(i, { op: e.target.value })} style={{ ...sel, minWidth: 100 }}><option value="is">เท่ากับ</option><option value="isNot">ไม่เท่ากับ</option></select>

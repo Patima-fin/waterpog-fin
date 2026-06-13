@@ -304,13 +304,8 @@ function DailyBalancePage({ data, setData, toast }) {
           </div>
         </div>
         <div className="page-head-r">
-          <input
-            type="date" className="input"
-            value={entryDate}
-            onChange={e => setEntryDate(e.target.value || todayISO())}
-            style={{ width: 160 }}
-            title="เปลี่ยนวันที่บันทึก (ย้อนหลังได้)"
-          />
+          <YmdPicker value={entryDate} onChange={v => setEntryDate(v || todayISO())} size="sm" />
+          {/* (เลือกวันที่บันทึก ย้อนหลังได้ — ปี→เดือน→วัน) */}
           {canEdit && (
             <button className="btn btn-ghost" onClick={useAllYesterday} title="ใส่ค่ายอดเมื่อวานให้ทุกบัญชี">
               <Icon name="refresh" size={14} /> ใช้ค่าเมื่อวาน
