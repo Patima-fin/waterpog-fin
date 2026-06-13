@@ -1575,13 +1575,40 @@ function CashFlowDashboard({ data, setData, toast }) {
                     background: pct >= 100 ? 'linear-gradient(90deg, var(--brand-700), var(--brand-500))' : 'linear-gradient(90deg, var(--brand-500), var(--brand-400))',
                     transition: 'width 600ms',
                   }} />
-                  <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', paddingLeft: cfScale(10),
-                    fontSize: cfScale(11), fontWeight: 800, letterSpacing: '.02em', color: pct >= 12 ? '#fff' : 'var(--ink-500)' }}>
-                    {pct.toFixed(2)}%
-                  </div>
+                  {/* % วิ่งตามหัวแถบที่เพิ่มขึ้น — เกิน 100% ก็ค้างชิดขวาสุด */}
+                  {(() => {
+                    const fillPct = Math.min(100, pct);
+                    const inside = fillPct >= 40;   // แถบสีกว้างพอ → วาง % ในแถบชิดขวา (ขาว) · แคบไป → วางนอกแถบขวามือ (เข้ม)
+                    return (
+                      <div style={{ position: 'absolute', top: 0, bottom: 0, left: `${fillPct}%`,
+                        transform: inside ? 'translateX(-100%)' : 'none',
+                        display: 'flex', alignItems: 'center',
+                        padding: inside ? `0 ${cfScale(9)} 0 0` : `0 0 0 ${cfScale(6)}`,
+                        fontSize: cfScale(11), fontWeight: 800, letterSpacing: '.02em',
+                        color: inside ? '#fff' : 'var(--ink-600)',
+                        whiteSpace: 'nowrap', pointerEvents: 'none', transition: 'left 600ms' }}>
+                        {pct.toFixed(2)}%
+                      </div>
+                    );
+                  })()}
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: cfScale(11), gap: cfScale(6) }}>
-                  <span style={{ fontSize: cfScale(11.5), color: 'var(--ink-500)', fontWeight: 600, whiteSpace: 'nowrap' }}>Total Paid :</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: cfScale(11), gap: cfScale(6) }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: cfScale(4) }}>
+                    <span style={{ fontSize: cfScale(11.5), color: 'var(--ink-500)', fontWeight: 600, whiteSpace: 'nowrap' }}>Total Paid :</span>
+                    {/* เกิน/เหลืองบของสัปดาห์ (เทียบแผน) — pill เล็กใต้ label สไตล์เดียวกับชิป ▲/▼ ในตาราง */}
+                    {(planTotal > 0 || actualTotal > 0) && (() => {
+                      const diff = planTotal - actualTotal;   // + = ใช้น้อยกว่าแผน (เหลือ) · − = เกินแผน
+                      const over = diff < 0;
+                      return (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: cfScale(2), fontSize: cfScale(10),
+                          fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: over ? 'var(--bad)' : 'var(--good)',
+                          background: over ? 'var(--bad-bg)' : 'var(--good-bg)', padding: `${cfScale(2)} ${cfScale(8)}`,
+                          borderRadius: 999, whiteSpace: 'nowrap' }}>
+                          {over ? '▲ เกินแผน' : '▼ เหลือ'} ฿{fmtNum(Math.abs(diff), 0)}
+                        </span>
+                      );
+                    })()}
+                  </div>
                   <span style={{ fontSize: cfScale(17), fontWeight: 800, color: 'var(--brand-600)', fontVariantNumeric: 'tabular-nums', letterSpacing: '-.01em' }}>
                     {editMode
                       ? <EditableNumber ovKey={`${cellOvWeek}.total.actual`} computed={actualTotalRaw} editMode={true} digits={0} />
