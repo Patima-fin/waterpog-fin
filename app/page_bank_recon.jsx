@@ -146,14 +146,17 @@ function brDecodeText(buf) {
   }
 }
 // ─── ไฟล์ → AOA (CSV decode เอง · Excel ผ่าน global XLSX) ─────────────────────
-function brParseFile(file) {
+function brParseFile(file, password) {
   return file.arrayBuffer().then(buf => {
     const name = (file.name || '').toLowerCase();
     let wb;
     if (/\.(csv|txt)$/.test(name)) {
       wb = XLSX.read(brDecodeText(buf), { type: 'string', raw: true });        // decode เอง กัน mojibake ไทย
     } else {
-      wb = XLSX.read(buf, { type: 'array', cellDates: true });                 // .xls/.xlsx binary (อาจ throw ถ้ามีรหัสผ่าน เช่น KTB)
+      // .xls/.xlsx binary — ถ้ามีรหัส (เช่น KTB) ส่ง password ให้ SheetJS ถอด (RC4/Standard)
+      const opts = { type: 'array', cellDates: true };
+      if (password) opts.password = password;
+      wb = XLSX.read(buf, opts);
     }
     const sheets = {};
     wb.SheetNames.forEach(n => { sheets[n] = XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, blankrows: false, defval: '' }); });
@@ -410,6 +413,7 @@ function BankReconPage({ data, setData, toast }) {
   const [reconState, setReconState] = brState(() => BankReconStore.getState());
   const [preview, setPreview]     = brState(null);   // { fileName, sheetNames, sheetIdx, aoa, mapping, brand }
   const [recordLine, setRecordLine] = brState(null); // line ในถัง missing → modal บันทึกจ่ายจริง
+  const [pwdPrompt, setPwdPrompt]   = brState(null); // { file, error, unsupported } → modal ใส่รหัสไฟล์ (KTB)
   const fileRef = brRef(null);
 
   // default account = อันแรก
@@ -455,12 +459,9 @@ function BankReconPage({ data, setData, toast }) {
   // เดือนที่มีข้อมูล statement ของบัญชีนี้ (ไว้สลับเร็ว)
   const monthsWithData = brMemo(() => Object.keys(linesAll[accountNo] || {}).sort().reverse(), [linesAll, accountNo]);
 
-  // ── Import flow ──
-  const onPickFile = (e) => {
-    const file = e.target.files && e.target.files[0];
-    e.target.value = '';
-    if (!file || !acct) return;
-    brParseFile(file).then(({ sheetNames, sheets }) => {
+  // ── Import flow ── (รองรับไฟล์มีรหัส เช่น KTB: เด้ง modal ใส่รหัส → ถอด → นำเข้า)
+  const parseAndPreview = (file, password) => {
+    brParseFile(file, password).then(({ sheetNames, sheets }) => {
       const sheetIdx = 0;
       const aoa = sheets[sheetNames[0]] || [];
       const brand = brBrandKey(acct);
@@ -471,12 +472,27 @@ function BankReconPage({ data, setData, toast }) {
       else if (BR_PRESETS[brand]) mapping = { ...BR_PRESETS[brand], headerRow: guessed };  // preset (คอลัมน์) + header ที่ตรวจเจอจริง
       else mapping = { ...brAutoMapping(aoa[guessed] || []), headerRow: guessed };
       if (mapping.headerRow == null) mapping.headerRow = guessed;
+      setPwdPrompt(null);   // ถอด/อ่านสำเร็จ → ปิด modal รหัส (ถ้าเปิดอยู่)
       setPreview({ fileName: file.name, sheetNames, sheets, sheetIdx, aoa, headerRow: mapping.headerRow, mapping, brand, accountNo: acct.accountNo });
     }).catch(err => {
-      const msg = String((err && err.message) || err);
-      if (/password|encrypt/i.test(msg)) { if (toast) toast('ไฟล์มีรหัสผ่าน (เช่น KTB) — เปิดด้วย Excel แล้ว Save As เป็น .xlsx/.csv (ไม่ใส่รหัส) ก่อนนำเข้า'); }
-      else if (toast) toast('อ่านไฟล์ไม่สำเร็จ: ' + msg);
+      const msg = String((err && err.message) || err).toLowerCase();
+      const needsPwd = /password|encrypt|protect/.test(msg);
+      const wrongPwd = password && /incorrect|wrong|invalid|password/.test(msg);
+      if (needsPwd && !password) {
+        setPwdPrompt({ file, error: '', unsupported: false });           // ครั้งแรก → ขอรหัส
+      } else if (password && wrongPwd) {
+        setPwdPrompt({ file, error: 'รหัสไม่ถูกต้อง — ลองใหม่อีกครั้ง', unsupported: false });
+      } else if (password) {
+        // ใส่รหัสแล้วแต่ถอดไม่ได้ (เช่น .xls เข้ารหัสแบบที่ SheetJS ไม่รองรับ) → แนะ Save As
+        setPwdPrompt({ file, error: 'ถอดรหัสไฟล์นี้ไม่สำเร็จ (รูปแบบเข้ารหัสที่เบราว์เซอร์อ่านไม่ได้)', unsupported: true });
+      } else if (toast) { toast('อ่านไฟล์ไม่สำเร็จ: ' + msg); }
     });
+  };
+  const onPickFile = (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file || !acct) return;
+    parseAndPreview(file, null);
   };
   const applyImport = (mapping) => {
     if (!preview || !acct) return;
@@ -691,6 +707,11 @@ function BankReconPage({ data, setData, toast }) {
       {/* Record-actual modal */}
       {recordLine && (
         <BRRecordModal line={recordLine} onSave={recordActual} onClose={() => setRecordLine(null)} />
+      )}
+
+      {/* Password modal — ไฟล์มีรหัส (เช่น KTB .xls) ใส่รหัสเปิดแล้วดึงข้อมูลในแอปได้เลย */}
+      {pwdPrompt && (
+        <BRPasswordModal prompt={pwdPrompt} onSubmit={(pwd) => parseAndPreview(pwdPrompt.file, pwd)} onClose={() => setPwdPrompt(null)} />
       )}
 
       {/* footer note */}
@@ -1015,6 +1036,40 @@ function BRRecordModal({ line, onSave, onClose }) {
       <select className="select input" value={cat} onChange={e => setCat(e.target.value)} style={{ width: '100%', fontSize: 13, padding: '7px 10px' }}>
         {BD_CF_CATEGORIES.map(c => <option key={c.code} value={c.code}>{c.code} · {c.label}</option>)}
       </select>
+    </Modal>
+  );
+}
+
+// ── Modal ใส่รหัสไฟล์ statement ที่เข้ารหัส (เช่น KTB .xls) ──
+function BRPasswordModal({ prompt, onSubmit, onClose }) {
+  const [pwd, setPwd] = brState('');
+  const [show, setShow] = brState(false);
+  const submit = () => { if (pwd) onSubmit(pwd); };
+  return (
+    <Modal open title="🔒 ไฟล์มีรหัสผ่าน" maxWidth={440} onClose={onClose}
+      footer={<>
+        <button className="btn btn-ghost" onClick={onClose}>ยกเลิก</button>
+        <button className="btn btn-primary" disabled={!pwd} onClick={submit}>เปิดไฟล์ + ดึงข้อมูล</button>
+      </>}>
+      <div style={{ fontSize: 12.5, color: 'var(--ink-600)', marginBottom: 12 }}>
+        ไฟล์ <b style={{ color: 'var(--ink-800)' }}>{prompt.file && prompt.file.name}</b> ถูกตั้งรหัสผ่าน — ใส่รหัสเพื่อเปิดและนำเข้าข้อมูลได้เลย
+      </div>
+      <div style={{ position: 'relative' }}>
+        <input className="input" type={show ? 'text' : 'password'} autoFocus value={pwd}
+          onChange={e => setPwd(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') submit(); }}
+          placeholder="รหัสผ่านไฟล์" style={{ width: '100%', paddingRight: 64, fontSize: 13 }} />
+        <button type="button" onClick={() => setShow(s => !s)}
+          style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 0, color: 'var(--ink-500)', cursor: 'pointer', fontSize: 11 }}>
+          {show ? 'ซ่อน' : 'แสดง'}
+        </button>
+      </div>
+      {prompt.error && <div style={{ marginTop: 10, fontSize: 12, color: 'var(--bad)', fontWeight: 600 }}>⚠️ {prompt.error}</div>}
+      {prompt.unsupported && (
+        <div style={{ marginTop: 10, fontSize: 11.5, color: 'var(--ink-600)', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '8px 10px', lineHeight: 1.6 }}>
+          ทางเลือกที่ชัวร์: เปิดไฟล์ใน Excel ด้วยรหัส → <b>Save As</b> เป็น <b>.xlsx</b> หรือ <b>.csv</b> (ไม่ใส่รหัส) → นำเข้าไฟล์นั้นแทน
+        </div>
+      )}
+      <div style={{ marginTop: 10, fontSize: 11, color: 'var(--ink-400)' }}>🔐 รหัสใช้ถอดไฟล์ในเครื่องนี้เท่านั้น — ไม่ถูกบันทึก/ส่งขึ้น cloud</div>
     </Modal>
   );
 }
