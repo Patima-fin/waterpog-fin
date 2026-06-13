@@ -114,5 +114,9 @@ Live at **https://patima-fin.github.io/waterpog-fin/** — GitHub Pages serves t
 - **Client wiring**: `data_sync.js` (CRUD_ENTITIES + sheetOrder ต่อท้าย + read/assemble), `data.js` (CRUD_KEYS + seed `[]`), `page_bank_recon.jsx` (`brLinesToRows`/`brRowsToLines`/`brStateToRows`/`brRowsToState` + hydration effect cloud→local + `pushReconLines`/`pushReconState` ทุก write). localStorage `BankReconStore` ยังเป็น cache/offline.
 - **gviz-อ่านแท็บผิดเป็นขยะ (gotcha):** ขอ gviz `?sheet=bankReconLines` ตอนแท็บยังไม่ถูกสร้าง → Google คืน "ชีตแรก" มาเป็นขยะ (เช่น META KV). hydration จึง **กรองเฉพาะแถวที่มี `accountNo`+`ym`** (และ state ต้องมี `id`+`decision`) ก่อน — ขยะถูกทิ้ง ไม่ทับ/ล้าง cache. หลังแท็บถูกสร้าง gviz คืนค่าถูกต้อง.
 
+## 2026-06-13 — Bank Recon: "โอนระหว่างบัญชี" bucket
+- รายการ statement ที่เป็น **โอนเงินระหว่างบัญชีตัวเอง** (ไม่มี PV เพราะไม่ใช่รายจ่าย) เคยตกถัง "ขาดบันทึก" และถูกบังคับให้ "บันทึกจ่ายจริง". เพิ่ม **ถัง/แท็บ "โอนระหว่างบัญชี"** + ปุ่ม **🔁 โอนระหว่างบัญชี** ในถังขาดบันทึก → set `reconState[lineId].decision='transfer'` (sync ผ่าน `bankReconState`) → ออกจากถังขาดบันทึก **โดยไม่สร้าง forecastEntries ACTUAL**. กดยกเลิกในแท็บโอนฯ ได้ (กลับเป็นขาดบันทึก). 
+- **Auto-hint**: `isLikelyTransfer(line)` = desc มี "โอน/transfer" + (ชื่อบริษัทตัวเอง `meta.shortName`/วอเทอร์ป๊อก หรือเลขท้ายบัญชีตัวเองในระบบ) → โชว์ป้าย "🔁 น่าจะเป็นโอนระหว่างบัญชี" + ไฮไลต์แถว (ยังต้องกดเอง ไม่ auto-mark). `brReconcile` คืน bucket `transfers` เพิ่ม.
+
 ## Repo rule: keep CLAUDE.md current
 **Every time you `git push`, update this `CLAUDE.md`** to reflect anything that changed (architecture, conventions, new pages, gotchas). Treat it as part of the push, like the `?v=` bump.

@@ -283,11 +283,12 @@ function brReconcile(opts) {
   const pvKey = p => (p.id != null ? 'i' + p.id : 'k' + p.pvNo + '@' + p.date + '@' + p.amount);
   const scopedKeys = new Set(pvs.map(pvKey));
   const refExtra = refPool.filter(p => p.pvNo && !scopedKeys.has(pvKey(p))).map((p, i) => ({ p, i: 'x' + i, used: false, extra: true }));
-  const matched = [], recorded = [];
+  const matched = [], recorded = [], transfers = [];
   const toMatch = [];
   outLines.forEach(l => {
     const st = reconState[l.id];
     if (st && st.decision === 'recorded') recorded.push({ line: l, forecastId: st.forecastId });
+    else if (st && st.decision === 'transfer') transfers.push(l);   // โอนระหว่างบัญชี — ไม่นับเป็นรายจ่าย
     else toMatch.push(l);
   });
   toMatch.sort((a, b) => (a.date + a.id) < (b.date + b.id) ? -1 : 1);
@@ -347,11 +348,11 @@ function brReconcile(opts) {
 
   const unmatchedPv = pvAvail.filter(c => !c.used).map(c => c.p);
   const stats = {
-    matched: matched.length, missing: missing.length, unmatchedPv: unmatchedPv.length, recorded: recorded.length,
+    matched: matched.length, missing: missing.length, unmatchedPv: unmatchedPv.length, recorded: recorded.length, transfers: transfers.length,
     missingAmt: missing.reduce((s, l) => s + Math.abs(l.amount), 0),
     unmatchedPvAmt: unmatchedPv.reduce((s, p) => s + Math.abs(p.amount), 0),
   };
-  return { matched, missing, unmatchedPv, recorded, inLines, stats };
+  return { matched, missing, unmatchedPv, recorded, transfers, inLines, stats };
 }
 function brNormRef(s) { return String(s || '').replace(/\s+/g, '').toUpperCase(); }
 // หา pvNo ใน ref ของ statement (ref อาจมีข้อความปน) — คืน key ที่ match ใน pvByNo
@@ -526,6 +527,25 @@ function BankReconPage({ data, setData, toast }) {
     if (toast) toast('ยกเลิกบันทึก — ลบออกจาก Actual แล้ว');
   };
 
+  // ── ทำเครื่องหมาย "โอนระหว่างบัญชี" — ออกจากถังขาดบันทึก โดยไม่สร้าง Actual (ไม่ใช่รายจ่าย) ──
+  const markTransfer = (line) => {
+    if (readOnly) { if (toast) toast('สิทธิ์นี้ดูได้อย่างเดียว'); return; }
+    const ns = { ...reconState, [line.id]: { decision: 'transfer', forecastId: '' } };
+    setReconState(ns); BankReconStore.setState(ns); pushReconState(ns);
+    if (toast) toast('ทำเครื่องหมาย "โอนระหว่างบัญชี" — ไม่นับเป็นรายจ่าย');
+  };
+
+  // เดาว่าเป็นโอนระหว่างบัญชีตัวเอง: desc มีคำว่าโอน + (ชื่อบริษัทตัวเอง หรือเลขท้ายบัญชีตัวเองในระบบ)
+  const ownLast4 = brMemo(() => new Set((data.bankAccounts || []).map(a => bdLast4(bdAcct(a).accountNo)).filter(Boolean)), [data.bankAccounts]);
+  const companyKey = (data.meta && (data.meta.shortName || data.meta.companyName)) || '';
+  const isLikelyTransfer = (line) => {
+    const d = String((line && line.desc) || '');
+    if (!/โอน|transfer/i.test(d)) return false;
+    if (companyKey && d.indexOf(companyKey) >= 0) return true;
+    if (/วอเทอร์ป๊อก|วอเตอร์ป๊อก|water\s*pog/i.test(d)) return true;
+    return (d.match(/\d{4}/g) || []).some(x => ownLast4.has(x));
+  };
+
   const goMonth = (delta) => {
     const [y, m] = month.split('-').map(Number);
     const d = new Date(y, m - 1 + delta, 1);
@@ -651,7 +671,8 @@ function BankReconPage({ data, setData, toast }) {
         </div>
       ) : (
         <BRReconcileSection recon={recon} acct={acct} readOnly={readOnly}
-          onRecord={setRecordLine} onUndo={undoRecord} />
+          onRecord={setRecordLine} onUndo={undoRecord}
+          onMarkTransfer={markTransfer} isLikelyTransfer={isLikelyTransfer} />
       )}
 
       {/* รายการเดินบัญชี (statement) — ยกมา → เคลื่อนไหว → คงเหลือ */}
@@ -683,13 +704,14 @@ function BankReconPage({ data, setData, toast }) {
 }
 
 // ─── ส่วนกระทบยอด 3 ถัง ───────────────────────────────────────────────────────
-function BRReconcileSection({ recon, acct, readOnly, onRecord, onUndo }) {
+function BRReconcileSection({ recon, acct, readOnly, onRecord, onUndo, onMarkTransfer, isLikelyTransfer }) {
   const [tab, setTab] = brState('missing');
-  const { matched, missing, unmatchedPv, recorded, stats } = recon;
+  const { matched, missing, unmatchedPv, recorded, transfers, stats } = recon;
   const tabs = [
     { key: 'missing',  label: 'ขาดบันทึก',         n: missing.length,    color: 'var(--bad)' },
     { key: 'unmatch',  label: 'ยังไม่ออกจริง',      n: unmatchedPv.length, color: 'var(--warn)' },
     { key: 'matched',  label: 'แมตช์แล้ว',          n: matched.length,    color: 'var(--good)' },
+    { key: 'transfer', label: 'โอนระหว่างบัญชี',     n: (transfers || []).length, color: 'oklch(60% 0.13 250)' },
     { key: 'recorded', label: 'บันทึกจาก statement', n: recorded.length,   color: 'var(--brand-600)' },
   ];
   return (
@@ -706,9 +728,10 @@ function BRReconcileSection({ recon, acct, readOnly, onRecord, onUndo }) {
         ))}
       </div>
       <div style={{ padding: 14 }}>
-        {tab === 'missing'  && <BRMissingTable rows={missing} readOnly={readOnly} onRecord={onRecord} />}
+        {tab === 'missing'  && <BRMissingTable rows={missing} readOnly={readOnly} onRecord={onRecord} onMarkTransfer={onMarkTransfer} isLikelyTransfer={isLikelyTransfer} />}
         {tab === 'unmatch'  && <BRPvTable rows={unmatchedPv} />}
         {tab === 'matched'  && <BRMatchedTable rows={matched} />}
+        {tab === 'transfer' && <BRTransfersTable rows={transfers || []} readOnly={readOnly} onUndo={onUndo} />}
         {tab === 'recorded' && <BRRecordedTable rows={recorded} readOnly={readOnly} onUndo={onUndo} />}
       </div>
     </div>
@@ -718,14 +741,51 @@ function BRReconcileSection({ recon, acct, readOnly, onRecord, onUndo }) {
 function BREmpty({ text }) { return <div style={{ padding: 24, textAlign: 'center', color: 'var(--ink-400)', fontSize: 12.5 }}>{text}</div>; }
 
 // ถัง (b) — statement ออก แต่ไม่มี PV → กดบันทึกจ่ายจริง
-function BRMissingTable({ rows, readOnly, onRecord }) {
+function BRMissingTable({ rows, readOnly, onRecord, onMarkTransfer, isLikelyTransfer }) {
   if (!rows.length) return <BREmpty text="✓ ไม่มีรายการที่ขาดการบันทึก — statement ทุกรายการมี PV รองรับ" />;
   return (
     <div style={{ maxHeight: '52vh', overflow: 'auto' }}>
-      <div style={{ fontSize: 12, color: 'var(--ink-600)', marginBottom: 8 }}>เงินออกจากบัญชีจริง แต่ยังไม่มี PV ในระบบ — ตรวจแล้วกด "บันทึกจ่ายจริง" เพื่อส่งเข้า Actual หน้า Cashflow</div>
+      <div style={{ fontSize: 12, color: 'var(--ink-600)', marginBottom: 8 }}>เงินออกจากบัญชีจริง แต่ยังไม่มี PV ในระบบ — กด <b>บันทึกจ่ายจริง</b> (รายจ่าย) หรือ <b>🔁 โอนระหว่างบัญชี</b> (ถ้าเป็นการโอนเงินไปบัญชีตัวเอง ไม่ใช่รายจ่าย)</div>
       <table className="tbl" style={{ width: '100%', fontSize: 12.5 }}>
         <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
-          <tr><th style={{ width: 100 }}>วันที่</th><th>รายละเอียด</th><th style={{ width: 110 }}>อ้างอิง/เช็ค</th><th style={{ width: 130, textAlign: 'right' }}>จำนวน (฿)</th><th style={{ width: 130, textAlign: 'center' }}>จัดการ</th></tr>
+          <tr><th style={{ width: 100 }}>วันที่</th><th>รายละเอียด</th><th style={{ width: 110 }}>อ้างอิง/เช็ค</th><th style={{ width: 120, textAlign: 'right' }}>จำนวน (฿)</th><th style={{ width: 200, textAlign: 'center' }}>จัดการ</th></tr>
+        </thead>
+        <tbody>
+          {rows.map(l => {
+            const hint = isLikelyTransfer && isLikelyTransfer(l);
+            return (
+            <tr key={l.id} style={hint ? { background: 'color-mix(in oklch, oklch(60% 0.13 250) 6%, transparent)' } : undefined}>
+              <td style={{ whiteSpace: 'nowrap', color: 'var(--ink-600)' }}>{fmtDate(l.date) || l.date}</td>
+              <td>{l.desc || '—'}{hint && <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 700, color: 'oklch(50% 0.13 250)', background: 'color-mix(in oklch, oklch(60% 0.13 250) 16%, #fff)', borderRadius: 10, padding: '1px 7px', whiteSpace: 'nowrap' }}>🔁 น่าจะเป็นโอนระหว่างบัญชี</span>}</td>
+              <td style={{ fontFamily: 'ui-monospace', fontSize: 11.5, color: 'var(--brand-700)' }}>{l.ref || '—'}</td>
+              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: 'var(--bad)' }}>{fmtNum(Math.abs(l.amount), 2)}</td>
+              <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                {!readOnly ? (<span style={{ display: 'inline-flex', gap: 5, justifyContent: 'center' }}>
+                  <button className="btn btn-primary" style={{ fontSize: 11.5, padding: '4px 9px' }} onClick={() => onRecord(l)}>บันทึกจ่ายจริง</button>
+                  {onMarkTransfer && <button title="เป็นการโอนเงินไปบัญชีตัวเอง — ไม่นับเป็นรายจ่าย"
+                    style={{ fontSize: 11.5, padding: '4px 9px', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit',
+                      border: '1px solid oklch(60% 0.13 250)', background: hint ? 'oklch(60% 0.13 250)' : '#fff', color: hint ? '#fff' : 'oklch(50% 0.13 250)', fontWeight: 600 }}
+                    onClick={() => onMarkTransfer(l)}>🔁 โอนระหว่างบัญชี</button>}
+                </span>) : <span style={{ color: 'var(--ink-300)' }}>—</span>}
+              </td>
+            </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ถัง — โอนระหว่างบัญชี (ทำเครื่องหมายแล้ว ไม่นับเป็นรายจ่าย) · กดยกเลิกกลับเป็นขาดบันทึกได้
+function BRTransfersTable({ rows, readOnly, onUndo }) {
+  if (!rows.length) return <BREmpty text="ยังไม่มีรายการที่ทำเครื่องหมายเป็นโอนระหว่างบัญชี" />;
+  return (
+    <div style={{ maxHeight: '52vh', overflow: 'auto' }}>
+      <div style={{ fontSize: 12, color: 'var(--ink-600)', marginBottom: 8 }}>รายการโอนเงินระหว่างบัญชีตัวเอง — ไม่นับเป็นรายจ่าย ไม่เข้า Actual</div>
+      <table className="tbl" style={{ width: '100%', fontSize: 12.5 }}>
+        <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
+          <tr><th style={{ width: 100 }}>วันที่</th><th>รายละเอียด</th><th style={{ width: 110 }}>อ้างอิง/เช็ค</th><th style={{ width: 130, textAlign: 'right' }}>จำนวน (฿)</th><th style={{ width: 110, textAlign: 'center' }}>จัดการ</th></tr>
         </thead>
         <tbody>
           {rows.map(l => (
@@ -733,10 +793,10 @@ function BRMissingTable({ rows, readOnly, onRecord }) {
               <td style={{ whiteSpace: 'nowrap', color: 'var(--ink-600)' }}>{fmtDate(l.date) || l.date}</td>
               <td>{l.desc || '—'}</td>
               <td style={{ fontFamily: 'ui-monospace', fontSize: 11.5, color: 'var(--brand-700)' }}>{l.ref || '—'}</td>
-              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: 'var(--bad)' }}>{fmtNum(Math.abs(l.amount), 2)}</td>
+              <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: 'var(--ink-500)' }}>{fmtNum(Math.abs(l.amount), 2)}</td>
               <td style={{ textAlign: 'center' }}>
                 {!readOnly
-                  ? <button className="btn btn-primary" style={{ fontSize: 11.5, padding: '4px 10px' }} onClick={() => onRecord(l)}>บันทึกจ่ายจริง</button>
+                  ? <button className="btn btn-ghost" style={{ fontSize: 11.5, padding: '4px 10px' }} onClick={() => onUndo(l, '')}>↩ ยกเลิก</button>
                   : <span style={{ color: 'var(--ink-300)' }}>—</span>}
               </td>
             </tr>
