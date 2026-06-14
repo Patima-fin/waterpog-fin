@@ -1122,13 +1122,11 @@ function ProjectControlPage({ data, setData, toast }) {
       // 2) push เข้า cloud sheet (ทีมเห็นเหมือนกัน) — Finance Master ไม่ถูกแตะ (แยก localStorage)
       setData(d => ({ ...d, projects: merged }));
       setFinVer(v => v + 1); // recalc forecast/dashboard
-      // 2b) บังคับ push ขึ้นชีททันที — กัน sync (debounce) แพ้การรีเฟรช/นำทาง
-      //     ทำให้คอลัมน์เต็ม (งวด/ส่งมอบ/Summary) ขึ้นชีทแน่นอน ไม่ค้างแค่ในเครื่อง
-      try { if (window.WTPData && WTPData.forceSyncNow) setTimeout(() => { try { WTPData.forceSyncNow(); } catch (_) {} }, 400); } catch (_) {}
-      setUploadInfo({ status: 'ok', msg: `อัปเดตแล้ว · ${stats.totalRows} โครงการ · ใหม่ ${stats.newCount} · ยกเลิก ${stats.cancelledCount} · คงไว้ ${stats.keptCount} · กำลัง sync เข้า Google Sheet (รอ ~10 วิ อย่าเพิ่งรีเฟรช)…` });
       if (diff) setDiffModal({ diff, stats }); // แสดงสรุปความเปลี่ยนแปลง
       toast && toast('อัปโหลด Project Control สำเร็จ · ' + stats.totalRows + ' โครงการ');
-      setTimeout(() => setUploadInfo(null), 6000);
+      // 2b) ดันขึ้นชีทตรงๆ ด้วย replaceAll ของข้อมูลที่เพิ่งอ่าน (merged = คอลัมน์เต็ม)
+      //     ชัวร์กว่า debounce/row-diff sync ที่เคยไม่ขยายคอลัมน์ + เช็คชีทกลับให้
+      await pushProjectsToSheet(merged, stats);
     } catch (e) {
       console.error(e);
       setUploadInfo({ status: 'err', msg: 'อ่านไฟล์ไม่สำเร็จ: ' + (e.message || e) });
@@ -1136,34 +1134,42 @@ function ProjectControlPage({ data, setData, toast }) {
     } finally { setBusy(false); if (fileRef.current) fileRef.current.value = ''; }
   };
 
-  // ดันข้อมูลเต็ม (120 คอลัมน์) จาก snapshot ในเครื่อง → Google Sheet โดยตรง (replaceAll)
-  // ใช้กรณี sync ปกติไม่ขยายคอลัมน์ · เช็คจำนวนคอลัมน์ในชีทจริงหลัง push เพื่อยืนยัน
+  // ดันข้อมูลเต็ม (คอลัมน์ครบ) ขึ้น Google Sheet โดยตรงด้วย replaceAll แล้วอ่านชีทกลับ
+  // มานับคอลัมน์เพื่อยืนยัน — ชัวร์กว่า debounce/row-diff sync · ใช้ทั้งตอน upload + ปุ่ม
+  const pushProjectsToSheet = async (rows, stats) => {
+    if (!rows || !rows.length) return;
+    const url = window.WTP_CONFIG && WTP_CONFIG.APPS_SCRIPT_URL;
+    if (!url) { setUploadInfo({ status: 'err', msg: 'ยังไม่ได้ตั้งค่า APPS_SCRIPT_URL' }); return; }
+    setUploadInfo({ status: 'loading', msg: 'กำลังดันข้อมูลขึ้น Google Sheet…' });
+    try {
+      const body = { action: 'replaceAll', entity: 'projects', payload: rows, allowShrink: true, meta: { user: 'push-full-cols' } };
+      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) }).then(x => x.json());
+      if (r && r.error) { setUploadInfo({ status: 'err', msg: 'ดันขึ้นชีทไม่สำเร็จ: ' + r.error }); setTimeout(() => setUploadInfo(null), 12000); return; }
+      let sheetCols = '?';
+      try { const after = await window.WTPData.fetchSheetRows('projects'); if (after && after[0]) sheetCols = Object.keys(after[0]).length; } catch (_) {}
+      const pre = stats ? `อัปเดต ${stats.totalRows} โครงการ · ` : '';
+      if (sheetCols !== '?' && sheetCols < 80) {
+        setUploadInfo({ status: 'err', msg: pre + '⚠ ขึ้นชีทแล้วแต่มีแค่ ' + sheetCols + ' คอลัมน์ — backend (Code.standalone.gs) ที่ deploy ยังเป็นตัวเก่า (คอลัมน์ไม่ครบ) ต้อง re-deploy ตัวล่าสุดก่อน แล้วลองใหม่' });
+        setTimeout(() => setUploadInfo(null), 16000);
+      } else {
+        setUploadInfo({ status: 'ok', msg: '✅ ' + pre + 'ขึ้นชีทสำเร็จ · ชีทมี ' + sheetCols + ' คอลัมน์ · รีเฟรช (Ctrl+Shift+R) เพื่อดูงวดงานครบทุกโครง ทุกเครื่อง' });
+        toast && toast('ดันข้อมูลขึ้นชีทสำเร็จ · ' + sheetCols + ' คอลัมน์');
+        setTimeout(() => setUploadInfo(null), 14000);
+      }
+    } catch (e) {
+      setUploadInfo({ status: 'err', msg: 'ดันขึ้นชีทไม่สำเร็จ: ' + (e.message || e) });
+      setTimeout(() => setUploadInfo(null), 12000);
+    }
+  };
+
+  // ปุ่ม "ดันคอลัมน์เต็มขึ้นชีท" — ใช้ snapshot ในเครื่อง (กรณี sync ก่อนหน้าไม่ขึ้น)
   const forcePushFull = async () => {
     const snap = PCU.loadLocalProjects();
-    if (!snap || !snap.length) { toast && toast('เครื่องนี้ไม่มีข้อมูลเต็ม — กรุณา Upload Excel ก่อน'); return; }
+    if (!snap || !snap.length) { toast && toast('เครื่องนี้ยังไม่มีข้อมูลเต็ม — กรุณากด Upload Excel ก่อน'); return; }
     const cols = Object.keys(snap[0] || {}).length;
     if (!window.confirm('ดันข้อมูลโครงการ ' + snap.length + ' รายการ (' + cols + ' คอลัมน์) ขึ้น Google Sheet?\n\nจะเขียนทับตาราง projects (Finance Master แยกต่างหาก ไม่ถูกแตะ)')) return;
     setBusy(true);
-    setUploadInfo({ status: 'loading', msg: 'กำลังดันข้อมูลเต็มขึ้นชีท…' });
-    try {
-      const url = window.WTP_CONFIG && WTP_CONFIG.APPS_SCRIPT_URL;
-      const body = { action: 'replaceAll', entity: 'projects', payload: snap, allowShrink: true, meta: { user: 'push-full-cols' } };
-      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) }).then(x => x.json());
-      if (r && r.error) { setUploadInfo({ status: 'err', msg: 'ดันขึ้นชีทไม่สำเร็จ: ' + r.error }); setTimeout(() => setUploadInfo(null), 10000); return; }
-      // ยืนยัน: อ่านชีทจริงมานับคอลัมน์
-      let sheetCols = '?';
-      try { const after = await window.WTPData.fetchSheetRows('projects'); if (after && after[0]) sheetCols = Object.keys(after[0]).length; } catch (_) {}
-      if (sheetCols !== '?' && sheetCols < 80) {
-        setUploadInfo({ status: 'err', msg: '⚠ ดันขึ้นแล้ว แต่ชีทยังมีแค่ ' + sheetCols + ' คอลัมน์ — แปลว่า backend (Code.standalone.gs) ที่ deploy ยังเป็นเวอร์ชันเก่า (คอลัมน์ไม่ครบ) ต้อง re-deploy ตัวล่าสุดก่อน' });
-      } else {
-        setUploadInfo({ status: 'ok', msg: '✅ ดันขึ้นชีทสำเร็จ · ชีทมี ' + sheetCols + ' คอลัมน์แล้ว · รีเฟรช (Ctrl+Shift+R) เพื่อดูงวดงานครบทุกโครง' });
-        toast && toast('ดันข้อมูลเต็มขึ้นชีทสำเร็จ · ' + sheetCols + ' คอลัมน์');
-      }
-      setTimeout(() => setUploadInfo(null), 14000);
-    } catch (e) {
-      setUploadInfo({ status: 'err', msg: 'ดันขึ้นชีทไม่สำเร็จ: ' + (e.message || e) });
-      setTimeout(() => setUploadInfo(null), 10000);
-    } finally { setBusy(false); }
+    try { await pushProjectsToSheet(snap, null); } finally { setBusy(false); }
   };
 
   const scopeLabel = [
@@ -1209,10 +1215,9 @@ function ProjectControlPage({ data, setData, toast }) {
             </div>
             {canEdit && <>
               <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={e => onUpload(e.target.files[0])} />
-              {localProjects && localProjects.length > 0 &&
-                <button disabled={busy} onClick={forcePushFull} title="ดันข้อมูลคอลัมน์เต็มจากเครื่องนี้ขึ้น Google Sheet (ใช้เมื่องวดงานยังไม่ขึ้นให้ทีม)"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 36, padding: '0 12px', borderRadius: 9, border: '1px solid rgba(255,255,255,.4)', background: 'rgba(255,255,255,.14)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: busy ? 'wait' : 'pointer', opacity: busy ? .7 : 1 }}>
-                  ⬆️ ดันคอลัมน์เต็มขึ้นชีท</button>}
+              <button disabled={busy} onClick={forcePushFull} title="ดันข้อมูลคอลัมน์เต็มจากเครื่องนี้ขึ้น Google Sheet (ใช้เมื่องวดงานยังไม่ขึ้นให้ทีม) — ต้องเคย Upload Excel บนเครื่องนี้ก่อน"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 36, padding: '0 12px', borderRadius: 9, border: '1px solid rgba(255,255,255,.4)', background: 'rgba(255,255,255,.14)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: busy ? 'wait' : 'pointer', opacity: busy ? .7 : 1 }}>
+                ⬆️ ดันคอลัมน์เต็มขึ้นชีท</button>
               <button disabled={busy} onClick={() => fileRef.current.click()} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, height: 36, padding: '0 14px', borderRadius: 9, border: 'none', background: '#0e9f9a', color: '#fff', fontSize: 12.5, fontWeight: 600, cursor: busy ? 'wait' : 'pointer', opacity: busy ? .7 : 1 }}>
                 <PcI.upload size={15} style={busy ? { animation: 'pcspin 1s linear infinite' } : {}} />{busy ? 'กำลังอ่าน…' : 'Upload Excel'}</button>
             </>}
