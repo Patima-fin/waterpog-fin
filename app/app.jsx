@@ -382,6 +382,7 @@ function App() {
     daily_balance: { label: 'บันทึกยอดธนาคาร',     title: 'บันทึกยอดธนาคารรายวัน', icon: 'bank' },
     pnl:           { label: 'งบกำไรขาดทุน (P&L)',   title: 'Profit & Loss Statement', icon: 'forecast' },
     budget:        { label: 'Budget Control Center', title: 'Budget Control Center', icon: 'projects' },
+    investor:      { label: 'Investor Dashboard', title: 'Investor Dashboard', icon: 'chart' },
   };
 
   let page;
@@ -391,6 +392,7 @@ function App() {
     case 'warroom2':       page = <WarRoomPage2 data={data} setData={setData} toast={pushToast} />; break;
     case 'cashflow':       page = <CashFlowDashboard data={data} setData={setData} toast={pushToast} />; break;
     case 'projects':       page = <ProjectControlPage data={data} setData={setData} toast={pushToast} />; break;
+    case 'investor':       page = <InvestorDashboard data={data} setData={setData} toast={pushToast} />; break;
     case 'invoices':       page = <InvoicesPage data={data} setData={setData} toast={pushToast} />; break;
     case 'debt':           page = <DebtPage data={data} setData={setData} toast={pushToast} />; break;
     case 'debt_ledger':    page = <DebtLedgerPage data={data} setData={setData} toast={pushToast} />; break;
@@ -634,6 +636,7 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
             ['cashflow', 'Weekly Forecast', 'chart'],
             ['pnl',      'งบกำไรขาดทุน (P&L)',     'forecast'],
             ['budget',   'Budget Control Center',  'projects'],
+            ['investor', 'Investor Dashboard',     'chart'],
           ])}
         </div>
 
@@ -781,7 +784,7 @@ function PresentModeToggle() {
 function Topbar({ route, routes, data, onReset, onMenuClick }) {
   const r = routes[route] || routes.daily;
   const today = new Date().toLocaleDateString('th-TH-u-ca-gregory', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
-  const isPresentation = ['daily', 'warroom1', 'warroom2', 'cashflow', 'pnl', 'projects', 'budget'].includes(route);
+  const isPresentation = ['daily', 'warroom1', 'warroom2', 'cashflow', 'pnl', 'projects', 'budget', 'investor'].includes(route);
   return (
     <div className="topbar">
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
