@@ -538,7 +538,7 @@ function WarRoomPage2({ data, setData, toast }) {
               <HeroStatEditable ovKey="wr2.heroWip" label="งานระหว่างก่อสร้าง 🔍" computed={liveCalc.wip.value} editMode={editMode} />
             </div>
             <div style={{ cursor: editMode ? 'auto' : 'pointer' }} onClick={editMode ? undefined : openUnsignedDrill} title={editMode ? '' : 'คลิกดูโครงการรอลงนาม'}>
-              <HeroStatEditable ovKey="wr2.heroUnsigned" label="ใบจัดสรร · รอลงนาม 🔍" computed={liveCalc.unsigned.value} count={liveCalc.unsigned.count} editMode={editMode} countKey="wr2.heroUnsignedCount" />
+              <HeroStatEditable ovKey="wr2.heroUnsigned" label="ใบจัดสรร · รอลงนาม 🔍" computed={liveCalc.unsigned.value} count={liveCalc.unsigned.count} editMode={editMode} countKey="wr2.heroUnsignedCount" forceLive />
             </div>
           </div>
         </div>
@@ -566,10 +566,10 @@ function WarRoomPage2({ data, setData, toast }) {
             <div style={{ marginTop: 10, fontSize: 14, color: 'var(--ink-600)', fontWeight: 500 }}>โครงการที่รอลงนามสัญญา</div>
             <div style={{ fontSize: 12, color: 'var(--ink-500)', marginTop: 2 }}>ได้รับใบจัดสรรแล้ว · Start ว่าง · ไม่ยกเลิก · ใช้มูลค่าใบจัดสรร</div>
             {(() => {
-              // ใช้ค่าเดียวกับ hero "ใบจัดสรร · รอลงนาม" — ถ้าแก้มือ (override) ให้โชว์ยอดที่กรอก
-              const unsignedOverridden = WTPOverride.has('wr2.heroUnsigned');
-              const effUnsigned = WTPOverride.resolve('wr2.heroUnsigned', liveCalc.unsigned.value);
-              const effUnsignedCount = WTPOverride.resolve('wr2.heroUnsignedCount', liveCalc.unsigned.count);
+              // ผูกกับข้อมูลโครงการจริงเสมอ (เลิกใช้ค่ากรอกมือ) — ยอดใบจัดสรรของโครงการรอลงนาม
+              const unsignedOverridden = false;
+              const effUnsigned = liveCalc.unsigned.value;
+              const effUnsignedCount = liveCalc.unsigned.count;
               return (
                 <>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginTop: 14 }}>
@@ -791,17 +791,17 @@ function HeroStat({ label, value, count }) {
 }
 
 // Hero stat — editable + sync ผ่าน cloud
-function HeroStatEditable({ ovKey, label, computed, count, countKey, editMode }) {
-  const overridden = WTPOverride.has(ovKey);
+function HeroStatEditable({ ovKey, label, computed, count, countKey, editMode, forceLive }) {
+  const overridden = !forceLive && WTPOverride.has(ovKey);
   useOverrideSub(ovKey);
   useOverrideSub(countKey || '_');
-  const value = WTPOverride.resolve(ovKey, computed);
-  const resolvedCount = countKey ? WTPOverride.resolve(countKey, count || 0) : count;
+  const value = forceLive ? computed : WTPOverride.resolve(ovKey, computed);
+  const resolvedCount = (countKey && !forceLive) ? WTPOverride.resolve(countKey, count || 0) : count;
   return (
     <div style={{ textAlign: 'right' }}>
       <div style={{ fontSize: 11, opacity: 0.8, textTransform: 'uppercase', letterSpacing: '.06em' }}>{label}</div>
       <div style={{ fontSize: 20, fontWeight: 700, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
-        {editMode ? (
+        {(editMode && !forceLive) ? (
           <EditableNumber ovKey={ovKey} computed={computed} editMode={true} digits={0} />
         ) : (
           <>
@@ -812,7 +812,7 @@ function HeroStatEditable({ ovKey, label, computed, count, countKey, editMode })
       </div>
       {(count != null || countKey) && (
         <div style={{ fontSize: 11, opacity: 0.85, marginTop: 2 }}>
-          {countKey && editMode ? (
+          {countKey && editMode && !forceLive ? (
             <EditableNumber ovKey={countKey} computed={count || 0} editMode={editMode} digits={0} />
           ) : resolvedCount} โครงการ
         </div>
