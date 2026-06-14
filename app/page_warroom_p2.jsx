@@ -538,7 +538,7 @@ function WarRoomPage2({ data, setData, toast }) {
               <HeroStatEditable ovKey="wr2.heroWip" label="งานระหว่างก่อสร้าง 🔍" computed={liveCalc.wip.value} editMode={editMode} />
             </div>
             <div style={{ cursor: editMode ? 'auto' : 'pointer' }} onClick={editMode ? undefined : openUnsignedDrill} title={editMode ? '' : 'คลิกดูโครงการรอลงนาม'}>
-              <HeroStatEditable ovKey="wr2.heroUnsigned" label="ใบจัดสรร · รอลงนาม 🔍" computed={liveCalc.unsigned.value} count={liveCalc.unsigned.count} editMode={editMode} countKey="wr2.heroUnsignedCount" forceLive />
+              <HeroStatEditable ovKey="wr2.heroUnsigned" label="ใบจัดสรร · รอลงนาม 🔍" computed={liveCalc.unsigned.value} count={liveCalc.unsigned.count} editMode={editMode} countKey="wr2.heroUnsignedCount" />
             </div>
           </div>
         </div>
@@ -566,10 +566,11 @@ function WarRoomPage2({ data, setData, toast }) {
             <div style={{ marginTop: 10, fontSize: 14, color: 'var(--ink-600)', fontWeight: 500 }}>โครงการที่รอลงนามสัญญา</div>
             <div style={{ fontSize: 12, color: 'var(--ink-500)', marginTop: 2 }}>ได้รับใบจัดสรรแล้ว · Start ว่าง · ไม่ยกเลิก · ใช้มูลค่าใบจัดสรร</div>
             {(() => {
-              // ผูกกับข้อมูลโครงการจริงเสมอ (เลิกใช้ค่ากรอกมือ) — ยอดใบจัดสรรของโครงการรอลงนาม
-              const unsignedOverridden = false;
-              const effUnsigned = liveCalc.unsigned.value;
-              const effUnsignedCount = liveCalc.unsigned.count;
+              // โครงรอลงนามในไฟล์วิศวกรไม่มีตัวเลขงบ (งบประมาณเป็นข้อความ) → คำนวณสดได้ 0
+              // จึงใช้ค่าที่ฝ่ายการเงินกรอกมือ (override) ถ้ามี · ไม่มีค่อย fallback ค่าสด
+              const unsignedOverridden = WTPOverride.has('wr2.heroUnsigned');
+              const effUnsigned = WTPOverride.resolve('wr2.heroUnsigned', liveCalc.unsigned.value);
+              const effUnsignedCount = WTPOverride.resolve('wr2.heroUnsignedCount', liveCalc.unsigned.count);
               return (
                 <>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginTop: 14 }}>
