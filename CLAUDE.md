@@ -119,5 +119,10 @@ Live at **https://patima-fin.github.io/waterpog-fin/** — GitHub Pages serves t
 - รายการ statement ที่เป็น **โอนเงินระหว่างบัญชีตัวเอง** (ไม่มี PV เพราะไม่ใช่รายจ่าย) เคยตกถัง "ขาดบันทึก" และถูกบังคับให้ "บันทึกจ่ายจริง". เพิ่ม **ถัง/แท็บ "โอนระหว่างบัญชี"** + ปุ่ม **🔁 โอนระหว่างบัญชี** ในถังขาดบันทึก → set `reconState[lineId].decision='transfer'` (sync ผ่าน `bankReconState`) → ออกจากถังขาดบันทึก **โดยไม่สร้าง forecastEntries ACTUAL**. กดยกเลิกในแท็บโอนฯ ได้ (กลับเป็นขาดบันทึก). 
 - **Auto-hint**: `isLikelyTransfer(line)` = desc มี "โอน/transfer" + (ชื่อบริษัทตัวเอง `meta.shortName`/วอเทอร์ป๊อก หรือเลขท้ายบัญชีตัวเองในระบบ) → โชว์ป้าย "🔁 น่าจะเป็นโอนระหว่างบัญชี" + ไฮไลต์แถว (ยังต้องกดเอง ไม่ auto-mark). `brReconcile` คืน bucket `transfers` เพิ่ม.
 
+## 2026-06-14 — Sync toasts silenced + polling slowed (perf/UX)
+- **ALL sync toasts are now silent** (user found them annoying, popping too often). In `app.jsx` the sync-event effect: `onConfirmed`/`onRecovered` are `() => {}` no-ops; **`onBlocked` now `console.warn`s instead of `pushToast`** (still throttled 12s via `guardThrottled`). **The sync/guard logic itself is unchanged** — saving, reading, and the anti-data-loss guard all still work; only the user-facing popups are gone. If you need to re-enable a sync toast, that's the spot.
+- **`AUTO_REFRESH_MS` 45000 → 120000** (`app/config.js`) — background gviz polling was reading ~24 sheet tabs every 45s (the "ทำงานพื้นหลังเยอะ" the user noticed; network capture showed **0 POSTs / 271 GET reads**, i.e. no write loop, just frequent reads). 2-min interval ≈ 60% fewer reads; team data still fresh within 2 min. Adaptive backoff (x2–x4 on 429) + Page-Visibility pause still apply on top.
+- **If a user still sees the toast after this, it's stale cache** (only `app.jsx` ever emitted these texts — confirmed by grep) — hard-refresh / wait for GitHub Pages deploy.
+
 ## Repo rule: keep CLAUDE.md current
 **Every time you `git push`, update this `CLAUDE.md`** to reflect anything that changed (architecture, conventions, new pages, gotchas). Treat it as part of the push, like the `?v=` bump.
