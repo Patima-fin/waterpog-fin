@@ -135,6 +135,8 @@ function WarRoomPage2({ data, setData, toast }) {
     };
 
     // 1) รอลงนาม — Start ว่าง + ไม่ยกเลิก → ใช้มูลค่าใบจัดสรร
+    //    โครงรอลงนามมักไม่มีเลขสัญญา (code=null) → ในชีตอาจมีแถวซ้ำ → ตัดซ้ำด้วย ชื่อ+งบ
+    const unsignedSeen = {};
     const unsignedList = active
       .filter(p => isEmpty(getStart(p)) && wr2TypeMatch(projTypeOf(p)))
       .map(p => ({
@@ -145,6 +147,7 @@ function WarRoomPage2({ data, setData, toast }) {
         value: wr2GetAlloc(p),
       }))
       .filter(p => p.value > 0)
+      .filter(p => { const k = p.name + '|' + p.province; if (unsignedSeen[k]) return false; unsignedSeen[k] = true; return true; })
       .sort((a, b) => b.value - a.value);
     const unsignedValue = unsignedList.reduce((s, p) => s + p.value, 0);
 
@@ -538,7 +541,10 @@ function WarRoomPage2({ data, setData, toast }) {
               <HeroStatEditable ovKey="wr2.heroWip" label="งานระหว่างก่อสร้าง 🔍" computed={liveCalc.wip.value} editMode={editMode} />
             </div>
             <div style={{ cursor: editMode ? 'auto' : 'pointer' }} onClick={editMode ? undefined : openUnsignedDrill} title={editMode ? '' : 'คลิกดูโครงการรอลงนาม'}>
-              <HeroStatEditable ovKey="wr2.heroUnsigned" label="ใบจัดสรร · รอลงนาม 🔍" computed={liveCalc.unsigned.value} count={liveCalc.unsigned.count} editMode={editMode} countKey="wr2.heroUnsignedCount" />
+              <HeroStatEditable ovKey="wr2.heroUnsigned" label="ใบจัดสรร · รอลงนาม 🔍"
+                computed={liveCalc.unsigned.value > 0 ? liveCalc.unsigned.value : WTPOverride.resolve('wr2.heroUnsigned', 0)}
+                count={liveCalc.unsigned.value > 0 ? liveCalc.unsigned.count : WTPOverride.resolve('wr2.heroUnsignedCount', 0)}
+                editMode={editMode} countKey="wr2.heroUnsignedCount" forceLive />
             </div>
           </div>
         </div>
@@ -566,11 +572,13 @@ function WarRoomPage2({ data, setData, toast }) {
             <div style={{ marginTop: 10, fontSize: 14, color: 'var(--ink-600)', fontWeight: 500 }}>โครงการที่รอลงนามสัญญา</div>
             <div style={{ fontSize: 12, color: 'var(--ink-500)', marginTop: 2 }}>ได้รับใบจัดสรรแล้ว · Start ว่าง · ไม่ยกเลิก · ใช้มูลค่าใบจัดสรร</div>
             {(() => {
-              // โครงรอลงนามในไฟล์วิศวกรไม่มีตัวเลขงบ (งบประมาณเป็นข้อความ) → คำนวณสดได้ 0
-              // จึงใช้ค่าที่ฝ่ายการเงินกรอกมือ (override) ถ้ามี · ไม่มีค่อย fallback ค่าสด
-              const unsignedOverridden = WTPOverride.has('wr2.heroUnsigned');
-              const effUnsigned = WTPOverride.resolve('wr2.heroUnsigned', liveCalc.unsigned.value);
-              const effUnsignedCount = WTPOverride.resolve('wr2.heroUnsignedCount', liveCalc.unsigned.count);
+              // ใช้ค่าสดจากข้อมูลโครงการ (Σ เงินตามใบจัดสรร ของโครงรอลงนาม ไม่ยกเลิก · ตัดซ้ำแล้ว)
+              // ถ้าข้อมูลยังไม่มี (live = 0 เช่นยังไม่อัปโหลดงบ) ค่อย fallback ค่าที่กรอกมือ
+              const liveUnsigned = liveCalc.unsigned.value;
+              const useManual = !(liveUnsigned > 0);
+              const unsignedOverridden = useManual && WTPOverride.has('wr2.heroUnsigned');
+              const effUnsigned = useManual ? WTPOverride.resolve('wr2.heroUnsigned', 0) : liveUnsigned;
+              const effUnsignedCount = useManual ? WTPOverride.resolve('wr2.heroUnsignedCount', liveCalc.unsigned.count) : liveCalc.unsigned.count;
               return (
                 <>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginTop: 14 }}>
