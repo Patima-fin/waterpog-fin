@@ -18,10 +18,11 @@ window.WTP_CONFIG = {
   APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbwhTJTHy0jywsICM4W5BFpMkyV26Ha0_mm520W09FwtAybPgzZZd51NVkE14bfg7BH2pQ/exec',
 
   // ตั้งเวลา auto-refresh จากเซิร์ฟเวอร์ (มิลลิวินาที, 0 = ปิด)
-  // 45 วินาที — เน้น near-real-time สำหรับ ~3 active writer พร้อมกัน
+  // 120 วินาที (ลดจาก 45 วิ · 2026-06-14) — ลดภาระ polling พื้นหลัง ~60%
+  //   (เดิมอ่าน ~24 ชีตทุก 45 วิ = หนักเครื่อง/เน็ต) ข้อมูลทีมยังสดพอ (อัปเดตภายใน 2 นาที)
   // ถ้าเจอ 429 ติดกัน 2 รอบ data_sync จะ adaptive backoff x2-x4 อัตโนมัติ
   // และ tab idle (ไม่ได้มอง) จะหยุด sync ผ่าน Page Visibility API
-  AUTO_REFRESH_MS: 45000,  // 45 วินาที
+  AUTO_REFRESH_MS: 120000,  // 2 นาที
 
   // ── Row-level sync ────────────────────────────────────────────────
   // true  = แก้เฉพาะแถว/ฟิลด์ที่เปลี่ยน ผ่าน applyDiff (กัน clobber ทั้งตาราง + read-your-writes)

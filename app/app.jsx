@@ -187,14 +187,16 @@ function App() {
       if (now - lastGuardToast < 12000) return false;
       lastGuardToast = now; return true;
     };
+    // toast sync ทั้งหมดปิดเงียบ (ผู้ใช้ขอ 2026-06-14 — เด้งบ่อยรำคาญ)
+    //   onBlocked (guard กันข้อมูลหาย) / onRecovered / onConfirmed
+    //   การบันทึก·ดึงข้อมูล·guard ยังทำงานปกติทุกอย่าง — แค่ "ไม่เด้ง popup"
+    //   onBlocked ยัง log ลง console ไว้ debug (guardThrottled กัน log รัว)
     const onBlocked = (e) => {
       if (!guardThrottled()) return;
       const list = ((e.detail && e.detail.blocked) || [])
         .map(b => `${b.entity} (${b.prev}→${b.now})`).join(', ');
-      pushToast(`⚠️ ระบบกันข้อมูลหาย — ข้ามการเปลี่ยนแปลงที่ผิดปกติ${list ? ' (' + list + ')' : ''} · กำลังดึงข้อมูลจริงจากชีตมาให้`);
+      console.warn('[WTP Sync] guard บล็อกการเปลี่ยนแปลงผิดปกติ' + (list ? ' (' + list + ')' : '') + ' · ดึงข้อมูลจริงจากชีตแทน');
     };
-    // toast "ดึงข้อมูลจริงจากชีตมาแล้ว" + "บันทึกขึ้นเซิร์ฟเวอร์แล้ว" ปิดไว้ (ผู้ใช้ขอ — เด้งบ่อย)
-    // การบันทึก/ดึงข้อมูลยังทำงานปกติ · ถ้า sync บล็อกของจริงยังมี onBlocked เตือนอยู่
     const onRecovered = () => {};
     const onConfirmed = () => {};
     window.addEventListener('wtpSyncBlocked', onBlocked);
