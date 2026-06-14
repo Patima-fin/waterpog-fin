@@ -200,10 +200,15 @@ function App() {
     };
     // ยืนยันให้ผู้ใช้เห็นว่า "งานขึ้นเซิร์ฟเวอร์จริงแล้ว" (row-level/applyDiff) — ดับความกลัว
     // "บันทึกแล้วมั้ยไม่รู้/หายเงียบ". อ่านกลับจากเซิร์ฟเวอร์ที่เพิ่งเขียน = read-your-writes.
+    let lastConfirmToast = 0;
     const onConfirmed = (e) => {
       const list = (e.detail && e.detail.confirmed) || [];
       const n = list.reduce((s, c) => s + (c.upserts || 0) + (c.deletes || 0), 0);
-      if (n > 0) pushToast(`✓ บันทึกขึ้นเซิร์ฟเวอร์แล้ว (${n} รายการ)`);
+      if (n <= 0) return;
+      const now = Date.now();
+      if (now - lastConfirmToast < 12000) return;   // กันเด้งรัว (โชว์ ≤ 1 ครั้ง/12 วิ)
+      lastConfirmToast = now;
+      pushToast(`✓ บันทึกขึ้นเซิร์ฟเวอร์แล้ว (${n} รายการ)`);
     };
     window.addEventListener('wtpSyncBlocked', onBlocked);
     window.addEventListener('wtpSyncRecovered', onRecovered);
