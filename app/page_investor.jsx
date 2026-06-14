@@ -176,7 +176,7 @@
   // ── 1. Executive Summary ──────────────────────────────────────────────────────
   function InvExec({ p, tt, m }) {
     const fyItems = Object.keys(m.byFy).sort().map(k => ({ label: k, value: m.byFy[k] }));
-    const regItems = Object.keys(m.byRegion).map(k => ({ label: k, value: m.byRegion[k] })).sort((a, b) => b.value - a.value);
+    const typeItems = Object.keys(m.byType).map(k => ({ label: k, value: m.byType[k] })).sort((a, b) => b.value - a.value).slice(0, 8);
     return R.createElement('div', null,
       // hero
       R.createElement('div', { style: { background: 'linear-gradient(135deg,' + p.brand + ',' + p.brand2 + ')', borderRadius: 18, padding: '26px 28px', color: '#fff', marginBottom: 16, boxShadow: p.shadow } },
@@ -190,7 +190,12 @@
         R.createElement(InvKpi, { p, label: tt.products, value: INV_PRODUCTS.length + ' รุ่น', sub: '3 กลุ่มผลิตภัณฑ์', accent: p.brand2 })),
       R.createElement('div', { style: grid(2) },
         R.createElement(InvCard, { p, title: tt.byFy }, R.createElement(InvBars, { p, items: fyItems, money: true })),
-        R.createElement(InvCard, { p, title: tt.byRegion }, R.createElement(InvBars, { p, items: regItems, color: p.accent })))
+        R.createElement(InvCard, { p, title: tt.byType }, R.createElement(InvBars, { p, items: typeItems, money: true, color: p.accent }))),
+      R.createElement(InvCard, { p, title: tt.priceList, style: { marginTop: 14 } },
+        R.createElement('div', { style: grid(window.innerWidth < 700 ? 1 : 4, 8) },
+          INV_PRODUCTS.map((pr, i) => R.createElement('div', { key: i, style: { display: 'flex', justifyContent: 'space-between', gap: 8, padding: '6px 10px', background: p.card2, borderRadius: 8, fontSize: 12 } },
+            R.createElement('span', { style: { fontWeight: 700 } }, pr.code, R.createElement('span', { style: { color: p.sub, fontWeight: 400, marginLeft: 6 } }, m.prodCount[pr.code] ? m.prodCount[pr.code] + ' โครง' : '')),
+            R.createElement('span', { style: { color: p.brand, fontWeight: 700 } }, '฿' + invCompact(pr.price))))))
     );
   }
 
@@ -263,8 +268,37 @@
     );
   }
 
+  // ── Thailand region map (stylized choropleth + bubbles) ─────────────────────
+  function InvThaiMap({ p, byRegion, lang }) {
+    const REG = [
+      { en: 'North', th: 'ภาคเหนือ', x: 96, y: 80 },
+      { en: 'Northeast', th: 'ภาคอีสาน', x: 165, y: 122 },
+      { en: 'Central', th: 'ภาคกลาง', x: 116, y: 190 },
+      { en: 'West', th: 'ภาคตะวันตก', x: 73, y: 204 },
+      { en: 'East', th: 'ภาคตะวันออก', x: 178, y: 230 },
+      { en: 'South', th: 'ภาคใต้', x: 118, y: 352 },
+    ];
+    const cnt = (r) => (byRegion[r.en] || byRegion[r.th] || byRegion[r.th.replace('ภาค', '')] || byRegion[r.en === 'Northeast' ? 'ตะวันออกเฉียงเหนือ' : '_'] || 0);
+    const vals = REG.map(cnt); const max = Math.max(1, ...vals); const total = vals.reduce((a, b) => a + b, 0);
+    const lerp = (a, b, t) => Math.round(a + (b - a) * t);
+    const fillFor = (v) => 'rgb(' + lerp(190, 31, v / max) + ',' + lerp(222, 86, v / max) + ',' + lerp(246, 184, v / max) + ')';
+    const SIL = 'M116,22 C146,20 166,36 170,60 C180,54 200,58 204,80 C210,100 202,124 194,140 C188,152 196,166 190,180 C184,192 168,190 158,200 C170,206 184,206 188,220 C194,236 180,252 164,250 C152,248 150,238 142,242 C150,258 150,280 144,300 C138,322 134,352 128,388 C124,414 122,438 117,452 C112,438 108,414 105,388 C100,352 102,322 96,300 C90,280 84,262 86,242 C88,222 76,206 72,188 C66,168 70,144 66,122 C62,100 70,62 90,40 C99,30 108,25 116,22 Z';
+    return R.createElement('svg', { viewBox: '0 0 250 470', style: { width: '100%', maxWidth: 340, height: 'auto', display: 'block', margin: '0 auto' } },
+      R.createElement('path', { d: SIL, fill: p.card2, stroke: p.line, strokeWidth: 1.5 }),
+      REG.map((r, i) => {
+        const v = cnt(r); const rad = 11 + Math.sqrt(v / max) * 22;
+        return R.createElement('g', { key: i },
+          R.createElement('circle', { cx: r.x, cy: r.y, r: rad, fill: fillFor(v), opacity: 0.92, stroke: '#fff', strokeWidth: 1.2 }),
+          R.createElement('text', { x: r.x, y: r.y + 1, textAnchor: 'middle', fontSize: 14, fontWeight: 800, fill: v / max > 0.5 ? '#fff' : p.ink, style: { fontVariantNumeric: 'tabular-nums' } }, v),
+          R.createElement('text', { x: r.x, y: r.y + rad + 12, textAnchor: 'middle', fontSize: 9.5, fill: p.sub }, lang === 'th' ? r.th : r.en)
+        );
+      }),
+      R.createElement('text', { x: 125, y: 466, textAnchor: 'middle', fontSize: 10, fill: p.sub }, (lang === 'th' ? 'รวม ' : 'Total ') + total + (lang === 'th' ? ' โครงการ' : ' projects'))
+    );
+  }
+
   // ── 5. Customer & Projects ────────────────────────────────────────────────────
-  function InvCustomers({ p, tt, m, toast }) {
+  function InvCustomers({ p, tt, m, toast, lang }) {
     const [gallery, setGallery] = invSt([]);
     const prov = Object.keys(m.byProv).map(k => ({ label: k, value: m.byProv[k] })).sort((a, b) => b.value - a.value).slice(0, 12);
     const onImg = (files) => {
@@ -274,10 +308,12 @@
     };
     return R.createElement('div', null,
       R.createElement('div', { style: Object.assign(grid(2), { marginBottom: 16 }) },
-        R.createElement(InvCard, { p, title: tt.topProv }, R.createElement(InvBars, { p, items: prov, color: p.brand2 })),
-        R.createElement(InvCard, { p, title: tt.statusFunnel },
-          R.createElement(InvBars, { p, items: Object.keys(m.byStatus).map(k => ({ label: k, value: m.byStatus[k] })) }))),
-      R.createElement(InvCard, { p, title: tt.gallery, style: { marginTop: 16 } },
+        R.createElement(InvCard, { p, title: tt.byRegion }, R.createElement(InvThaiMap, { p, byRegion: m.byRegion, lang })),
+        R.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 14 } },
+          R.createElement(InvCard, { p, title: tt.topProv }, R.createElement(InvBars, { p, items: prov, color: p.brand2 })),
+          R.createElement(InvCard, { p, title: tt.statusFunnel },
+            R.createElement(InvBars, { p, items: Object.keys(m.byStatus).map(k => ({ label: k, value: m.byStatus[k] })) })))),
+      R.createElement(InvCard, { p, title: tt.gallery, style: { marginTop: 0 } },
         R.createElement('label', { style: { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 13px', borderRadius: 9, background: p.brand, color: '#fff', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', marginBottom: 12 } },
           '📷 ' + tt.uploadImg, R.createElement('input', { type: 'file', accept: 'image/*', multiple: true, style: { display: 'none' }, onChange: e => onImg(e.target.files) })),
         gallery.length ? R.createElement('div', { style: grid(4) }, gallery.map((src, i) => R.createElement('img', { key: i, src, style: { width: '100%', height: 130, objectFit: 'cover', borderRadius: 10, border: '1px solid ' + p.line } })))

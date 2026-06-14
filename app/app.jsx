@@ -193,13 +193,9 @@ function App() {
         .map(b => `${b.entity} (${b.prev}→${b.now})`).join(', ');
       pushToast(`⚠️ ระบบกันข้อมูลหาย — ข้ามการเปลี่ยนแปลงที่ผิดปกติ${list ? ' (' + list + ')' : ''} · กำลังดึงข้อมูลจริงจากชีตมาให้`);
     };
-    const onRecovered = (e) => {
-      if (!guardThrottled()) return;
-      const d = e.detail || {};
-      pushToast(`🔄 ดึงข้อมูลจริงจากชีตมาแล้ว (${d.entity || ''})`);
-    };
-    // toast ยืนยัน "บันทึกขึ้นเซิร์ฟเวอร์แล้ว" ปิดไว้ (ผู้ใช้ขอ — เด้งบ่อยน่ารำคาญ)
-    // การบันทึกยังทำงานปกติ · ถ้า sync ผิดพลาดยังมี onBlocked/onRecovered เตือนอยู่
+    // toast "ดึงข้อมูลจริงจากชีตมาแล้ว" + "บันทึกขึ้นเซิร์ฟเวอร์แล้ว" ปิดไว้ (ผู้ใช้ขอ — เด้งบ่อย)
+    // การบันทึก/ดึงข้อมูลยังทำงานปกติ · ถ้า sync บล็อกของจริงยังมี onBlocked เตือนอยู่
+    const onRecovered = () => {};
     const onConfirmed = () => {};
     window.addEventListener('wtpSyncBlocked', onBlocked);
     window.addEventListener('wtpSyncRecovered', onRecovered);
