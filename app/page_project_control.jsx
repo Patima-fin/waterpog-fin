@@ -1152,6 +1152,8 @@ function ProjectControlPage({ data, setData, toast }) {
         setUploadInfo({ status: 'err', msg: pre + '⚠ ขึ้นชีทแล้วแต่มีแค่ ' + sheetCols + ' คอลัมน์ — backend (Code.standalone.gs) ที่ deploy ยังเป็นตัวเก่า (คอลัมน์ไม่ครบ) ต้อง re-deploy ตัวล่าสุดก่อน แล้วลองใหม่' });
         setTimeout(() => setUploadInfo(null), 16000);
       } else {
+        // ดึงข้อมูลจากชีทกลับมาตั้งเป็น baseline → local ตรงกับ server → กัน sync วน push ซ้ำ
+        try { if (window.WTPData && WTPData.refreshFromServer) WTPData.refreshFromServer(); } catch (_) {}
         setUploadInfo({ status: 'ok', msg: '✅ ' + pre + 'ขึ้นชีทสำเร็จ · ชีทมี ' + sheetCols + ' คอลัมน์ · รีเฟรช (Ctrl+Shift+R) เพื่อดูงวดงานครบทุกโครง ทุกเครื่อง' });
         toast && toast('ดันข้อมูลขึ้นชีทสำเร็จ · ' + sheetCols + ' คอลัมน์');
         setTimeout(() => setUploadInfo(null), 14000);

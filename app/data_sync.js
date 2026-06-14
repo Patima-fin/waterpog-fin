@@ -753,7 +753,24 @@
    *   - แถวที่เราลบ (อยู่ใน base+ชีต ไม่อยู่ในของเรา) → ลบจริง เว้นแต่คนอื่น
    *     เพิ่งแก้แถวนั้น (theirs != base) ให้คงของเขาไว้ กันลบทับงานเขา
    */
+  // เทียบค่าแบบทนความต่างของ "รูปแบบ" ที่เกิดจาก round-trip ผ่าน Google Sheet
+  // (กัน sync วนซ้ำไม่จบ: client ดันค่า " 2,160,000.00 " → ชีทคืน "2160000" → ดูเหมือนเปลี่ยน)
+  //  • null / undefined / '' / ช่องว่างล้วน → ถือว่าค่าว่างเท่ากัน
+  //  • สตริงตัวเลขล้วน (มี , space ฿) เท่ากันเชิงตัวเลข → ถือว่าเท่ากัน
+  //  • อื่นๆ → เทียบ deep ตามเดิม (object/array)
+  function _scalarEq(a, b) {
+    var sa = a == null ? '' : String(a).trim();
+    var sb = b == null ? '' : String(b).trim();
+    if (sa === sb) return true;
+    if (sa === '' || sb === '') return false;            // ว่าง เทียบกับมีค่า = ต่าง
+    var ca = sa.replace(/[,\s฿]/g, ''), cb = sb.replace(/[,\s฿]/g, '');
+    if (/^-?\d+(\.\d+)?$/.test(ca) && /^-?\d+(\.\d+)?$/.test(cb)) return parseFloat(ca) === parseFloat(cb);
+    return false;
+  }
   function _eq(a, b) {
+    if (a === b) return true;
+    var ta = typeof a, tb = typeof b;
+    if ((a == null || ta !== 'object') && (b == null || tb !== 'object')) return _scalarEq(a, b);
     try { return JSON.stringify(a) === JSON.stringify(b); }
     catch (_) { return a === b; }
   }
