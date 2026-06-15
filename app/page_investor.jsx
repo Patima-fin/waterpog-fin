@@ -134,7 +134,7 @@
   const T = {
     th: {
       brand: 'Water POG · POG TANKS', tagline: 'เจ้าของสิทธิบัตรนวัตกรรมไทย · ผู้จัดจำหน่ายระบบกรองน้ำระดับหมู่บ้านอันดับ 1 ของไทย',
-      secs: ['ภาพรวมการลงทุน', 'ข้อมูลบริษัท', 'ผลิตภัณฑ์และเทคโนโลยี', 'โอกาสทางตลาด', 'ผลการดำเนินงาน', 'เศรษฐศาสตร์โครงการ', 'ลูกค้าและโครงการ', 'ทีมและผู้ถือหุ้น', 'ความยั่งยืน (ESG)', 'ห้องนักลงทุน'],
+      secs: ['ภาพรวมการลงทุน', 'ข้อมูลบริษัท', 'ผลิตภัณฑ์และเทคโนโลยี', 'โอกาสทางตลาด', 'ผลการดำเนินงาน', 'เศรษฐศาสตร์โครงการ', 'ลูกค้าและโครงการ', 'ทีมและผู้ถือหุ้น', 'ความยั่งยืน (ESG)', 'ห้องนักลงทุน', 'วงเงินสินเชื่อ KTB'],
       present: 'โหมดนำเสนอ', exit: 'ออก', exportPdf: 'ส่งออก PDF',
       contractValue: 'มูลค่าสัญญารวม (ในระบบ)', projects: 'โครงการทั้งหมด', received: 'รับเงินแล้ว', backlog: 'งานคงค้าง (AR)',
       pipeline: 'งานรอลงนาม', revenue: 'รายได้', wip: 'งานระหว่างก่อสร้าง', products: 'รุ่นผลิตภัณฑ์',
@@ -152,7 +152,7 @@
     },
     en: {
       brand: 'Water POG · POG TANKS', tagline: 'Thai Innovation Patent Owner · #1 Distributor of Village-Scale Water Filtration in Thailand',
-      secs: ['Investment Highlights', 'Company Profile', 'Products & Technology', 'Market Opportunity', 'Financial Performance', 'Project Economics', 'Customers & Projects', 'Team & Shareholding', 'Sustainability (ESG)', 'Investor Room'],
+      secs: ['Investment Highlights', 'Company Profile', 'Products & Technology', 'Market Opportunity', 'Financial Performance', 'Project Economics', 'Customers & Projects', 'Team & Shareholding', 'Sustainability (ESG)', 'Investor Room', 'KTB Credit & Capacity'],
       present: 'Present', exit: 'Exit', exportPdf: 'Export PDF',
       contractValue: 'Total Contract Value (system)', projects: 'Total Projects', received: 'Cash Received', backlog: 'Backlog (AR)',
       pipeline: 'Awaiting Sign', revenue: 'Revenue', wip: 'Work in Progress', products: 'Product Models',
@@ -290,7 +290,7 @@
     const rootStyle = { background: p.bg, color: p.ink, minHeight: '100vh', margin: present ? 0 : '-16px', padding: present ? '24px 30px' : '16px',
       fontFamily: "'IBM Plex Sans Thai','Sarabun',system-ui,sans-serif", position: present ? 'fixed' : 'relative', inset: present ? 0 : 'auto', zIndex: present ? 900 : 'auto', overflow: present ? 'auto' : 'visible' };
 
-    const SECS = [InvExec, InvCompany, InvProducts, InvMarket, InvPerformance, InvEconomics, InvCustomers, InvTeam, InvESG, InvRoom];
+    const SECS = [InvExec, InvCompany, InvProducts, InvMarket, InvPerformance, InvEconomics, InvCustomers, InvTeam, InvESG, InvRoom, InvCredit];
     const Section = SECS[sec] || InvExec;
 
     return R.createElement('div', { style: rootStyle, id: 'investor-root' },
@@ -918,6 +918,159 @@
         vid ? R.createElement('video', { src: vid, controls: true, style: { width: '100%', borderRadius: 10, background: '#000' } })
           : vidUrl ? R.createElement('iframe', { src: ytEmbed(vidUrl), allow: 'autoplay; encrypted-media; fullscreen', style: { width: '100%', height: 300, border: 'none', borderRadius: 10 } })
             : R.createElement('div', { style: { color: p.sub, fontSize: 12.5, padding: 30, textAlign: 'center', border: '1px dashed ' + p.line, borderRadius: 10 } }, tt.noData + ' — ' + tt.videoUrl))
+    );
+  }
+
+  // ── 11. KTB Credit & Growth-Capacity Dashboard (from Claude Design handoff) ───
+  //   Source: ข้อมูลการเบิก PN PRE/POST กรุงไทย + สัญญา LG/PN · ณ 13 ส.ค. 2568 (ค่า = ล้านบาท)
+  const CR = { pre: '#3B8DF0', post: '#22C7D4', lg: '#E6A23C', danger: '#F0584F', growth: '#34D39A' };
+  const INV_CREDIT = {
+    asOf: { th: 'ข้อมูล ณ 13 สิงหาคม 2568', en: 'As of 13 August 2025' },
+    bank: { th: 'ธนาคารกรุงไทย จำกัด (มหาชน)', en: 'Krungthai Bank PCL' },
+    byYear: [{ label: '2567 / 2024', PRE: 64.01, POST: 33.67 }, { label: '2568 / 2025', PRE: 157.66, POST: 22.35 }],
+    mix: [{ key: 'PRE', value: 221.66, color: CR.pre }, { key: 'POST', value: 56.02, color: CR.post }, { key: 'LG', value: 29.93, color: CR.lg }],
+    topProjects: [
+      { code: 'AW138', value: 7.33 }, { code: 'AW139', value: 7.33 }, { code: 'AW140', value: 7.33 }, { code: 'PP009', value: 5.57 }, { code: 'AW119', value: 5.18 },
+      { code: 'AW120', value: 5.18 }, { code: 'ENC061', value: 5.18 }, { code: 'AW115', value: 4.98 }, { code: 'AW116', value: 4.98 }, { code: 'AW117', value: 4.98 },
+    ],
+    byProvince: [
+      { th: 'หนองบัวลำภู', en: 'Nong Bua Lamphu', value: 34.9 }, { th: 'กาญจนบุรี', en: 'Kanchanaburi', value: 24.0 }, { th: 'กาฬสินธุ์', en: 'Kalasin', value: 17.6 },
+      { th: 'ปราจีนบุรี', en: 'Prachinburi', value: 17.4 }, { th: 'เชียงราย', en: 'Chiang Rai', value: 17.2 }, { th: 'อุทัยธานี', en: 'Uthai Thani', value: 16.5 },
+      { th: 'บุรีรัมย์', en: 'Buriram', value: 15.5 }, { th: 'นครพนม', en: 'Nakhon Phanom', value: 15.4 }, { th: 'ตรัง', en: 'Trang', value: 13.8 }, { th: 'ลำปาง', en: 'Lampang', value: 13.3 },
+    ],
+    ageing: [{ bucket: '0–6 เดือน', value: 6.50 }, { bucket: '6–12 เดือน', value: 8.90 }, { bucket: '12–18 เดือน', value: 8.20 }, { bucket: '18–24 เดือน', value: 6.33 }],
+    scenarios: [{ lg: 30, cap: 300, cur: true }, { lg: 50, cap: 500 }, { lg: 80, cap: 800 }, { lg: 100, cap: 1000 }],
+    flow: {
+      th: [['วงเงิน L/G', '30 ล.', 'ถูกลดจาก 100 ล. (−70%)'], ['L/G ที่ใช้ไปแล้ว', '29.93 ล.', '99.8% ของวงเงิน'], ['L/G คงเหลือ', '≈ 0', 'เหลือ 70,591 บาท'], ['ออก L/G ใหม่ไม่ได้', '', 'ยื่นประมูลงานใหม่ไม่ได้'], ['เบิก PRE/POST ไม่ได้', '', 'ทั้งที่ PN เหลือ 129 ล.'], ['สูญเสียโอกาส', '', 'รับงานใหม่ถูกจำกัด']],
+      en: [['L/G line', '30M', 'cut from 100M (−70%)'], ['L/G drawn', '29.93M', '99.8% of line'], ['L/G available', '≈ 0', 'only 70,591 baht'], ['No new L/G', '', 'cannot bid new work'], ['No PRE/POST draw', '', 'despite 129M free on PN'], ['Lost opportunity', '', 'new intake capped']],
+    },
+    insight: {
+      th: [['แนวโน้มการใช้วงเงิน', 'เบิกใหม่โต 97.7 → 180.0 ล้านบาท (8 เดือนปี 68)'], ['หมุนเวียนเร็ว', '559 ล้าน บน PN 140 ล้าน · อายุตั๋วเฉลี่ย 43 วัน'], ['ประวัติชำระสะอาด', 'ตั๋ว 832 รายการชำระครบ ไม่มีค้าง · PN คงเหลือ 7.8%'], ['L/G เต็มวงเงิน', '30 ล้าน ใช้ไป 29.93 (99.8%) เหลือ 70,591 บาท'], ['คอขวด', 'ออก L/G ใหม่ไม่ได้ → เบิก PRE/POST ไม่ได้ ทั้งที่ PN เหลือ 129 ล้าน'], ['กระทบการเติบโต', 'L/G ลด 70% · เงินถูกแช่นานสูงสุด 2 ปี'], ['เหตุผลขยายวงเงิน', 'หมุน ~10 เท่า/ปี → คืน L/G 100 ล้าน ปลดล็อก ~1,000 ล้าน/ปี']],
+      en: [['Utilisation trend', 'New draws 97.7 → 180.0M (8 months of 2025)'], ['High velocity', '559M cycled on a 140M PN line · 43-day avg tenor'], ['Clean record', 'All 832 notes repaid · no arrears · PN just 7.8%'], ['L/G full', '30M line 99.8% drawn — only 70,591 baht left'], ['Bottleneck', 'No new L/G → cannot draw PRE/POST despite 129M free PN'], ['Growth impact', 'L/G cut 70% · capital tied up to 2 years'], ['Case to expand', '~10× turnover → L/G 100M unlocks ~1,000M/yr']],
+    },
+    conclusionTh: 'จากข้อมูลย้อนหลัง บริษัทใช้วงเงิน PRE/POST ต่อเนื่อง หมุนเวียนรวมกว่า 559 ล้านบาท สนับสนุน 99 โครงการประปาชุมชนใน 32 จังหวัด ชำระคืนครบทุกรายการ — แต่วงเงิน L/G ถูกลดจาก 100 เหลือ 30 ล้านบาท ใช้เต็ม 99.8% และเงินถูกแช่นานถึง 2 ปี ทำให้รับงานใหม่ได้จำกัด แม้ PN ยังเหลือกว่า 129 ล้านบาท จึงควรขยายวงเงิน L/G เพื่อปลดล็อกการเติบโต',
+    conclusionEn: 'The company has drawn PRE/POST continuously, cycling over THB 559M to finance 99 community water-supply projects across 32 provinces, with every note repaid. But the L/G line was cut from 100M to 30M, is 99.8% used, and capital stays frozen up to 2 years — capping new intake despite THB 129M free on the PN line. Expanding the L/G line is the clear lever to unlock growth.',
+  };
+
+  function InvCredit({ p, lang }) {
+    const L = lang === 'th', d = INV_CREDIT;
+    const U = L ? ' ล้านบาท' : ' M';
+    const mb = (n, dg) => Number(n).toLocaleString('en-US', { minimumFractionDigits: dg || 0, maximumFractionDigits: dg || 0 });
+    const secHead = (no, title, sub) => el('div', { style: { display: 'flex', alignItems: 'center', gap: 13, margin: '26px 0 14px' } },
+      el('div', { style: { width: 38, height: 38, borderRadius: 10, background: invRgba(p.brand, 0.12), color: p.brand, display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 15 } }, no),
+      el('div', null, el('div', { style: { fontSize: 18, fontWeight: 800, color: p.ink } }, title), el('div', { style: { fontSize: 12.5, color: p.sub } }, sub)));
+    const kpi = (accent, lab, val, unit, sub) => el('div', { style: { background: p.card, border: '1px solid ' + p.line, borderRadius: 16, padding: '17px 19px', boxShadow: p.shadow, position: 'relative', overflow: 'hidden' } },
+      el('div', { style: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: accent } }),
+      el('div', { style: { fontSize: 12, color: p.sub, fontWeight: 600 } }, lab),
+      el('div', { style: { fontSize: 27, fontWeight: 800, color: p.ink, marginTop: 6, fontVariantNumeric: 'tabular-nums' } }, val, unit ? el('small', { style: { fontSize: 13.5, color: p.sub, marginLeft: 3, fontWeight: 600 } }, unit) : null),
+      sub ? el('div', { style: { fontSize: 11.5, color: p.sub, marginTop: 4 } }, sub) : null);
+    const hbars = (items, color, fmt) => { const max = Math.max(1, ...items.map(i => i.value)); return el('div', { style: { display: 'flex', flexDirection: 'column', gap: 9 } },
+      items.map((it, i) => el('div', { key: i },
+        el('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: 12.5, marginBottom: 3 } }, el('span', { style: { color: p.sub } }, it.label), el('span', { style: { fontWeight: 700, color: p.ink, fontVariantNumeric: 'tabular-nums' } }, fmt(it.value))),
+        el('div', { style: { height: 10, background: invRgba(p.ink, 0.06), borderRadius: 99, overflow: 'hidden' } }, el('div', { style: { height: '100%', width: Math.max(2, it.value / max * 100) + '%', background: 'linear-gradient(90deg,' + invRgba(color, 0.7) + ',' + color + ')', borderRadius: 99 } }))))); };
+    const gauge = (pct, color) => { const r = 74, cx = 92, cy = 92, len = Math.PI * r, path = 'M ' + (cx - r) + ' ' + cy + ' A ' + r + ' ' + r + ' 0 0 1 ' + (cx + r) + ' ' + cy;
+      return el('svg', { viewBox: '0 0 184 108', style: { width: '100%', maxWidth: 250, display: 'block', margin: '0 auto' } },
+        el('path', { d: path, fill: 'none', stroke: invRgba(p.ink, 0.08), strokeWidth: 17, strokeLinecap: 'round' }),
+        el('path', { d: path, fill: 'none', stroke: color, strokeWidth: 17, strokeLinecap: 'round', strokeDasharray: (pct / 100 * len) + ' ' + len }),
+        el('text', { x: cx, y: cy - 6, textAnchor: 'middle', fontSize: 32, fontWeight: 800, fill: color }, pct.toFixed(1) + '%'),
+        el('text', { x: cx, y: cy + 13, textAnchor: 'middle', fontSize: 11.5, fill: p.sub }, L ? 'ใช้ไปแล้ว' : 'utilised')); };
+
+    return el('div', null,
+      el('div', { style: { background: 'linear-gradient(135deg,' + invRgba(CR.danger, 0.92) + ',' + invRgba(CR.lg, 0.85) + ')', borderRadius: 18, padding: '24px 26px', color: '#fff', boxShadow: p.shadow } },
+        el('div', { style: { fontSize: 12, fontWeight: 700, letterSpacing: '.08em', opacity: .9 } }, L ? 'บทสรุปสำหรับผู้บริหาร · ธนาคาร · นักลงทุน' : 'EXECUTIVE · BANKING · INVESTOR BRIEFING'),
+        el('div', { style: { fontSize: 25, fontWeight: 800, lineHeight: 1.3, marginTop: 8, maxWidth: 800 } }, L ? 'ศักยภาพเติบโตสูง แต่ถูกจำกัดด้วยวงเงิน L/G ที่เต็มและถูกลด' : 'Strong growth potential — constrained by a maxed-out, reduced L/G line'),
+        el('div', { style: { fontSize: 13.5, opacity: .93, marginTop: 8, lineHeight: 1.55, maxWidth: 840 } }, L ? 'หมุนเวียนวงเงินสินเชื่อแล้วกว่า 559 ล้านบาท สนับสนุน 99 โครงการประปาชุมชน — แต่วงเงิน L/G ถูกลดจาก 100 เหลือ 30 ล้านบาท และใช้เต็มแล้ว 99.8%' : 'Over THB 559M of credit cycled, financing 99 community water-supply projects — yet the L/G line was cut from 100M to 30M and is now 99.8% utilised.'),
+        el('div', { style: Object.assign(gridR(4), { marginTop: 18 }) },
+          [['559', U, L ? 'วงเงินหมุนเวียนสะสม' : 'Total credit cycled'], ['99', '', L ? 'โครงการประปาชุมชน' : 'Water-supply projects'], ['99.8', '%', L ? 'การใช้วงเงิน L/G' : 'L/G utilisation'], ['1,000', U, L ? 'ศักยภาพ/ปี หากคืน L/G' : 'Capacity/yr if L/G restored']].map((s, i) =>
+            el('div', { key: i, style: { background: 'rgba(255,255,255,.15)', borderRadius: 12, padding: '12px 14px' } },
+              el('div', { style: { fontSize: 23, fontWeight: 800 } }, s[0], s[1] ? el('small', { style: { fontSize: 12, opacity: .85, marginLeft: 3 } }, s[1]) : null),
+              el('div', { style: { fontSize: 11.5, opacity: .9, marginTop: 2 } }, s[2]))))),
+      secHead('01', L ? 'ภาพรวมผู้บริหาร' : 'Executive Summary', L ? 'วงเงิน · การใช้ · โครงการ' : 'Facilities · usage · projects'),
+      el('div', { style: gridR(3) },
+        kpi(CR.pre, L ? 'วงเงิน PRE-FINANCE' : 'PRE-FINANCE line', '140', U, L ? 'วงเงินรวม PN 140 ล.' : 'shared PN 140M'),
+        kpi(CR.post, L ? 'วงเงิน POST-FINANCE' : 'POST-FINANCE line', '140', U, L ? 'วงเงินรวม PN 140 ล.' : 'shared PN 140M'),
+        kpi(CR.danger, L ? 'วงเงิน L/G (ค้ำประกัน)' : 'L/G line (guarantees)', '30', U, L ? 'ถูกลดจาก 100 ล. · ใช้เต็ม' : 'cut from 100M · full'),
+        kpi(p.ink, L ? 'วงเงินหมุนเวียนสะสม' : 'Total credit cycled', '559.78', U, L ? 'รวม roll-over' : 'incl. roll-over'),
+        kpi(CR.post, L ? 'โครงการที่สนับสนุน' : 'Projects financed', '99', '', '32 ' + (L ? 'จังหวัด' : 'provinces')),
+        kpi(CR.growth, L ? 'มูลค่างานที่สนับสนุน' : 'Project value financed', '277.69', U, L ? 'เบิกใหม่ (ไม่รวม roll)' : 'new draws (excl. roll)')),
+      secHead('02', L ? 'การวิเคราะห์คอขวด L/G' : 'LG Bottleneck Analysis', L ? 'ข้อจำกัดหลักที่ฉุดการเติบโต' : 'The biggest growth constraint'),
+      el('div', { style: gridR(2) },
+        el(InvCard, { p, title: L ? 'อัตราการใช้วงเงิน L/G' : 'L/G utilisation' },
+          gauge(99.8, CR.danger),
+          el('div', { style: { textAlign: 'center', fontSize: 12.5, fontWeight: 700, color: CR.danger, marginTop: 6 } }, L ? '⚠ ใช้เต็มวงเงินแล้ว' : '⚠ Line fully utilised'),
+          el('div', { style: Object.assign(grid(2), { marginTop: 12 }) },
+            el('div', { style: { textAlign: 'center' } }, el('div', { style: { fontSize: 18, fontWeight: 800, color: CR.lg } }, '29.93'), el('div', { style: { fontSize: 11, color: p.sub } }, L ? 'คงค้าง (ล.)' : 'outstanding (M)')),
+            el('div', { style: { textAlign: 'center' } }, el('div', { style: { fontSize: 18, fontWeight: 800, color: CR.danger } }, '70,591'), el('div', { style: { fontSize: 11, color: p.sub } }, L ? 'คงเหลือ (บาท)' : 'available (THB)')))),
+        el(InvCard, { p, title: L ? 'เปรียบเทียบการใช้วงเงิน' : 'Facility utilisation compared' },
+          el('div', { style: { display: 'flex', flexDirection: 'column', gap: 18 } },
+            [['L/G', 99.8, '29.9 / 30', CR.danger], ['PN (PRE/POST)', 7.75, '10.9 / 140', CR.post]].map((r, i) => el('div', { key: i },
+              el('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: 13.5, marginBottom: 7 } }, el('b', null, r[0]), el('span', { style: { color: p.sub } }, r[2] + U)),
+              el('div', { style: { height: 16, background: invRgba(p.ink, 0.06), borderRadius: 99, overflow: 'hidden' } }, el('div', { style: { height: '100%', width: r[1] + '%', background: r[3], borderRadius: 99, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: 8, color: '#fff', fontSize: 11, fontWeight: 800 } }, r[1] + '%')))),
+            el('div', { style: { fontSize: 12.5, color: p.sub, lineHeight: 1.55 } }, L ? 'L/G ใช้ไป 99.8% แต่ PN เหลือใช้ได้ถึง 92% — ทว่าต้องมี L/G ก่อนจึงเบิก PN ได้' : 'L/G is 99.8% used while PN sits 92% free — yet PN cannot be drawn without an L/G first.')))),
+      el('div', { style: { marginTop: 14, background: invRgba(CR.lg, 0.06), border: '1px solid ' + invRgba(CR.lg, 0.25), borderRadius: 14, padding: 16 } },
+        el('div', { style: { fontSize: 14, fontWeight: 700, color: CR.lg, marginBottom: 12 } }, '⚠ ' + (L ? 'นี่คือข้อจำกัดหลักที่ฉุดการเติบโตของบริษัท' : "This is the single biggest constraint on the company's growth")),
+        el('div', { style: { display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4 } },
+          d.flow[L ? 'th' : 'en'].map((f, i) => { const sev = i <= 1 ? CR.lg : CR.danger; return el('div', { key: i, style: { flex: '0 0 184px', minWidth: 184, background: p.card, border: '1px solid ' + invRgba(sev, 0.3), borderLeft: '3px solid ' + sev, borderRadius: 11, padding: '10px 12px' } },
+            el('div', { style: { display: 'flex', alignItems: 'baseline', gap: 6 } }, el('div', { style: { fontSize: 12.5, fontWeight: 800, color: sev } }, f[0]), f[1] ? el('div', { style: { fontSize: 12, fontWeight: 800, color: p.ink, marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' } }, f[1]) : null),
+            el('div', { style: { fontSize: 11, color: p.sub, marginTop: 4, lineHeight: 1.4 } }, f[2])); }))),
+      el('div', { style: { marginTop: 14, display: 'flex', gap: 13, background: invRgba(CR.danger, 0.07), border: '1px solid ' + invRgba(CR.danger, 0.25), borderRadius: 14, padding: 16 } },
+        el('div', { style: { fontSize: 22 } }, '♻️'),
+        el('div', null, el('div', { style: { fontSize: 14, fontWeight: 800, color: CR.danger, marginBottom: 4 } }, L ? 'ความขัดแย้งของโครงสร้างวงเงิน' : 'The structural paradox'),
+          el('div', { style: { fontSize: 12.5, color: p.sub, lineHeight: 1.6 } }, L ? 'PN เหลือใช้ได้ถึง 129 ล้านบาท แต่ใช้ไม่ได้ เพราะเบิก PRE/POST งานใหม่ต้องมี L/G ค้ำก่อน — เมื่อ L/G เต็ม วงเงิน PN ที่เหลือจึงถูกล็อกไปด้วย' : 'THB 129M is free on the PN line but unusable: drawing PRE/POST for new work first needs an L/G. With L/G maxed, the spare PN is locked too.'))),
+      secHead('03', L ? 'โอกาสในการเติบโต' : 'Growth Opportunity', L ? 'ศักยภาพรับงาน/ปี ตามวงเงิน L/G (หมุน ~10 เท่า)' : 'Annual capacity by L/G size (~10× turnover)'),
+      el(InvCard, { p },
+        el('div', { style: { display: 'flex', flexDirection: 'column', gap: 14 } },
+          d.scenarios.map((s, i) => { const up = Math.round((s.cap - 300) / 300 * 100); return el('div', { key: i, style: { display: 'grid', gridTemplateColumns: '92px 1fr 86px', alignItems: 'center', gap: 12 } },
+            el('div', { style: { fontSize: 14, fontWeight: 800, color: p.ink, fontVariantNumeric: 'tabular-nums' } }, s.lg, el('small', { style: { fontSize: 10, color: p.sub, fontWeight: 500 } }, U)),
+            el('div', { style: { height: 30, background: invRgba(p.ink, 0.06), borderRadius: 8, overflow: 'hidden' } }, el('div', { style: { height: '100%', width: (s.cap / 1000 * 100) + '%', background: s.cur ? CR.danger : CR.growth, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: 10, color: '#fff', fontSize: 13, fontWeight: 800 } }, mb(s.cap) + U)),
+            el('div', { style: { fontSize: 13, fontWeight: 800, textAlign: 'right', color: s.cur ? CR.danger : CR.growth } }, s.cur ? (L ? 'ปัจจุบัน' : 'current') : '+' + up + '%')); })),
+        el('div', { style: { fontSize: 12.5, color: p.sub, marginTop: 14, lineHeight: 1.6, borderTop: '1px solid ' + p.line, paddingTop: 12 } }, '🚀 ' + (L ? 'คืนวงเงิน L/G เป็น 100 ล้านบาท → ปลดล็อกศักยภาพรับงาน ~1,000 ล้านบาท/ปี บนประวัติชำระหนี้ที่สะอาด' : 'Restore L/G to THB 100M → unlock ~THB 1,000M/yr capacity on a clean repayment record.'))),
+      secHead('04', L ? 'วงเงินที่ถูกแช่แข็ง' : 'Frozen Capacity', L ? 'เงินทุนถูกผูกไว้กับ L/G นานสูงสุด 2 ปี' : 'Capital tied in guarantees up to 2 years'),
+      el('div', { style: Object.assign(gridR(4), { marginBottom: 14 }) },
+        kpi(CR.danger, L ? 'วงเงินถูกแช่ใน L/G' : 'Frozen in L/G', '29.93', U),
+        kpi(CR.lg, L ? 'L/G ที่ยังไม่หมดอายุ' : 'L/G outstanding', '99.8', '%'),
+        kpi(CR.lg, L ? 'อายุค้ำตามสัญญา' : 'Guarantee term', L ? 'สูงสุด 24' : 'up to 24', L ? 'เดือน' : 'mo'),
+        kpi(CR.danger, L ? 'นำกลับมาใช้ไม่ได้' : 'Not reusable', '29.93', U)),
+      el(InvCard, { p, title: L ? 'วงเงิน L/G แยกตามอายุคงเหลือ' : 'L/G capital by remaining life' },
+        hbars(d.ageing.map(a => ({ label: a.bucket, value: a.value })), CR.lg, v => mb(v, 2) + U)),
+      secHead('05', L ? 'ผลการใช้วงเงินย้อนหลัง' : 'Historical Performance', L ? 'เบิกใหม่รายปี + สัดส่วนการใช้' : 'New draws by year + usage mix'),
+      el('div', { style: gridR(2) },
+        el(InvCard, { p, title: L ? 'มูลค่างานที่สนับสนุน (เบิกใหม่/ปี)' : 'Project value financed (new/yr)' },
+          el('div', { style: { display: 'flex', flexDirection: 'column', gap: 14 } }, d.byYear.map((y, i) => el('div', { key: i },
+            el('div', { style: { fontSize: 13, fontWeight: 700, color: p.ink, marginBottom: 6 } }, y.label, el('span', { style: { color: p.sub, fontWeight: 500, marginLeft: 8 } }, mb(y.PRE + y.POST, 0) + U)),
+            el('div', { style: { display: 'flex', height: 22, borderRadius: 6, overflow: 'hidden', gap: 2 } },
+              el('div', { style: { width: (y.PRE / (y.PRE + y.POST) * 100) + '%', background: CR.pre, display: 'grid', placeItems: 'center', color: '#fff', fontSize: 10.5, fontWeight: 700 } }, 'PRE ' + mb(y.PRE, 0)),
+              el('div', { style: { width: (y.POST / (y.PRE + y.POST) * 100) + '%', background: CR.post, display: 'grid', placeItems: 'center', color: '#fff', fontSize: 10.5, fontWeight: 700 } }, 'POST ' + mb(y.POST, 0))))))),
+        el(InvCard, { p, title: L ? 'สัดส่วนการใช้วงเงิน (PRE · POST · LG)' : 'Loan usage mix' },
+          el(InvSeg, { p, lang, items: d.mix.map(m => ({ th: m.key, en: m.key, pct: Math.round(m.value / d.mix.reduce((s, x) => s + x.value, 0) * 100), color: m.color })) }),
+          el('div', { style: { marginTop: 12, display: 'flex', flexDirection: 'column', gap: 6 } }, d.mix.map((m, i) => el('div', { key: i, style: { display: 'flex', justifyContent: 'space-between', fontSize: 12.5 } },
+            el('span', { style: { color: p.sub } }, el('span', { style: { display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: m.color, marginRight: 6 } }), m.key),
+            el('b', { style: { color: p.ink, fontVariantNumeric: 'tabular-nums' } }, mb(m.value, 1) + U)))))),
+      secHead('06', L ? 'ศักยภาพการสนับสนุนโครงการ' : 'Project Financing Capacity', L ? '99 โครงการ · 32 จังหวัด' : '99 projects · 32 provinces'),
+      el('div', { style: Object.assign(gridR(4), { marginBottom: 14 }) },
+        kpi(CR.post, L ? 'จำนวนโครงการ' : 'Projects', '99', '', ''),
+        kpi(CR.pre, L ? 'วงเงินที่ใช้' : 'Credit used', '277.69', U),
+        kpi(CR.post, L ? 'เฉลี่ยต่อโครงการ' : 'Avg / project', '2.80', U),
+        kpi(CR.pre, L ? 'อายุการใช้เงินเฉลี่ย' : 'Avg tenor', '43', L ? 'วัน' : 'days')),
+      el('div', { style: gridR(2) },
+        el(InvCard, { p, title: L ? 'โครงการมูลค่าสูงสุด' : 'Highest-value projects' },
+          hbars(d.topProjects.map(t => ({ label: t.code, value: t.value })), CR.pre, v => mb(v, 2) + U)),
+        el(InvCard, { p, title: L ? 'การกระจายตัวเชิงพื้นที่ (10/32 จังหวัด)' : 'Geographic distribution (top 10/32)' },
+          hbars(d.byProvince.map(pv => ({ label: L ? pv.th : pv.en, value: pv.value })), CR.post, v => mb(v, 1) + U))),
+      secHead('07', L ? 'บทวิเคราะห์เชิงกลยุทธ์' : 'Executive Insight', L ? 'ข้อสรุปและข้อเสนอแนะ' : 'Conclusion & recommendation'),
+      el('div', { style: gridR(2) },
+        el(InvCard, { p, title: L ? 'ประเด็นวิเคราะห์' : 'Analysis points' },
+          el('div', { style: { display: 'flex', flexDirection: 'column', gap: 11 } }, d.insight[L ? 'th' : 'en'].map((it, i) => el('div', { key: i, style: { display: 'flex', gap: 11, alignItems: 'flex-start' } },
+            el('div', { style: { flex: '0 0 auto', width: 24, height: 24, borderRadius: 7, background: invRgba(p.brand, 0.12), color: p.brand, display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 800 } }, i + 1),
+            el('div', null, el('div', { style: { fontSize: 13, fontWeight: 800, color: p.ink } }, it[0]), el('div', { style: { fontSize: 12, color: p.sub, marginTop: 2, lineHeight: 1.5 } }, it[1])))))),
+        el('div', { style: { background: 'linear-gradient(160deg,' + invRgba(CR.growth, 0.14) + ',' + p.card + ')', border: '1px solid ' + invRgba(CR.growth, 0.35), borderRadius: 16, padding: 20, boxShadow: p.shadow } },
+          el('div', { style: { display: 'inline-block', fontSize: 11, fontWeight: 800, color: CR.growth, background: invRgba(CR.growth, 0.15), padding: '3px 10px', borderRadius: 99, marginBottom: 10 } }, '✨ ' + (L ? 'บทวิเคราะห์' : 'AI Insight')),
+          el('div', { style: { fontSize: 16, fontWeight: 800, color: p.ink, marginBottom: 8 } }, L ? 'ข้อสรุปสำหรับผู้บริหาร' : 'Executive conclusion'),
+          el('div', { style: { fontSize: 12.5, color: p.sub, lineHeight: 1.7 } }, L ? d.conclusionTh : d.conclusionEn),
+          el('div', { style: { marginTop: 14, display: 'flex', gap: 12, background: invRgba(CR.growth, 0.1), borderRadius: 12, padding: '12px 14px' } },
+            el('div', { style: { fontSize: 20 } }, '🚀'),
+            el('div', null, el('div', { style: { fontSize: 11.5, fontWeight: 700, color: CR.growth } }, L ? 'ข้อเสนอแนะ' : 'Recommendation'), el('div', { style: { fontSize: 13, fontWeight: 600, color: p.ink, marginTop: 2, lineHeight: 1.5 } }, L ? 'ขยายวงเงิน L/G เป็น 100 ล้านบาท เพื่อปลดล็อกศักยภาพรับงาน ~1,000 ล้านบาท/ปี' : 'Restore the L/G line to THB 100M to unlock ~THB 1,000M/yr of capacity.'))))),
+      el('div', { style: { fontSize: 11, color: p.sub, marginTop: 16, textAlign: 'center' } }, (L ? d.bank.th : d.bank.en) + ' · ' + (L ? d.asOf.th : d.asOf.en) + ' · ' + (L ? 'ข้อมูลจากประวัติเบิก PN PRE/POST และสัญญาสินเชื่อ' : 'Source: PN PRE/POST drawdown history & credit contracts'))
     );
   }
 
