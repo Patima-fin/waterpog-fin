@@ -156,22 +156,36 @@ function UsersPage({ data, setData, toast }) {
   // ── นำเข้าผู้ใช้จาก config.js เข้าชีต ────────────────────────────────────
   // config users เป็น bootstrap (hardcode) แก้ใน UI ไม่ได้ + ถ้า cache โดนล้าง
   // login ต้องพึ่ง config เท่านั้น. นำเข้าชีตแล้ว → เห็น/แก้ได้ในชีต + login มั่นคงขึ้น.
+  // ⚠️ ต้องดึง "รายชื่อจากชีตสด" มารวมก่อนเสมอ — ถ้าใช้แค่ data.users (cache อาจไม่ครบ)
+  //    การ setData ทับจะทำให้ sync "ลบ" user ที่อยู่ในชีตแต่ไม่อยู่ใน cache ทิ้ง (เคยทำ baikao/opo หาย).
   const importConfigUsers = () => {
     const cfgUsers = (window.WTP_CONFIG && window.WTP_CONFIG.USERS) || [];
-    const have = new Set((data.users || []).map(u => String(u.username || '').trim().toLowerCase()));
-    const toAdd = cfgUsers.filter(u => !have.has(String(u.username || '').trim().toLowerCase()));
-    if (!toAdd.length) { toast('ผู้ใช้จาก config.js อยู่ในชีตครบแล้ว'); return; }
-    if (!confirm(
-      'นำเข้าผู้ใช้จาก config.js เข้าชีต ' + toAdd.length + ' คน?\n\n' +
-      toAdd.map(u => '• ' + u.username + ' (' + (u.role || 'staff') + ')').join('\n') + '\n\n' +
-      'รหัสผ่านจะถูกบันทึกลงชีต users (sync ทั้งทีม) — แก้/ลบในหน้านี้ได้หลังนำเข้า')) return;
-    const rows = toAdd.map(u => ({
-      id: WTPData.newId(), username: u.username, password: u.password,
-      displayName: u.displayName || u.username, role: u.role || 'staff',
-      active: 'true', department: '', note: 'นำเข้าจาก config.js',
-    }));
-    setData(d => ({ ...d, users: [...rows, ...(d.users || [])] }));
-    toast('นำเข้า ' + toAdd.length + ' คนเข้าชีตแล้ว — กำลัง sync ขึ้น Google Sheet');
+    const norm = (n) => String(n || '').trim().toLowerCase();
+    const doImport = (liveUsers) => {
+      // base = union ของ (ชีตสด + cache ปัจจุบัน) ตาม username — กันลบ user ที่ยังไม่ sync
+      const byName = {};
+      (liveUsers || []).concat(data.users || []).forEach(u => { const k = norm(u.username); if (k && !byName[k]) byName[k] = u; });
+      const base = Object.keys(byName).map(k => byName[k]);
+      const have = new Set(Object.keys(byName));
+      const toAdd = cfgUsers.filter(u => !have.has(norm(u.username)));
+      // เขียน base (ที่รวมชีตสดแล้ว) กลับเสมอ — กัน cache ไม่ครบไปลบของในชีต
+      if (!toAdd.length) { setData(d => ({ ...d, users: base })); toast('ผู้ใช้จาก config.js อยู่ในชีตครบแล้ว (' + base.length + ' คนในชีต)'); return; }
+      if (!confirm(
+        'นำเข้าผู้ใช้จาก config.js เข้าชีต ' + toAdd.length + ' คน?\n\n' +
+        toAdd.map(u => '• ' + u.username + ' (' + (u.role || 'staff') + ')').join('\n') + '\n\n' +
+        'รหัสผ่านจะถูกบันทึกลงชีต users (sync ทั้งทีม)')) return;
+      const rows = toAdd.map(u => ({
+        id: WTPData.newId(), username: u.username, password: u.password,
+        displayName: u.displayName || u.username, role: u.role || 'staff',
+        active: 'true', department: '', note: 'นำเข้าจาก config.js',
+      }));
+      setData(d => ({ ...d, users: [...rows, ...base] }));
+      toast('นำเข้า ' + toAdd.length + ' คนเข้าชีตแล้ว — กำลัง sync');
+    };
+    if (window.WTPData && WTPData.fetchSheetRows) {
+      toast('กำลังดึงรายชื่อจากชีต…');
+      WTPData.fetchSheetRows('users').then(rows => doImport(Array.isArray(rows) ? rows : [])).catch(() => doImport([]));
+    } else { doImport([]); }
   };
 
   const emptyUser = { username: '', password: '', displayName: '', role: 'staff', active: 'true', department: '', note: '' };
