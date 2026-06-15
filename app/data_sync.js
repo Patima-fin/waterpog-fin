@@ -18,7 +18,7 @@
   // เปิด DevTools Console แล้วดูบรรทัดนี้ เพื่อยืนยันว่าเบราว์เซอร์โหลด "โค้ดใหม่" จริง
   // (ถ้าไม่เห็น = ยังรัน cache เก่า → hard refresh Ctrl+Shift+R + ปิดแท็บเก่าทุกอัน)
   // เช็คเร็ว: พิมพ์ WTPData.buildId ใน console
-  var BUILD_ID = '20260616a';
+  var BUILD_ID = '20260616b';
   try {
     console.info('%c[WTP Sync] build ' + BUILD_ID + ' — row-level + anti-empty-push + server-guard + read-your-writes + no-push-when-logged-out + presence + auto-push-only-on-activity',
                  'color:#2a6fdb;font-weight:bold');
@@ -1236,6 +1236,14 @@
     if (!serverDataLoaded) return;
     if (!_hasValidSession()) return;   // ★ ไม่ล็อกอิน = ไม่ push
     if (inSyncDiff) return;
+    // ★ ACTIVITY GATE (เหมือน WTPData.save) — กันงาน "ซ่อมข้อมูลอัตโนมัติ" (backfill receipt↔IV)
+    //   ที่เรียก forceSyncNow ทุก poll → ดัน push บนแท็บที่เปิดค้าง "ไม่มีคนแตะ" = อาการดีดทุก 3 นาที.
+    //   การกดปุ่มบันทึก/แก้ field จริง เกิดทันทีหลัง click/keydown → lastUserActivity สด → ผ่าน gate.
+    //   ผล: แท็บเปิดค้างไม่แตะอะไร = เงียบสนิท ไม่ push ทางไหนเลย (ตรงตามที่ผู้ใช้ต้องการ).
+    if (AUTO_PUSH_REQUIRES_ACTIVITY &&
+        (lastUserActivity === 0 || (Date.now() - lastUserActivity) > AUTO_PUSH_ACTIVITY_WINDOW_MS)) {
+      return;
+    }
     if (syncTimer) { clearTimeout(syncTimer); syncTimer = null; }
     // data param optional — use latest from localStorage if not provided
     var d = data || WTPData.load();
