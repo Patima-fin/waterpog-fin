@@ -14,8 +14,8 @@ const { useState: ivState, useMemo: ivMemo, useRef: ivRef, useEffect: ivEffect }
 // AW097-STIIS→ { jobNo: 'AW097',   productType: 'STIIS' }
 // PP064      → { jobNo: 'PP064',   productType: ''      }  (ไม่มี suffix → ไม่แตะ)
 function normalizeJobNo(raw) {
-  if (!raw) return { jobNo: '', productType: '' };
-  const s = raw.trim();
+  if (raw == null || raw === '') return { jobNo: '', productType: '' };
+  const s = String(raw).trim();   // jobNo อาจเป็นตัวเลข (เช่น 12345) → coerce ก่อน .trim กัน crash
   // match: <anything>-<2-6 uppercase letters> at end
   const m = s.match(/^(.+)-([A-Z]{2,6})$/);
   if (m) return { jobNo: m[1], productType: m[2] };
