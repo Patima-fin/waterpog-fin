@@ -262,8 +262,8 @@
       R.createElement('table', { style: { width: '100%', borderCollapse: 'collapse', fontSize: 12.5 } },
         head ? R.createElement('thead', null, R.createElement('tr', null,
           head.map((h, i) => R.createElement('th', { key: i, style: { textAlign: i === 0 ? 'left' : 'right', padding: '8px 10px', color: p.sub, fontWeight: 700, borderBottom: '2px solid ' + p.line, whiteSpace: 'nowrap' } }, h)))) : null,
-        R.createElement('tbody', null, rows.map((r, i) => R.createElement('tr', { key: i, style: { background: r.bold ? p.card2 : 'transparent' } },
-          r.cells.map((c, j) => R.createElement('td', { key: j, style: { textAlign: j === 0 ? 'left' : 'right', padding: '7px 10px', borderBottom: '1px solid ' + p.line, fontWeight: r.bold ? 800 : (j === 0 ? 600 : 500), color: c && c.neg ? p.bad : p.ink, fontVariantNumeric: 'tabular-nums', whiteSpace: j === 0 ? 'normal' : 'nowrap' } }, c && c.t != null ? c.t : c)))))
+        R.createElement('tbody', null, rows.map((r, i) => R.createElement('tr', { key: i, style: { background: r.total ? invRgba(p.brand, 0.1) : (r.bold ? p.card2 : 'transparent') } },
+          r.cells.map((c, j) => R.createElement('td', { key: j, style: { textAlign: j === 0 ? 'left' : 'right', padding: r.total ? '10px' : '7px 10px', borderBottom: '1px solid ' + p.line, borderTop: r.total ? '2px solid ' + p.brand : 'none', fontWeight: (r.total || r.bold) ? 800 : (j === 0 ? 600 : 500), color: c && c.neg ? p.bad : (r.total && j > 0 ? p.brand : p.ink), fontVariantNumeric: 'tabular-nums', whiteSpace: j === 0 ? 'normal' : 'nowrap' } }, c && c.t != null ? c.t : c)))))
       )
     );
   }
@@ -575,14 +575,14 @@
       { th: 'คอมมิชชั่น', en: 'Commission', pct: Math.round(cfg.commPct), color: p.gold },
       { th: 'กำไรขั้นต้น', en: 'Margin', pct: Math.max(0, Math.round(margin / (C || 1) * 100)), color: p.accent },
     ];
-    // step-by-step รับ/จ่าย/สุทธิ/สะสม (one row per day-group)
-    let cum = 0;
+    // step-by-step รับ/จ่าย/สุทธิ/สะสม (one row per day-group) + grand-total row
+    let cum = 0, totIn = 0, totOut = 0;
     const stepRows = groups.map((g, i) => {
       const inn = g.items.filter(it => it.k === 'in').reduce((s, it) => s + it.amt, 0);
       const out = g.items.filter(it => it.k === 'out').reduce((s, it) => s + it.amt, 0);
-      const net = inn - out; cum += net;
+      const net = inn - out; cum += net; totIn += inn; totOut += out;
       const label = (lang === 'th' ? g.items[0].th : g.items[0].en)[0];
-      return { bold: i === groups.length - 1, cells: [
+      return { cells: [
         el('div', null, el('div', { style: { fontWeight: 700 } }, (i + 1) + '. ' + label), el('div', { style: { fontSize: 10.5, color: p.sub } }, (lang === 'th' ? g.t[0] : g.t[1]))),
         { t: inn ? '฿' + invCompact(inn) : '—' },
         { t: out ? '฿' + invCompact(out) : '—', neg: out > 0 },
@@ -590,6 +590,14 @@
         { t: (cum < 0 ? '−' : '') + '฿' + invCompact(Math.abs(cum)), neg: cum < 0 },
       ] };
     });
+    const totNet = totIn - totOut;
+    stepRows.push({ total: true, cells: [
+      el('div', null, el('div', { style: { fontWeight: 800 } }, lang === 'th' ? 'รวมทั้งหมด' : 'Total')),
+      { t: '฿' + invFmt(totIn) },
+      { t: '฿' + invFmt(totOut), neg: true },
+      { t: (totNet >= 0 ? '+' : '−') + '฿' + invFmt(Math.abs(totNet)), neg: totNet < 0 },
+      { t: (totNet < 0 ? '−' : '') + '฿' + invFmt(Math.abs(totNet)), neg: totNet < 0 },
+    ] });
 
     const [tlFull, setTlFull] = invSt(false);
     invEff(() => { if (!tlFull) return; const onKey = (e) => { if (e.key === 'Escape') setTlFull(false); }; window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey); }, [tlFull]);
