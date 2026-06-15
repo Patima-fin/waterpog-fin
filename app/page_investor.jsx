@@ -547,14 +547,8 @@
   function InvEconomics({ p, tt, lang }) {
     const [code, setCode] = invSt('PL');
     const prod = INV_PRODUCTS.find(x => x.code === code) || INV_PRODUCTS[0];
-    const cfgKey = (c) => 'cfp.' + c;
-    const loadCfg = (c, price) => { try { const raw = invGet(cfgKey(c), ''); if (raw) return Object.assign(INV_CF_DEF(c, price), JSON.parse(raw)); } catch (_) {} return INV_CF_DEF(c, price); };
-    const [cfg, setCfg] = invSt(() => loadCfg('PL', INV_PRODUCTS.find(x => x.code === 'PL').price));
-    const cfgRef = invRef(cfg);
-    invEff(() => { const c = loadCfg(code, prod.price); cfgRef.current = c; setCfg(c); }, [code]);
-    const setField = (k, v) => { const next = Object.assign({}, cfgRef.current, { [k]: v }); cfgRef.current = next; setCfg(next); };
-    const persist = () => { try { invSet(cfgKey(code), JSON.stringify(cfgRef.current)); } catch (_) {} };
-    const resetCfg = () => { const c = INV_CF_DEF(code, prod.price); cfgRef.current = c; setCfg(c); invSet(cfgKey(code), JSON.stringify(c)); };
+    // numbers come straight from each product's standard cost data — read-only (no manual entry)
+    const cfg = INV_CF_DEF(code, prod.price);
 
     const C = cfg.contract || 0;
     const groups = invCfGroups(cfg);
@@ -594,14 +588,7 @@
       title: big ? 14 : 12.5, val: big ? 24 : 20, sub: big ? 11.5 : 10, inW: big ? 122 : 102,
     });
 
-    // a small editable row (label + number input, optional %) used inside a card
-    const editRow = (it, label, big, key) => el('div', { key: key, style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginTop: 6 } },
-      el('span', { style: { fontSize: big ? 11 : 10, color: p.sub, fontWeight: 600 } }, label),
-      el('span', { style: { display: 'flex', alignItems: 'center', gap: 3, flex: '0 0 auto' } },
-        InvNumIn({ p, value: it.edit === 'pct' ? it.pv : cfg[it.f], w: it.edit === 'pct' ? (big ? 56 : 48) : (big ? 116 : 96), onChange: v => setField(it.f, v), onBlur: persist }),
-        it.edit === 'pct' ? el('span', { style: { fontSize: big ? 13 : 12, color: p.sub, fontWeight: 800 } }, '%') : null));
-
-    // one premium event card — phase tag · big ฿ (editable) · % bar · cumulative · depth bar
+    // one premium event card — phase tag · big ฿ · % bar · cumulative · depth bar (read-only)
     const buildEventCard = (gd, L, big) => {
       const { g, i, type, inn, out, bal } = gd;
       const col = type === 'out' ? p.bad : (type === 'in' ? p.good : p.brand);
@@ -610,7 +597,6 @@
       const title = (lang === 'th' ? prim.th : prim.en)[0];
       const enLine = (lang === 'th' ? prim.en : prim.th)[0];
       const extra = (lang === 'th' ? prim.th : prim.en)[1] || '';
-      const cashItems = g.items.filter(it => it.k !== 'mark');
       const flow = type === 'out' ? out : (type === 'in' ? inn : 0);
       const isValley = i === valleyIdx && peak > 0, isFlip = i === flipIdx;
       const badge = isValley ? (lang === 'th' ? 'จุดต่ำสุด' : 'Lowest point') : (isFlip ? (lang === 'th' ? 'พลิกเป็นบวก' : 'Turns positive') : '');
@@ -620,19 +606,10 @@
       const borderCol = isValley ? invRgba(p.gold, 0.5) : (isFlip ? invRgba(p.good, 0.42) : invRgba(col, 0.24));
       const pctNum = type === 'event' ? 0 : Math.min(100, flow / (C || 1) * 100);
       const depthPct = Math.min(100, Math.abs(bal) / maxAbs * 100);
-      // headline + editable controls
-      let headline, controls = null;
-      if (type === 'event') {
-        headline = el('div', { style: { fontSize: L.val - 5, fontWeight: 800, color: p.sub } }, lang === 'th' ? 'เริ่มต้น' : 'Start');
-      } else if (cashItems.length === 1 && cashItems[0].edit === 'thb') {
-        const it = cashItems[0];
-        headline = el('div', { style: { display: 'flex', alignItems: 'center', gap: 4 } },
-          el('span', { style: { fontSize: L.val, fontWeight: 800, color: col } }, type === 'out' ? '−' : '+'),
-          InvNumIn({ p, value: cfg[it.f], w: L.inW, big: big, onChange: v => setField(it.f, v), onBlur: persist }));
-      } else {
-        headline = el('div', { style: { fontSize: L.val, fontWeight: 800, color: col, fontVariantNumeric: 'tabular-nums' } }, (type === 'out' ? '−' : '+') + '฿' + invCompact(flow));
-        controls = el('div', null, cashItems.map((it, j) => editRow(it, (lang === 'th' ? it.th : it.en)[0], big, j)));
-      }
+      // headline — read-only standard amount
+      const headline = type === 'event'
+        ? el('div', { style: { fontSize: L.val - 5, fontWeight: 800, color: p.sub } }, lang === 'th' ? 'เริ่มต้น' : 'Start')
+        : el('div', { style: { fontSize: L.val, fontWeight: 800, color: col, fontVariantNumeric: 'tabular-nums' } }, (type === 'out' ? '−' : '+') + '฿' + invCompact(flow));
       return el('div', { style: { position: 'relative', borderRadius: 16, padding: big ? '15px 15px 16px' : '13px 13px 14px', background: 'linear-gradient(180deg,' + tintTop + ',' + p.card + ' 46%)', border: '1px solid ' + borderCol, boxShadow: '0 1px 2px rgba(0,0,0,0.04), 0 16px 32px -20px ' + invRgba(col, 0.45) } },
         badge ? el('div', { style: { position: 'absolute', top: -10, left: '50%', transform: 'translateX(-50%)', whiteSpace: 'nowrap', fontSize: 9.5, fontWeight: 800, padding: '3px 11px', borderRadius: 7, background: badgeCol, color: '#fff', boxShadow: '0 6px 16px -3px ' + invRgba(badgeCol, 0.6) } }, badge) : null,
         el('div', { style: { display: 'flex', alignItems: 'center', gap: 7 } },
@@ -643,7 +620,7 @@
         el('div', { style: { fontSize: L.sub, color: p.sub, marginTop: 2, fontWeight: 600 } }, enLine),
         extra ? el('div', { style: { fontSize: L.sub, color: col, marginTop: 3, fontWeight: 700, lineHeight: 1.35 } }, extra) : null,
         el('div', { style: { marginTop: 11, borderRadius: 12, padding: big ? '11px 12px 12px' : '10px 11px', background: invRgba(col, 0.05), border: '1px solid ' + invRgba(col, 0.14) } },
-          headline, controls,
+          headline,
           el('div', { style: { marginTop: 9, height: 5, borderRadius: 3, background: invRgba(p.ink, 0.06), overflow: 'hidden' } },
             el('div', { style: { height: '100%', borderRadius: 3, width: pctNum.toFixed(1) + '%', background: 'linear-gradient(90deg,' + invRgba(col, 0.6) + ',' + col + ')' } })),
           el('div', { style: { fontSize: 9, color: p.sub, marginTop: 5 } }, type === 'event' ? (lang === 'th' ? 'จุดเริ่มโครงการ' : 'Project start') : (pctOf(flow) + (lang === 'th' ? '% ของมูลค่าสัญญา' : '% of contract')))),
@@ -780,16 +757,15 @@
           el('button', { onClick: () => setTlFull(false), style: { marginLeft: 'auto', height: 38, padding: '0 16px', borderRadius: 9, border: 'none', background: p.gold, color: '#fff', fontWeight: 800, fontSize: 13, cursor: 'pointer' } }, '✕ ' + (lang === 'th' ? 'ออก' : 'Exit'))),
         kpiRow(16),
         el('div', { style: { background: p.card, border: '1px solid ' + invRgba(p.gold, 0.22), borderRadius: 18, padding: '18px 10px', boxShadow: p.shadow, flex: 1 } }, renderTimeline(true))) : null,
-      // controls
-      el('div', { style: { display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14, background: p.card, border: '1px solid ' + p.line, borderRadius: 14, padding: '12px 16px', boxShadow: p.shadow } },
+      // controls — pick a product; numbers are the product's standard cost data (read-only)
+      el('div', { style: { display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14, background: p.card, border: '1px solid ' + p.line, borderRadius: 14, padding: '12px 16px', boxShadow: p.shadow } },
         el('div', null,
           el('div', { style: { fontSize: 11, color: p.sub, fontWeight: 600, marginBottom: 4 } }, lang === 'th' ? 'เลือกผลิตภัณฑ์' : 'Select product'),
           productSelect(240)),
         el('div', null,
-          el('div', { style: { fontSize: 11, color: p.sub, fontWeight: 600, marginBottom: 4 } }, lang === 'th' ? 'มูลค่าสัญญา (บาท)' : 'Contract value (THB)'),
-          InvNumIn({ p, value: cfg.contract, w: 150, onChange: v => setField('contract', v), onBlur: persist })),
-        el('button', { onClick: resetCfg, style: { height: 34, padding: '0 12px', borderRadius: 8, border: '1px solid ' + p.line, background: p.card2, color: p.sub, fontSize: 12, fontWeight: 600, cursor: 'pointer' } }, lang === 'th' ? '↺ ค่าเริ่มต้น' : '↺ Reset'),
-        el('div', { style: { marginLeft: 'auto', fontSize: 11, color: p.sub, maxWidth: 260, lineHeight: 1.45 } }, lang === 'th' ? 'กรอกจำนวนเงิน/% แต่ละงวด — บันทึกอัตโนมัติ (ทีมเห็นร่วมกัน)' : 'Enter amounts/% per stage — saved automatically (shared with the team)')),
+          el('div', { style: { fontSize: 11, color: p.sub, fontWeight: 600, marginBottom: 4 } }, lang === 'th' ? 'มูลค่าสัญญา' : 'Contract value'),
+          el('div', { style: { height: 34, display: 'flex', alignItems: 'center', padding: '0 14px', borderRadius: 8, background: p.card2, border: '1px solid ' + p.line, fontSize: 16, fontWeight: 800, color: p.ink, fontVariantNumeric: 'tabular-nums' } }, '฿' + invFmt(C))),
+        el('div', { style: { marginLeft: 'auto', fontSize: 11, color: p.sub, maxWidth: 280, lineHeight: 1.45 } }, lang === 'th' ? 'ตัวเลขอ้างอิงต้นทุนมาตรฐานของแต่ละผลิตภัณฑ์ (ข้อมูลราคาต้นทุน) — เปลี่ยนผลิตภัณฑ์เพื่อดูกระแสเงินสดของรุ่นนั้น' : 'Figures use each product’s standard cost data — switch product to see its cash flow')),
       kpiRow(14),
       // timeline (HERO) — premium event sequence with phase bars + node axis
       el('div', { style: { background: p.card, border: '1px solid ' + invRgba(p.gold, 0.22), borderRadius: 18, padding: '20px 12px 14px', boxShadow: '0 1px 3px rgba(0,0,0,0.05), 0 30px 60px -34px ' + invRgba(p.gold, 0.5), marginBottom: 14 } },
