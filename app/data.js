@@ -625,7 +625,22 @@
       return loaded;
     } catch (_) { return freshState(); }
   }
-  function save(data) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (_) {} }
+  // ── localStorage write — เคยกลืน QuotaExceededError เงียบ → wedge loop:
+  //   localStorage ค้างว่าง → load() คืน freshState ว่าง → diff บอก "ลบทั้งตาราง" →
+  //   anti-wedge guard บล็อก + resync แต่ applyEntityGuard เห็น local=[] vs snap=full
+  //   → hasPending=true → คง local ว่างไว้ → จอว่าง วน. ตอนนี้: log + dispatch event
+  //   ครั้งแรกเมื่อเจอ (กัน spam) เพื่อให้รู้ว่าเครื่องนี้ localStorage เต็ม.
+  let _quotaWarned = false;
+  function save(data) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
+    catch (e) {
+      if (!_quotaWarned) {
+        _quotaWarned = true;
+        console.error('[WTPData] เขียน localStorage ล้มเหลว (น่าจะเกิน quota ~5–10MB) — ข้อมูลจะถูกดึงจากชีตทุก reload, ไม่ persist:', e && e.message);
+        try { window.dispatchEvent(new CustomEvent('wtpStorageQuotaExceeded', { detail: { error: e && e.message } })); } catch (_) {}
+      }
+    }
+  }
   function reset() { localStorage.removeItem(STORAGE_KEY); return seed(); }
 
   // Project status meta

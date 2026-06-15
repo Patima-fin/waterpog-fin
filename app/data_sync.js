@@ -568,7 +568,11 @@
     // + ฝั่ง push เจอ SAFETY GUARD บล็อก (rows ลด >50%) → วนค้าง: ผู้ใช้เพิ่มอะไรก็ไม่ติด เด้งกลับทุกครั้ง.
     // เซิร์ฟเวอร์เป็น source of truth (replaceAll มี base-reconcile กันชีตหาย >50% อยู่แล้ว) →
     // ทิ้ง local ที่เพี้ยน รับค่า server ทันที (recovered=true ให้ caller ข้าม anti-flip ด้วย) กันค้าง.
-    var corruptLocal = Array.isArray(localRows) && localRows.length > 0 &&
+    // ★ 2026-06-15: ครอบคลุม localRows.length===0 ด้วย — เคสที่ทำ "ทุกคนข้อมูลไม่ขึ้น" หลัง Clear
+    //   site data: localStorage ว่าง (อาจเขียนไม่ลง quota) → load() คืน freshState ว่าง → hasPending
+    //   ตี local [] vs snap full = true → คง local ว่างไว้ → จอว่าง วน. เกราะ push (emptying)
+    //   กันลบจริงผ่าน UI อยู่แล้ว → empty local + sheet มีของ = wedge ชัวร์ ไม่ใช่ "ตั้งใจลบ".
+    var corruptLocal = Array.isArray(localRows) &&
                        Array.isArray(sheetRows) && sheetRows.length >= 10 &&
                        localRows.length < sheetRows.length * 0.5;
     if (corruptLocal) {
