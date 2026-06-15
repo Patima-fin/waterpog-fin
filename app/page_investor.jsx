@@ -583,9 +583,9 @@
 
     // layout metrics — per-event columns, node on a gradient axis, premium card below
     const lay = (big) => ({
-      w: big ? 256 : 214, pillH: big ? 34 : 30, nodeH: big ? 56 : 50, node: big ? 48 : 42,
+      w: big ? 300 : 256, pillH: big ? 34 : 30, nodeH: big ? 56 : 50, node: big ? 48 : 42,
       get lineY() { return this.pillH + this.nodeH / 2; },
-      title: big ? 14 : 12.5, val: big ? 24 : 20, sub: big ? 11.5 : 10, inW: big ? 122 : 102,
+      title: big ? 14.5 : 13, val: big ? 25 : 21, sub: big ? 12 : 11, inW: big ? 122 : 102,
     });
 
     // one premium event card — phase tag · big ฿ · % bar · cumulative · depth bar (read-only)
@@ -635,7 +635,7 @@
       const L = lay(big);
       const col = gd.type === 'out' ? p.bad : (gd.type === 'in' ? p.good : p.brand);
       const icon = gd.type === 'out' ? '↓' : (gd.type === 'in' ? '↑' : '◆');
-      return el('div', { key: gd.i, style: { flex: '0 0 ' + L.w + 'px', width: L.w, padding: '0 8px', position: 'relative', zIndex: 1 } },
+      return el('div', { key: gd.i, style: { flex: '0 0 ' + L.w + 'px', width: L.w, padding: '0 13px', position: 'relative', zIndex: 1 } },
         el('div', { style: { height: L.pillH, display: 'flex', alignItems: 'flex-start', justifyContent: 'center' } },
           el('span', { style: { fontSize: big ? 11 : 10, color: p.sub, background: p.card2, border: '1px solid ' + p.line, padding: '3px 10px', borderRadius: 99, whiteSpace: 'nowrap', lineHeight: 1.2 } }, (lang === 'th' ? gd.g.t[0] : gd.g.t[1]))),
         el('div', { style: { height: L.nodeH, display: 'flex', alignItems: 'center', justifyContent: 'center' } },
