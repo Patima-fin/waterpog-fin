@@ -700,13 +700,13 @@
         el('div', { style: { fontSize: 11.5, color: p.sub, marginTop: 12 } }, lang === 'th' ? 'หลังคืน LG · ระยะเวลา ~2 ปี' : 'after LG returned · ~2 yr horizon')));
     // step-by-step cash table — numbered chips, red/green balance bars, gold total row
     const stepTable = () => {
-      const cell = (txt, color, weight, size) => el('td', { style: { padding: '13px 16px', textAlign: 'right', borderBottom: '1px solid ' + invRgba(p.ink, 0.06), fontVariantNumeric: 'tabular-nums', color: color || p.ink, fontWeight: weight || 600, fontSize: size || 15, whiteSpace: 'nowrap' } }, txt);
+      const cell = (txt, color, weight, size) => el('td', { style: { padding: '15px 14px', textAlign: 'right', borderBottom: '1px solid ' + invRgba(p.ink, 0.06), fontVariantNumeric: 'tabular-nums', color: color || p.ink, fontWeight: weight || 700, fontSize: size || 18, whiteSpace: 'nowrap' } }, txt);
       return el(InvCard, { p, title: lang === 'th' ? 'สรุปกระแสเงินสดรายสเต็ป' : 'Step-by-step cash flow', note: lang === 'th' ? 'คงเหลือสะสมติดลบ = ต้องใช้เงินทุน/สินเชื่อ' : 'negative cumulative = funding / loan needed', style: { marginBottom: 14 } },
-        el('div', { style: { overflowX: 'auto' } },
-          el('table', { style: { width: '100%', borderCollapse: 'collapse', fontSize: 15 } },
-            el('thead', null, el('tr', { style: { fontSize: 12, color: p.sub, letterSpacing: '0.05em' } },
-              [['ขั้นตอน', 'Step', 'left'], ['รับ', 'In', 'right'], ['จ่าย', 'Out', 'right'], ['สุทธิ', 'Net', 'right'], ['คงเหลือสะสม', 'Cumulative', 'right']].map((h, i) =>
-                el('th', { key: i, style: { textAlign: h[2], padding: '0 16px 12px', fontWeight: 700, borderBottom: '1px solid ' + p.line, width: i === 4 ? 240 : 'auto', whiteSpace: 'nowrap' } }, lang === 'th' ? h[0] : h[1])))),
+        el('div', null,
+          el('table', { style: { width: '100%', borderCollapse: 'collapse', fontSize: 18, tableLayout: 'fixed' } },
+            el('thead', null, el('tr', { style: { fontSize: 14, color: p.sub, letterSpacing: '0.04em' } },
+              [['ขั้นตอน', 'Step', 'left', '32%'], ['รับ', 'In', 'right', '14%'], ['จ่าย', 'Out', 'right', '14%'], ['สุทธิ', 'Net', 'right', '15%'], ['คงเหลือสะสม', 'Cumulative', 'right', '25%']].map((h, i) =>
+                el('th', { key: i, style: { textAlign: h[2], padding: '0 14px 12px', fontWeight: 700, borderBottom: '1px solid ' + p.line, width: h[3], whiteSpace: 'nowrap' } }, lang === 'th' ? h[0] : h[1])))),
             el('tbody', null,
               gs.map((gd) => {
                 const col = gd.type === 'out' ? p.bad : (gd.type === 'in' ? p.good : p.brand);
@@ -718,12 +718,12 @@
                   : (gd.bal > 0 ? { position: 'absolute', top: 0, bottom: 0, left: '50%', width: half + '%', background: 'linear-gradient(90deg,' + p.good + ',' + invRgba(p.good, 0.25) + ')', borderRadius: 5 } : { width: 0 });
                 const prim = gd.g.items[0];
                 return el('tr', { key: gd.i, style: { background: rowBg, borderLeft: '3px solid ' + (isValley ? p.gold : (isFlip ? p.good : 'transparent')) } },
-                  el('td', { style: { padding: '13px 16px', borderBottom: '1px solid ' + invRgba(p.ink, 0.06) } },
-                    el('div', { style: { display: 'flex', alignItems: 'center', gap: 12 } },
-                      el('span', { style: { flex: '0 0 auto', width: 28, height: 28, borderRadius: 8, display: 'grid', placeItems: 'center', fontSize: 14, fontWeight: 800, background: invRgba(col, 0.12), color: col } }, gd.i + 1),
-                      el('span', null,
-                        el('span', { style: { fontSize: 15, fontWeight: 700, color: p.ink } }, (lang === 'th' ? prim.th : prim.en)[0]),
-                        el('span', { style: { display: 'block', fontSize: 12, color: p.sub, marginTop: 2 } }, (lang === 'th' ? gd.g.t[0] : gd.g.t[1]))))),
+                  el('td', { style: { padding: '15px 14px', borderBottom: '1px solid ' + invRgba(p.ink, 0.06) } },
+                    el('div', { style: { display: 'flex', alignItems: 'center', gap: 13 } },
+                      el('span', { style: { flex: '0 0 auto', width: 34, height: 34, borderRadius: 9, display: 'grid', placeItems: 'center', fontSize: 17, fontWeight: 800, background: invRgba(col, 0.12), color: col } }, gd.i + 1),
+                      el('span', { style: { minWidth: 0 } },
+                        el('span', { style: { fontSize: 18, fontWeight: 700, color: p.ink } }, (lang === 'th' ? prim.th : prim.en)[0]),
+                        el('span', { style: { display: 'block', fontSize: 14, color: p.sub, marginTop: 2 } }, (lang === 'th' ? gd.g.t[0] : gd.g.t[1]))))),
                   cell(gd.inn ? '฿' + invCompact(gd.inn) : '—', gd.inn ? p.good : invRgba(p.ink, 0.3)),
                   cell(gd.out ? '฿' + invCompact(gd.out) : '—', gd.out ? p.bad : invRgba(p.ink, 0.3)),
                   cell((gd.net >= 0 ? '+' : '−') + '฿' + invCompact(Math.abs(gd.net)), gd.net < 0 ? p.bad : (gd.net > 0 ? p.good : p.sub), 700),
@@ -732,14 +732,14 @@
                       el('div', { style: { position: 'relative', flex: 1, height: 11, background: invRgba(p.ink, 0.06), borderRadius: 6 } },
                         el('div', { style: { position: 'absolute', top: '50%', left: '50%', width: 1, height: 16, transform: 'translate(-50%,-50%)', background: invRgba(p.ink, 0.18) } }),
                         el('div', { style: barStyle })),
-                      el('span', { style: { fontWeight: 800, fontSize: 15, minWidth: 82, textAlign: 'right', color: gd.bal < 0 ? p.bad : (gd.bal > 0 ? p.good : p.sub), fontVariantNumeric: 'tabular-nums' } }, (gd.bal < 0 ? '−' : (gd.bal > 0 ? '+' : '')) + '฿' + invCompact(Math.abs(gd.bal))))));
+                      el('span', { style: { fontWeight: 800, fontSize: 18, minWidth: 96, textAlign: 'right', color: gd.bal < 0 ? p.bad : (gd.bal > 0 ? p.good : p.sub), fontVariantNumeric: 'tabular-nums' } }, (gd.bal < 0 ? '−' : (gd.bal > 0 ? '+' : '')) + '฿' + invCompact(Math.abs(gd.bal))))));
               }),
               el('tr', { style: { background: invRgba(p.gold, 0.1), borderTop: '2px solid ' + invRgba(p.gold, 0.4) } },
-                el('td', { style: { padding: '15px 16px', fontWeight: 800, fontSize: 15, color: p.gold } }, lang === 'th' ? 'รวมทั้งหมด' : 'Total'),
-                cell('฿' + invFmt(totIn), p.good, 800, 15.5),
-                cell('฿' + invFmt(totOut), p.bad, 800, 15.5),
-                cell((netAtClose >= 0 ? '+' : '−') + '฿' + invFmt(Math.abs(netAtClose)), netAtClose < 0 ? p.bad : p.good, 800, 15.5),
-                cell((netAtClose < 0 ? '−' : '') + '฿' + invFmt(Math.abs(netAtClose)), p.gold, 800, 16)))),
+                el('td', { style: { padding: '16px 14px', fontWeight: 800, fontSize: 18.5, color: p.gold } }, lang === 'th' ? 'รวมทั้งหมด' : 'Total'),
+                cell('฿' + invFmt(totIn), p.good, 800, 18),
+                cell('฿' + invFmt(totOut), p.bad, 800, 18),
+                cell((netAtClose >= 0 ? '+' : '−') + '฿' + invFmt(Math.abs(netAtClose)), netAtClose < 0 ? p.bad : p.good, 800, 18),
+                cell((netAtClose < 0 ? '−' : '') + '฿' + invFmt(Math.abs(netAtClose)), p.gold, 800, 19)))),
         ),
         el('div', { style: { marginTop: 14, padding: '13px 16px', borderRadius: 12, background: p.card2, border: '1px solid ' + p.line, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: 13, color: p.sub } },
           el('span', { style: { display: 'flex', alignItems: 'center', gap: 8 } }, el('span', { style: { width: 9, height: 9, borderRadius: '50%', background: p.gold } }), (lang === 'th' ? 'จุดต่ำสุด (ต้องใช้เงินทุน) ' : 'Lowest point '), el('b', { style: { color: p.gold } }, '฿' + invCompact(peak))),
