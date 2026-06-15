@@ -938,35 +938,38 @@ function LoginPage({ onLogin }) {
     e.preventDefault();
     setLoading(true);
     setError('');
-    // Build user list: Sheet users (from synced data) take priority,
-    // then config users as bootstrap fallback for first-ever login.
-    let users = [];
-    try {
-      const cached = JSON.parse(localStorage.getItem('wtp-fin-data-v8') || 'null');
-      const sheetUsers = (cached && Array.isArray(cached.users)) ? cached.users : [];
-      // Treat active='false' / 'no' / '0' as disabled; everything else is active
-      const isActive = (u) => {
-        const a = String(u.active == null ? 'true' : u.active).toLowerCase().trim();
-        return a !== 'false' && a !== 'no' && a !== '0' && a !== 'inactive' && a !== 'disabled';
-      };
-      users = sheetUsers.filter(isActive);
-    } catch (_) {}
-    const configUsers = (window.WTP_CONFIG && window.WTP_CONFIG.USERS) || [];
-    // Append config users that aren't already in Sheet users
-    const known = new Set(users.map(u => u.username));
-    configUsers.forEach(u => { if (!known.has(u.username)) users.push(u); });
-
-    // username = ไม่สนตัวพิมพ์ใหญ่-เล็ก + ตัดช่องว่าง (กันพิมพ์ BAIKAO/baikao ไม่ตรง) · password = ตรงเป๊ะ
     const uIn = String(username || '').trim().toLowerCase();
-    const match = users.find(u => String(u.username || '').trim().toLowerCase() === uIn && u.password === password);
-    setTimeout(() => {
+    const norm = (n) => String(n || '').trim().toLowerCase();
+    const isActive = (u) => {
+      const a = String(u.active == null ? 'true' : u.active).toLowerCase().trim();
+      return a !== 'false' && a !== 'no' && a !== '0' && a !== 'inactive' && a !== 'disabled';
+    };
+    const configUsers = (window.WTP_CONFIG && window.WTP_CONFIG.USERS) || [];
+
+    // รวมรายชื่อ + ตัดสินผล (username = ไม่สนพิมพ์ใหญ่-เล็ก/ช่องว่าง · password ตรงเป๊ะ)
+    const finish = (sheetUsers) => {
+      const users = (Array.isArray(sheetUsers) ? sheetUsers : []).filter(isActive);
+      const known = new Set(users.map(u => norm(u.username)));
+      configUsers.forEach(u => { if (!known.has(norm(u.username))) users.push(u); });
+      const match = users.find(u => norm(u.username) === uIn && u.password === password);
       setLoading(false);
-      if (match) {
-        onLogin(match);
-      } else {
-        setError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
-      }
-    }, 400);
+      if (match) onLogin(match);
+      else setError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
+    };
+    const cachedUsers = () => { try { const c = JSON.parse(localStorage.getItem('wtp-fin-data-v8') || 'null'); return (c && Array.isArray(c.users)) ? c.users : []; } catch (_) { return []; } };
+
+    // ★ ดึงรายชื่อจาก "ชีตสด" ก่อน → user ที่อยู่ในชีต (เช่น baikao) ล็อกอินได้แม้ cache ในเครื่องว่าง
+    //   (gviz อ่านสาธารณะ ไม่ต้อง auth) · fail/ช้า/ว่าง → fallback cache + config (พฤติกรรมเดิม)
+    let done = false;
+    const fallback = () => { if (done) return; done = true; finish(cachedUsers()); };
+    try {
+      if (WTPData.fetchSheetRows) {
+        const to = setTimeout(fallback, 7000);  // กัน fetch ค้าง
+        WTPData.fetchSheetRows('users')
+          .then(rows => { if (done) return; done = true; clearTimeout(to); finish((Array.isArray(rows) && rows.length) ? rows : cachedUsers()); })
+          .catch(() => { clearTimeout(to); fallback(); });
+      } else { fallback(); }
+    } catch (_) { fallback(); }
   };
 
   const inputStyle = {
