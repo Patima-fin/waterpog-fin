@@ -513,7 +513,8 @@ var ENTITY_HEADERS = {
   // ── forecastEntries: ตรงกับ RAW_MANUAL_EXPENSE ────────────────────────
   forecastEntries: [
     'id','DATE','PAYMENT_DATE','EXPENSE_TYPE','DESCRIPTION','JOB_NO',
-    'PROJECT_NAME','AMOUNT','Bank_AC','STATUS','CATEGORY','IS_ACCRUED','NOTE'
+    'PROJECT_NAME','AMOUNT','Bank_AC','STATUS','CATEGORY','IS_ACCRUED','NOTE',
+    'ACTUAL_AMOUNT','ACTUAL_DATE','REF_DOC','BOOKED_AT','CFS_ACTIVITY'
   ],
 
   // ── bankAccounts: ตรงกับ RAW_BANK_BALANCE ─────────────────────────────
@@ -668,10 +669,15 @@ function applyDiff(entity, upserts, deletes, baseIds, opts) {
   var upsertById = {};
   upserts.forEach(function (r) { if (r && r.id != null) upsertById[String(r.id)] = r; });
 
+  // ★ กันแถว actual (forecastEntries STATUS=ACTUAL) ถูกลบจาก diff หลอก/clobber (ดู Code.standalone.gs)
+  var protectActual = (entity === 'forecastEntries' && !opts.allowShrink);
   var out = [];
   current.forEach(function (r) {
     var idStr = (r && r.id != null) ? String(r.id) : '';
-    if (idStr && deleteSet[idStr]) return;
+    if (idStr && deleteSet[idStr]) {
+      if (protectActual && String(r.STATUS || '').toUpperCase() === 'ACTUAL') { out.push(r); return; }  // ★ คงแถว actual ไว้
+      return;
+    }
     if (idStr && upsertById[idStr]) {
       out.push(_overlayRow(r, upsertById[idStr]));
       delete upsertById[idStr];
@@ -739,6 +745,8 @@ function replaceAll(entity, rows, baseIds, opts) {
     var idStr = (r && r.id != null) ? String(r.id) : '';
     if (!idStr) continue;
     if (payloadIds[idStr]) continue;
+    // ★ กันแถว actual (forecastEntries STATUS=ACTUAL) ถูก replaceAll ลบ แม้ client เคยเห็น (allowShrink ข้ามได้)
+    if (entity === 'forecastEntries' && !opts.allowShrink && String(r.STATUS || '').toUpperCase() === 'ACTUAL') { preserved.push(r); continue; }
     if (baseKnown && baseSet[idStr]) continue;
     preserved.push(r);
   }

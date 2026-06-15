@@ -1202,6 +1202,35 @@
     }).then(function (resp) { return resp; }, function () { /* network error → เงียบ */ });
   };
 
+  // ── Forced row delete (ผู้ใช้ตั้งใจลบจริง) — ส่ง allowShrink=true ข้ามเกราะกันลบฝั่งเซิร์ฟเวอร์ ──
+  //   ใช้กับการลบที่เป็น "เจตนาชัดเจน" (เช่นปุ่ม "ยกเลิกบันทึกจ่ายจริง" หน้ากระทบยอด) ที่ normally
+  //   จะโดน protect-ACTUAL ของ applyDiff บล็อก (กัน clobber). คืน Promise; อัป snapshot+local
+  //   จาก rows จริงที่เซิร์ฟเวอร์คืน (read-your-writes) เพื่อให้ generic syncDiff รอบหน้าไม่มี diff หลอก
+  WTPData.forceDeleteRows = function (entity, ids) {
+    if (!POST_URL) return Promise.resolve();
+    if (!_hasValidSession()) return Promise.resolve();   // ไม่ล็อกอิน = ไม่เขียน
+    var delIds = (Array.isArray(ids) ? ids : [ids])
+      .filter(function (x) { return x != null && x !== ''; }).map(String);
+    if (!delIds.length) return Promise.resolve();
+    return postToServer({
+      action: 'applyDiff', entity: entity, upserts: [], deletes: delIds, allowShrink: true,
+      meta: _currentMeta(entity, null, null),
+    }).then(function (resp) {
+      if (resp && resp.error) throw new Error(resp.error);
+      var serverRows = (resp && Array.isArray(resp.rows)) ? resp.rows : null;
+      if (serverRows) {
+        var fresh = {};
+        try { fresh = WTPData.load() || {}; } catch (_) {}
+        fresh[entity] = serverRows;
+        lastSnapshot[entity] = JSON.stringify(serverRows);
+        recentPushAt[entity] = Date.now();
+        origSave(fresh);
+        subscribers.forEach(function (cb) { cb(fresh); });
+      }
+      return resp;
+    }, function (err) { console.warn('[WTP Sync] forceDeleteRows ล้มเหลว:', err && err.message); });
+  };
+
   // Flush pending sync on page unload (best-effort, may not complete)
   window.addEventListener('beforeunload', function () {
     if (!_hasValidSession()) return;   // ★ ไม่ล็อกอิน = ไม่ flush

@@ -22,7 +22,7 @@ var SHEET_ID = '1Q0enboLihOYiYCn7otK9zXBlk6Yy8oHfoAXaFnGujwA';
 // client จะ ping ค่านี้ตอนเปิดแอป แล้ว log คู่กับ build ฝั่งหน้าเว็บ → เห็นชัดว่า
 // "โค้ดเซิร์ฟเวอร์ที่รันจริง" เป็นเวอร์ชันไหน (กันกรณีลืม redeploy แล้วไม่รู้ตัว =
 // LockService/applyDiff ไม่ทำงานแต่เงียบ จนข้อมูลหายแล้วงงว่าทำไม)
-var SERVER_VERSION = '20260615a-presence';
+var SERVER_VERSION = '20260615c-actualguard';
 
 var SHEETS = {
   META:          'meta',
@@ -753,10 +753,18 @@ function applyDiff(entity, upserts, deletes, baseIds, opts) {
   var upsertById = {};
   upserts.forEach(function (r) { if (r && r.id != null) upsertById[String(r.id)] = r; });
 
+  // ★ กันแถว "จ่าย/รับจริง" (STATUS=ACTUAL) ของ forecastEntries ถูกลบจาก diff หลอก (clobber
+  //   ข้ามไคลเอนต์/แท็บค้าง/wedge) — รายการ actual จากกระทบยอด (BANK_RECON) ฯลฯ เกิดบนเครื่อง
+  //   เดียว พอโดน diff ลบทีละไม่กี่แถว (ต่ำกว่าเกณฑ์ massDel/shrink) จะหายเงียบและไม่มีใครกู้กลับ.
+  //   ลบจริงได้เมื่อผู้ใช้ตั้งใจ (ส่ง allowShrink=true เช่นปุ่ม "ยกเลิกบันทึกจ่ายจริง" → forceDeleteRows).
+  var protectActual = (entity === 'forecastEntries' && !opts.allowShrink);
   var out = [];
   current.forEach(function (r) {
     var idStr = (r && r.id != null) ? String(r.id) : '';
-    if (idStr && deleteSet[idStr]) return;                  // ★ ลบเฉพาะที่สั่งชัดเจน
+    if (idStr && deleteSet[idStr]) {
+      if (protectActual && String(r.STATUS || '').toUpperCase() === 'ACTUAL') { out.push(r); return; }  // ★ คงแถว actual ไว้ (กัน clobber)
+      return;                                               // ★ ลบเฉพาะที่สั่งชัดเจน
+    }
     if (idStr && upsertById[idStr]) {                        // ★ แก้: overlay ฟิลด์ client ทับแถวจริง
       out.push(_overlayRow(r, upsertById[idStr]));
       delete upsertById[idStr];
@@ -848,6 +856,9 @@ function replaceAll(entity, rows, baseIds, opts) {
     var idStr = (r && r.id != null) ? String(r.id) : '';
     if (!idStr) continue;                       // แถวขยะไม่มี id → ปล่อยหาย
     if (payloadIds[idStr]) continue;            // อยู่ใน payload อยู่แล้ว
+    // ★ กันแถว actual (forecastEntries STATUS=ACTUAL) ถูก replaceAll ลบ แม้ client เคยเห็น
+    //   (กัน clobber/wedge ทำรายการจ่ายจริงหาย) — ลบจริงได้เมื่อ allowShrink=true
+    if (entity === 'forecastEntries' && !opts.allowShrink && String(r.STATUS || '').toUpperCase() === 'ACTUAL') { preserved.push(r); continue; }
     if (baseKnown && baseSet[idStr]) continue;  // client เคยเห็นแล้วตัดออก → ลบจริง
     preserved.push(r);                          // client ไม่รู้จัก → เก็บไว้ กันข้อมูลหาย
   }

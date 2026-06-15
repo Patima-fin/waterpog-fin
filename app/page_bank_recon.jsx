@@ -442,6 +442,66 @@ function BankReconPage({ data, setData, toast }) {
   const pushReconLines = (nested) => { if (setData) setData(d => ({ ...d, bankReconLines: brLinesToRows(nested) })); };
   const pushReconState = (stMap)  => { if (setData) setData(d => ({ ...d, bankReconState: brStateToRows(stMap) })); };
 
+  // ── Self-heal: กู้แถว "บันทึกจ่ายจริง" (BANK_RECON) ที่หายจาก forecastEntries กลับมา ──────────
+  //   ปัญหาเดิม: รายการที่กดบันทึกจ่ายจริงหน้านี้ (เขียนเป็น forecastEntries STATUS=ACTUAL → เด้งเข้า
+  //   Actual หน้า Weekly Forecast) เกิดบนเครื่องเดียว พอตาราง forecastEntries โดน clobber/wedge
+  //   ข้ามไคลเอนต์ (state คนอื่นเก่ากว่า ดันทับ) แถวพวกนี้โดนลบทีละไม่กี่แถว (ต่ำกว่าเกณฑ์ guard)
+  //   แล้วไม่มีใครมีให้กู้กลับ → ยอดหายจาก Weekly Forecast.
+  //   reconState (ตารางแยก โดน clobber น้อยกว่า) ยังเก็บ decision='recorded' + forecastId ไว้ →
+  //   ถ้า forecastId นั้นหายจาก forecastEntries ให้สร้างแถวขึ้นใหม่ด้วย "forecastId เดิม" (idempotent)
+  //   จาก bankReconLines (หรือถอด accountNo|date|amount จากตัว line.id) → เด้งเข้า Actual อีกครั้ง.
+  //   ทำเฉพาะคนที่แก้ได้ (readOnly ไม่ push); คู่กับเกราะ protect-ACTUAL ฝั่งเซิร์ฟเวอร์ พอกู้แล้วอยู่ถาวร.
+  const brHealRef   = brRef('');
+  const brUndoneRef = brRef(null); if (!brUndoneRef.current) brUndoneRef.current = {};   // forecastId ที่เพิ่งกด undo → กัน self-heal สร้างกลับ
+  brEffect(() => {
+    if (readOnly || !setData) return;
+    const fes = data.forecastEntries;
+    if (!Array.isArray(fes) || !fes.length) return;                    // ยังไม่โหลด forecastEntries จริง → รอ
+    const recorded = (data.bankReconState || [])
+      .filter(r => r && r.decision === 'recorded' && r.forecastId);
+    if (!recorded.length) return;
+    const feIds = new Set(fes.map(f => String(f.id)));
+    const missing = recorded.filter(s => !feIds.has(String(s.forecastId)) && !brUndoneRef.current[String(s.forecastId)]);
+    if (!missing.length) { brHealRef.current = ''; return; }            // ครบแล้ว → รีเซ็ต (ให้กู้ใหม่ได้ถ้าโดนลบรอบหน้า)
+    const lineById = {};
+    (data.bankReconLines || []).forEach(l => { if (l && l.id != null) lineById[String(l.id)] = l; });
+    const todayISO = new Date().toISOString().slice(0, 10);
+    const add = [];
+    missing.forEach(s => {
+      const lineId = String(s.id);
+      let line = lineById[lineId];
+      if (!line) {                                                      // ไม่มี line ในเครื่อง → ถอดจาก id: accountNo|date|amount|ref#n
+        const parts = lineId.split('|');
+        if (parts.length < 3) return;
+        const amt = Number(parts[2]);
+        if (!isFinite(amt) || !amt) return;
+        line = { accountNo: parts[0], date: parts[1], amount: amt, desc: '', ref: String(parts[3] || '').replace(/#\d+$/, '') };
+      }
+      const amount = -Math.abs(Number(line.amount) || 0);
+      if (!amount) return;
+      add.push({
+        id: s.forecastId, DATE: todayISO, PAYMENT_DATE: line.date, EXPENSE_TYPE: 'BANK_RECON',
+        DESCRIPTION: line.desc || ('รายการธนาคาร' + (line.ref ? ' ' + line.ref : '')),
+        AMOUNT: String(amount), Bank_AC: line.accountNo || line.bankAcct || null,
+        STATUS: 'ACTUAL', CATEGORY: null,
+        ACTUAL_AMOUNT: String(amount), ACTUAL_DATE: line.date,
+        REF_DOC: line.ref || null, BOOKED_AT: null, CFS_ACTIVITY: null,
+        NOTE: 'กู้คืนอัตโนมัติจากกระทบยอด (self-heal)',
+      });
+    });
+    if (!add.length) return;
+    const sig = add.map(r => r.id).sort().join(',');
+    if (sig === brHealRef.current) return;                             // กันยิงซ้ำชุดเดิมระหว่างรอ push/poll
+    brHealRef.current = sig;
+    setData(d => {
+      const have = new Set((d.forecastEntries || []).map(f => String(f.id)));
+      const fresh = add.filter(r => !have.has(String(r.id)));
+      if (!fresh.length) return d;
+      return { ...d, forecastEntries: [...(d.forecastEntries || []), ...fresh] };
+    });
+    if (toast) toast('กู้คืน ' + add.length + ' รายการจ่ายจริง (กระทบยอด) ที่หายจากการ sync → เด้งเข้า Actual');
+  }, [data.forecastEntries, data.bankReconState, data.bankReconLines]);
+
   // PV ของบัญชี+เดือนนี้ (outflow) — ผูกบัญชีด้วย bdAcctMatchesCheck (เลขท้าย 4)
   const pvForAcct = brMemo(() => {
     if (!acct) return [];
@@ -537,7 +597,15 @@ function BankReconPage({ data, setData, toast }) {
   };
   const undoRecord = (line, forecastId) => {
     if (readOnly) return;
-    if (forecastId) setData(d => ({ ...d, forecastEntries: (d.forecastEntries || []).filter(e => e.id !== forecastId) }));
+    if (forecastId) {
+      brUndoneRef.current[String(forecastId)] = true;                 // ★ กัน self-heal สร้างแถวนี้กลับ (เจตนาลบ)
+      setData(d => ({ ...d, forecastEntries: (d.forecastEntries || []).filter(e => e.id !== forecastId) }));
+      // แถวนี้ STATUS=ACTUAL → diff ลบปกติจะโดนเกราะ protect-ACTUAL ฝั่งเซิร์ฟเวอร์บล็อก (เด้งกลับ)
+      //   ดังนั้นสั่งลบจริงด้วย forceDeleteRows (allowShrink) — เป็นการลบที่ผู้ใช้ตั้งใจ
+      if (window.WTPData && typeof WTPData.forceDeleteRows === 'function') {
+        WTPData.forceDeleteRows('forecastEntries', forecastId);
+      }
+    }
     const ns = { ...reconState }; delete ns[line.id];
     setReconState(ns); BankReconStore.setState(ns); pushReconState(ns);
     if (toast) toast('ยกเลิกบันทึก — ลบออกจาก Actual แล้ว');
