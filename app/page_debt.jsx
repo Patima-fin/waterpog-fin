@@ -1015,8 +1015,11 @@ function DebtPage({ data, setData, toast }) {
         const paidPct = princ > 0 ? Math.min(100, (paid / princ) * 100) : 0;
         // Look up summary from debtLedger
         const ledgerRows = (data?.debtLedger || []).filter(L => L.contractNo === view.contractNo);
-        const interestTotal = ledgerRows.reduce((s, L) => s + (Number(L.interestAmount) || 0), 0);
-        const interestPaid  = ledgerRows.filter(L => L.paymentDate).reduce((s, L) => s + (Number(L.interestAmount) || 0), 0);
+        // ★ ใช้ effectiveInterest (override-aware, global จาก page_debt_ledger) ให้ "ดอกเบี้ยรวม/ค้างจ่าย"
+        //   ในป๊อปอัปนี้ตรงกับหน้า Debt Ledger — เดิมอ่าน interestAmount ดิบ → เพิกเฉย override ที่ผู้ใช้แก้ → 2 หน้าไม่ตรงกัน
+        const _ieff = (typeof effectiveInterest === 'function') ? effectiveInterest : (L => Number(L.interestAmount) || 0);
+        const interestTotal = ledgerRows.reduce((s, L) => s + _ieff(L), 0);
+        const interestPaid  = ledgerRows.filter(L => L.paymentDate).reduce((s, L) => s + _ieff(L), 0);
         const interestDue   = interestTotal - interestPaid;
 
         const fld = (label, value, opts = {}) => (
