@@ -518,8 +518,6 @@
         { k: 'mark', th: ['ได้รับใบจัดสรร'], en: ['Allocation letter received'] } ] },
       { t: ['+30 วัน', '+30 days'], items: [
         { k: 'out', edit: 'thb', f: 'g1', amt: cfg.g1, th: ['ค่าของ งวด 1 (มัดจำ)'], en: ['Goods lot 1 (deposit)'] } ] },
-      { t: ['7 วันก่อนลงนาม', '7 days before signing'], items: [
-        { k: 'out', edit: 'pct', f: 'lgPct', amt: C * cfg.lgPct / 100, pv: cfg.lgPct, ret: true, th: ['ออก LG ค้ำประกัน'], en: ['Issue LG (bank guarantee)'] } ] },
       { t: ['ลงนามสัญญา · วันที่ 1', 'Signing · Day 1'], items: [
         { k: 'mark', th: ['ลงนามสัญญา'], en: ['Contract signing'] },
         { k: 'out', edit: 'pct', f: 'commPct', amt: C * cfg.commPct / 100, pv: cfg.commPct, th: ['จ่ายค่าคอมมิชชั่น'], en: ['Pay commission'] },
@@ -538,8 +536,6 @@
         { k: 'out', edit: 'thb', f: 'i3', amt: cfg.i3, th: ['ค่าติดตั้ง งวดสุดท้าย'], en: ['Installation final'] } ] },
       { t: ['+30 วัน', '+30 days'], items: [
         { k: 'in', edit: 'pct', f: 'm2Pct', amt: C * cfg.m2Pct / 100, pv: cfg.m2Pct, th: ['รับเงินงวดสุดท้าย (60%)'], en: ['Final cash received (60%)'] } ] },
-      { t: ['+2 ปี', '+2 years'], items: [
-        { k: 'in', amt: C * cfg.lgPct / 100, ret: true, th: ['ได้รับ LG คืน'], en: ['LG returned'] } ] },
     ];
   }
 
