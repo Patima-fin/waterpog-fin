@@ -504,10 +504,10 @@
     const i = INV_COST_INST[code] || [Math.round(c * 0.24 * 0.4), Math.round(c * 0.24 * 0.4), Math.round(c * 0.24 * 0.2)];
     return { contract: c, g1: g[0], g2: g[1], g3: g[2], i1: i[0], i2: i[1], i3: i[2], commPct: 6, lgPct: 5, m1Pct: 40, m2Pct: 60 };
   };
-  function InvNumIn({ p, value, onChange, onBlur, w, mono }) {
+  function InvNumIn({ p, value, onChange, onBlur, w, big }) {
     return el('input', { type: 'number', value: (value === 0 || value == null) ? '' : value, placeholder: '0',
       onChange: e => onChange(e.target.value === '' ? 0 : Number(e.target.value)), onBlur: onBlur,
-      style: { width: w || 88, height: 26, border: '1px solid ' + p.line, borderRadius: 6, padding: '0 6px', background: p.card2, color: p.ink, fontSize: 11.5, fontWeight: 700, textAlign: 'right', fontVariantNumeric: 'tabular-nums' } });
+      style: { width: w || 88, height: big ? 36 : 30, border: '1px solid ' + p.line, borderRadius: 9, padding: '0 9px', background: p.card2, color: p.ink, fontSize: big ? 16 : 14, fontWeight: 800, textAlign: 'right', fontVariantNumeric: 'tabular-nums' } });
   }
 
   // build the ordered cash-flow GROUPS (events on the same day share one axis point)
@@ -598,67 +598,62 @@
     const [tlFull, setTlFull] = invSt(false);
     invEff(() => { if (!tlFull) return; const onKey = (e) => { if (e.key === 'Escape') setTlFull(false); }; window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey); }, [tlFull]);
 
-    // layout metrics (axis stays aligned across columns; stacks reserve a fixed zone)
-    const lay = (big) => {
-      const cardH = big ? 116 : 84, gap = big ? 12 : 9, cardTop = big ? 8 : 4, bd = big ? 54 : 40, w = big ? 224 : 188;
-      const aboveH = maxAbove * cardH + (maxAbove - 1) * gap;
-      const belowH = maxBelow * cardH + (maxBelow - 1) * gap;
-      const pillTop = cardTop + aboveH + (big ? 6 : 4);
-      const badgeTop = pillTop + (big ? 28 : 23);
-      const line = badgeTop + bd / 2;
-      const outTop = badgeTop + bd + (big ? 12 : 9);
-      const h = outTop + belowH + (big ? 12 : 8);
-      return { cardH, gap, cardTop, bd, w, aboveH, belowH, pillTop, badgeTop, line, outTop, h, title: big ? 13 : 10.5, val: big ? 19 : 14, sub: big ? 12 : 10, inW: big ? 112 : 86, ic: big ? 17 : 13, badgeIc: big ? 25 : 18 };
-    };
+    // layout metrics — flexbox columns, auto-height cards (no forced empty space)
+    const lay = (big) => ({
+      w: big ? 248 : 208, gap: big ? 12 : 10, bd: big ? 60 : 48,
+      aboveH: big ? 150 : 124, pillH: big ? 38 : 32, badgeRowH: (big ? 60 : 48) + (big ? 16 : 12),
+      get lineY() { return this.aboveH + this.pillH + this.badgeRowH / 2; },
+      title: big ? 14.5 : 12.5, val: big ? 21 : 17, sub: big ? 12.5 : 11, inW: big ? 122 : 100, ic: big ? 19 : 16, badgeIc: big ? 28 : 22,
+    });
 
-    // one event card (no positioning)
-    const buildCard = (e, L, key) => {
+    // one event card — modern, auto-height
+    const buildCard = (e, L, big, key) => {
       const isOut = e.k === 'out', isMark = e.k === 'mark';
       const col = isOut ? p.bad : (e.k === 'in' ? p.good : p.brand);
       const icon = isMark ? '🚩' : (isOut ? '💸' : '💰');
-      if (isMark) return el('div', { key, style: { background: 'linear-gradient(180deg,' + invRgba(p.brand, 0.14) + ',' + p.card + ')', border: '1.5px solid ' + invRgba(p.brand, 0.45), borderRadius: 12, padding: L.cardH > 100 ? '9px 11px' : '7px 9px', height: L.cardH, boxShadow: '0 6px 18px ' + invRgba(p.brand, 0.14) } },
-        el('div', { style: { display: 'flex', gap: 6, alignItems: 'flex-start' } },
-          el('span', { style: { fontSize: L.ic, lineHeight: 1.1 } }, icon),
-          el('div', { style: { fontSize: L.title, fontWeight: 800, color: p.brand, lineHeight: 1.2 } }, (lang === 'th' ? e.th : e.en)[0])),
-        (lang === 'th' ? e.th : e.en)[1] ? el('div', { style: { fontSize: L.sub, color: p.sub, marginTop: 5, lineHeight: 1.35, fontWeight: 600 } }, (lang === 'th' ? e.th : e.en)[1]) : null);
-      return el('div', { key, style: { background: 'linear-gradient(180deg,' + invRgba(col, 0.13) + ',' + p.card + ')', border: '1px solid ' + invRgba(col, 0.4), borderRadius: 12, boxShadow: '0 6px 18px ' + invRgba(col, 0.16), overflow: 'hidden', height: L.cardH } },
-        el('div', { style: { height: 4, background: 'linear-gradient(90deg,' + col + ',' + invRgba(col, 0.55) + ')' } }),
-        el('div', { style: { padding: L.cardH > 100 ? '9px 11px' : '7px 9px' } },
-          el('div', { style: { display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: L.cardH > 100 ? 8 : 5, minHeight: L.cardH > 100 ? 34 : 28 } },
-            el('span', { style: { fontSize: L.ic, lineHeight: 1, flex: '0 0 auto' } }, icon),
-            el('div', { style: { fontSize: L.title, fontWeight: 800, color: col, lineHeight: 1.2 } }, (lang === 'th' ? e.th : e.en)[0])),
-          el('div', { style: { display: 'flex', alignItems: 'center', gap: 4 } },
-            e.edit ? InvNumIn({ p, value: e.edit === 'pct' ? e.pv : cfg[e.f], w: e.edit === 'pct' ? (L.cardH > 100 ? 64 : 50) : L.inW, onChange: v => setField(e.f, v), onBlur: persist })
+      const title = (lang === 'th' ? e.th : e.en)[0], sub2 = (lang === 'th' ? e.th : e.en)[1];
+      const pad = big ? '13px 15px' : '11px 13px';
+      if (isMark) return el('div', { key, style: { background: 'linear-gradient(155deg,' + invRgba(p.brand, 0.16) + ',' + invRgba(p.brand, 0.03) + ')', border: '1px solid ' + invRgba(p.brand, 0.3), borderRadius: 16, padding: pad, boxShadow: '0 10px 26px ' + invRgba(p.brand, 0.13) } },
+        el('div', { style: { display: 'flex', gap: 9, alignItems: 'center' } },
+          el('span', { style: { fontSize: L.ic + 3, lineHeight: 1 } }, icon),
+          el('div', { style: { fontSize: L.title, fontWeight: 800, color: p.brand, lineHeight: 1.25 } }, title)),
+        sub2 ? el('div', { style: { fontSize: L.sub, color: p.sub, marginTop: 7, lineHeight: 1.4, fontWeight: 600 } }, sub2) : null);
+      return el('div', { key, style: { background: p.card, border: '1px solid ' + invRgba(col, 0.32), borderRadius: 16, boxShadow: '0 10px 26px ' + invRgba(col, 0.16), overflow: 'hidden' } },
+        el('div', { style: { height: big ? 6 : 5, background: 'linear-gradient(90deg,' + col + ',' + invRgba(col, 0.5) + ')' } }),
+        el('div', { style: { padding: pad } },
+          el('div', { style: { display: 'flex', gap: 9, alignItems: 'center', marginBottom: big ? 11 : 9 } },
+            el('span', { style: { fontSize: L.ic + 2, lineHeight: 1, flex: '0 0 auto' } }, icon),
+            el('div', { style: { fontSize: L.title, fontWeight: 800, color: col, lineHeight: 1.25 } }, title)),
+          el('div', { style: { display: 'flex', alignItems: 'baseline', gap: 6 } },
+            e.edit ? InvNumIn({ p, value: e.edit === 'pct' ? e.pv : cfg[e.f], w: e.edit === 'pct' ? (big ? 74 : 60) : L.inW, big: big, onChange: v => setField(e.f, v), onBlur: persist })
               : el('span', { style: { fontSize: L.val, fontWeight: 800, color: p.ink, fontVariantNumeric: 'tabular-nums' } }, '฿' + invCompact(e.amt)),
-            e.edit === 'pct' ? el('span', { style: { fontSize: L.sub + 1, color: p.sub, fontWeight: 800 } }, '%') : null),
-          el('div', { style: { fontSize: L.sub, color: p.sub, marginTop: 4, fontWeight: 600 } },
+            e.edit === 'pct' ? el('span', { style: { fontSize: L.sub + 3, color: p.sub, fontWeight: 800 } }, '%') : null),
+          el('div', { style: { fontSize: L.sub, color: p.sub, marginTop: 7, fontWeight: 600 } },
             e.edit === 'thb' ? (pctOf(e.amt) + (lang === 'th' ? '% ของสัญญา' : '% of contract'))
               : e.edit === 'pct' ? ('= ฿' + invCompact(e.amt))
                 : (e.ret ? (lang === 'th' ? '↩ คืนภายหลัง' : '↩ returned') : ''))));
     };
 
-    // one day-column: a circular icon badge on the axis + timing pill, cards stacked
+    // one day-column (flex): above zone (cards hug the ribbon) · pill · circular badge · below zone
     const column = (big) => (g, i) => {
       const L = lay(big);
       const above = g.items.filter(it => it.k !== 'out');
       const below = g.items.filter(it => it.k === 'out');
-      const hasMark = g.items.some(it => it.k === 'mark');
-      const hasIn = g.items.some(it => it.k === 'in');
+      const hasMark = g.items.some(it => it.k === 'mark'), hasIn = g.items.some(it => it.k === 'in');
       const bCol = hasMark ? p.brand : (hasIn ? p.good : p.bad);
       const bIcon = hasMark ? '🚩' : (hasIn ? '💰' : '💸');
-      return el('div', { key: i, style: { position: 'relative', flex: '0 0 ' + L.w + 'px', width: L.w, height: L.h } },
-        above.length ? el('div', { style: { position: 'absolute', top: L.cardTop, left: 9, right: 9, display: 'flex', flexDirection: 'column', gap: L.gap } }, above.map((e, j) => buildCard(e, L, j))) : null,
-        above.length ? el('div', { style: { position: 'absolute', left: '50%', transform: 'translateX(-50%)', width: 2, top: L.cardTop + L.aboveH, height: L.badgeTop - (L.cardTop + L.aboveH), background: invRgba(bCol, 0.45), zIndex: 1 } }) : null,
-        el('div', { style: { position: 'absolute', top: L.pillTop, left: 0, right: 0, textAlign: 'center', zIndex: 2 } },
-          el('span', { style: { fontSize: big ? 11.5 : 9.5, color: p.ink, fontWeight: 700, background: p.card, border: '1px solid ' + p.line, padding: big ? '3px 11px' : '2px 9px', borderRadius: 99, whiteSpace: 'nowrap', boxShadow: p.shadow } }, (lang === 'th' ? g.t[0] : g.t[1]))),
-        el('div', { style: { position: 'absolute', top: L.badgeTop, left: '50%', transform: 'translateX(-50%)', width: L.bd, height: L.bd, borderRadius: '50%', background: 'linear-gradient(135deg,' + bCol + ',' + invRgba(bCol, 0.68) + ')', border: '3px solid ' + p.card, boxShadow: '0 0 0 5px ' + invRgba(bCol, 0.14) + ', 0 6px 16px ' + invRgba(bCol, 0.45), display: 'grid', placeItems: 'center', fontSize: L.badgeIc, zIndex: 3 } }, bIcon),
-        below.length ? el('div', { style: { position: 'absolute', left: '50%', transform: 'translateX(-50%)', width: 2, top: L.badgeTop + L.bd, height: L.outTop - (L.badgeTop + L.bd), background: invRgba(p.bad, 0.45), zIndex: 1 } }) : null,
-        below.length ? el('div', { style: { position: 'absolute', top: L.outTop, left: 9, right: 9, display: 'flex', flexDirection: 'column', gap: L.gap } }, below.map((e, j) => buildCard(e, L, j))) : null);
+      return el('div', { key: i, style: { flex: '0 0 ' + L.w + 'px', width: L.w, display: 'flex', flexDirection: 'column', alignItems: 'stretch', position: 'relative', zIndex: 1 } },
+        el('div', { style: { height: L.aboveH, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', gap: L.gap, padding: '0 9px' } }, above.map((e, j) => buildCard(e, L, big, j))),
+        el('div', { style: { height: L.pillH, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' } },
+          el('span', { style: { fontSize: big ? 12.5 : 11, color: p.ink, fontWeight: 700, background: p.card, border: '1px solid ' + p.line, padding: big ? '4px 13px' : '3px 11px', borderRadius: 99, whiteSpace: 'nowrap', boxShadow: p.shadow } }, (lang === 'th' ? g.t[0] : g.t[1]))),
+        el('div', { style: { height: L.badgeRowH, display: 'flex', alignItems: 'center', justifyContent: 'center' } },
+          el('div', { style: { width: L.bd, height: L.bd, borderRadius: '50%', background: 'linear-gradient(135deg,' + bCol + ',' + invRgba(bCol, 0.62) + ')', border: '3px solid ' + p.card, boxShadow: '0 0 0 6px ' + invRgba(bCol, 0.12) + ', 0 10px 22px ' + invRgba(bCol, 0.45), display: 'grid', placeItems: 'center', fontSize: L.badgeIc } }, bIcon)),
+        below.length ? el('div', { style: { display: 'flex', flexDirection: 'column', gap: L.gap, padding: '2px 9px 0' } }, below.map((e, j) => buildCard(e, L, big, j))) : null);
     };
 
-    const renderTimeline = (big) => { const L = lay(big); return el('div', { style: { overflowX: 'auto', overflowY: 'hidden', paddingBottom: 8 } },
-      el('div', { style: { display: 'inline-flex', position: 'relative', minWidth: '100%' } },
-        el('div', { style: { position: 'absolute', top: L.line - 2, left: L.w / 2, right: L.w / 2, height: 5, borderRadius: 3, background: 'linear-gradient(90deg,' + invRgba(p.bad, 0.55) + ' 0%,' + invRgba(p.gold, 0.5) + ' 55%,' + invRgba(p.good, 0.6) + ' 100%)', boxShadow: '0 2px 12px ' + invRgba(p.brand, 0.22), zIndex: 0 } }),
+    const renderTimeline = (big) => { const L = lay(big); return el('div', { style: { overflowX: 'auto', overflowY: 'hidden', paddingBottom: 10, paddingTop: 4 } },
+      el('div', { style: { display: 'inline-flex', alignItems: 'flex-start', position: 'relative', minWidth: '100%' } },
+        el('div', { style: { position: 'absolute', top: L.lineY - 3, left: L.w / 2, right: L.w / 2, height: 6, borderRadius: 4, background: 'linear-gradient(90deg,' + invRgba(p.bad, 0.6) + ' 0%,' + invRgba(p.gold, 0.55) + ' 55%,' + invRgba(p.good, 0.65) + ' 100%)', boxShadow: '0 3px 16px ' + invRgba(p.brand, 0.25), zIndex: 0 } }),
         groups.map(column(big)))); };
 
     const products = INV_PRODUCTS.map(pr => el('option', { key: pr.code, value: pr.code }, pr.code + ' · ' + pr.name + ' (฿' + invCompact(pr.price) + ')'));
