@@ -22,7 +22,7 @@ var SHEET_ID = '1Q0enboLihOYiYCn7otK9zXBlk6Yy8oHfoAXaFnGujwA';
 // client จะ ping ค่านี้ตอนเปิดแอป แล้ว log คู่กับ build ฝั่งหน้าเว็บ → เห็นชัดว่า
 // "โค้ดเซิร์ฟเวอร์ที่รันจริง" เป็นเวอร์ชันไหน (กันกรณีลืม redeploy แล้วไม่รู้ตัว =
 // LockService/applyDiff ไม่ทำงานแต่เงียบ จนข้อมูลหายแล้วงงว่าทำไม)
-var SERVER_VERSION = '20260613a-bankrecon';
+var SERVER_VERSION = '20260615a-presence';
 
 var SHEETS = {
   META:          'meta',
@@ -61,6 +61,7 @@ var SHEETS = {
   MANUAL_OVERRIDES: 'manualOverrides',  // shared manual overrides (Warroom/Cashflow KPIs) — visible to all users
   BANK_RECON_LINES: 'bankReconLines',   // กระทบยอด: รายการเดินบัญชีจาก statement
   BANK_RECON_STATE: 'bankReconState',   // กระทบยอด: สถานะการกระทบ (lineId → decision)
+  PRESENCE:         'presence',         // ใครออนไลน์อยู่ (heartbeat) — NOT audited (1 แถว/user)
 };
 
 /* ── 1. WEB APP ENDPOINTS ───────────────────────────────────────── */
@@ -115,8 +116,9 @@ function doPost(e) {
     // Append audit log entry for mutating actions (skip on error result)
     if (!result || !result.error) {
       try {
-        if (action === 'add' || action === 'update' || action === 'delete' ||
-            action === 'replaceAll' || action === 'applyDiff') {
+        if ((action === 'add' || action === 'update' || action === 'delete' ||
+            action === 'replaceAll' || action === 'applyDiff') &&
+            entity !== 'presence') {   // ★ presence = heartbeat ออนไลน์ ไม่ต้องลง audit (กัน log รก)
           appendAuditLog_({
             timestamp: new Date(),
             user: meta.user || 'unknown',
@@ -246,6 +248,7 @@ function getEntity(name) {
     case 'manualOverrides':       return readTable(SHEETS.MANUAL_OVERRIDES);
     case 'bankReconLines':        return readTable(SHEETS.BANK_RECON_LINES);
     case 'bankReconState':        return readTable(SHEETS.BANK_RECON_STATE);
+    case 'presence':              return readTable(SHEETS.PRESENCE);
   }
   return { error: 'unknown entity: ' + name };
 }
@@ -274,6 +277,7 @@ var JSON_FIELDS = {
   stsCalcResult:   ['debtIds'],
   bankReconLines:  [],
   bankReconState:  [],
+  presence:        [],
 };
 
 function readTable(name) {
@@ -631,6 +635,10 @@ var ENTITY_HEADERS = {
   bankReconState: [
     'id','decision','forecastId'
   ],
+  // ── presence (added 2026-06-15) — id = username (1 แถว/user, upsert) ──────
+  presence: [
+    'id','username','displayName','role','lastSeen'
+  ],
 };
 
 function _entitySheet(entity) {
@@ -657,6 +665,7 @@ function _entitySheet(entity) {
     manualOverrides: SHEETS.MANUAL_OVERRIDES,
     bankReconLines:  SHEETS.BANK_RECON_LINES,
     bankReconState:  SHEETS.BANK_RECON_STATE,
+    presence:        SHEETS.PRESENCE,
   };
   if (!map[entity]) throw new Error('CRUD ไม่รองรับ entity: ' + entity);
   return { name: map[entity], headers: ENTITY_HEADERS[entity] };

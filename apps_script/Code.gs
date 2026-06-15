@@ -39,11 +39,12 @@ var SHEETS = {
   USERS:         'users',
   BANK_RECON_LINES: 'bankReconLines',   // กระทบยอด: รายการเดินบัญชีจาก statement
   BANK_RECON_STATE: 'bankReconState',   // กระทบยอด: สถานะการกระทบ (lineId → decision)
+  PRESENCE:         'presence',         // ใครออนไลน์อยู่ (heartbeat) — NOT audited (1 แถว/user)
 };
 
 // ── เวอร์ชันเซิร์ฟเวอร์ — bump ทุกครั้งที่ deploy (ดูคำอธิบายใน Code.standalone.gs) ──
 // client ping ค่านี้ตอนเปิดแอป → เห็นชัดว่าเซิร์ฟเวอร์เวอร์ชันไหนรันจริง (กันลืม redeploy)
-var SERVER_VERSION = '20260613a-bankrecon';
+var SERVER_VERSION = '20260615a-presence';
 
 /* ── 1. MENU ────────────────────────────────────────────────────── */
 function onOpen() {
@@ -121,8 +122,9 @@ function doPost(e) {
     }
     if (!result || !result.error) {
       try {
-        if (action === 'add' || action === 'update' || action === 'delete' ||
-            action === 'replaceAll' || action === 'applyDiff') {
+        if ((action === 'add' || action === 'update' || action === 'delete' ||
+            action === 'replaceAll' || action === 'applyDiff') &&
+            entity !== 'presence') {   // ★ presence = heartbeat ออนไลน์ ไม่ต้องลง audit (กัน log รก)
           appendAuditLog_({
             timestamp: new Date(),
             user: meta.user || 'unknown',
@@ -223,6 +225,7 @@ function getEntity(name) {
     case 'checks':                return readTable(SHEETS.CHECKS);
     case 'bankReconLines':        return readTable(SHEETS.BANK_RECON_LINES);
     case 'bankReconState':        return readTable(SHEETS.BANK_RECON_STATE);
+    case 'presence':              return readTable(SHEETS.PRESENCE);
   }
   return { error: 'unknown entity: ' + name };
 }
@@ -257,6 +260,7 @@ var JSON_FIELDS = {
   checks:         [],
   bankReconLines: [],
   bankReconState: [],
+  presence:       [],
 };
 
 function readTable(name) {
@@ -570,6 +574,10 @@ var ENTITY_HEADERS = {
   bankReconState: [
     'id','decision','forecastId'
   ],
+  // ── presence (added 2026-06-15) — id = username (1 แถว/user, upsert) ──────
+  presence: [
+    'id','username','displayName','role','lastSeen'
+  ],
 };
 
 function _entitySheet(entity) {
@@ -587,6 +595,7 @@ function _entitySheet(entity) {
     users:          SHEETS.USERS,
     bankReconLines: SHEETS.BANK_RECON_LINES,
     bankReconState: SHEETS.BANK_RECON_STATE,
+    presence:       SHEETS.PRESENCE,
   };
   if (!map[entity]) throw new Error('CRUD ไม่รองรับ entity: ' + entity);
   return { name: map[entity], headers: ENTITY_HEADERS[entity] };

@@ -83,6 +83,28 @@ function UsersPage({ data, setData, toast }) {
     return c;
   }, [combinedRows]);
 
+  // ── Presence: ใครออนไลน์อยู่ (จากตาราง presence — heartbeat ทุก ~5 นาที) ──────
+  const agoLabel = (ms) => {
+    if (ms == null || ms < 0) return '—';
+    const m = Math.floor(ms / 60000);
+    if (m < 1) return 'เมื่อสักครู่';
+    if (m < 60) return m + ' นาทีที่แล้ว';
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + ' ชม.ที่แล้ว';
+    return Math.floor(h / 24) + ' วันที่แล้ว';
+  };
+  const presenceRows = uMemo(() => {
+    const arr = (data && data.presence) || [];
+    const HB = (window.WTP_CONFIG && window.WTP_CONFIG.PRESENCE_HEARTBEAT_MS) || 300000;
+    const onlineWindow = Math.max(HB * 2, 6 * 60 * 1000);   // ออนไลน์ = heartbeat ภายใน max(2×HB, 6 นาที)
+    const now = Date.now();
+    return arr.map(p => {
+      const ls = Number(p.lastSeen) || 0;
+      return { ...p, lastSeenMs: ls, ageMs: ls ? now - ls : null, online: ls > 0 && (now - ls) <= onlineWindow };
+    }).sort((a, b) => (b.lastSeenMs || 0) - (a.lastSeenMs || 0));
+  }, [data && data.presence]);
+  const onlineCount = presenceRows.filter(p => p.online).length;
+
   // ── CRUD handlers ──────────────────────────────────────────────────────
   const save = (row) => {
     // Validate
@@ -175,6 +197,38 @@ function UsersPage({ data, setData, toast }) {
         <KpiTile animate={false} label="Staff (พนักงาน)"      value={roleCounts.staff}   accent="var(--brand-500)"        icon="receivables" unit=" คน" digits={0} />
         <KpiTile animate={false} label="Owner (เจ้าของ)"      value={roleCounts.owner}   accent="oklch(60% 0.18 295)"     icon="bank" unit=" คน" digits={0} />
         <KpiTile animate={false} label="Viewer (ผู้บริหารดู)" value={roleCounts.viewer}  accent="var(--ink-400)"          icon="daily" unit=" คน" digits={0} />
+      </div>
+
+      {/* Presence: ใครออนไลน์อยู่ */}
+      <div className="card anim-in" style={{ padding: 14, marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: presenceRows.length ? 10 : 0, flexWrap: 'wrap', gap: 8 }}>
+          <div style={{ fontWeight: 700 }}>
+            🟢 กำลังออนไลน์ <span className="muted" style={{ fontWeight: 400 }}>({onlineCount} คน)</span>
+          </div>
+          <div className="muted" style={{ fontSize: 12 }}>heartbeat ทุก ~5 นาที · ไม่บันทึกใน audit log</div>
+        </div>
+        {presenceRows.length === 0 ? (
+          <div className="muted" style={{ fontSize: 13 }}>
+            ยังไม่มีข้อมูล — ต้อง redeploy Apps Script (เพิ่มตาราง <code>presence</code>) ก่อน แล้วผู้ใช้จะทยอยขึ้นมาเอง ·
+            ผู้บริหารที่เป็น read-only (viewer/owner) ก็จะแสดงด้วย
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {presenceRows.map(p => (
+              <div key={p.id} title={`เห็นล่าสุด: ${agoLabel(p.ageMs)}`}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', borderRadius: 999,
+                         background: 'var(--ink-100)', border: '1px solid var(--ink-200)', opacity: p.online ? 1 : 0.45 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 999, flex: 'none',
+                               background: p.online ? 'var(--good)' : 'var(--ink-300)' }} />
+                <span style={{ fontWeight: 600 }}>{p.displayName || p.username}</span>
+                <span className="muted" style={{ fontSize: 11 }}>
+                  {ROLE_LABELS[p.role] ? ROLE_LABELS[p.role].label : (p.role || '')}
+                </span>
+                <span className="muted" style={{ fontSize: 11 }}>· {agoLabel(p.ageMs)}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Filter bar */}

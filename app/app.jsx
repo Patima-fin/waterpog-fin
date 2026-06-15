@@ -286,6 +286,30 @@ function App() {
     }
   }, [data.manualOverrides, isLoggedIn]);
 
+  // ── Presence heartbeat: บอกระบบว่า "ฉันออนไลน์อยู่" (เห็นได้ในหน้า Users) ──────
+  // เขียนผ่าน WTPData.pushPresence (POST เดี่ยว ไม่ผ่าน syncDiff, ไม่ลง audit).
+  // เขียนเฉพาะเมื่อ: ล็อกอินอยู่ + แท็บกำลังถูกมอง (visible) + ยัง active (ภายใน 1 ช่วง
+  // heartbeat) → คนที่เปิดค้างแล้ว idle (ใกล้โดน auto-logout) จะหยุด heartbeat เอง
+  aEffect(() => {
+    if (!isLoggedIn) return;
+    const HB = (window.WTP_CONFIG && window.WTP_CONFIG.PRESENCE_HEARTBEAT_MS) || 0;
+    if (HB <= 0 || !WTPData.pushPresence) return;
+    const beat = () => {
+      if (document.hidden) return;
+      if ((Date.now() - lastActivityRef.current) > HB) return;   // idle → ข้าม
+      let s = null; try { s = JSON.parse(localStorage.getItem('wtp-session') || 'null'); } catch (_) {}
+      if (!s || !s.username) return;
+      WTPData.pushPresence({
+        id: s.username, username: s.username,
+        displayName: s.displayName || s.username, role: s.role || '',
+        lastSeen: Date.now(),
+      });
+    };
+    beat();                                  // ครั้งแรกทันทีตอนล็อกอิน/โหลด
+    const t = setInterval(beat, HB);
+    return () => clearInterval(t);
+  }, [isLoggedIn]);
+
   // ── Global auto-backfill: paid IV ที่ยังไม่มี receipt → สร้างให้ ─────────
   // CRITICAL: ต้องอ่าน d.receipts ใน updater (ไม่ใช่ closure) — closure อาจ
   // stale ถ้า server data update มาระหว่าง effect run กับ setData fire →

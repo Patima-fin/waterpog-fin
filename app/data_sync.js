@@ -18,9 +18,9 @@
   // เปิด DevTools Console แล้วดูบรรทัดนี้ เพื่อยืนยันว่าเบราว์เซอร์โหลด "โค้ดใหม่" จริง
   // (ถ้าไม่เห็น = ยังรัน cache เก่า → hard refresh Ctrl+Shift+R + ปิดแท็บเก่าทุกอัน)
   // เช็คเร็ว: พิมพ์ WTPData.buildId ใน console
-  var BUILD_ID = '20260615a';
+  var BUILD_ID = '20260615b';
   try {
-    console.info('%c[WTP Sync] build ' + BUILD_ID + ' — row-level + anti-empty-push + server-guard + read-your-writes + no-push-when-logged-out',
+    console.info('%c[WTP Sync] build ' + BUILD_ID + ' — row-level + anti-empty-push + server-guard + read-your-writes + no-push-when-logged-out + presence',
                  'color:#2a6fdb;font-weight:bold');
     if (window.WTPData) WTPData.buildId = BUILD_ID;
   } catch (_) {}
@@ -334,6 +334,7 @@
       'manualOverrides',        // shared manual KPI overrides (visible to all users)
       'bankReconLines',         // กระทบยอด: รายการเดินบัญชีจาก statement (flat rows)
       'bankReconState',         // กระทบยอด: สถานะการกระทบ (lineId → decision)
+      'presence',               // ใครออนไลน์อยู่ (heartbeat) — อ่านอย่างเดียวที่นี่, เขียนผ่าน pushPresence
     ];
 
     return mapLimit(sheetOrder, SHEET_FETCH_CONC, function (n) { return fetchSheet(n); }).then(function (settled) {
@@ -402,6 +403,8 @@
       var manualOverrides   = rowsToObjects(results[i++]);
       var bankReconLines    = rowsToObjects(results[i++]);
       var bankReconState    = rowsToObjects(results[i++]);
+      // presence: กรอง gviz-garbage (แท็บยังไม่ถูกสร้าง → คืนชีตแรกมั่ว) — ต้องมี username จริง
+      var presence          = rowsToObjects(results[i++]).filter(function (r) { return r && r.username; });
 
       var data = {
         meta: {
@@ -499,6 +502,7 @@
         manualOverrides:   manualOverrides,
         bankReconLines:    bankReconLines,
         bankReconState:    bankReconState,
+        presence:          presence,
       };
 
       // Anti-bounce guard: ถ้า entity มี edit ค้าง (ยังไม่ push) หรือเพิ่ง push
@@ -1177,6 +1181,25 @@
     // data param optional — use latest from localStorage if not provided
     var d = data || WTPData.load();
     syncDiff(d);
+  };
+
+  // ── Presence heartbeat — เขียน "ฉันออนไลน์อยู่" ผ่าน POST เดี่ยวๆ ───────────
+  //   ★ ตั้งใจ "ไม่" ผ่าน syncDiff/CRUD_ENTITIES → ไม่ยุ่งกับ diff loop การเงินเลย
+  //     (presence push fail = ไม่ poison การ push entity อื่นในรอบเดียวกัน)
+  //   ★ เซิร์ฟเวอร์ยังไม่ redeploy → resp.error 'CRUD ไม่รองรับ entity: presence' → เงียบ
+  //     (degrade graceful: หน้า "ใครออนไลน์" แค่ว่าง ไม่พัง) · server ไม่ลง audit ให้ presence
+  WTPData.pushPresence = function (row) {
+    if (!POST_URL) return;
+    if (!_hasValidSession()) return;       // ไม่ล็อกอิน = ไม่เขียน (เหมือน guard อื่น)
+    if (!row || !row.id) return;
+    return postToServer({
+      action:  'applyDiff',
+      entity:  'presence',
+      upserts: [row],
+      deletes: [],
+      meta: { user: row.username || '', displayName: row.displayName || '',
+              role: row.role || '', diffSummary: 'presence' },
+    }).then(function (resp) { return resp; }, function () { /* network error → เงียบ */ });
   };
 
   // Flush pending sync on page unload (best-effort, may not complete)

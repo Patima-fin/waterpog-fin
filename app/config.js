@@ -65,4 +65,10 @@ window.WTP_CONFIG = {
   //   นอกจากนี้ admin ยังกด "บังคับทุกคนออกจากระบบ" ระหว่างวันได้ผ่านหน้า Users
   //   (เขียน override `system.forceLogoutBefore` — เด้งเครื่องที่รันโค้ดใหม่ภายใน ~2 นาที)
   FORCE_LOGOUT_BEFORE: 1781505311512,  // 2026-06-15 (เวลา deploy build 20260615b)
+
+  // Presence "ใครออนไลน์อยู่" — เครื่องที่ล็อกอิน+เปิดอยู่+ไม่ idle เขียน heartbeat
+  //   ทุกช่วงนี้ (ms, 0 = ปิด) ไปที่ตาราง `presence` (ไม่ลง audit) → หน้า Users โชว์
+  //   ★ ต้อง redeploy Apps Script (มี entity presence) ก่อนถึงจะทำงาน — ถ้ายังไม่ deploy
+  //     จะเงียบ (degrade) ไม่พัง. ตั้ง 0 เพื่อปิดการ heartbeat
+  PRESENCE_HEARTBEAT_MS: 5 * 60 * 1000,  // 5 นาที
 };
