@@ -153,6 +153,27 @@ function UsersPage({ data, setData, toast }) {
     }
   };
 
+  // ── นำเข้าผู้ใช้จาก config.js เข้าชีต ────────────────────────────────────
+  // config users เป็น bootstrap (hardcode) แก้ใน UI ไม่ได้ + ถ้า cache โดนล้าง
+  // login ต้องพึ่ง config เท่านั้น. นำเข้าชีตแล้ว → เห็น/แก้ได้ในชีต + login มั่นคงขึ้น.
+  const importConfigUsers = () => {
+    const cfgUsers = (window.WTP_CONFIG && window.WTP_CONFIG.USERS) || [];
+    const have = new Set((data.users || []).map(u => String(u.username || '').trim().toLowerCase()));
+    const toAdd = cfgUsers.filter(u => !have.has(String(u.username || '').trim().toLowerCase()));
+    if (!toAdd.length) { toast('ผู้ใช้จาก config.js อยู่ในชีตครบแล้ว'); return; }
+    if (!confirm(
+      'นำเข้าผู้ใช้จาก config.js เข้าชีต ' + toAdd.length + ' คน?\n\n' +
+      toAdd.map(u => '• ' + u.username + ' (' + (u.role || 'staff') + ')').join('\n') + '\n\n' +
+      'รหัสผ่านจะถูกบันทึกลงชีต users (sync ทั้งทีม) — แก้/ลบในหน้านี้ได้หลังนำเข้า')) return;
+    const rows = toAdd.map(u => ({
+      id: WTPData.newId(), username: u.username, password: u.password,
+      displayName: u.displayName || u.username, role: u.role || 'staff',
+      active: 'true', department: '', note: 'นำเข้าจาก config.js',
+    }));
+    setData(d => ({ ...d, users: [...rows, ...(d.users || [])] }));
+    toast('นำเข้า ' + toAdd.length + ' คนเข้าชีตแล้ว — กำลัง sync ขึ้น Google Sheet');
+  };
+
   const emptyUser = { username: '', password: '', displayName: '', role: 'staff', active: 'true', department: '', note: '' };
 
   return (
@@ -184,6 +205,10 @@ function UsersPage({ data, setData, toast }) {
             title="บังคับทุกคนออกจากระบบ — ทุกเครื่องเด้งไปหน้า LOGIN ภายใน ~2 นาที"
             style={{ borderColor: 'var(--bad)', color: 'var(--bad)', fontWeight: 600 }}>
             🚪 บังคับออกจากระบบทุกคน
+          </button>
+          <button className="btn" onClick={importConfigUsers}
+            title="คัดลอกผู้ใช้จาก config.js (ที่ยังไม่มีในชีต) เข้าชีต users — พร้อมรหัสผ่าน">
+            ⬇️ นำเข้า config เข้าชีต
           </button>
           <button className="btn btn-primary" onClick={() => setEdit({ ...emptyUser })}>
             <Icon name="plus" size={14} /> เพิ่มผู้ใช้
