@@ -817,6 +817,58 @@
     return [newReceipt, ...list];
   };
 
+  // ── markInvoicesPaidFromReceipts (ทางกลับของ ensureReceiptForPaidInvoice) ──────
+  // receipt = เงินเข้าจริง (จากบัญชี/ระบบบัญชี) = "ความจริงหลัก". ถ้ามี receipt ของใบ IV ใด
+  // แต่ใบนั้น "ยังไม่ถูก mark paid" (หรือ paid แต่ actualReceive.date ว่าง) → เติมให้:
+  //   status='paid' + actualReceive.{date,amount,bankAccount} จาก receipt ล่าสุดของใบนั้น
+  // กันอาการ: หน้า Daily (อ่าน receipts) โชว์ "รับเงินวันนี้" แต่หน้า IV report (อ่าน
+  //   invoices.status='paid') ไม่โชว์ → สองหน้าขัดกัน (เคส IV2604-025 รับเงิน 15 มิ.ย.
+  //   แต่ใบยัง status='tracking'). ★ idempotent: ใบที่ paid+มี date แล้ว "ไม่ถูกแตะ" →
+  //   ไม่เกิด churn/ดีดข้อมูล. ★ ของเดิมที่กรอกไว้ (amount) ไม่ทับ — ใช้ของ receipt เฉพาะที่ว่าง.
+  // คืน { invoices, changed } ; changed=0 → คืน array เดิม (ไม่สร้าง ref ใหม่ → ไม่ทำ re-render)
+  // ★ raw JS (data.js ไม่ผ่าน Babel) — เลี่ยง optional chaining, ใช้เช็คชัดเจน
+  const markInvoicesPaidFromReceipts = (invoices, receipts) => {
+    const list = invoices || [];
+    if (!list.length || !receipts || !receipts.length) return { invoices: list, changed: 0 };
+    // receipt ล่าสุด (receiptDate มากสุด — ISO เทียบ string ได้ตรง) ต่อ invoiceNo
+    const rcpByIv = {};
+    receipts.forEach(function (r) {
+      if (!r) return;
+      const k = String(r.invoiceNo == null ? '' : r.invoiceNo).trim();
+      if (!k) return;
+      const cur = rcpByIv[k];
+      if (!cur || String(r.receiptDate || '') > String(cur.receiptDate || '')) rcpByIv[k] = r;
+    });
+    let changed = 0;
+    const out = list.map(function (iv) {
+      if (!iv) return iv;
+      const k = String(iv.ivNo == null ? '' : iv.ivNo).trim();
+      if (!k) return iv;
+      const rcp = rcpByIv[k];
+      if (!rcp) return iv;
+      const ar = iv.actualReceive;
+      // ★ มี "วันรับเงิน" อยู่แล้วไหม — ต้องเช็คทั้ง actualReceive.date (JSON) และ
+      //   actualReceiveDate (คอลัมน์แบน) เพราะใบส่วนใหญ่เก็บวันรับใน "คอลัมน์แบน" ไม่ใช่ JSON.
+      //   ถ้าเช็คแค่ JSON → จะ "flip" ใบที่ paid+มีวันรับอยู่แล้วเป็นร้อยใบ = เขียนทับชีต
+      //   เป็นก้อนใหญ่ (mass churn → ต้นเหตุข้อมูลหาย). verify เจอ flip 685 ใบเพราะบั๊กนี้.
+      const hasDate = (ar && ar.date) || (iv.actualReceiveDate != null && iv.actualReceiveDate !== '');
+      if (iv.status === 'paid' && hasDate) return iv;   // paid + มีวันรับแล้ว → ไม่แตะ (idempotent, กัน churn)
+      changed++;
+      const keepAmt = ar && ar.amount != null && ar.amount !== '';   // ของเดิมที่กรอกไว้ไม่ทับ
+      const amt = keepAmt ? ar.amount : (Number(rcp.netReceived) || Number(rcp.grossAmount) || 0);
+      return Object.assign({}, iv, {
+        status: 'paid',
+        actualReceive: Object.assign({}, ar, {
+          date:        rcp.receiptDate,
+          amount:      amt,
+          bankAccount: (ar && ar.bankAccount) || rcp.bankAccount || '',
+        }),
+        actualReceiveDate: rcp.receiptDate,
+      });
+    });
+    return { invoices: changed ? out : list, changed: changed };
+  };
+
   // ── rebuildFollowUpsLog (APPEND-ONLY) ─────────────────────────────────
   // Derive flat log from invoices[].followUps so the followUpsLog sheet
   // mirrors the JSON-in-cell follow-ups in a human-readable table.
@@ -892,5 +944,6 @@
     debtSummary,
     rebuildFollowUpsLog,
     ensureReceiptForPaidInvoice,
+    markInvoicesPaidFromReceipts,
   };
 })();

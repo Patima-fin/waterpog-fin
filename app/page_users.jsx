@@ -99,7 +99,7 @@ function UsersPage({ data, setData, toast }) {
     const onlineWindow = Math.max(HB * 2, 6 * 60 * 1000);   // ออนไลน์ = heartbeat ภายใน max(2×HB, 6 นาที)
     const now = Date.now();
     return arr.map(p => {
-      const ls = Number(p.lastSeen) || 0;
+      const ls = Number(p.lastSeen) || Date.parse(p.lastSeen) || 0;   // ★ รองรับ lastSeen ที่ sync กลับมาเป็น ISO string ด้วย (ไม่งั้น Number→NaN→0→offline ตลอด)
       return { ...p, lastSeenMs: ls, ageMs: ls ? now - ls : null, online: ls > 0 && (now - ls) <= onlineWindow };
     }).sort((a, b) => (b.lastSeenMs || 0) - (a.lastSeenMs || 0));
   }, [data && data.presence]);

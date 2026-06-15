@@ -376,6 +376,34 @@ function App() {
     }
   }, [data.invoices]);
 
+  // ── Global auto-backfill (ทางกลับ): มี receipt แล้ว → flip ใบ IV เป็น paid ────────
+  // receipt = เงินเข้าจริง = ความจริงหลัก. เดิม backfill ทางเดียว (IV paid → สร้าง receipt)
+  // แต่ "มี receipt แต่ใบ IV ยัง tracking" ไม่ถูกเติม → หน้า Daily (อ่าน receipts) โชว์
+  // "รับเงินวันนี้" แต่ IV report (อ่าน invoices.status=paid) ไม่โชว์ = ขัดกัน (เคส IV2604-025).
+  // เติมให้ตรงกัน + แก้ใบ paid ที่ actualReceive.date ว่างด้วย. CRITICAL: อ่าน d.invoices/
+  // d.receipts ใน updater (ไม่ใช่ closure) — กัน snapshot เก่าทับ server data ใหม่ → ชีตหาย.
+  aEffect(() => {
+    if (!data || !data.receipts || !data.receipts.length) return;
+    if (!data.invoices || !data.invoices.length) return;
+    if (!WTPData.markInvoicesPaidFromReceipts) return;
+    // เช็คเร็วด้วย closure (แค่ตัดสินว่า "ต้องทำไหม")
+    const probe = WTPData.markInvoicesPaidFromReceipts(data.invoices, data.receipts);
+    if (!probe.changed) return;
+    let updatedData;
+    setData(d => {
+      // SAFETY: invoices/receipts ว่าง = server อาจยังไม่โหลด → ข้ามรอบนี้ กันเขียน [] ทับชีต
+      if (!d.invoices || !d.invoices.length || !d.receipts || !d.receipts.length) return d;
+      const res = WTPData.markInvoicesPaidFromReceipts(d.invoices, d.receipts);
+      if (!res.changed) return d;
+      console.info('[WTP] auto-marked ' + res.changed + ' invoice(s) as paid from existing receipts (receipt→IV backfill)');
+      updatedData = { ...d, invoices: res.invoices };
+      return updatedData;
+    });
+    if (updatedData && WTPData.forceSyncNow) {
+      setTimeout(() => WTPData.forceSyncNow(updatedData), 0);
+    }
+  }, [data.receipts, data.invoices]);
+
   aEffect(() => {
     const onHash = () => setRoute(window.location.hash.replace(/^#/, '') || 'daily');
     window.addEventListener('hashchange', onHash);

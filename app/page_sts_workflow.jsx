@@ -990,9 +990,10 @@ function StsWorkflowPage({ data, setData, toast }) {
                       </td>
                       <td>{fmtDate(c.latestDate)}</td>
                       <td style={{ fontSize: 11 }}>
-                        <div style={{ fontWeight: 600 }}>{sts.contractNo}</div>
+                        {/* ★ guard sts undefined — match อาจผ่าน WCI อย่างเดียว → sts ว่าง (เคยทำจอ STS Workflow พัง) */}
+                        <div style={{ fontWeight: 600 }}>{sts ? sts.contractNo : ((g.match.wci && g.match.wci.contractNo) || '—')}</div>
                         <div style={{ fontSize: 10, color: 'var(--ink-400)' }}>
-                          STS {bMoney(sts.principalAmount)} ฿{stsCount > 1 ? ' (' + stsCount + ' งวด)' : ''} · WCI {wciCount} งวด
+                          STS {bMoney(sts ? sts.principalAmount : 0)} ฿{stsCount > 1 ? ' (' + stsCount + ' งวด)' : ''} · WCI {wciCount} งวด
                         </div>
                       </td>
                       <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{bMoney(c.baseAmount)}</td>

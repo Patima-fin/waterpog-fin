@@ -326,7 +326,11 @@ const ALL_COLS = {
 };
 
 // ── Helpers for table cells ─────────────────────────────────────────────────
-const fmtMoney = (v) => v ? Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
+// ★ pjFmtMoney (ไม่ใช่ fmtMoney) — ไฟล์นี้เลิกใช้แล้ว (ProjectsPage ถูกแทนด้วย
+//   ProjectControlPage) แต่ยังถูก <script>-load อยู่ใน index.html → ถ้าตั้งชื่อ
+//   global ว่า fmtMoney จะทับตัวจริงใน components.jsx (รองรับ th-TH/ทศนิยม/compact)
+//   ทั้งแอป (โหลดทีหลัง = ชนะ) ทำให้เลขเงินเพี้ยน (0 → '—', ทศนิยมหาย). ดู [[global-scope-name-collision]]
+const pjFmtMoney = (v) => v ? Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
 const fmtPct = (v) => v != null && !isNaN(v) ? Number(v).toFixed(1) + '%' : '—';
 const fmtD = (d) => {
   if (!d) return '—';
@@ -497,7 +501,7 @@ function ProjectsPage({ data, setData, toast }) {
       const v = wInv.reduce((s, p) => s + p._backlog, 0);
       list.push({ kind: 'risk', icon: '📄',
         title: `มี ${wInv.length} โครงการที่ส่งมอบแล้วแต่ยังไม่ออก Invoice`,
-        body: `มูลค่ารวม ${fmtMoney(v)} บาท · ควรเร่งออก IV เพื่อเริ่มกระบวนการเก็บเงิน`,
+        body: `มูลค่ารวม ${pjFmtMoney(v)} บาท · ควรเร่งออก IV เพื่อเริ่มกระบวนการเก็บเงิน`,
       });
     }
     const overdue90 = filtered.filter(p => p._agingBucket === '90+');
@@ -505,7 +509,7 @@ function ProjectsPage({ data, setData, toast }) {
       const v = overdue90.reduce((s, p) => s + p._outstanding, 0);
       list.push({ kind: 'critical', icon: '🚨',
         title: `มี ${overdue90.length} โครงการที่เกินกำหนดรับชำระมากกว่า 90 วัน`,
-        body: `มูลค่ารวม ${fmtMoney(v)} บาท · ต้องติดตามด่วน`,
+        body: `มูลค่ารวม ${pjFmtMoney(v)} บาท · ต้องติดตามด่วน`,
       });
     }
     const overdue6090 = filtered.filter(p => p._agingBucket === '61-90');
@@ -513,7 +517,7 @@ function ProjectsPage({ data, setData, toast }) {
       const v = overdue6090.reduce((s, p) => s + p._outstanding, 0);
       list.push({ kind: 'risk', icon: '⚠️',
         title: `มี ${overdue6090.length} โครงการ AR 61-90 วัน`,
-        body: `มูลค่า ${fmtMoney(v)} บาท · เสี่ยงเข้าโซน 90+`,
+        body: `มูลค่า ${pjFmtMoney(v)} บาท · เสี่ยงเข้าโซน 90+`,
       });
     }
     const m2 = filtered.filter(p => p._status === 'construction_m2');
@@ -521,7 +525,7 @@ function ProjectsPage({ data, setData, toast }) {
       const v = m2.reduce((s, p) => s + p._backlog, 0);
       list.push({ kind: 'info', icon: '🏗️',
         title: `มี ${m2.length} โครงการที่อยู่ระหว่างก่อสร้างงวด 2`,
-        body: `มูลค่าคงเหลือ ${fmtMoney(v)} บาท`,
+        body: `มูลค่าคงเหลือ ${pjFmtMoney(v)} บาท`,
       });
     }
     const closed = filtered.filter(p => p._status === 'closed');
@@ -578,7 +582,7 @@ function ProjectsPage({ data, setData, toast }) {
       case 'signedDate': return fmtD(p._signedDate);
       case 'start': return fmtD(p._start);
       case 'finish': return fmtD(p._finish);
-      case 'contractValue': return <span style={{ fontWeight: 600 }}>{fmtMoney(p._contractValue)}</span>;
+      case 'contractValue': return <span style={{ fontWeight: 600 }}>{pjFmtMoney(p._contractValue)}</span>;
       case 'statusDetail': return <PjStatusPill status={p._status} />;
       case 'progressPct': {
         if (p._progressPct == null) return <span style={{ color: '#94a3b8' }}>—</span>;
@@ -601,10 +605,10 @@ function ProjectsPage({ data, setData, toast }) {
         return <span style={{ fontFamily: 'ui-monospace', fontSize: 12 }}>{m}</span>;
       }
       case 'latestDelivery': return fmtD(p['Receive Date3'] || p['Receive Date2'] || p['Receive Date']);
-      case 'totalInvoiced': return fmtMoney(p._totalInvoiced);
-      case 'totalReceived': return <span style={{ color: '#16a34a', fontWeight: 600 }}>{fmtMoney(p._totalReceived)}</span>;
-      case 'outstanding': return p._outstanding ? <span style={{ color: '#dc2626' }}>{fmtMoney(p._outstanding)}</span> : '—';
-      case 'backlog': return p._backlog ? fmtMoney(p._backlog) : '—';
+      case 'totalInvoiced': return pjFmtMoney(p._totalInvoiced);
+      case 'totalReceived': return <span style={{ color: '#16a34a', fontWeight: 600 }}>{pjFmtMoney(p._totalReceived)}</span>;
+      case 'outstanding': return p._outstanding ? <span style={{ color: '#dc2626' }}>{pjFmtMoney(p._outstanding)}</span> : '—';
+      case 'backlog': return p._backlog ? pjFmtMoney(p._backlog) : '—';
       case 'collectionPct': {
         const c = p._collectionPct;
         const col = c >= 90 ? '#16a34a' : c >= 50 ? '#d97706' : c > 0 ? '#dc2626' : '#94a3b8';
@@ -612,7 +616,7 @@ function ProjectsPage({ data, setData, toast }) {
       }
       case 'invoiceCount': return p._invoiceCount || '—';
       case 'latestIv': return p._latestInvoice ? <span style={{ fontFamily: 'ui-monospace', fontSize: 11 }}>{p._latestInvoice.ivNo}</span> : '—';
-      case 'latestIvAmount': return p._latestInvoice ? fmtMoney(p._latestInvoice.balance) : '—';
+      case 'latestIvAmount': return p._latestInvoice ? pjFmtMoney(p._latestInvoice.balance) : '—';
       case 'aging': return p._agingBucket
         ? <span style={{ fontSize: 10.5, fontWeight: 700,
               background: p._agingBucket === '90+' ? '#fee2e2' : p._agingBucket === '61-90' ? '#fef3c7' : '#dbeafe',
@@ -1559,7 +1563,7 @@ function ProjectsHero({ kpi, totalCount, filteredCount, onFullscreen, onUpload, 
               <span style={{ fontSize: 14 }}>{c.icon}</span>
               <span style={{ fontSize: 10.5, color: '#64748b', fontWeight: 500 }}>{c.label}</span>
             </div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a' }}>{fmtMoney(c.value)}</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a' }}>{pjFmtMoney(c.value)}</div>
           </div>
         ))}
       </div>
@@ -1582,7 +1586,7 @@ function ProjectsHero({ kpi, totalCount, filteredCount, onFullscreen, onUpload, 
         ].map((c, i) => (
           <div key={i} style={{ flex: 1, minWidth: 110 }}>
             <div style={{ fontSize: 10.5, color: '#64748b', fontWeight: 500 }}>{c.label}</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: c.value > 0 ? '#16a34a' : '#94a3b8' }}>{fmtMoney(c.value)}</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: c.value > 0 ? '#16a34a' : '#94a3b8' }}>{pjFmtMoney(c.value)}</div>
           </div>
         ))}
       </div>
@@ -2056,15 +2060,15 @@ function OverviewTab({ p, onSave }) {
       <Field label="วันที่ลงนามสัญญา" value={fmtD(p._signedDate)} />
       <Field label="แจ้งเข้าดำเนินการ" value={fmtD(p['แจ้งเข้าดำเนินการ'])} />
       <Field label="เริ่มงาน → สิ้นสุด" value={`${fmtD(p._start)} → ${fmtD(p._finish)}`} />
-      <Field label="งบประมาณ" value={p._budget ? fmtMoney(p._budget) + ' บาท' : null} />
-      <Field label="มูลค่าสัญญา (รวม VAT)" value={fmtMoney(p._contractValue) + ' บาท'} />
+      <Field label="งบประมาณ" value={p._budget ? pjFmtMoney(p._budget) + ' บาท' : null} />
+      <Field label="มูลค่าสัญญา (รวม VAT)" value={pjFmtMoney(p._contractValue) + ' บาท'} />
       {p._contractValueNoVAT > 0 && p._contractValueNoVAT !== p._contractValue && (
-        <Field label="มูลค่าสัญญา (ไม่รวม VAT)" value={fmtMoney(p._contractValueNoVAT) + ' บาท'} />
+        <Field label="มูลค่าสัญญา (ไม่รวม VAT)" value={pjFmtMoney(p._contractValueNoVAT) + ' บาท'} />
       )}
       {p._progressPct != null && (
         <Field label="% Progress" value={p._progressPct.toFixed(1) + '%'} />
       )}
-      <Field label="ภาระหนี้" value={p._debt ? fmtMoney(p._debt) + ' บาท' : null} />
+      <Field label="ภาระหนี้" value={p._debt ? pjFmtMoney(p._debt) + ' บาท' : null} />
       <Field label="Ref.code" value={p._refCode} />
       <Field label="Remark" value={p['Remark']} />
     </div>
@@ -2085,7 +2089,7 @@ function TimelineTab({ events }) {
           }}>{e.icon}</div>
           <div style={{ fontSize: 11, color: '#64748b', fontFamily: 'ui-monospace' }}>{fmtD(e.date)}</div>
           <div style={{ fontSize: 13, fontWeight: 500, color: '#0f172a' }}>{e.label}</div>
-          {e.amount && <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 600 }}>{fmtMoney(e.amount)} บาท</div>}
+          {e.amount && <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 600 }}>{pjFmtMoney(e.amount)} บาท</div>}
         </div>
       ))}
     </div>
@@ -2108,7 +2112,7 @@ function FinanceTab({ p }) {
           padding: '12px 0', borderBottom: '1px solid #f1f5f9',
         }}>
           <span style={{ fontSize: 12.5, color: '#475569' }}>{r.label}</span>
-          <span style={{ fontSize: 14, fontWeight: 700, color: r.color, fontFamily: 'ui-monospace' }}>{fmtMoney(r.value)}</span>
+          <span style={{ fontSize: 14, fontWeight: 700, color: r.color, fontFamily: 'ui-monospace' }}>{pjFmtMoney(r.value)}</span>
         </div>
       ))}
       <div style={{ marginTop: 20, padding: 14, background: '#f0fdf4', borderRadius: 8, border: '1px solid #86efac' }}>
@@ -2140,7 +2144,7 @@ function InvoicesTab({ p }) {
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: 11, color: '#475569' }}>งวด {iv.period} · {iv.status}</span>
-              <strong style={{ fontSize: 13 }}>{fmtMoney(iv.balance)} ฿</strong>
+              <strong style={{ fontSize: 13 }}>{pjFmtMoney(iv.balance)} ฿</strong>
             </div>
           </div>
         ))}
@@ -2157,11 +2161,11 @@ function InvoicesTab({ p }) {
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: 11, color: '#475569' }}>{r.invoiceNo} · งวด {r.period}</span>
-              <strong style={{ fontSize: 13, color: '#16a34a' }}>{fmtMoney(r.netReceived || r.grossAmount)} ฿</strong>
+              <strong style={{ fontSize: 13, color: '#16a34a' }}>{pjFmtMoney(r.netReceived || r.grossAmount)} ฿</strong>
             </div>
             {r.transferDeduction > 0 && (
               <div style={{ marginTop: 4, fontSize: 10.5, color: '#94a3b8' }}>
-                หักโอนสิทธิ์: {fmtMoney(r.transferDeduction)} (gross {fmtMoney(r.grossAmount)})
+                หักโอนสิทธิ์: {pjFmtMoney(r.transferDeduction)} (gross {pjFmtMoney(r.grossAmount)})
               </div>
             )}
           </div>

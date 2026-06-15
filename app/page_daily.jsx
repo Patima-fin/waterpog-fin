@@ -6,8 +6,8 @@ const { useState: dRState, useMemo: dRMemo } = React;
 
 // ── normalize jobNo (ตัด productType suffix) ─────────────────────────────────
 function drNormJobNo(raw) {
-  if (!raw) return '';
-  const s = raw.trim();
+  if (raw == null || raw === '') return '';
+  const s = String(raw).trim();   // ★ String() — projectCode/jobNo จากชีตอาจเป็น "ตัวเลข" → raw.trim() เคยทำจอ Daily พังทั้งหน้า (ตระกูลเดียวกับ normalizeJobNo)
   const m = s.match(/^(.+)-([A-Z]{2,6})$/);
   return m ? m[1] : s;
 }
@@ -632,7 +632,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
 
       {/* Forecast drill-down popup */}
       {fcModal && (
-        <ForecastModal title={fcModal.title} list={fcModal.list} todayStr={todayStr} onClose={() => setFcModal(null)} />
+        <DailyForecastModal title={fcModal.title} list={fcModal.list} todayStr={todayStr} onClose={() => setFcModal(null)} />
       )}
     </div>
   );
@@ -910,8 +910,13 @@ function ForecastTable({ list, todayStr, empty }) {
   );
 }
 
-/* ── Forecast drill-down modal ──────────────────────────────────────────── */
-function ForecastModal({ title, list, todayStr, onClose }) {
+/* ── Forecast drill-down modal ──────────────────────────────────────────────
+ * ★ ชื่อ DailyForecastModal (ไม่ใช่ ForecastModal) — กัน global-scope collision:
+ *   page_bank_diary.jsx ก็มี ForecastModal (ฟอร์มกรอก รับ props bankAccounts/onSave)
+ *   และโหลดทีหลังใน index.html → ทับตัวนี้ → คลิกช่องประมาณการในหน้า Daily แล้ว
+ *   เรียกตัวของ bank_diary ที่ทำ bankAccounts.map() → undefined → จอ Daily พัง (ErrorBoundary).
+ *   ตั้งชื่อเฉพาะไม่ให้ชนกัน. ดู [[global-scope-name-collision]] */
+function DailyForecastModal({ title, list, todayStr, onClose }) {
   const sumBal = list.reduce((s, iv) => s + (iv.balance || 0), 0);
   const sumNet = list.reduce((s, iv) => s + (iv.netExpected || 0), 0);
   return (

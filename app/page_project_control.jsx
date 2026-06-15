@@ -443,7 +443,19 @@ function PcGrid({ rows, allCols, state, setState, onOpenRow }) {
             <tr>{frozenCols.map((c, i) => renderHeader(c, true, frozenOffsets[i]))}{scrollCols.map(c => renderHeader(c, false))}</tr>
           </thead>
           <tbody>
-            {pageRows.length === 0 && <tr><td colSpan={visibleCols.length} style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>ไม่พบโครงการตามเงื่อนไข</td></tr>}
+            {pageRows.length === 0 && <tr><td colSpan={visibleCols.length} style={{ padding: 40, textAlign: 'center', color: '#94a3b8' }}>
+              {/* ★ ตัวกรองคอลัมน์ถูกจำไว้ (wtp-pc-gridstate-v3) ข้ามการ reload → ถ้ากรองแล้ว
+                  ซ่อนทุกแถว จะค้าง "ไม่พบโครงการ" ถาวร หาสาเหตุไม่เจอ → ให้ปุ่มทางออกล้างตัวกรอง */}
+              {rows.length > 0 && Object.values(state.colFilters || {}).some(Boolean) ? (
+                <>
+                  <div>ตัวกรองคอลัมน์กำลังซ่อนโครงการทั้งหมด ({rows.length} รายการถูกกรองออก)</div>
+                  <button onClick={() => setState(s => ({ ...s, colFilters: {}, page: 1 }))}
+                    style={{ ...pcBtn, marginTop: 12, background: 'var(--brand-500)', color: '#fff', borderColor: 'var(--brand-500)' }}>
+                    ล้างตัวกรองคอลัมน์ทั้งหมด
+                  </button>
+                </>
+              ) : 'ไม่พบโครงการตามเงื่อนไข'}
+            </td></tr>}
             {pageRows.map((r, ri) => {
               const cond = PCGrid.rowCondStyle(r, state.cf);
               return (
@@ -1078,7 +1090,15 @@ function ProjectControlPage({ data, setData, toast }) {
   }, []);
 
   // ใช้ snapshot ที่ upload (มีคอลัมน์เต็ม) เป็นฐานถ้ามี — ไม่งั้น fall back cloud
-  const baseProjects = (localProjects && localProjects.length) ? localProjects : (data.projects || []);
+  // ★ กัน snapshot เก่าค้าง (เคสรายงาน: local 319 < ชีต 648 → หน้ายึด 319 ไปตลอด
+  //   ไม่รับของจริงจากชีต → "ข้อมูลโครงการไม่ขึ้น/หาย"): ถ้า data.projects (sync) มีแถว
+  //   มากกว่า snapshot ในเครื่อง = snapshot เก่า/ตกค้าง → ใช้ของ sync แทน. หลัง 2026-06-12
+  //   ชีต sync มีคอลัมน์เต็มแล้วจึงปลอดภัย (เหมือน freshestRows ใน data_sync.js).
+  const _localProj  = (localProjects && localProjects.length) ? localProjects : [];
+  const _syncedProj = data.projects || [];
+  const baseProjects = _syncedProj.length > _localProj.length
+    ? _syncedProj
+    : (_localProj.length ? _localProj : _syncedProj);
   const allCols = pcMemo(() => PCGrid.makeColumns(), []);
   const allProjects = pcMemo(() => PCU.deriveProjects(baseProjects, data.invoices || [], data.receipts || []),
     [baseProjects, data.invoices, data.receipts, data.manualOverrides, finVer]);
