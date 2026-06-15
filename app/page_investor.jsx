@@ -510,42 +510,50 @@
       style: { width: w || 88, height: big ? 36 : 30, border: '1px solid ' + p.line, borderRadius: 9, padding: '0 9px', background: p.card2, color: p.ink, fontSize: big ? 16 : 14, fontWeight: 800, textAlign: 'right', fontVariantNumeric: 'tabular-nums' } });
   }
 
+  // day number relative to signing (วันลงนาม = วันที่ 1); drives the timeline node + timing pills
+  const invDayNode = (d) => d < 0 ? '−' + Math.abs(d) : String(d);
+  const invDayPill = (d, lang) => d < 1
+    ? (lang === 'th' ? ('ก่อนลงนาม ' + (1 - d) + ' วัน') : ((1 - d) + ' days before signing'))
+    : (lang === 'th' ? ('วันที่ ' + d) : ('Day ' + d));
+
   // build the ordered cash-flow GROUPS (events on the same day share one axis point)
+  // d = วันที่นับจากวันลงนาม (ลงนาม = วันที่ 1, ค่าติดลบ = ก่อนลงนาม)
   function invCfGroups(cfg) {
     const C = cfg.contract || 0;
     return [
-      { t: ['วันเริ่มต้น', 'Day 0'], items: [
+      { d: -44, t: ['ได้รับใบจัดสรร', 'Allocation letter'], items: [
         { k: 'mark', th: ['ได้รับใบจัดสรร'], en: ['Allocation letter received'] } ] },
-      { t: ['+30 วัน', '+30 days'], items: [
-        { k: 'out', edit: 'thb', f: 'g1', amt: cfg.g1, th: ['ค่าของ งวด 1 (มัดจำ)'], en: ['Goods lot 1 (deposit)'] } ] },
-      { t: ['7 วันก่อนลงนาม', '7 days before signing'], items: [
-        { k: 'out', edit: 'pct', f: 'lgPct', amt: C * cfg.lgPct / 100, pv: cfg.lgPct, th: ['ออก LG ค้ำประกัน'], en: ['Issue bank guarantee (LG)'] } ] },
-      { t: ['ลงนามสัญญา · วันที่ 1', 'Signing · Day 1'], items: [
+      { d: -14, t: ['มัดจำค่าของ', 'Goods deposit'], items: [
+        { k: 'out', edit: 'thb', f: 'g1', amt: cfg.g1, tag: ['ค่าของ ง.1', 'Goods #1'], th: ['ค่าของ งวด 1 (มัดจำ)'], en: ['Goods lot 1 (deposit)'] } ] },
+      { d: -6, t: ['ออก LG ค้ำประกัน', 'Issue LG'], items: [
+        { k: 'out', edit: 'pct', f: 'lgPct', amt: C * cfg.lgPct / 100, pv: cfg.lgPct, tag: ['LG ค้ำประกัน', 'LG'], th: ['ออก LG ค้ำประกัน'], en: ['Issue bank guarantee (LG)'] } ] },
+      { d: 1, t: ['ลงนามสัญญา', 'Contract signing'], items: [
         { k: 'mark', th: ['ลงนามสัญญา'], en: ['Contract signing'] },
-        { k: 'out', edit: 'pct', f: 'commPct', amt: C * cfg.commPct / 100, pv: cfg.commPct, th: ['จ่ายค่าคอมมิชชั่น'], en: ['Pay commission'] },
-        { k: 'out', edit: 'thb', f: 'i1', amt: cfg.i1, th: ['ค่าติดตั้ง ล่วงหน้า'], en: ['Installation advance'] } ] },
-      { t: ['~2 เดือน · เริ่มงานถัง', '~2 months · tank work'], items: [
-        { k: 'out', edit: 'thb', f: 'g2', amt: cfg.g2, th: ['ค่าของ งวด 2 (ผลิต)'], en: ['Goods lot 2 (production)'] } ] },
-      { t: ['หลังงาน PnP เสร็จ', 'After PnP done'], items: [
-        { k: 'out', edit: 'thb', f: 'i2', amt: cfg.i2, th: ['ค่าติดตั้ง งวด 1'], en: ['Installation lot 1'] } ] },
-      { t: ['+7 วัน · ติดตั้งถังเสร็จ', '+7 days · tank installed'], items: [
+        { k: 'out', edit: 'pct', f: 'commPct', amt: C * cfg.commPct / 100, pv: cfg.commPct, tag: ['คอมมิชชั่น', 'Commission'], th: ['จ่ายค่าคอมมิชชั่น'], en: ['Pay commission'] },
+        { k: 'out', edit: 'thb', f: 'i1', amt: cfg.i1, tag: ['ค่าติดตั้ง ล่วงหน้า', 'Install adv.'], th: ['ค่าติดตั้ง ล่วงหน้า'], en: ['Installation advance'] } ] },
+      { d: 61, t: ['เริ่มงานถัง', 'Tank work begins'], items: [
+        { k: 'out', edit: 'thb', f: 'g2', amt: cfg.g2, tag: ['ค่าของ ง.2', 'Goods #2'], th: ['ค่าของ งวด 2 (ผลิต)'], en: ['Goods lot 2 (production)'] } ] },
+      { d: 91, t: ['หลังงาน PnP เสร็จ', 'After PnP done'], items: [
+        { k: 'out', edit: 'thb', f: 'i2', amt: cfg.i2, tag: ['ค่าติดตั้ง ง.1', 'Install #1'], th: ['ค่าติดตั้ง งวด 1'], en: ['Installation lot 1'] } ] },
+      { d: 98, t: ['ติดตั้งถังเสร็จ', 'Tank installed'], items: [
         { k: 'mark', th: ['ส่งมอบงานงวด 1', 'เคลม 40% ของมูลค่าโครงการ'], en: ['Deliver milestone 1', 'Claim 40% of project value'] },
-        { k: 'out', edit: 'thb', f: 'g3', amt: cfg.g3, th: ['ค่าของ งวดสุดท้าย (ประกอบ)'], en: ['Goods final lot (assembly)'] } ] },
-      { t: ['+30 วัน', '+30 days'], items: [
-        { k: 'in', edit: 'pct', f: 'm1Pct', amt: C * cfg.m1Pct / 100, pv: cfg.m1Pct, th: ['รับเงินงวด 1 (40%)'], en: ['Cash received #1 (40%)'] } ] },
-      { t: ['วันส่งมอบงวด 2', 'At milestone 2'], items: [
+        { k: 'out', edit: 'thb', f: 'g3', amt: cfg.g3, tag: ['ค่าของ ง.สุดท้าย', 'Goods final'], th: ['ค่าของ งวดสุดท้าย (ประกอบ)'], en: ['Goods final lot (assembly)'] } ] },
+      { d: 128, t: ['รับเงินงวด 1', 'Receive #1'], items: [
+        { k: 'in', edit: 'pct', f: 'm1Pct', amt: C * cfg.m1Pct / 100, pv: cfg.m1Pct, tag: ['รับงวด 1', 'Receive #1'], th: ['รับเงินงวด 1 (40%)'], en: ['Cash received #1 (40%)'] } ] },
+      { d: 151, t: ['ส่งมอบงวด 2', 'Deliver M2'], items: [
         { k: 'mark', th: ['ส่งมอบงานงวด 2'], en: ['Deliver milestone 2'] },
-        { k: 'out', edit: 'thb', f: 'i3', amt: cfg.i3, th: ['ค่าติดตั้ง งวดสุดท้าย'], en: ['Installation final'] } ] },
-      { t: ['+30 วัน', '+30 days'], items: [
-        { k: 'in', edit: 'pct', f: 'm2Pct', amt: C * cfg.m2Pct / 100, pv: cfg.m2Pct, th: ['รับเงินงวดสุดท้าย (60%)'], en: ['Final cash received (60%)'] } ] },
-      { t: ['+2 ปี', '+2 years'], items: [
-        { k: 'in', edit: 'pct', f: 'lgPct', amt: C * cfg.lgPct / 100, pv: cfg.lgPct, ret: true, th: ['ได้รับ LG คืน'], en: ['Bank guarantee returned'] } ] },
+        { k: 'out', edit: 'thb', f: 'i3', amt: cfg.i3, tag: ['ค่าติดตั้ง ง.สุดท้าย', 'Install final'], th: ['ค่าติดตั้ง งวดสุดท้าย'], en: ['Installation final'] } ] },
+      { d: 181, t: ['รับเงินงวดสุดท้าย', 'Final receipt'], items: [
+        { k: 'in', edit: 'pct', f: 'm2Pct', amt: C * cfg.m2Pct / 100, pv: cfg.m2Pct, tag: ['รับงวดสุดท้าย', 'Receive final'], th: ['รับเงินงวดสุดท้าย (60%)'], en: ['Final cash received (60%)'] } ] },
+      { d: 731, t: ['คืน LG ค้ำประกัน', 'LG returned'], items: [
+        { k: 'in', edit: 'pct', f: 'lgPct', amt: C * cfg.lgPct / 100, pv: cfg.lgPct, ret: true, tag: ['LG คืน', 'LG back'], th: ['ได้รับ LG คืน'], en: ['Bank guarantee returned'] } ] },
     ];
   }
 
   // ── 6. Project Economics — interactive cash-flow timeline (deck p13–14) ───────
   function InvEconomics({ p, tt, lang }) {
     const [code, setCode] = invSt('PL');
+    const [drill, setDrill] = invSt(null);   // เปิด modal แจกแจงรายสเต็ป (index ของ group)
     const prod = INV_PRODUCTS.find(x => x.code === code) || INV_PRODUCTS[0];
     // numbers come straight from each product's standard cost data — read-only (no manual entry)
     const cfg = INV_CF_DEF(code, prod.price);
@@ -580,6 +588,7 @@
 
     const [tlFull, setTlFull] = invSt(false);
     invEff(() => { if (!tlFull) return; const onKey = (e) => { if (e.key === 'Escape') setTlFull(false); }; window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey); }, [tlFull]);
+    invEff(() => { if (drill == null) return; const onKey = (e) => { if (e.key === 'Escape') setDrill(null); }; window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey); }, [drill]);
 
     // layout metrics — per-event columns, node on a gradient axis, premium card below
     const lay = (big) => ({
@@ -592,12 +601,13 @@
     const buildEventCard = (gd, L, big) => {
       const { g, i, type, inn, out, bal } = gd;
       const col = type === 'out' ? p.bad : (type === 'in' ? p.good : p.brand);
-      const icon = type === 'out' ? '↓' : (type === 'in' ? '↑' : '◆');
+      const icon = type === 'event' ? '◆' : '฿';
       const prim = g.items[0];
       const title = (lang === 'th' ? prim.th : prim.en)[0];
       const enLine = (lang === 'th' ? prim.en : prim.th)[0];
       const extra = (lang === 'th' ? prim.th : prim.en)[1] || '';
       const flow = type === 'out' ? out : (type === 'in' ? inn : 0);
+      const flowItems = type === 'event' ? [] : g.items.filter(it => it.k === (type === 'in' ? 'in' : 'out'));
       const isValley = i === valleyIdx && peak > 0, isFlip = i === flipIdx;
       const badge = isValley ? (lang === 'th' ? 'จุดต่ำสุด' : 'Lowest point') : (isFlip ? (lang === 'th' ? 'พลิกเป็นบวก' : 'Turns positive') : '');
       const badgeCol = isValley ? p.gold : p.good;
@@ -622,6 +632,12 @@
           el('div', { style: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 6 } },
             headline,
             el('span', { style: { fontSize: big ? 10 : 9, color: p.sub, fontWeight: 600, whiteSpace: 'nowrap', flex: '0 0 auto' } }, type === 'event' ? (lang === 'th' ? 'จุดเริ่ม' : 'Start') : (pctOf(flow) + (lang === 'th' ? '% ของสัญญา' : '% of contract')))),
+          flowItems.length > 1
+            ? el('div', { style: { marginTop: 7, paddingTop: 6, borderTop: '1px dashed ' + invRgba(col, 0.3), display: 'flex', flexDirection: 'column', gap: 4 } },
+                flowItems.map((it, j) => el('div', { key: j, style: { display: 'flex', justifyContent: 'space-between', gap: 6, fontSize: big ? 11.5 : 10.5 } },
+                  el('span', { style: { color: p.sub, fontWeight: 600 } }, (lang === 'th' ? it.tag[0] : it.tag[1])),
+                  el('span', { style: { color: col, fontWeight: 800, fontVariantNumeric: 'tabular-nums' } }, (type === 'in' ? '+' : '−') + '฿' + invCompact(it.amt) + ' · ' + pctOf(it.amt) + '%'))))
+            : (flowItems.length === 1 && flowItems[0].tag ? el('div', { style: { marginTop: 5, fontSize: big ? 11.5 : 10.5, color: col, fontWeight: 700 } }, (lang === 'th' ? flowItems[0].tag[0] : flowItems[0].tag[1]) + ' · ' + pctOf(flowItems[0].amt) + '% ' + (lang === 'th' ? 'ของสัญญา' : 'of contract')) : null),
           type === 'event' ? null : el('div', { style: { marginTop: 6, height: 4, borderRadius: 2, background: invRgba(p.ink, 0.07), overflow: 'hidden' } },
             el('div', { style: { height: '100%', borderRadius: 2, width: pctNum.toFixed(1) + '%', background: 'linear-gradient(90deg,' + invRgba(col, 0.6) + ',' + col + ')' } }))),
         el('div', { style: { marginTop: 11, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 } },
@@ -631,16 +647,21 @@
           el('div', { style: { position: 'absolute', top: 0, bottom: 0, left: 0, borderRadius: 4, width: depthPct.toFixed(1) + '%', background: bal < 0 ? 'linear-gradient(90deg,' + invRgba(p.bad, 0.4) + ',' + p.bad + ')' : (bal > 0 ? 'linear-gradient(90deg,' + p.good + ',' + invRgba(p.good, 0.4) + ')' : 'transparent') } })));
     };
 
-    // one timeline column: timing pill · node circle on axis · premium card
+    // one timeline column: timing pill · node circle (= วันที่นับจากลงนาม) on axis · premium card
     const column = (big) => (gd) => {
       const L = lay(big);
       const col = gd.type === 'out' ? p.bad : (gd.type === 'in' ? p.good : p.brand);
-      const icon = gd.type === 'out' ? '↓' : (gd.type === 'in' ? '↑' : '◆');
-      return el('div', { key: gd.i, style: { flex: '0 0 ' + L.w + 'px', width: L.w, padding: '0 13px', position: 'relative', zIndex: 1 } },
+      const isPre = gd.g.d < 1;
+      const dcap = isPre ? (lang === 'th' ? 'ก่อน' : 'PRE') : (lang === 'th' ? 'วันที่' : 'DAY');
+      const dnum = isPre ? String(1 - gd.g.d) : String(gd.g.d);
+      const dFont = dnum.length >= 3 ? (big ? 16 : 14) : (big ? 21 : 19);
+      return el('div', { key: gd.i, onClick: () => setDrill(gd.i), title: lang === 'th' ? 'คลิกเพื่อแจกแจงรายละเอียด' : 'Click for breakdown', style: { flex: '0 0 ' + L.w + 'px', width: L.w, padding: '0 13px', position: 'relative', zIndex: 1, cursor: 'pointer' } },
         el('div', { style: { height: L.pillH, display: 'flex', alignItems: 'flex-start', justifyContent: 'center' } },
-          el('span', { style: { fontSize: big ? 11 : 10, color: p.sub, background: p.card2, border: '1px solid ' + p.line, padding: '3px 10px', borderRadius: 99, whiteSpace: 'nowrap', lineHeight: 1.2 } }, (lang === 'th' ? gd.g.t[0] : gd.g.t[1]))),
+          el('span', { style: { fontSize: big ? 11 : 10, color: p.sub, background: p.card2, border: '1px solid ' + p.line, padding: '3px 10px', borderRadius: 99, whiteSpace: 'nowrap', lineHeight: 1.2 } }, invDayPill(gd.g.d, lang) + ' · ' + (lang === 'th' ? gd.g.t[0] : gd.g.t[1]))),
         el('div', { style: { height: L.nodeH, display: 'flex', alignItems: 'center', justifyContent: 'center' } },
-          el('div', { style: { width: L.node, height: L.node, borderRadius: '50%', background: p.card, border: '2.5px solid ' + col, color: col, display: 'grid', placeItems: 'center', fontSize: big ? 20 : 18, fontWeight: 800, boxShadow: '0 0 0 5px ' + p.card + ', 0 6px 16px -2px ' + invRgba(col, 0.5) } }, icon)),
+          el('div', { style: { width: L.node, height: L.node, borderRadius: '50%', background: p.card, border: '2.5px solid ' + col, color: col, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', lineHeight: 1, boxShadow: '0 0 0 5px ' + p.card + ', 0 6px 16px -2px ' + invRgba(col, 0.5) } },
+            el('div', { style: { fontSize: big ? 7.5 : 7, fontWeight: 700, letterSpacing: '0.04em', opacity: 0.72, marginBottom: 1.5 } }, dcap),
+            el('div', { style: { fontSize: dFont, fontWeight: 800, fontVariantNumeric: 'tabular-nums' } }, dnum))),
         buildEventCard(gd, L, big));
     };
 
@@ -701,7 +722,7 @@
     // step-by-step cash table — numbered chips, red/green balance bars, gold total row
     const stepTable = () => {
       const cell = (txt, color, weight, size) => el('td', { style: { padding: '15px 14px', textAlign: 'right', borderBottom: '1px solid ' + invRgba(p.ink, 0.06), fontVariantNumeric: 'tabular-nums', color: color || p.ink, fontWeight: weight || 700, fontSize: size || 18, whiteSpace: 'nowrap' } }, txt);
-      return el(InvCard, { p, title: lang === 'th' ? 'สรุปกระแสเงินสดรายสเต็ป' : 'Step-by-step cash flow', note: lang === 'th' ? 'คงเหลือสะสมติดลบ = ต้องใช้เงินทุน/สินเชื่อ' : 'negative cumulative = funding / loan needed', style: { marginBottom: 14 } },
+      return el(InvCard, { p, title: lang === 'th' ? 'สรุปกระแสเงินสดรายสเต็ป' : 'Step-by-step cash flow', note: lang === 'th' ? '👆 คลิกแถวเพื่อแจกแจง · คงเหลือสะสมติดลบ = ต้องใช้เงินทุน/สินเชื่อ' : '👆 click a row for detail · negative cumulative = funding needed', style: { marginBottom: 14 } },
         el('div', null,
           el('table', { style: { width: '100%', borderCollapse: 'collapse', fontSize: 18, tableLayout: 'fixed' } },
             el('thead', null, el('tr', { style: { fontSize: 14, color: p.sub, letterSpacing: '0.04em' } },
@@ -717,13 +738,21 @@
                   ? { position: 'absolute', top: 0, bottom: 0, right: '50%', width: half + '%', background: 'linear-gradient(90deg,' + invRgba(p.bad, 0.25) + ',' + p.bad + ')', borderRadius: 5 }
                   : (gd.bal > 0 ? { position: 'absolute', top: 0, bottom: 0, left: '50%', width: half + '%', background: 'linear-gradient(90deg,' + p.good + ',' + invRgba(p.good, 0.25) + ')', borderRadius: 5 } : { width: 0 });
                 const prim = gd.g.items[0];
-                return el('tr', { key: gd.i, style: { background: rowBg, borderLeft: '3px solid ' + (isValley ? p.gold : (isFlip ? p.good : 'transparent')) } },
+                const cashIts = gd.g.items.filter(it => it.k === 'in' || it.k === 'out');
+                const chips = cashIts.length
+                  ? el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 7 } },
+                      cashIts.map((it, j) => { const ic = it.k === 'in' ? p.good : p.bad;
+                        return el('span', { key: j, style: { fontSize: 12.5, fontWeight: 700, padding: '2px 9px', borderRadius: 7, background: invRgba(ic, 0.1), color: ic, whiteSpace: 'nowrap' } },
+                          (lang === 'th' ? it.tag[0] : it.tag[1]) + ' · ' + pctOf(it.amt) + '% · ' + (it.k === 'in' ? '+' : '−') + '฿' + invCompact(it.amt)); }))
+                  : el('div', { style: { marginTop: 7, fontSize: 12.5, color: p.sub, fontWeight: 600 } }, lang === 'th' ? '◆ เหตุการณ์ (ไม่มีกระแสเงิน)' : '◆ Milestone (no cash)');
+                return el('tr', { key: gd.i, onClick: () => setDrill(gd.i), title: lang === 'th' ? 'คลิกเพื่อแจกแจงรายละเอียด' : 'Click for breakdown', style: { background: rowBg, borderLeft: '3px solid ' + (isValley ? p.gold : (isFlip ? p.good : 'transparent')), cursor: 'pointer' } },
                   el('td', { style: { padding: '15px 14px', borderBottom: '1px solid ' + invRgba(p.ink, 0.06) } },
-                    el('div', { style: { display: 'flex', alignItems: 'center', gap: 13 } },
+                    el('div', { style: { display: 'flex', alignItems: 'flex-start', gap: 13 } },
                       el('span', { style: { flex: '0 0 auto', width: 34, height: 34, borderRadius: 9, display: 'grid', placeItems: 'center', fontSize: 17, fontWeight: 800, background: invRgba(col, 0.12), color: col } }, gd.i + 1),
                       el('span', { style: { minWidth: 0 } },
                         el('span', { style: { fontSize: 18, fontWeight: 700, color: p.ink } }, (lang === 'th' ? prim.th : prim.en)[0]),
-                        el('span', { style: { display: 'block', fontSize: 14, color: p.sub, marginTop: 2 } }, (lang === 'th' ? gd.g.t[0] : gd.g.t[1]))))),
+                        el('span', { style: { display: 'block', fontSize: 14, color: p.sub, marginTop: 2 } }, invDayPill(gd.g.d, lang) + ' · ' + (lang === 'th' ? gd.g.t[0] : gd.g.t[1])),
+                        chips))),
                   cell(gd.inn ? '฿' + invCompact(gd.inn) : '—', gd.inn ? p.good : invRgba(p.ink, 0.3)),
                   cell(gd.out ? '฿' + invCompact(gd.out) : '—', gd.out ? p.bad : invRgba(p.ink, 0.3)),
                   cell((gd.net >= 0 ? '+' : '−') + '฿' + invCompact(Math.abs(gd.net)), gd.net < 0 ? p.bad : (gd.net > 0 ? p.good : p.sub), 700),
@@ -747,8 +776,64 @@
           el('span', { style: { display: 'flex', alignItems: 'center', gap: 8 } }, el('span', { style: { width: 9, height: 9, borderRadius: '50%', background: p.good } }), (lang === 'th' ? 'กำไรขั้นต้นเมื่อจบโครงการ ' : 'Gross margin at close '), el('b', { style: { color: p.good } }, '฿' + invCompact(margin) + ' (' + pctOf(margin) + '%)'))));
     };
 
+    // click-through breakdown — แจกแจงแต่ละสเต็ปว่าเป็น "ค่าอะไร · งวดไหน · กี่% · กี่บาท"
+    const catOf = (it) => {
+      const f = it.f || '';
+      if (f.charAt(0) === 'g') return { th: 'ค่าของ', en: 'Goods', c: p.brand };
+      if (f.charAt(0) === 'i') return { th: 'ค่าติดตั้ง', en: 'Installation', c: p.brand2 };
+      if (f === 'commPct') return { th: 'คอมมิชชั่น', en: 'Commission', c: p.gold };
+      if (f === 'lgPct') return { th: 'LG ค้ำประกัน', en: 'Bank guarantee', c: p.sub };
+      if (f === 'm1Pct' || f === 'm2Pct') return { th: 'รับเงินงวด', en: 'Milestone receipt', c: p.good };
+      return { th: '', en: '', c: p.sub };
+    };
+    const drillModal = () => {
+      if (drill == null || !gs[drill]) return null;
+      const gd = gs[drill], g = gd.g;
+      const sumRow = (label, val, c) => el('div', { style: { display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 14 } },
+        el('span', { style: { color: p.sub, fontWeight: 600 } }, label),
+        el('span', { style: { color: c || p.ink, fontWeight: 800, fontVariantNumeric: 'tabular-nums' } }, val));
+      return el('div', { onClick: () => setDrill(null), style: { position: 'fixed', inset: 0, zIndex: 1300, background: 'rgba(15,23,42,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 } },
+        el('div', { onClick: (e) => e.stopPropagation(), style: { width: '100%', maxWidth: 580, maxHeight: '86vh', overflow: 'auto', background: p.card, borderRadius: 18, border: '1px solid ' + p.line, boxShadow: '0 30px 80px -20px rgba(0,0,0,0.55)', padding: '22px 24px 18px' } },
+          el('div', { style: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 } },
+            el('div', null,
+              el('div', { style: { display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12.5, fontWeight: 800, color: p.brand, background: invRgba(p.brand, 0.1), padding: '4px 12px', borderRadius: 8 } },
+                (lang === 'th' ? 'สเต็ป ' : 'Step ') + (gd.i + 1), el('span', { style: { width: 1, height: 11, background: invRgba(p.brand, 0.4) } }), invDayPill(g.d, lang)),
+              el('div', { style: { fontSize: 21, fontWeight: 800, color: p.ink, marginTop: 9 } }, (lang === 'th' ? g.t[0] : g.t[1]))),
+            el('button', { onClick: () => setDrill(null), style: { flex: '0 0 auto', width: 34, height: 34, borderRadius: 9, border: '1px solid ' + p.line, background: p.card2, color: p.sub, fontSize: 16, fontWeight: 800, cursor: 'pointer' } }, '✕')),
+          el('div', { style: { marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 } },
+            g.items.map((it, j) => {
+              if (it.k === 'mark') {
+                const md = (lang === 'th' ? it.th : it.en);
+                return el('div', { key: j, style: { display: 'flex', alignItems: 'flex-start', gap: 11, padding: '12px 14px', borderRadius: 12, background: invRgba(p.brand, 0.05), border: '1px dashed ' + invRgba(p.brand, 0.3) } },
+                  el('span', { style: { fontSize: 16, color: p.brand, lineHeight: 1.3 } }, '◆'),
+                  el('span', { style: { minWidth: 0 } },
+                    el('span', { style: { display: 'block', fontSize: 15, fontWeight: 700, color: p.ink } }, md[0]),
+                    md[1] ? el('span', { style: { display: 'block', fontSize: 12.5, color: p.brand, marginTop: 2, fontWeight: 700 } }, md[1]) : null,
+                    el('span', { style: { display: 'block', fontSize: 12, color: p.sub, marginTop: 3 } }, lang === 'th' ? 'เหตุการณ์ — ไม่มีกระแสเงิน' : 'Milestone — no cash flow')));
+              }
+              const isIn = it.k === 'in', c = isIn ? p.good : p.bad, cat = catOf(it);
+              return el('div', { key: j, style: { display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 12, background: invRgba(c, 0.06), border: '1px solid ' + invRgba(c, 0.22) } },
+                el('span', { style: { flex: '0 0 auto', fontSize: 11, fontWeight: 800, padding: '4px 10px', borderRadius: 7, background: invRgba(cat.c, 0.14), color: cat.c, whiteSpace: 'nowrap' } }, lang === 'th' ? cat.th : cat.en),
+                el('span', { style: { minWidth: 0, flex: 1 } },
+                  el('span', { style: { display: 'block', fontSize: 15, fontWeight: 700, color: p.ink } }, (lang === 'th' ? it.th : it.en)[0]),
+                  el('span', { style: { display: 'block', fontSize: 12.5, color: p.sub, marginTop: 2 } }, (isIn ? (lang === 'th' ? 'รับเข้า' : 'cash in') : (lang === 'th' ? 'จ่ายออก' : 'cash out')) + ' · ' + pctOf(it.amt) + (lang === 'th' ? '% ของมูลค่าสัญญา' : '% of contract'))),
+                el('span', { style: { flex: '0 0 auto', textAlign: 'right' } },
+                  el('span', { style: { display: 'block', fontSize: 17, fontWeight: 800, color: c, fontVariantNumeric: 'tabular-nums' } }, (isIn ? '+' : '−') + '฿' + invFmt(it.amt)),
+                  el('span', { style: { display: 'block', fontSize: 11.5, color: p.sub, marginTop: 1 } }, pctOf(it.amt) + '%')));
+            })),
+          el('div', { style: { marginTop: 16, padding: '14px 16px', borderRadius: 13, background: p.card2, border: '1px solid ' + p.line, display: 'flex', flexDirection: 'column', gap: 8 } },
+            sumRow(lang === 'th' ? 'รับเข้า' : 'Cash in', gd.inn ? '+฿' + invFmt(gd.inn) : '—', gd.inn ? p.good : p.sub),
+            sumRow(lang === 'th' ? 'จ่ายออก' : 'Cash out', gd.out ? '−฿' + invFmt(gd.out) : '—', gd.out ? p.bad : p.sub),
+            sumRow(lang === 'th' ? 'สุทธิสเต็ปนี้' : 'Net this step', (gd.net >= 0 ? '+' : '−') + '฿' + invFmt(Math.abs(gd.net)), gd.net < 0 ? p.bad : (gd.net > 0 ? p.good : p.sub)),
+            el('div', { style: { height: 1, background: p.line, margin: '2px 0' } }),
+            sumRow(lang === 'th' ? 'คงเหลือสะสม' : 'Cumulative balance', (gd.bal < 0 ? '−' : '+') + '฿' + invFmt(Math.abs(gd.bal)), gd.bal < 0 ? p.bad : p.good)),
+          el('div', { style: { marginTop: 12, fontSize: 11.5, color: p.sub, lineHeight: 1.5 } },
+            lang === 'th' ? ('% คิดจากมูลค่าสัญญา ฿' + invFmt(C) + ' · ตัวเลขต้นทุนอ้างอิงราคาต้นทุนมาตรฐานของรุ่น ' + code) : ('% of contract ฿' + invFmt(C) + ' · cost figures from product ' + code + ' standard cost data'))));
+    };
+
     return el('div', null,
       el('style', null, '@keyframes invShimmer{0%{background-position:200% 0;}100%{background-position:-200% 0;}}'),
+      drillModal(),
       // fullscreen present overlay for the timeline
       tlFull ? el('div', { style: { position: 'fixed', inset: 0, zIndex: 1200, background: p.bg, padding: '18px 24px', overflow: 'auto', display: 'flex', flexDirection: 'column' } },
         el('div', { style: { display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', marginBottom: 16 } },
@@ -774,7 +859,7 @@
             el('span', { style: { width: 5, height: 32, borderRadius: 3, background: 'linear-gradient(' + p.gold + ',' + p.good + ')', flex: '0 0 auto' } }),
             el('div', null,
               el('div', { style: { fontSize: 18, fontWeight: 800, color: p.ink } }, lang === 'th' ? 'ลำดับเหตุการณ์โครงการ' : 'Project Event Sequence'),
-              el('div', { style: { fontSize: 11.5, color: p.sub, marginTop: 2 } }, (lang === 'th' ? 'Project Event Sequence · ' : '') + gs.length + (lang === 'th' ? ' เหตุการณ์ · ระยะเวลา ~2 ปี' : ' events · ~2 yr horizon')))),
+              el('div', { style: { fontSize: 11.5, color: p.sub, marginTop: 2 } }, gs.length + (lang === 'th' ? ' เหตุการณ์ · ระยะเวลา ~2 ปี · ตัวเลขในวงกลม = วันที่นับจากลงนาม (วันลงนาม = วันที่ 1) · 👆 คลิกเพื่อแจกแจง' : ' events · ~2 yr · circle = day from signing (signing = Day 1) · 👆 click for detail')))),
           el('div', { style: { marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' } }, legend,
             el('button', { onClick: () => setTlFull(true), style: { height: 32, padding: '0 13px', borderRadius: 8, border: 'none', background: 'linear-gradient(135deg,' + p.brand + ',' + p.brand2 + ')', color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer' } }, '⛶ ' + (lang === 'th' ? 'นำเสนอเต็มจอ' : 'Present')))),
         renderTimeline(false)),
