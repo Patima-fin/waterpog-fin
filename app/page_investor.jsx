@@ -8,6 +8,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 (function () {
   const R = window.React;
+  const el = R.createElement;
   const invSt = R.useState, invMemo = R.useMemo, invEff = R.useEffect, invRef = R.useRef;
 
   // ── product catalog (ราคาจริงจาก "ราคาผลิตภัณฑ์ WATER POG.xlsx") ──────────────
@@ -478,42 +479,130 @@
     );
   }
 
-  // ── 6. Project Economics (deck p13–14) ────────────────────────────────────────
+  // ── editable cash-flow config per product (persisted via WTPOverride) ─────────
+  const INV_CF_DEF = (c) => ({ contract: c, invAdv1: Math.round(c * 0.17), inv2: Math.round(c * 0.17), inv3: Math.round(c * 0.17), instAdv1: Math.round(c * 0.12), inst3: Math.round(c * 0.12), commPct: 6, lgPct: 5, m1Pct: 40, m2Pct: 60 });
+  function InvNumIn({ p, value, onChange, onBlur, w, mono }) {
+    return el('input', { type: 'number', value: (value === 0 || value == null) ? '' : value, placeholder: '0',
+      onChange: e => onChange(e.target.value === '' ? 0 : Number(e.target.value)), onBlur: onBlur,
+      style: { width: w || 88, height: 26, border: '1px solid ' + p.line, borderRadius: 6, padding: '0 6px', background: p.card2, color: p.ink, fontSize: 11.5, fontWeight: 700, textAlign: 'right', fontVariantNumeric: 'tabular-nums' } });
+  }
+
+  // build the ordered cash-flow event list from the current config
+  function invCfEvents(cfg) {
+    const C = cfg.contract || 0;
+    return [
+      { k: 'mark', th: ['ได้รับใบจัดสรร'], en: ['Allocation letter received'], t: ['วันเริ่มต้น', 'Day 0'] },
+      { k: 'out', edit: 'thb', f: 'invAdv1', amt: cfg.invAdv1, th: ['จ่ายค่าของล่วงหน้า (งวด 1)'], en: ['Advance inventory (lot 1)'], t: ['+30 วัน', '+30 days'] },
+      { k: 'out', edit: 'pct', f: 'lgPct', amt: C * cfg.lgPct / 100, pv: cfg.lgPct, ret: true, th: ['ออก LG ค้ำประกัน'], en: ['Issue LG (bank guarantee)'], t: ['7 วันก่อนลงนาม', '7 days before signing'] },
+      { k: 'mark', th: ['ลงนามสัญญา'], en: ['Contract signing'], t: ['วันที่ 1', 'Day 1'] },
+      { k: 'out', edit: 'pct', f: 'commPct', amt: C * cfg.commPct / 100, pv: cfg.commPct, th: ['จ่ายค่าคอมมิชชั่น'], en: ['Pay commission'], t: ['วันลงนาม', 'At signing'] },
+      { k: 'out', edit: 'thb', f: 'instAdv1', amt: cfg.instAdv1, th: ['จ่ายค่าติดตั้งล่วงหน้า (งวด 1)'], en: ['Advance installation (lot 1)'], t: ['วันลงนาม', 'At signing'] },
+      { k: 'out', edit: 'thb', f: 'inv2', amt: cfg.inv2, th: ['จ่ายค่าของ (งวด 2)'], en: ['Inventory (lot 2)'], t: ['~2 เดือน · เริ่มงานถัง', '~2 months · tank work'] },
+      { k: 'out', edit: 'thb', f: 'inv3', amt: cfg.inv3, th: ['จ่ายค่าของ (งวดสุดท้าย)'], en: ['Inventory (final lot)'], t: ['+7 วัน · ติดตั้งถังเสร็จ', '+7 days · tank installed'] },
+      { k: 'mark', th: ['ส่งมอบงานงวด 1', 'เคลม 40% ของมูลค่าโครงการ'], en: ['Deliver milestone 1', 'Claim 40% of project value'], t: ['วันติดตั้งเสร็จ', 'Install completion'] },
+      { k: 'in', edit: 'pct', f: 'm1Pct', amt: C * cfg.m1Pct / 100, pv: cfg.m1Pct, th: ['รับเงินงวด 1'], en: ['Cash received #1'], t: ['+30 วัน', '+30 days'] },
+      { k: 'mark', th: ['ส่งมอบงานงวด 2'], en: ['Deliver milestone 2'], t: ['ก่อสร้างต่อเนื่อง', 'Construction continues'] },
+      { k: 'out', edit: 'thb', f: 'inst3', amt: cfg.inst3, th: ['จ่ายค่าติดตั้ง (งวดสุดท้าย)'], en: ['Installation (final)'], t: ['วันส่งมอบงวด 2', 'At milestone 2'] },
+      { k: 'in', edit: 'pct', f: 'm2Pct', amt: C * cfg.m2Pct / 100, pv: cfg.m2Pct, th: ['รับเงินงวดสุดท้าย'], en: ['Final cash received'], t: ['+30 วัน', '+30 days'] },
+      { k: 'in', amt: C * cfg.lgPct / 100, ret: true, th: ['ได้รับ LG คืน'], en: ['LG returned'], t: ['+2 ปี', '+2 years'] },
+    ];
+  }
+
+  // ── 6. Project Economics — interactive cash-flow timeline (deck p13–14) ───────
   function InvEconomics({ p, tt, lang }) {
-    const cost = [
-      { th: 'ต้นทุนสินค้า (ถัง+ปั๊ม)', en: 'Inventory cost', pct: 51, color: p.brand },
-      { th: 'ต้นทุนติดตั้ง', en: 'Installation cost', pct: 24, color: p.brand2 },
-      { th: 'กำไรขั้นต้น (Margin)', en: 'Margin', pct: 25, color: p.accent },
+    const [code, setCode] = invSt('PL');
+    const prod = INV_PRODUCTS.find(x => x.code === code) || INV_PRODUCTS[0];
+    const cfgKey = (c) => 'cfp.' + c;
+    const loadCfg = (c, price) => { try { const raw = invGet(cfgKey(c), ''); if (raw) return Object.assign(INV_CF_DEF(price), JSON.parse(raw)); } catch (_) {} return INV_CF_DEF(price); };
+    const [cfg, setCfg] = invSt(() => loadCfg('PL', INV_PRODUCTS.find(x => x.code === 'PL').price));
+    const cfgRef = invRef(cfg);
+    invEff(() => { const c = loadCfg(code, prod.price); cfgRef.current = c; setCfg(c); }, [code]);
+    const setField = (k, v) => { const next = Object.assign({}, cfgRef.current, { [k]: v }); cfgRef.current = next; setCfg(next); };
+    const persist = () => { try { invSet(cfgKey(code), JSON.stringify(cfgRef.current)); } catch (_) {} };
+    const resetCfg = () => { const c = INV_CF_DEF(prod.price); cfgRef.current = c; setCfg(c); invSet(cfgKey(code), JSON.stringify(c)); };
+
+    const C = cfg.contract || 0;
+    const events = invCfEvents(cfg);
+    const pctOf = (a) => C ? (a / C * 100).toFixed(1) : '0.0';
+    // cumulative + key figures
+    let run = 0, minRun = 0, beforeRecv1 = 0, seenIn = false;
+    events.forEach(e => { const flow = e.k === 'out' ? -e.amt : e.k === 'in' ? e.amt : 0; if (e.k === 'in' && !seenIn) { beforeRecv1 = -run; seenIn = true; } run += flow; if (run < minRun) minRun = run; });
+    const peak = -minRun;
+    const totalCost = cfg.invAdv1 + cfg.inv2 + cfg.inv3 + cfg.instAdv1 + cfg.inst3 + C * cfg.commPct / 100;
+    const margin = C - totalCost;
+    const costSeg = [
+      { th: 'ค่าของ (Inventory)', en: 'Inventory', pct: Math.round((cfg.invAdv1 + cfg.inv2 + cfg.inv3) / (C || 1) * 100), color: p.brand },
+      { th: 'ค่าติดตั้ง', en: 'Installation', pct: Math.round((cfg.instAdv1 + cfg.inst3) / (C || 1) * 100), color: p.brand2 },
+      { th: 'คอมมิชชั่น', en: 'Commission', pct: Math.round(cfg.commPct), color: p.gold },
+      { th: 'กำไรขั้นต้น', en: 'Margin', pct: Math.max(0, Math.round(margin / (C || 1) * 100)), color: p.accent },
     ];
-    const pipe = lang === 'th' ? [
-      ['งบประมาณรัฐที่ยืนยันแล้ว', 300], ['งานใน Backlog', 900], ['รวมทั้งหมด', 1200, true],
-      ['เงินทุนที่ต้องใช้ทุกโครงการ', 900], ['สินเชื่อที่คาดว่าต้องใช้', '200–300'],
-    ] : [
-      ['Confirmed government budget', 300], ['Backlog projects', 900], ['Total', 1200, true],
-      ['Funding required for all projects', 900], ['Expected loans required', '200–300'],
-    ];
-    const steps = lang === 'th'
-      ? [['เซ็นสัญญา', 'สั่งซื้อสินค้าล็อตใหญ่ทันทีที่ได้งาน'], ['เริ่มติดตั้ง', 'จ่ายค่าติดตั้งงวด 1 (40%)'], ['ติดตั้งงวดแรกเสร็จ', 'จ่ายค่าติดตั้งงวด 2 (40%)'], ['ส่งมอบงาน', 'จ่ายค่าติดตั้งงวด 3 (20%)'], ['รับเงินงวด 1 (+40%)', 'หลังส่งมอบ ~30 วัน'], ['รับเงินงวด 2 (+60%)', 'อีก 14–30 วัน']]
-      : [['Contract signing', 'Large inventory lot purchased once secured'], ['Start installation', 'Installation cost #1 (40%)'], ['Finish 1st installation', 'Installation cost #2 (40%)'], ['Deliver installation', 'Installation cost #3 (20%)'], ['Cash received #1 (+40%)', '~30 days after delivery'], ['Cash received #2 (+60%)', 'a further 14–30 days']];
-    return R.createElement('div', null,
-      R.createElement(InvCard, { p, title: tt.cfTimeline, note: lang === 'th' ? 'จ่ายค่าติดตั้งล่วงหน้า ~9 เดือนก่อนรับเงินงวดสุดท้าย' : 'Pay installation ~9 months before the final payment', style: { marginBottom: 14 } },
-        R.createElement('div', { style: { display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4 } },
-          steps.map((s, i) => R.createElement('div', { key: i, style: { flex: '1 0 150px', minWidth: 150, background: p.card2, border: '1px solid ' + p.line, borderRadius: 12, padding: 12, position: 'relative' } },
-            R.createElement('div', { style: { width: 24, height: 24, borderRadius: 7, background: i >= 4 ? p.good : p.brand, color: '#fff', display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 800, marginBottom: 7 } }, i + 1),
-            R.createElement('div', { style: { fontSize: 12.5, fontWeight: 800, color: p.ink, marginBottom: 3 } }, s[0]),
-            R.createElement('div', { style: { fontSize: 11, color: p.sub, lineHeight: 1.4 } }, s[1]))))),
-      R.createElement('div', { style: gridR(2) },
-        R.createElement(InvCard, { p, title: tt.econTitle, note: lang === 'th' ? 'มูลค่าโครงการ 5.40 ลบ.' : 'Project value THB 5.40 mn' },
-          R.createElement(InvSeg, { p, lang, items: cost }),
-          R.createElement('div', { style: { fontSize: 12, color: p.sub, marginTop: 12, lineHeight: 1.6 } }, lang === 'th' ? 'ต้นทุนสินค้า+ติดตั้ง รวม ~75% ของมูลค่าโครงการ — เป็นส่วนที่ต้องใช้เงินทุนหมุนเวียน' : 'Inventory + installation ≈ 75% of project value — the portion requiring working capital')),
-        R.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 14 } },
-          R.createElement(InvCard, { p, title: tt.pipelineTitle },
-            R.createElement(InvTable, { p, rows: pipe.map(r => ({ bold: r[2], cells: [r[0], (typeof r[1] === 'number' ? invFmt(r[1]) : r[1])] })) })),
-          R.createElement(InvCard, { p, title: lang === 'th' ? 'วงเงินสินเชื่อปัจจุบัน' : 'Current Loan Facilities' },
-            R.createElement('div', { style: { fontSize: 12.5, color: p.sub, lineHeight: 1.7 } },
+
+    // one timeline station
+    const station = (e, i) => {
+      const isOut = e.k === 'out', isMark = e.k === 'mark';
+      const col = isOut ? p.bad : (e.k === 'in' ? p.good : p.brand);
+      const valueCard = el('div', { style: { background: p.card, border: '1px solid ' + p.line, borderLeft: '3px solid ' + col, borderRadius: 9, padding: '7px 8px', boxShadow: p.shadow } },
+        el('div', { style: { fontSize: 10.5, fontWeight: 800, color: col, lineHeight: 1.25, marginBottom: 5, minHeight: 26 } }, (lang === 'th' ? e.th : e.en)[0]),
+        el('div', { style: { display: 'flex', alignItems: 'center', gap: 4 } },
+          e.edit ? InvNumIn({ p, value: e.edit === 'pct' ? e.pv : cfg[e.f], w: e.edit === 'pct' ? 50 : 84, onChange: v => setField(e.f, v), onBlur: persist })
+            : el('span', { style: { fontSize: 13, fontWeight: 800, color: p.ink, fontVariantNumeric: 'tabular-nums' } }, '฿' + invCompact(e.amt)),
+          e.edit === 'pct' ? el('span', { style: { fontSize: 11, color: p.sub, fontWeight: 700 } }, '%') : null),
+        el('div', { style: { fontSize: 10, color: p.sub, marginTop: 4 } },
+          e.edit === 'thb' ? (pctOf(e.amt) + (lang === 'th' ? '% ของสัญญา' : '% of contract'))
+            : e.edit === 'pct' ? ('฿' + invCompact(e.amt))
+              : (e.ret ? (lang === 'th' ? 'คืนภายหลัง' : 'returned') : '')));
+      const markCard = el('div', { style: { background: p.card2, border: '1px dashed ' + p.brand, borderRadius: 9, padding: '7px 8px' } },
+        el('div', { style: { fontSize: 10.5, fontWeight: 800, color: p.brand, lineHeight: 1.25 } }, (lang === 'th' ? e.th : e.en)[0]),
+        (lang === 'th' ? e.th : e.en)[1] ? el('div', { style: { fontSize: 9.5, color: p.sub, marginTop: 2, lineHeight: 1.3 } }, (lang === 'th' ? e.th : e.en)[1]) : null);
+      return el('div', { key: i, style: { position: 'relative', flex: '0 0 172px', width: 172, height: 250 } },
+        (!isOut) ? el('div', { style: { position: 'absolute', top: 4, left: 8, right: 8 } }, isMark ? markCard : valueCard) : null,
+        el('div', { style: { position: 'absolute', top: 110, left: 0, right: 0, textAlign: 'center' } },
+          el('span', { style: { fontSize: 10, color: p.sub, background: p.bg, padding: '2px 7px', borderRadius: 6, whiteSpace: 'nowrap' } }, (lang === 'th' ? e.t[0] : e.t[1]))),
+        el('div', { style: { position: 'absolute', top: 130, left: '50%', transform: 'translateX(-50%)', width: 15, height: 15, borderRadius: '50%', background: col, border: '3px solid ' + p.card, zIndex: 2 } }),
+        isOut ? el('div', { style: { position: 'absolute', top: 152, left: 8, right: 8 } }, valueCard) : null);
+    };
+
+    const products = INV_PRODUCTS.map(pr => el('option', { key: pr.code, value: pr.code }, pr.code + ' · ' + pr.name + ' (฿' + invCompact(pr.price) + ')'));
+    const pipe = lang === 'th'
+      ? [['งบประมาณรัฐที่ยืนยันแล้ว', 300], ['งานใน Backlog', 900], ['รวมทั้งหมด', 1200, true], ['เงินทุนที่ต้องใช้ทุกโครงการ', 900], ['สินเชื่อที่คาดว่าต้องใช้', '200–300']]
+      : [['Confirmed government budget', 300], ['Backlog projects', 900], ['Total', 1200, true], ['Funding required for all projects', 900], ['Expected loans required', '200–300']];
+
+    return el('div', null,
+      // controls
+      el('div', { style: { display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14, background: p.card, border: '1px solid ' + p.line, borderRadius: 14, padding: '12px 16px', boxShadow: p.shadow } },
+        el('div', null,
+          el('div', { style: { fontSize: 11, color: p.sub, fontWeight: 600, marginBottom: 4 } }, lang === 'th' ? 'เลือกผลิตภัณฑ์' : 'Select product'),
+          el('select', { value: code, onChange: e => setCode(e.target.value), style: { height: 34, minWidth: 240, border: '1px solid ' + p.line, borderRadius: 8, padding: '0 10px', background: p.card2, color: p.ink, fontSize: 12.5, fontWeight: 600 } }, products)),
+        el('div', null,
+          el('div', { style: { fontSize: 11, color: p.sub, fontWeight: 600, marginBottom: 4 } }, lang === 'th' ? 'มูลค่าสัญญา (บาท)' : 'Contract value (THB)'),
+          InvNumIn({ p, value: cfg.contract, w: 150, onChange: v => setField('contract', v), onBlur: persist })),
+        el('button', { onClick: resetCfg, style: { height: 34, padding: '0 12px', borderRadius: 8, border: '1px solid ' + p.line, background: p.card2, color: p.sub, fontSize: 12, fontWeight: 600, cursor: 'pointer' } }, lang === 'th' ? '↺ ค่าเริ่มต้น' : '↺ Reset'),
+        el('div', { style: { marginLeft: 'auto', fontSize: 11, color: p.sub, maxWidth: 260, lineHeight: 1.45 } }, lang === 'th' ? 'กรอกจำนวนเงิน/% แต่ละงวด — บันทึกอัตโนมัติ (ทีมเห็นร่วมกัน)' : 'Enter amounts/% per stage — saved automatically (shared with the team)')),
+      // key figures
+      el('div', { style: Object.assign(gridR(4), { marginBottom: 14 }) },
+        el(InvKpi, { p, label: lang === 'th' ? 'จ่ายก่อนรับเงินงวดแรก' : 'Paid before first receipt', value: '฿' + invCompact(beforeRecv1), sub: pctOf(beforeRecv1) + (lang === 'th' ? '% ของสัญญา' : '% of contract'), accent: p.bad }),
+        el(InvKpi, { p, label: lang === 'th' ? 'เงินทุนหมุนเวียนสูงสุด' : 'Peak funding need', value: '฿' + invCompact(peak), sub: pctOf(peak) + (lang === 'th' ? '% ของสัญญา' : '% of contract'), accent: p.gold }),
+        el(InvKpi, { p, label: lang === 'th' ? 'มูลค่าสัญญา' : 'Contract value', value: '฿' + invCompact(C), accent: p.brand }),
+        el(InvKpi, { p, label: lang === 'th' ? 'กำไรขั้นต้นโดยประมาณ' : 'Est. gross margin', value: '฿' + invCompact(margin), sub: pctOf(margin) + '%', accent: p.accent })),
+      // timeline
+      el(InvCard, { p, title: tt.cfTimeline, note: lang === 'th' ? '🔴 จ่ายออก · 🟢 รับเข้า · 🔵 เหตุการณ์' : '🔴 cash out · 🟢 cash in · 🔵 milestone', style: { marginBottom: 14 } },
+        el('div', { style: { overflowX: 'auto', paddingBottom: 6 } },
+          el('div', { style: { display: 'inline-flex', position: 'relative', minWidth: '100%' } },
+            el('div', { style: { position: 'absolute', top: 137, left: 80, right: 40, height: 2, background: p.line, zIndex: 1 } }),
+            events.map(station)))),
+      // cost structure + pipeline + loans
+      el('div', { style: gridR(2) },
+        el(InvCard, { p, title: lang === 'th' ? 'โครงสร้างต้นทุนโครงการ (คำนวณจากที่กรอก)' : 'Project Cost Structure (computed)', note: '฿' + invCompact(C) },
+          el(InvSeg, { p, lang, items: costSeg }),
+          el('div', { style: { fontSize: 12, color: p.sub, marginTop: 12, lineHeight: 1.6 } }, lang === 'th' ? 'ค่าของ+ค่าติดตั้ง = ส่วนที่ต้องใช้เงินทุนหมุนเวียน · LG คืนภายใน 2 ปี' : 'Inventory + installation = the working-capital portion · LG returned within 2 years')),
+        el('div', { style: { display: 'flex', flexDirection: 'column', gap: 14 } },
+          el(InvCard, { p, title: tt.pipelineTitle },
+            el(InvTable, { p, rows: pipe.map(r => ({ bold: r[2], cells: [r[0], (typeof r[1] === 'number' ? invFmt(r[1]) : r[1])] })) })),
+          el(InvCard, { p, title: lang === 'th' ? 'วงเงินสินเชื่อปัจจุบัน' : 'Current Loan Facilities' },
+            el('div', { style: { fontSize: 12.5, color: p.sub, lineHeight: 1.7 } },
               lang === 'th'
                 ? 'KTB Pre-PN วงเงิน 110 ลบ. — เบิกได้ 50% ของมูลค่าโครงการเมื่อได้หนังสือเข้าพื้นที่ · KTB รับสิทธิเก็บเงินจากลูกค้าเพื่อหักเงินต้น+ดอกเบี้ยก่อนคืนส่วนที่เหลือ · LG 5% ของมูลค่าโครงการ'
-                : 'KTB Pre-PN credit line of THB 110 mn — draw 50% of project value upon the site-access letter · KTB collects payment from the customer to deduct principal + interest before returning the balance · LG 5% of project value')))
+                : 'KTB Pre-PN credit line of THB 110 mn — draw 50% of project value upon the site-access letter · KTB collects payment to deduct principal + interest before returning the balance · LG 5% of project value')))
       )
     );
   }
