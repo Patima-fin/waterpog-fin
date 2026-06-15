@@ -488,24 +488,34 @@
       style: { width: w || 88, height: 26, border: '1px solid ' + p.line, borderRadius: 6, padding: '0 6px', background: p.card2, color: p.ink, fontSize: 11.5, fontWeight: 700, textAlign: 'right', fontVariantNumeric: 'tabular-nums' } });
   }
 
-  // build the ordered cash-flow event list from the current config
-  function invCfEvents(cfg) {
+  // build the ordered cash-flow GROUPS (events on the same day share one axis point)
+  function invCfGroups(cfg) {
     const C = cfg.contract || 0;
     return [
-      { k: 'mark', th: ['ได้รับใบจัดสรร'], en: ['Allocation letter received'], t: ['วันเริ่มต้น', 'Day 0'] },
-      { k: 'out', edit: 'thb', f: 'invAdv1', amt: cfg.invAdv1, th: ['จ่ายค่าของล่วงหน้า (งวด 1)'], en: ['Advance inventory (lot 1)'], t: ['+30 วัน', '+30 days'] },
-      { k: 'out', edit: 'pct', f: 'lgPct', amt: C * cfg.lgPct / 100, pv: cfg.lgPct, ret: true, th: ['ออก LG ค้ำประกัน'], en: ['Issue LG (bank guarantee)'], t: ['7 วันก่อนลงนาม', '7 days before signing'] },
-      { k: 'mark', th: ['ลงนามสัญญา'], en: ['Contract signing'], t: ['วันที่ 1', 'Day 1'] },
-      { k: 'out', edit: 'pct', f: 'commPct', amt: C * cfg.commPct / 100, pv: cfg.commPct, th: ['จ่ายค่าคอมมิชชั่น'], en: ['Pay commission'], t: ['วันลงนาม', 'At signing'] },
-      { k: 'out', edit: 'thb', f: 'instAdv1', amt: cfg.instAdv1, th: ['จ่ายค่าติดตั้งล่วงหน้า (งวด 1)'], en: ['Advance installation (lot 1)'], t: ['วันลงนาม', 'At signing'] },
-      { k: 'out', edit: 'thb', f: 'inv2', amt: cfg.inv2, th: ['จ่ายค่าของ (งวด 2)'], en: ['Inventory (lot 2)'], t: ['~2 เดือน · เริ่มงานถัง', '~2 months · tank work'] },
-      { k: 'out', edit: 'thb', f: 'inv3', amt: cfg.inv3, th: ['จ่ายค่าของ (งวดสุดท้าย)'], en: ['Inventory (final lot)'], t: ['+7 วัน · ติดตั้งถังเสร็จ', '+7 days · tank installed'] },
-      { k: 'mark', th: ['ส่งมอบงานงวด 1', 'เคลม 40% ของมูลค่าโครงการ'], en: ['Deliver milestone 1', 'Claim 40% of project value'], t: ['วันติดตั้งเสร็จ', 'Install completion'] },
-      { k: 'in', edit: 'pct', f: 'm1Pct', amt: C * cfg.m1Pct / 100, pv: cfg.m1Pct, th: ['รับเงินงวด 1'], en: ['Cash received #1'], t: ['+30 วัน', '+30 days'] },
-      { k: 'mark', th: ['ส่งมอบงานงวด 2'], en: ['Deliver milestone 2'], t: ['ก่อสร้างต่อเนื่อง', 'Construction continues'] },
-      { k: 'out', edit: 'thb', f: 'inst3', amt: cfg.inst3, th: ['จ่ายค่าติดตั้ง (งวดสุดท้าย)'], en: ['Installation (final)'], t: ['วันส่งมอบงวด 2', 'At milestone 2'] },
-      { k: 'in', edit: 'pct', f: 'm2Pct', amt: C * cfg.m2Pct / 100, pv: cfg.m2Pct, th: ['รับเงินงวดสุดท้าย'], en: ['Final cash received'], t: ['+30 วัน', '+30 days'] },
-      { k: 'in', amt: C * cfg.lgPct / 100, ret: true, th: ['ได้รับ LG คืน'], en: ['LG returned'], t: ['+2 ปี', '+2 years'] },
+      { t: ['วันเริ่มต้น', 'Day 0'], items: [
+        { k: 'mark', th: ['ได้รับใบจัดสรร'], en: ['Allocation letter received'] } ] },
+      { t: ['+30 วัน', '+30 days'], items: [
+        { k: 'out', edit: 'thb', f: 'invAdv1', amt: cfg.invAdv1, th: ['จ่ายค่าของล่วงหน้า (งวด 1)'], en: ['Advance inventory (lot 1)'] } ] },
+      { t: ['7 วันก่อนลงนาม', '7 days before signing'], items: [
+        { k: 'out', edit: 'pct', f: 'lgPct', amt: C * cfg.lgPct / 100, pv: cfg.lgPct, ret: true, th: ['ออก LG ค้ำประกัน'], en: ['Issue LG (bank guarantee)'] } ] },
+      { t: ['ลงนามสัญญา · วันที่ 1', 'Signing · Day 1'], items: [
+        { k: 'mark', th: ['ลงนามสัญญา'], en: ['Contract signing'] },
+        { k: 'out', edit: 'pct', f: 'commPct', amt: C * cfg.commPct / 100, pv: cfg.commPct, th: ['จ่ายค่าคอมมิชชั่น'], en: ['Pay commission'] },
+        { k: 'out', edit: 'thb', f: 'instAdv1', amt: cfg.instAdv1, th: ['จ่ายค่าติดตั้งล่วงหน้า (งวด 1)'], en: ['Advance installation (lot 1)'] } ] },
+      { t: ['~2 เดือน · เริ่มงานถัง', '~2 months · tank work'], items: [
+        { k: 'out', edit: 'thb', f: 'inv2', amt: cfg.inv2, th: ['จ่ายค่าของ (งวด 2)'], en: ['Inventory (lot 2)'] } ] },
+      { t: ['+7 วัน · ติดตั้งถังเสร็จ', '+7 days · tank installed'], items: [
+        { k: 'mark', th: ['ส่งมอบงานงวด 1', 'เคลม 40% ของมูลค่าโครงการ'], en: ['Deliver milestone 1', 'Claim 40% of project value'] },
+        { k: 'out', edit: 'thb', f: 'inv3', amt: cfg.inv3, th: ['จ่ายค่าของ (งวดสุดท้าย)'], en: ['Inventory (final lot)'] } ] },
+      { t: ['+30 วัน', '+30 days'], items: [
+        { k: 'in', edit: 'pct', f: 'm1Pct', amt: C * cfg.m1Pct / 100, pv: cfg.m1Pct, th: ['รับเงินงวด 1 (40%)'], en: ['Cash received #1 (40%)'] } ] },
+      { t: ['วันส่งมอบงวด 2', 'At milestone 2'], items: [
+        { k: 'mark', th: ['ส่งมอบงานงวด 2'], en: ['Deliver milestone 2'] },
+        { k: 'out', edit: 'thb', f: 'inst3', amt: cfg.inst3, th: ['จ่ายค่าติดตั้ง (งวดสุดท้าย)'], en: ['Installation (final)'] } ] },
+      { t: ['+30 วัน', '+30 days'], items: [
+        { k: 'in', edit: 'pct', f: 'm2Pct', amt: C * cfg.m2Pct / 100, pv: cfg.m2Pct, th: ['รับเงินงวดสุดท้าย (60%)'], en: ['Final cash received (60%)'] } ] },
+      { t: ['+2 ปี', '+2 years'], items: [
+        { k: 'in', amt: C * cfg.lgPct / 100, ret: true, th: ['ได้รับ LG คืน'], en: ['LG returned'] } ] },
     ];
   }
 
@@ -523,7 +533,10 @@
     const resetCfg = () => { const c = INV_CF_DEF(prod.price); cfgRef.current = c; setCfg(c); invSet(cfgKey(code), JSON.stringify(c)); };
 
     const C = cfg.contract || 0;
-    const events = invCfEvents(cfg);
+    const groups = invCfGroups(cfg);
+    const events = groups.reduce((a, g) => a.concat(g.items), []);
+    const maxAbove = Math.max(1, ...groups.map(g => g.items.filter(it => it.k !== 'out').length));
+    const maxBelow = Math.max(1, ...groups.map(g => g.items.filter(it => it.k === 'out').length));
     const pctOf = (a) => C ? (a / C * 100).toFixed(1) : '0.0';
     // cumulative + key figures
     let run = 0, minRun = 0, beforeRecv1 = 0, seenIn = false;
@@ -541,53 +554,66 @@
     const [tlFull, setTlFull] = invSt(false);
     invEff(() => { if (!tlFull) return; const onKey = (e) => { if (e.key === 'Escape') setTlFull(false); }; window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey); }, [tlFull]);
 
-    // one timeline station (big = fullscreen present mode → larger)
-    const station = (big) => (e, i) => {
+    // layout metrics (axis stays aligned across columns; stacks reserve a fixed zone)
+    const lay = (big) => {
+      const cardH = big ? 116 : 84, gap = big ? 12 : 9, cardTop = big ? 8 : 4, dot = big ? 20 : 15, w = big ? 218 : 178;
+      const aboveH = maxAbove * cardH + (maxAbove - 1) * gap;
+      const belowH = maxBelow * cardH + (maxBelow - 1) * gap;
+      const pillTop = cardTop + aboveH + (big ? 8 : 6);
+      const dotTop = pillTop + (big ? 24 : 21);
+      const line = dotTop + dot / 2 - 1;
+      const outTop = line + (big ? 16 : 13);
+      const h = outTop + belowH + (big ? 12 : 8);
+      return { cardH, gap, cardTop, dot, w, aboveH, belowH, pillTop, dotTop, line, outTop, h, title: big ? 13 : 10.5, val: big ? 19 : 14, sub: big ? 12 : 10, inW: big ? 112 : 86, ic: big ? 17 : 13 };
+    };
+
+    // one event card (no positioning)
+    const buildCard = (e, L, key) => {
       const isOut = e.k === 'out', isMark = e.k === 'mark';
       const col = isOut ? p.bad : (e.k === 'in' ? p.good : p.brand);
       const icon = isMark ? '🚩' : (isOut ? '💸' : '💰');
-      const L = big
-        ? { w: 218, h: 372, cardTop: 8, cardH: 122, pillTop: 168, dotTop: 192, dot: 20, line: 201, outTop: 226, title: 13.5, val: 19, sub: 12, inW: 112, ic: 17 }
-        : { w: 176, h: 252, cardTop: 4, cardH: 86, pillTop: 112, dotTop: 132, dot: 15, line: 138, outTop: 156, title: 11, val: 14, sub: 10, inW: 86, ic: 13 };
-      const valueCard = el('div', { style: { background: 'linear-gradient(180deg,' + invRgba(col, 0.13) + ',' + p.card + ')', border: '1px solid ' + invRgba(col, 0.4), borderRadius: 12, boxShadow: '0 6px 18px ' + invRgba(col, 0.16), overflow: 'hidden', height: L.cardH } },
+      if (isMark) return el('div', { key, style: { background: 'linear-gradient(180deg,' + invRgba(p.brand, 0.14) + ',' + p.card + ')', border: '1.5px solid ' + invRgba(p.brand, 0.45), borderRadius: 12, padding: L.cardH > 100 ? '9px 11px' : '7px 9px', height: L.cardH, boxShadow: '0 6px 18px ' + invRgba(p.brand, 0.14) } },
+        el('div', { style: { display: 'flex', gap: 6, alignItems: 'flex-start' } },
+          el('span', { style: { fontSize: L.ic, lineHeight: 1.1 } }, icon),
+          el('div', { style: { fontSize: L.title, fontWeight: 800, color: p.brand, lineHeight: 1.2 } }, (lang === 'th' ? e.th : e.en)[0])),
+        (lang === 'th' ? e.th : e.en)[1] ? el('div', { style: { fontSize: L.sub, color: p.sub, marginTop: 5, lineHeight: 1.35, fontWeight: 600 } }, (lang === 'th' ? e.th : e.en)[1]) : null);
+      return el('div', { key, style: { background: 'linear-gradient(180deg,' + invRgba(col, 0.13) + ',' + p.card + ')', border: '1px solid ' + invRgba(col, 0.4), borderRadius: 12, boxShadow: '0 6px 18px ' + invRgba(col, 0.16), overflow: 'hidden', height: L.cardH } },
         el('div', { style: { height: 4, background: 'linear-gradient(90deg,' + col + ',' + invRgba(col, 0.55) + ')' } }),
-        el('div', { style: { padding: big ? '9px 11px' : '7px 9px' } },
-          el('div', { style: { display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: big ? 8 : 5, minHeight: big ? 34 : 28 } },
+        el('div', { style: { padding: L.cardH > 100 ? '9px 11px' : '7px 9px' } },
+          el('div', { style: { display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: L.cardH > 100 ? 8 : 5, minHeight: L.cardH > 100 ? 34 : 28 } },
             el('span', { style: { fontSize: L.ic, lineHeight: 1, flex: '0 0 auto' } }, icon),
             el('div', { style: { fontSize: L.title, fontWeight: 800, color: col, lineHeight: 1.2 } }, (lang === 'th' ? e.th : e.en)[0])),
           el('div', { style: { display: 'flex', alignItems: 'center', gap: 4 } },
-            e.edit ? InvNumIn({ p, value: e.edit === 'pct' ? e.pv : cfg[e.f], w: e.edit === 'pct' ? (big ? 64 : 50) : L.inW, onChange: v => setField(e.f, v), onBlur: persist })
+            e.edit ? InvNumIn({ p, value: e.edit === 'pct' ? e.pv : cfg[e.f], w: e.edit === 'pct' ? (L.cardH > 100 ? 64 : 50) : L.inW, onChange: v => setField(e.f, v), onBlur: persist })
               : el('span', { style: { fontSize: L.val, fontWeight: 800, color: p.ink, fontVariantNumeric: 'tabular-nums' } }, '฿' + invCompact(e.amt)),
             e.edit === 'pct' ? el('span', { style: { fontSize: L.sub + 1, color: p.sub, fontWeight: 800 } }, '%') : null),
           el('div', { style: { fontSize: L.sub, color: p.sub, marginTop: 4, fontWeight: 600 } },
             e.edit === 'thb' ? (pctOf(e.amt) + (lang === 'th' ? '% ของสัญญา' : '% of contract'))
               : e.edit === 'pct' ? ('= ฿' + invCompact(e.amt))
                 : (e.ret ? (lang === 'th' ? '↩ คืนภายหลัง' : '↩ returned') : ''))));
-      const markCard = el('div', { style: { background: 'linear-gradient(180deg,' + invRgba(p.brand, 0.14) + ',' + p.card + ')', border: '1.5px solid ' + invRgba(p.brand, 0.45), borderRadius: 12, padding: big ? '9px 11px' : '7px 9px', height: L.cardH, boxShadow: '0 6px 18px ' + invRgba(p.brand, 0.14) } },
-        el('div', { style: { display: 'flex', gap: 6, alignItems: 'flex-start' } },
-          el('span', { style: { fontSize: L.ic, lineHeight: 1.1 } }, icon),
-          el('div', { style: { fontSize: L.title, fontWeight: 800, color: p.brand, lineHeight: 1.2 } }, (lang === 'th' ? e.th : e.en)[0])),
-        (lang === 'th' ? e.th : e.en)[1] ? el('div', { style: { fontSize: L.sub, color: p.sub, marginTop: 5, lineHeight: 1.35, fontWeight: 600 } }, (lang === 'th' ? e.th : e.en)[1]) : null);
-      return el('div', { key: i, style: { position: 'relative', flex: '0 0 ' + L.w + 'px', width: L.w, height: L.h } },
-        // above-axis card (in / milestone)
-        (!isOut) ? el('div', { style: { position: 'absolute', top: L.cardTop, left: 9, right: 9 } }, isMark ? markCard : valueCard) : null,
-        (!isOut) ? el('div', { style: { position: 'absolute', left: '50%', transform: 'translateX(-50%)', width: 2, top: L.cardTop + L.cardH, height: L.dotTop - (L.cardTop + L.cardH), background: invRgba(col, 0.5), zIndex: 1 } }) : null,
-        // timing pill on the axis
-        el('div', { style: { position: 'absolute', top: L.pillTop, left: 0, right: 0, textAlign: 'center', zIndex: 2 } },
-          el('span', { style: { fontSize: big ? 11.5 : 10, color: p.sub, fontWeight: 600, background: p.card, border: '1px solid ' + p.line, padding: big ? '3px 9px' : '2px 7px', borderRadius: 7, whiteSpace: 'nowrap', boxShadow: p.shadow } }, (lang === 'th' ? e.t[0] : e.t[1]))),
-        // axis dot with halo
-        el('div', { style: { position: 'absolute', top: L.dotTop, left: '50%', transform: 'translateX(-50%)', width: L.dot, height: L.dot, borderRadius: '50%', background: 'radial-gradient(circle at 35% 30%,' + invRgba(col, 1) + ',' + col + ')', border: '3px solid ' + p.card, boxShadow: '0 0 0 4px ' + invRgba(col, 0.18) + ', 0 3px 8px ' + invRgba(col, 0.4), zIndex: 3 } }),
-        // below-axis connector + card (out)
-        isOut ? el('div', { style: { position: 'absolute', left: '50%', transform: 'translateX(-50%)', width: 2, top: L.line, height: L.outTop - L.line, background: invRgba(col, 0.5), zIndex: 1 } }) : null,
-        isOut ? el('div', { style: { position: 'absolute', top: L.outTop, left: 9, right: 9 } }, valueCard) : null);
     };
 
-    const lineTop = (big) => big ? 201 : 138;
-    const halfW = (big) => big ? 109 : 88;
-    const renderTimeline = (big) => el('div', { style: { overflowX: 'auto', overflowY: 'hidden', paddingBottom: 8 } },
+    // one day-column: shared dot + timing pill, cards stacked (in/milestone above, out below)
+    const column = (big) => (g, i) => {
+      const L = lay(big);
+      const above = g.items.filter(it => it.k !== 'out');
+      const below = g.items.filter(it => it.k === 'out');
+      const hasMark = g.items.some(it => it.k === 'mark');
+      const dotCol = hasMark ? p.brand : (below.length ? p.bad : p.good);
+      return el('div', { key: i, style: { position: 'relative', flex: '0 0 ' + L.w + 'px', width: L.w, height: L.h } },
+        above.length ? el('div', { style: { position: 'absolute', top: L.cardTop, left: 9, right: 9, display: 'flex', flexDirection: 'column', gap: L.gap } }, above.map((e, j) => buildCard(e, L, j))) : null,
+        above.length ? el('div', { style: { position: 'absolute', left: '50%', transform: 'translateX(-50%)', width: 2, top: L.cardTop + L.aboveH, height: L.dotTop - (L.cardTop + L.aboveH), background: invRgba(dotCol, 0.5), zIndex: 1 } }) : null,
+        el('div', { style: { position: 'absolute', top: L.pillTop, left: 0, right: 0, textAlign: 'center', zIndex: 2 } },
+          el('span', { style: { fontSize: big ? 11.5 : 10, color: p.ink, fontWeight: 700, background: p.card, border: '1px solid ' + p.line, padding: big ? '3px 10px' : '2px 8px', borderRadius: 7, whiteSpace: 'nowrap', boxShadow: p.shadow } }, (lang === 'th' ? g.t[0] : g.t[1]))),
+        el('div', { style: { position: 'absolute', top: L.dotTop, left: '50%', transform: 'translateX(-50%)', width: L.dot, height: L.dot, borderRadius: '50%', background: 'radial-gradient(circle at 35% 30%,' + invRgba(dotCol, 1) + ',' + dotCol + ')', border: '3px solid ' + p.card, boxShadow: '0 0 0 4px ' + invRgba(dotCol, 0.18) + ', 0 3px 8px ' + invRgba(dotCol, 0.4), zIndex: 3 } }),
+        below.length ? el('div', { style: { position: 'absolute', left: '50%', transform: 'translateX(-50%)', width: 2, top: L.line, height: L.outTop - L.line, background: invRgba(p.bad, 0.5), zIndex: 1 } }) : null,
+        below.length ? el('div', { style: { position: 'absolute', top: L.outTop, left: 9, right: 9, display: 'flex', flexDirection: 'column', gap: L.gap } }, below.map((e, j) => buildCard(e, L, j))) : null);
+    };
+
+    const renderTimeline = (big) => { const L = lay(big); return el('div', { style: { overflowX: 'auto', overflowY: 'hidden', paddingBottom: 8 } },
       el('div', { style: { display: 'inline-flex', position: 'relative', minWidth: '100%' } },
-        el('div', { style: { position: 'absolute', top: lineTop(big), left: halfW(big), right: halfW(big), height: 3, borderRadius: 2, background: 'linear-gradient(90deg,' + invRgba(p.bad, 0.45) + ' 0%,' + invRgba(p.gold, 0.4) + ' 55%,' + invRgba(p.good, 0.5) + ' 100%)', zIndex: 0 } }),
-        events.map(station(big))));
+        el('div', { style: { position: 'absolute', top: L.line, left: L.w / 2, right: L.w / 2, height: 3, borderRadius: 2, background: 'linear-gradient(90deg,' + invRgba(p.bad, 0.45) + ' 0%,' + invRgba(p.gold, 0.4) + ' 55%,' + invRgba(p.good, 0.5) + ' 100%)', zIndex: 0 } }),
+        groups.map(column(big)))); };
 
     const products = INV_PRODUCTS.map(pr => el('option', { key: pr.code, value: pr.code }, pr.code + ' · ' + pr.name + ' (฿' + invCompact(pr.price) + ')'));
     const productSelect = (w) => el('select', { value: code, onChange: e => setCode(e.target.value), style: { height: 34, minWidth: w || 240, border: '1px solid ' + p.line, borderRadius: 8, padding: '0 10px', background: p.card2, color: p.ink, fontSize: 12.5, fontWeight: 600 } }, products);
