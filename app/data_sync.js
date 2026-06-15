@@ -887,10 +887,30 @@
 
     var jobs = [];
     var recovered = false;
+    // ★ ตรวจล่วงหน้า: localStorage โดน quota เต็ม (cleared site data → React state ครบ
+    //   แต่ origSave throw → ค้างว่าง). ถ้าเจอ → ใช้ React state (param `data`) เป็น
+    //   ความจริงทุก entity ทันที (ข้าม `latest` ที่ว่างหลอก) → ไม่ส่ง mass-delete ออกไป
+    //   ไม่ไปแตะ push-guard log → ไม่ trigger resync ลูป.
+    var storageBroken = false;
+    try {
+      var ks = ['pvVouchers', 'payables', 'debtLedger', 'invoices', 'projects'];
+      var bigSnapEmptyLatest = ks.filter(function (k) {
+        if (lastSnapshot[k] === undefined) return false;
+        var snap = []; try { snap = JSON.parse(lastSnapshot[k] || '[]'); } catch (_) {}
+        var lr = latest[k];
+        return snap.length >= 10 && Array.isArray(lr) && lr.length === 0 &&
+               Array.isArray(data[k]) && data[k].length > 0;
+      });
+      if (bigSnapEmptyLatest.length >= 2) storageBroken = true;   // ≥2 entity เป็นเหมือนกัน = quota fail ชัวร์
+    } catch (_) {}
+
     CRUD_ENTITIES.forEach(function (entity) {
       if (lastSnapshot[entity] === undefined) return;          // ยังไม่เคยโหลด server → ข้าม (กัน seed)
-      var ours = Array.isArray(latest[entity]) ? latest[entity]
-               : (Array.isArray(data[entity]) ? data[entity] : null);
+      // ★ storageBroken: ข้าม latest ที่ว่างหลอก ใช้ data (React state) เป็นความจริง
+      var ours = storageBroken
+               ? (Array.isArray(data[entity]) ? data[entity] : null)
+               : (Array.isArray(latest[entity]) ? latest[entity]
+                 : (Array.isArray(data[entity]) ? data[entity] : null));
       if (!ours) return;
       if (JSON.stringify(ours) === lastSnapshot[entity]) return;   // ไม่เปลี่ยน
       var base = [];
