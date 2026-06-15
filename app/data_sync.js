@@ -18,9 +18,9 @@
   // เปิด DevTools Console แล้วดูบรรทัดนี้ เพื่อยืนยันว่าเบราว์เซอร์โหลด "โค้ดใหม่" จริง
   // (ถ้าไม่เห็น = ยังรัน cache เก่า → hard refresh Ctrl+Shift+R + ปิดแท็บเก่าทุกอัน)
   // เช็คเร็ว: พิมพ์ WTPData.buildId ใน console
-  var BUILD_ID = '20260609a';
+  var BUILD_ID = '20260615a';
   try {
-    console.info('%c[WTP Sync] build ' + BUILD_ID + ' — row-level + anti-empty-push + server-guard + read-your-writes',
+    console.info('%c[WTP Sync] build ' + BUILD_ID + ' — row-level + anti-empty-push + server-guard + read-your-writes + no-push-when-logged-out',
                  'color:#2a6fdb;font-weight:bold');
     if (window.WTPData) WTPData.buildId = BUILD_ID;
   } catch (_) {}
@@ -1109,6 +1109,21 @@
     });
   }
 
+  /* ── มี session ที่ใช้งานได้อยู่ไหม (ล็อกอินอยู่ + ยังไม่หมดอายุ) ───────────────
+   * ใช้กั้น "ไม่ล็อกอิน = ไม่ push": เครื่องที่อยู่หน้า LOGIN (ยังไม่ล็อกอิน /
+   * โดน auto-logout / session หมดอายุ) จะไม่เขียนข้อมูลขึ้นชีต → ไม่มีการ "ดีด"
+   * ข้อมูลในนามคนที่ไม่ได้ใช้งาน. คู่กับ auto-logout idle ใน app.jsx.
+   * อ่าน localStorage สดทุกครั้ง (ไม่ cache) เพราะ session เปลี่ยนได้ตลอด. */
+  function _hasValidSession() {
+    try {
+      var s = JSON.parse(localStorage.getItem('wtp-session') || 'null');
+      if (!s) return false;
+      var ttl = cfg.SESSION_TTL_MS || 0;
+      if (ttl > 0 && s.time && (Date.now() - s.time) > ttl) return false;
+      return true;
+    } catch (_) { return false; }
+  }
+
   /* ── wrap WTPData.save to auto-push on every change ──────────────── */
   var origSave = WTPData.save;
   WTPData.save = function (data) {
@@ -1116,6 +1131,9 @@
     // Don't push the initial localStorage state — wait until server data has
     // arrived (otherwise we'd overwrite the Sheet with stale local data).
     if (!serverDataLoaded) return;
+    // ★ ไม่ล็อกอิน = ไม่ push — กันเครื่องที่เปิดเว็บค้าง/อยู่หน้า LOGIN
+    //   ดีดข้อมูลขึ้นชีตในนามคนอื่น (poll รับข้อมูล + normalize หน้าจอ → diff หลอก)
+    if (!_hasValidSession()) return;
     // Skip if we're already inside syncDiff (prevents re-entrant loops when
     // syncDiff calls subscribers, which might trigger React → setData → save).
     if (inSyncDiff) return;
@@ -1153,6 +1171,7 @@
   // หายถ้า user refresh ก่อน debounce timer ครบ 3 วินาที
   WTPData.forceSyncNow = function (data) {
     if (!serverDataLoaded) return;
+    if (!_hasValidSession()) return;   // ★ ไม่ล็อกอิน = ไม่ push
     if (inSyncDiff) return;
     if (syncTimer) { clearTimeout(syncTimer); syncTimer = null; }
     // data param optional — use latest from localStorage if not provided
@@ -1162,6 +1181,7 @@
 
   // Flush pending sync on page unload (best-effort, may not complete)
   window.addEventListener('beforeunload', function () {
+    if (!_hasValidSession()) return;   // ★ ไม่ล็อกอิน = ไม่ flush
     if (syncTimer && !inSyncDiff) {
       clearTimeout(syncTimer);
       try { syncDiff(WTPData.load()); } catch (_) {}

@@ -68,6 +68,9 @@ function App() {
       if (!s) return false;
       const ttl = (window.WTP_CONFIG && window.WTP_CONFIG.SESSION_TTL_MS) || 0;
       if (ttl > 0 && Date.now() - s.time > ttl) { localStorage.removeItem('wtp-session'); return false; }
+      // บังคับ re-login: session ที่สร้างก่อน FORCE_LOGOUT_BEFORE → เด้งออกทันทีที่โหลดโค้ดใหม่
+      const flb = (window.WTP_CONFIG && window.WTP_CONFIG.FORCE_LOGOUT_BEFORE) || 0;
+      if (flb > 0 && s.time && s.time < flb) { localStorage.removeItem('wtp-session'); return false; }
       return true;
     } catch { return false; }
   });
@@ -208,6 +211,80 @@ function App() {
       window.removeEventListener('wtpSyncConfirmed', onConfirmed);
     };
   }, []);
+
+  // ── Auto-logout เมื่อไม่ได้ใช้งานเกินกำหนด (idle timeout) ──────────────────
+  // เครื่องที่เปิดเว็บค้างไว้เฉยๆ จะถูกเด้งกลับหน้า LOGIN อัตโนมัติ เพื่อ:
+  //   (1) ไม่ให้ sync ดีดข้อมูลขึ้นชีตในนามคนที่ไม่ได้ใช้งาน (audit log ขึ้นชื่อผิด)
+  //       — คู่กับ guard "ไม่ล็อกอิน = ไม่ push" ใน data_sync.js
+  //   (2) ความปลอดภัย (เครื่องวางทิ้งไว้)
+  // วัด activity จาก mouse/keyboard/scroll/touch แล้วเช็คทุก 30 วิ. นอกจากนี้
+  // ยังเช็ค session หมดอายุ (SESSION_TTL_MS) ขณะเปิดแท็บค้าง — เดิมเช็คแค่ตอนโหลดหน้า
+  const lastActivityRef = React.useRef(Date.now());
+  aEffect(() => {
+    if (!isLoggedIn) return;
+    const IDLE_MS = (window.WTP_CONFIG && window.WTP_CONFIG.IDLE_LOGOUT_MS) || 0;
+    const TTL_MS  = (window.WTP_CONFIG && window.WTP_CONFIG.SESSION_TTL_MS) || 0;
+    if (IDLE_MS <= 0 && TTL_MS <= 0) return;  // ปิดทั้งคู่ → ไม่ต้องทำอะไร
+    lastActivityRef.current = Date.now();
+    let lastBump = 0;
+    const bump = () => {
+      const now = Date.now();
+      if (now - lastBump < 5000) return;   // throttle: อัปเดตทุก ~5 วิพอ (กันยิงรัวตอนขยับเมาส์)
+      lastBump = now;
+      lastActivityRef.current = now;
+    };
+    const events = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click'];
+    events.forEach(ev => window.addEventListener(ev, bump, { passive: true }));
+    const doLogout = (reason) => {
+      handleLogout();
+      try {
+        pushToast && pushToast(
+          reason === 'ttl'  ? 'ออกจากระบบอัตโนมัติ (เซสชันหมดอายุ) — กรุณาเข้าสู่ระบบใหม่'
+        : reason === 'kick' ? 'ระบบบังคับออกจากระบบ (ผู้ดูแลสั่งรีเซ็ต) — กรุณาเข้าสู่ระบบใหม่'
+        :                     'ออกจากระบบอัตโนมัติ (ไม่ได้ใช้งานเกิน 30 นาที) — กรุณาเข้าสู่ระบบใหม่');
+      } catch (_) {}
+    };
+    const checkIdle = () => {
+      const now = Date.now();
+      let sessTime = 0;
+      try { sessTime = (JSON.parse(localStorage.getItem('wtp-session') || 'null') || {}).time || 0; } catch (_) {}
+      // บังคับออก (admin สั่งผ่าน override `system.forceLogoutBefore` หรือ config FORCE_LOGOUT_BEFORE)
+      if (sessTime > 0 && sessTime < forceLogoutThreshold()) { doLogout('kick'); return; }
+      if (TTL_MS > 0 && sessTime > 0 && (now - sessTime) > TTL_MS) { doLogout('ttl'); return; }
+      if (IDLE_MS > 0 && (now - lastActivityRef.current) > IDLE_MS) { doLogout('idle'); return; }
+    };
+    const timer = setInterval(checkIdle, 30000);   // เช็คทุก 30 วิ
+    const onVis = () => { if (!document.hidden) checkIdle(); };  // กลับมาที่แท็บ → เช็คทันที
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      events.forEach(ev => window.removeEventListener(ev, bump));
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [isLoggedIn]);
+
+  // เส้นตายบังคับ logout = ค่ามากสุดระหว่าง config (deploy นี้) กับ override ที่ admin สั่งสด
+  // session ใดที่ "สร้างก่อน" ค่านี้ → ถูกเด้งออก. ใช้ใน checkIdle + effect ด้านล่าง
+  const forceLogoutThreshold = () => {
+    let t = (window.WTP_CONFIG && window.WTP_CONFIG.FORCE_LOGOUT_BEFORE) || 0;
+    try {
+      const ov = Number(window.WTPOverride && WTPOverride.get('system.forceLogoutBefore'));
+      if (ov && ov > t) t = ov;
+    } catch (_) {}
+    return t;
+  };
+
+  // เมื่อ poll ดึง manualOverrides ใหม่มา (admin กดปุ่ม "บังคับทุกคนออกจากระบบ") → เช็คทันที
+  // (ไม่ต้องรอ interval 30 วิ) ให้เด้งออกเร็วที่สุดเท่าที่ข้อมูลมาถึง
+  aEffect(() => {
+    if (!isLoggedIn) return;
+    let sessTime = 0;
+    try { sessTime = (JSON.parse(localStorage.getItem('wtp-session') || 'null') || {}).time || 0; } catch (_) {}
+    if (sessTime > 0 && sessTime < forceLogoutThreshold()) {
+      handleLogout();
+      try { pushToast && pushToast('ระบบบังคับออกจากระบบ (ผู้ดูแลสั่งรีเซ็ต) — กรุณาเข้าสู่ระบบใหม่'); } catch (_) {}
+    }
+  }, [data.manualOverrides, isLoggedIn]);
 
   // ── Global auto-backfill: paid IV ที่ยังไม่มี receipt → สร้างให้ ─────────
   // CRITICAL: ต้องอ่าน d.receipts ใน updater (ไม่ใช่ closure) — closure อาจ

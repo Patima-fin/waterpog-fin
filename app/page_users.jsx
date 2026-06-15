@@ -112,6 +112,25 @@ function UsersPage({ data, setData, toast }) {
 
   const togglePw = (id) => setShowPw(prev => ({ ...prev, [id]: !prev[id] }));
 
+  // ── บังคับทุกคนออกจากระบบ ───────────────────────────────────────────────
+  // เขียน override `system.forceLogoutBefore` = เวลานี้ → ทุกเครื่องที่รัน "โค้ดใหม่"
+  // (มี logic เช็คค่านี้) จะเด้งไปหน้า LOGIN ภายใน ~2 นาที (รวมเครื่องนี้เอง).
+  // ★ เครื่องที่ยังเปิดเว็บเวอร์ชันเก่าค้างไว้ ต้องรีเฟรชหน้าก่อนถึงจะรับคำสั่งนี้
+  //   (โค้ดเก่าไม่มี logic ตัวนี้ — สั่งทางไกลไม่ได้จนกว่าจะ reload).
+  const kickAll = () => {
+    if (!confirm(
+      'บังคับทุกคนออกจากระบบ?\n\n' +
+      '• ทุกเครื่องที่กำลังใช้งาน (รวมเครื่องนี้) จะถูกเด้งไปหน้า LOGIN ภายใน ~2 นาที\n' +
+      '• เครื่องที่เปิดเว็บเวอร์ชันเก่าค้างไว้ ต้อง "รีเฟรชหน้า" ก่อน ถึงจะถูกเด้ง\n\n' +
+      'ยืนยัน?')) return;
+    try {
+      WTPOverride.set('system.forceLogoutBefore', Date.now());
+      toast('ส่งคำสั่งแล้ว — ทุกเครื่องจะเด้งไปหน้า LOGIN ภายใน ~2 นาที');
+    } catch (e) {
+      toast('สั่งไม่สำเร็จ: ' + ((e && e.message) || e));
+    }
+  };
+
   const emptyUser = { username: '', password: '', displayName: '', role: 'staff', active: 'true', department: '', note: '' };
 
   return (
@@ -139,6 +158,11 @@ function UsersPage({ data, setData, toast }) {
             title="รายชื่อผู้ใช้ระบบ"
           />
           <PrintButton />
+          <button className="btn" onClick={kickAll}
+            title="บังคับทุกคนออกจากระบบ — ทุกเครื่องเด้งไปหน้า LOGIN ภายใน ~2 นาที"
+            style={{ borderColor: 'var(--bad)', color: 'var(--bad)', fontWeight: 600 }}>
+            🚪 บังคับออกจากระบบทุกคน
+          </button>
           <button className="btn btn-primary" onClick={() => setEdit({ ...emptyUser })}>
             <Icon name="plus" size={14} /> เพิ่มผู้ใช้
           </button>
