@@ -124,5 +124,15 @@ Live at **https://patima-fin.github.io/waterpog-fin/** — GitHub Pages serves t
 - **`AUTO_REFRESH_MS` 45000 → 120000** (`app/config.js`) — background gviz polling was reading ~24 sheet tabs every 45s (the "ทำงานพื้นหลังเยอะ" the user noticed; network capture showed **0 POSTs / 271 GET reads**, i.e. no write loop, just frequent reads). 2-min interval ≈ 60% fewer reads; team data still fresh within 2 min. Adaptive backoff (x2–x4 on 429) + Page-Visibility pause still apply on top.
 - **If a user still sees the toast after this, it's stale cache** (only `app.jsx` ever emitted these texts — confirmed by grep) — hard-refresh / wait for GitHub Pages deploy.
 
+## 2026-06-15 — Budget Control Center: new categorized "Budget.xlsx" import
+- **New import file replaces the old Mango "Export HeadOfficeExpense".** New layout = single sheet, header row 1: `[ประเภทค่าใช้จ่าย, Dept. Code, Department /Project Name, Acct. Code, Description, Total Budget, รวมใช้จริง, คงเหลือ (งบ-ใช้จริง), 1, 2, 3, … N]`. Key differences from the old file:
+  - **col A = ประเภทค่าใช้จ่าย (category) is pre-filled by finance** (14 categories, hand-assigned — NOT derivable from account-code prefix; e.g. prefix `5340` maps to 7 different categories). Used directly; `categoryOf(acct)` is now only a fallback.
+  - **`Total Budget` is the ANNUAL budget** (no monthly budget breakdown). Parser spreads it evenly `/12` into `mb[]` (flat monthly budget line).
+  - **The numbered columns (1,2,3,…) are monthly ACTUALS**, not budget. They grow one column per month (currently 5). Parser is **header-driven** (`parseBudgetCategorized`): finds columns by label, treats any header that is an integer 1..12 after `Total Budget` as a month → resilient to added months / shifted columns.
+  - **Subtotal rows (รวมฝ่าย…/รวมทั้งสิ้น…) have no Acct. Code → skipped** via `/^\d{3,}/` test on the acct cell.
+  - `parseWorkbook` tries `parseBudgetCategorized(aoa)` first, falls back to `parseMangoExport(aoa)` (old fixed-position layout kept as fallback).
+  - Validated against the real file: total budget = ฿228,400,060 (matches the KPI exactly), 457 GL rows, 20 depts, 14 categories.
+- **⚠️ Backend needs a one-time re-paste + redeploy.** `apps_script/Budget.additions.gs` `BCC_HEADERS` + the `clean` map gained a **`cat`** column so the finance category survives the reload (the page does `setTimeout(loadData, 1500)` after upload → without persisting `cat`, the categories would instantly revert to prefix-based). `parseSheetRows` reads `r.cat || categoryOf(acct)`. **Re-paste `Budget.additions.gs` into Apps Script (Code.standalone.gs project) + redeploy (Manage deployments → New version), THEN re-upload Budget.xlsx once** to populate the new `cat` column + refresh actuals. Before redeploy the page still works (degrades to prefix categories on reload).
+
 ## Repo rule: keep CLAUDE.md current
 **Every time you `git push`, update this `CLAUDE.md`** to reflect anything that changed (architecture, conventions, new pages, gotchas). Treat it as part of the push, like the `?v=` bump.

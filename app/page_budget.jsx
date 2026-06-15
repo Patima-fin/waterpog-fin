@@ -202,7 +202,7 @@
       if (!deptMap[dept]) deptMap[dept] = { code: dept, name: String(r.deptName || dept).trim(), accounts: [] };
       const mb = [], ma = [];
       for (let m = 1; m <= 12; m++) { mb.push(Math.round(num(r['b' + m]))); ma.push(Math.round(num(r['a' + m]))); }
-      deptMap[dept].accounts.push({ code: acct, desc: String(r.desc || '').trim(), cat: categoryOf(acct), mb, ma });
+      deptMap[dept].accounts.push({ code: acct, desc: String(r.desc || '').trim(), cat: String(r.cat || '').trim() || categoryOf(acct), mb, ma });
       used++;
     });
     if (!used) return null;
@@ -217,8 +217,9 @@
     return actualMonths;
   }
 
-  // ── parse the uploaded "Export HeadOfficeExpense" .xlsx with SheetJS ──
+  // ── parse the uploaded budget .xlsx with SheetJS ──────────────────────
   // returns { base, rows } — base for instant preview, rows for the backend POST.
+  // Tries the new categorized "Budget" layout first, then the old Mango export.
   function parseWorkbook(file) {
     return new Promise((resolve, reject) => {
       if (!window.XLSX) { reject(new Error('ไม่พบไลบรารี SheetJS — รีเฟรชหน้า')); return; }
@@ -229,34 +230,99 @@
           const ws = wb.Sheets[wb.SheetNames[0]];
           const aoa = window.XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false });
           if (!aoa.length) { reject(new Error('ไฟล์ว่าง')); return; }
-          const num = (v) => { if (v == null || v === '') return 0; const n = parseFloat(String(v).replace(/,/g, '')); return isNaN(n) ? 0 : n; };
-          // Mango layout: col1=Dept Code, col4=Name, col5=Acct Code, col6=Desc,
-          // then 12 month-blocks of 3 cols each (Budget, Actual, Balance) starting col7.
-          const dataRows = aoa.slice(1).filter(r => r[1] != null && r[5] != null);
-          const deptMap = {};
-          const sheetRows = [];
-          for (const r of dataRows) {
-            const dept = String(r[1]).trim();
-            const name = String(r[4] || r[1]).trim();
-            const acct = String(r[5]).trim();
-            const desc = String(r[6] || '').trim();
-            if (!dept || !acct) continue;
-            const mb = [], ma = [];
-            for (let m = 0; m < 12; m++) { const base = 7 + m * 3; mb.push(Math.round(num(r[base]))); ma.push(Math.round(num(r[base + 1]))); }
-            if (!deptMap[dept]) deptMap[dept] = { code: dept, name, accounts: [] };
-            deptMap[dept].accounts.push({ code: acct, desc, cat: categoryOf(acct), mb, ma });
-            const row = { dept, deptName: name, acct, desc };
-            for (let m = 0; m < 12; m++) { row['b' + (m + 1)] = mb[m]; row['a' + (m + 1)] = ma[m]; }
-            sheetRows.push(row);
-          }
-          if (!sheetRows.length) { reject(new Error('no rows parsed')); return; }
-          const base = initBudget({ meta: { actualMonths: detectActualMonths(deptMap) }, departments: Object.values(deptMap) });
-          resolve({ base, rows: sheetRows });
+          const parsed = parseBudgetCategorized(aoa) || parseMangoExport(aoa);
+          if (!parsed || !parsed.rows.length) { reject(new Error('no rows parsed')); return; }
+          resolve(parsed);
         } catch (err) { reject(err); }
       };
       reader.onerror = () => reject(new Error('อ่านไฟล์ไม่สำเร็จ'));
       reader.readAsArrayBuffer(file);
     });
+  }
+
+  const _num = (v) => { if (v == null || v === '') return 0; const n = parseFloat(String(v).replace(/,/g, '')); return isNaN(n) ? 0 : n; };
+
+  // ── NEW categorized "Budget" layout (2026-06) ─────────────────────────
+  // Single sheet, header row 1:
+  //   [ประเภทค่าใช้จ่าย, Dept. Code, Department /Project Name, Acct. Code,
+  //    Description, Total Budget, รวมใช้จริง, คงเหลือ, 1, 2, 3, … N]
+  // - col A = หมวด (finance hand-assigned) → ใช้ตรง ๆ (fallback categoryOf)
+  // - Total Budget = งบ "ทั้งปี" (ไม่มี budget รายเดือน) → กระจายเฉลี่ย /12 ลง mb
+  // - คอลัมน์ที่ header เป็นเลข 1..12 = "ค่าใช้จ่ายจริง" รายเดือน (เพิ่มทีละเดือน)
+  // - แถวรวม (รวมฝ่าย…/รวมทั้งสิ้น…) ไม่มี Acct. Code → ข้าม
+  // header-driven → ทนต่อการสลับ/เพิ่มคอลัมน์เดือน. คืน null ถ้าไม่ใช่ฟอร์แมตนี้.
+  function parseBudgetCategorized(aoa) {
+    const H = (aoa[0] || []).map(c => String(c == null ? '' : c).trim().toLowerCase());
+    const find = (pred) => H.findIndex(pred);
+    const acctIdx   = find(h => h.indexOf('acct') >= 0);
+    const budgetIdx = find(h => h.indexOf('total budget') >= 0 || (h.indexOf('budget') >= 0 && h.indexOf('ใช้') < 0));
+    if (acctIdx < 0 || budgetIdx < 0) return null;                    // ไม่ใช่ฟอร์แมตนี้
+    const catIdx  = find(h => h.indexOf('ประเภท') >= 0 || h.indexOf('หมวด') >= 0);
+    const deptIdx = find(h => h.indexOf('dept') >= 0);
+    const nameIdx = find(h => h.indexOf('project name') >= 0 || h.indexOf('department /') >= 0 || (h.indexOf('department') >= 0 && h.indexOf('name') >= 0));
+    const descIdx = find(h => h.indexOf('description') >= 0);
+    if (deptIdx < 0) return null;
+    // คอลัมน์เดือน = header ที่เป็นเลข 1..12 และอยู่หลังคอลัมน์ summary
+    const monthCols = [];
+    (aoa[0] || []).forEach((raw, i) => {
+      if (i <= budgetIdx) return;
+      const n = (typeof raw === 'number') ? raw : parseInt(String(raw).trim(), 10);
+      if (!isNaN(n) && n >= 1 && n <= 12) monthCols.push({ idx: i, m: n });
+    });
+    if (!monthCols.length) return null;
+
+    const deptMap = {};
+    const sheetRows = [];
+    for (let ri = 1; ri < aoa.length; ri++) {
+      const r = aoa[ri] || [];
+      const acct = String(r[acctIdx] == null ? '' : r[acctIdx]).trim();
+      if (!/^\d{3,}/.test(acct)) continue;                            // ข้ามแถวรวม/แถวว่าง (ไม่มีรหัส GL จริง)
+      const dept = String(r[deptIdx] == null ? '' : r[deptIdx]).trim();
+      if (!dept) continue;
+      const name = String((nameIdx >= 0 ? r[nameIdx] : '') || dept).trim() || dept;
+      const desc = String((descIdx >= 0 ? r[descIdx] : '') || '').trim();
+      const cat  = String((catIdx >= 0 ? r[catIdx] : '') || '').trim() || categoryOf(acct);
+      const annualBudget = _num(r[budgetIdx]);
+      // budget รายเดือน: กระจายงบทั้งปีเฉลี่ย /12 · actual รายเดือน: จากคอลัมน์เดือน
+      const mb = [], ma = Array(12).fill(0);
+      for (let m = 0; m < 12; m++) mb.push(annualBudget / 12);
+      monthCols.forEach(mc => { ma[mc.m - 1] += _num(r[mc.idx]); });
+      if (!deptMap[dept]) deptMap[dept] = { code: dept, name, accounts: [] };
+      deptMap[dept].accounts.push({ code: acct, desc, cat, mb, ma });
+      const out = { dept, deptName: name, acct, desc, cat };
+      for (let m = 0; m < 12; m++) { out['b' + (m + 1)] = Math.round(mb[m]); out['a' + (m + 1)] = Math.round(ma[m]); }
+      sheetRows.push(out);
+    }
+    if (!sheetRows.length) return null;
+    const base = initBudget({ meta: { actualMonths: detectActualMonths(deptMap) }, departments: Object.values(deptMap) });
+    return { base, rows: sheetRows };
+  }
+
+  // ── OLD "Export HeadOfficeExpense" (Mango) layout — fallback ───────────
+  // col1=Dept Code, col4=Name, col5=Acct Code, col6=Desc, then 12 month-blocks
+  // of 3 cols each (Budget, Actual, Balance) starting col7. cat = code prefix.
+  function parseMangoExport(aoa) {
+    const dataRows = aoa.slice(1).filter(r => r[1] != null && r[5] != null);
+    const deptMap = {};
+    const sheetRows = [];
+    for (const r of dataRows) {
+      const dept = String(r[1]).trim();
+      const name = String(r[4] || r[1]).trim();
+      const acct = String(r[5]).trim();
+      const desc = String(r[6] || '').trim();
+      if (!dept || !acct) continue;
+      const mb = [], ma = [];
+      for (let m = 0; m < 12; m++) { const base = 7 + m * 3; mb.push(Math.round(_num(r[base]))); ma.push(Math.round(_num(r[base + 1]))); }
+      const cat = categoryOf(acct);
+      if (!deptMap[dept]) deptMap[dept] = { code: dept, name, accounts: [] };
+      deptMap[dept].accounts.push({ code: acct, desc, cat, mb, ma });
+      const row = { dept, deptName: name, acct, desc, cat };
+      for (let m = 0; m < 12; m++) { row['b' + (m + 1)] = mb[m]; row['a' + (m + 1)] = ma[m]; }
+      sheetRows.push(row);
+    }
+    if (!sheetRows.length) return null;
+    const base = initBudget({ meta: { actualMonths: detectActualMonths(deptMap) }, departments: Object.values(deptMap) });
+    return { base, rows: sheetRows };
   }
 
   // ── small sample so the dashboard renders before the first upload ──
@@ -1271,7 +1337,7 @@
           notify(`อ่านไฟล์สำเร็จ · ${base.departments.length} แผนก (ยังไม่ได้ตั้งค่า backend จึงไม่ได้บันทึกถาวร)`);
         }
       } catch (e) {
-        notify('อ่านไฟล์ไม่สำเร็จ — ตรวจสอบว่าเป็นไฟล์ Export HeadOfficeExpense (.xlsx)');
+        notify('อ่านไฟล์ไม่สำเร็จ — ตรวจสอบว่าเป็นไฟล์ Budget (.xlsx) ที่มีคอลัมน์ Acct. Code + Total Budget + เดือน 1..N');
       }
       setUploading(false);
     }

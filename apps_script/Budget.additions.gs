@@ -28,7 +28,7 @@ var BCC_SHEET = 'BUDGET HO';
 
 // header ของ 'BUDGET HO' — 1 แถวต่อ 1 บัญชี (ตรงกับ parseSheetRows ใน app/page_budget.jsx)
 var BCC_HEADERS = (function () {
-  var h = ['dept', 'deptName', 'acct', 'desc'];
+  var h = ['dept', 'deptName', 'acct', 'desc', 'cat'];   // cat = หมวดค่าใช้จ่าย (finance จัดให้ในไฟล์ Budget ใหม่)
   for (var m = 1; m <= 12; m++) h.push('b' + m);
   for (var m2 = 1; m2 <= 12; m2++) h.push('a' + m2);
   h.push('updatedAt');
@@ -59,6 +59,7 @@ function budgetImportMonth(body) {
       deptName: String(r.deptName || r.dept || '').trim(),
       acct: String(r.acct || '').trim(),
       desc: String(r.desc || '').trim(),
+      cat: String(r.cat || '').trim(),
       updatedAt: ts,
     };
     for (var m = 1; m <= 12; m++) {
