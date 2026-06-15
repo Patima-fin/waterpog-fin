@@ -959,11 +959,11 @@
     const secHead = (no, title, sub) => el('div', { style: { display: 'flex', alignItems: 'center', gap: 13, margin: '26px 0 14px' } },
       el('div', { style: { width: 38, height: 38, borderRadius: 10, background: invRgba(p.brand, 0.12), color: p.brand, display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 15 } }, no),
       el('div', null, el('div', { style: { fontSize: 18, fontWeight: 800, color: p.ink } }, title), el('div', { style: { fontSize: 12.5, color: p.sub } }, sub)));
-    const kpi = (accent, lab, val, unit, sub) => el('div', { style: { background: p.card, border: '1px solid ' + p.line, borderRadius: 16, padding: '17px 19px', boxShadow: p.shadow, position: 'relative', overflow: 'hidden' } },
-      el('div', { style: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: accent } }),
-      el('div', { style: { fontSize: 12, color: p.sub, fontWeight: 600 } }, lab),
-      el('div', { style: { fontSize: 27, fontWeight: 800, color: p.ink, marginTop: 6, fontVariantNumeric: 'tabular-nums' } }, val, unit ? el('small', { style: { fontSize: 13.5, color: p.sub, marginLeft: 3, fontWeight: 600 } }, unit) : null),
-      sub ? el('div', { style: { fontSize: 11.5, color: p.sub, marginTop: 4 } }, sub) : null);
+    const kpi = (accent, lab, val, unit, sub) => el('div', { style: { background: 'linear-gradient(160deg,' + invRgba(accent, 0.1) + ',' + p.card + ' 55%)', border: '1px solid ' + p.line, borderRadius: 18, padding: '22px 24px', boxShadow: p.shadow, position: 'relative', overflow: 'hidden', minHeight: 134 } },
+      el('div', { style: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 5, background: accent } }),
+      el('div', { style: { fontSize: 13, color: p.sub, fontWeight: 700 } }, lab),
+      el('div', { style: { fontSize: 42, fontWeight: 800, color: p.ink, marginTop: 10, letterSpacing: '-1px', lineHeight: 1.05, fontVariantNumeric: 'tabular-nums' } }, val, unit ? el('small', { style: { fontSize: 16, color: p.sub, marginLeft: 5, fontWeight: 600 } }, unit) : null),
+      sub ? el('div', { style: { fontSize: 12, color: p.sub, marginTop: 7 } }, sub) : null);
     const hbars = (items, color, fmt) => { const max = Math.max(1, ...items.map(i => i.value)); return el('div', { style: { display: 'flex', flexDirection: 'column', gap: 9 } },
       items.map((it, i) => el('div', { key: i },
         el('div', { style: { display: 'flex', justifyContent: 'space-between', fontSize: 12.5, marginBottom: 3 } }, el('span', { style: { color: p.sub } }, it.label), el('span', { style: { fontWeight: 700, color: p.ink, fontVariantNumeric: 'tabular-nums' } }, fmt(it.value))),
@@ -982,9 +982,9 @@
         el('div', { style: { fontSize: 13.5, opacity: .93, marginTop: 8, lineHeight: 1.55, maxWidth: 840 } }, L ? 'หมุนเวียนวงเงินสินเชื่อแล้วกว่า 559 ล้านบาท สนับสนุน 99 โครงการประปาชุมชน — แต่วงเงิน L/G ถูกลดจาก 100 เหลือ 30 ล้านบาท และใช้เต็มแล้ว 99.8%' : 'Over THB 559M of credit cycled, financing 99 community water-supply projects — yet the L/G line was cut from 100M to 30M and is now 99.8% utilised.'),
         el('div', { style: Object.assign(gridR(4), { marginTop: 18 }) },
           [['559', U, L ? 'วงเงินหมุนเวียนสะสม' : 'Total credit cycled'], ['99', '', L ? 'โครงการประปาชุมชน' : 'Water-supply projects'], ['99.8', '%', L ? 'การใช้วงเงิน L/G' : 'L/G utilisation'], ['1,000', U, L ? 'ศักยภาพ/ปี หากคืน L/G' : 'Capacity/yr if L/G restored']].map((s, i) =>
-            el('div', { key: i, style: { background: 'rgba(255,255,255,.15)', borderRadius: 12, padding: '12px 14px' } },
-              el('div', { style: { fontSize: 23, fontWeight: 800 } }, s[0], s[1] ? el('small', { style: { fontSize: 12, opacity: .85, marginLeft: 3 } }, s[1]) : null),
-              el('div', { style: { fontSize: 11.5, opacity: .9, marginTop: 2 } }, s[2]))))),
+            el('div', { key: i, style: { background: 'rgba(255,255,255,.15)', borderRadius: 14, padding: '16px 18px' } },
+              el('div', { style: { fontSize: 34, fontWeight: 800, letterSpacing: '-.5px', lineHeight: 1.05 } }, s[0], s[1] ? el('small', { style: { fontSize: 15, opacity: .85, marginLeft: 4 } }, s[1]) : null),
+              el('div', { style: { fontSize: 12.5, opacity: .92, marginTop: 5 } }, s[2]))))),
       secHead('01', L ? 'ภาพรวมผู้บริหาร' : 'Executive Summary', L ? 'วงเงิน · การใช้ · โครงการ' : 'Facilities · usage · projects'),
       el('div', { style: gridR(3) },
         kpi(CR.pre, L ? 'วงเงิน PRE-FINANCE' : 'PRE-FINANCE line', '140', U, L ? 'วงเงินรวม PN 140 ล.' : 'shared PN 140M'),
