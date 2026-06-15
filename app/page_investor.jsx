@@ -602,15 +602,14 @@
       const badge = isValley ? (lang === 'th' ? 'จุดต่ำสุด' : 'Lowest point') : (isFlip ? (lang === 'th' ? 'พลิกเป็นบวก' : 'Turns positive') : '');
       const badgeCol = isValley ? p.gold : p.good;
       const phaseTag = type === 'event' ? (lang === 'th' ? 'เริ่มโครงการ' : 'Start') : (i <= valleyIdx ? (lang === 'th' ? 'ระยะลงทุน' : 'Investment') : (lang === 'th' ? 'ระยะเก็บเงิน' : 'Collection'));
-      const tintTop = isValley ? invRgba(p.gold, 0.16) : (isFlip ? invRgba(p.good, 0.14) : invRgba(col, 0.10));
-      const borderCol = isValley ? invRgba(p.gold, 0.5) : (isFlip ? invRgba(p.good, 0.42) : invRgba(col, 0.24));
+      const boxCol = isValley ? p.gold : (isFlip ? p.good : col);  // สีของ "กล่องจำนวนเงิน" (กรอบเดียวที่เหลือ)
       const pctNum = type === 'event' ? 0 : Math.min(100, flow / (C || 1) * 100);
       const depthPct = Math.min(100, Math.abs(bal) / maxAbs * 100);
       // headline — read-only standard amount
       const headline = type === 'event'
         ? el('div', { style: { fontSize: L.val - 5, fontWeight: 800, color: p.sub } }, lang === 'th' ? 'เริ่มต้น' : 'Start')
         : el('div', { style: { fontSize: L.val, fontWeight: 800, color: col, fontVariantNumeric: 'tabular-nums' } }, (type === 'out' ? '−' : '+') + '฿' + invCompact(flow));
-      return el('div', { style: { position: 'relative', borderRadius: 16, padding: big ? '15px 15px 16px' : '13px 13px 14px', background: 'linear-gradient(180deg,' + tintTop + ',' + p.card + ' 46%)', border: '1px solid ' + borderCol, boxShadow: '0 1px 2px rgba(0,0,0,0.04), 0 16px 32px -20px ' + invRgba(col, 0.45) } },
+      return el('div', { style: { position: 'relative', padding: big ? '14px 6px 8px' : '12px 5px 6px' } },
         badge ? el('div', { style: { position: 'absolute', top: -10, left: '50%', transform: 'translateX(-50%)', whiteSpace: 'nowrap', fontSize: 9.5, fontWeight: 800, padding: '3px 11px', borderRadius: 7, background: badgeCol, color: '#fff', boxShadow: '0 6px 16px -3px ' + invRgba(badgeCol, 0.6) } }, badge) : null,
         el('div', { style: { display: 'flex', alignItems: 'center', gap: 7 } },
           el('div', { style: { width: big ? 27 : 24, height: big ? 27 : 24, borderRadius: 8, background: invRgba(col, 0.12), color: col, display: 'grid', placeItems: 'center', fontSize: big ? 14 : 12, fontWeight: 800, flex: '0 0 auto' } }, icon),
@@ -619,7 +618,7 @@
         el('div', { style: { fontSize: L.title, fontWeight: 800, color: p.ink, lineHeight: 1.25, marginTop: 10, minHeight: big ? 34 : 30 } }, title),
         el('div', { style: { fontSize: L.sub, color: p.sub, marginTop: 2, fontWeight: 600 } }, enLine),
         extra ? el('div', { style: { fontSize: L.sub, color: col, marginTop: 3, fontWeight: 700, lineHeight: 1.35 } }, extra) : null,
-        el('div', { style: { marginTop: 11, borderRadius: 12, padding: big ? '11px 12px 12px' : '10px 11px', background: invRgba(col, 0.05), border: '1px solid ' + invRgba(col, 0.14) } },
+        el('div', { style: { marginTop: 11, borderRadius: 13, padding: big ? '12px 13px 13px' : '11px 12px', background: invRgba(boxCol, 0.08), border: '1.5px solid ' + invRgba(boxCol, 0.32), boxShadow: '0 10px 22px -16px ' + invRgba(boxCol, 0.65) } },
           headline,
           el('div', { style: { marginTop: 9, height: 5, borderRadius: 3, background: invRgba(p.ink, 0.06), overflow: 'hidden' } },
             el('div', { style: { height: '100%', borderRadius: 3, width: pctNum.toFixed(1) + '%', background: 'linear-gradient(90deg,' + invRgba(col, 0.6) + ',' + col + ')' } })),
