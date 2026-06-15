@@ -481,7 +481,29 @@
   }
 
   // ── editable cash-flow config per product (persisted via WTPOverride) ─────────
-  const INV_CF_DEF = (c) => ({ contract: c, invAdv1: Math.round(c * 0.17), inv2: Math.round(c * 0.17), inv3: Math.round(c * 0.17), instAdv1: Math.round(c * 0.12), inst3: Math.round(c * 0.12), commPct: 6, lgPct: 5, m1Pct: 40, m2Pct: 60 });
+  // ── REAL cost data per product (from "ข้อมูลราคาต้นทุน.xlsx", 1 Jan 2569) ─────
+  // goods = ค่าของ (ยอดเบิก งวด 1/2/3: มัดจำ/ผลิต/ประกอบ, รวม TANK+Room+โซลาร์)
+  // inst  = ค่าติดตั้ง (ผู้รับเหมา: Advance/งวด1/งวด2 · น้ำดื่ม = Advance/–/งวดสุดท้าย)
+  const INV_COST_GOODS = {
+    PL: [1310215, 337585, 675170], PLS: [1310215, 337585, 675170],
+    PM: [906825, 294785, 589570], PMS: [906825, 294785, 589570],
+    PS: [673565, 246635, 493270], PSL: [1100495, 289435, 578870], PSM: [805442, 265092, 530185],
+    PTIIS: [1782754, 447929, 895858], 'PTII+S': [1782754, 447929, 895858],
+    STII: [1296974, 303479, 606958], 'STII+S': [1296974, 303479, 606958],
+    PD: [368080, 107000, 214000], PDH: [437898, 129738, 259475], PDP: [529650, 149800, 299600],
+  };
+  const INV_COST_INST = {
+    PL: [602592, 602592, 301296], PLS: [669200, 669200, 334600],
+    PM: [402000, 402000, 201000], PMS: [468600, 468600, 234300],
+    PTIIS: [696640, 696640, 348320], 'PTII+S': [763232, 763232, 381616],
+    STII: [488000, 488000, 244000], 'STII+S': [553400, 553400, 276700],
+    PD: [44800, 0, 83200], PDH: [54948, 0, 102047], PDP: [59896, 0, 111234],
+  };
+  const INV_CF_DEF = (code, c) => {
+    const g = INV_COST_GOODS[code] || [Math.round(c * 0.43 * 0.55), Math.round(c * 0.43 * 0.15), Math.round(c * 0.43 * 0.30)];
+    const i = INV_COST_INST[code] || [Math.round(c * 0.24 * 0.4), Math.round(c * 0.24 * 0.4), Math.round(c * 0.24 * 0.2)];
+    return { contract: c, g1: g[0], g2: g[1], g3: g[2], i1: i[0], i2: i[1], i3: i[2], commPct: 6, lgPct: 5, m1Pct: 40, m2Pct: 60 };
+  };
   function InvNumIn({ p, value, onChange, onBlur, w, mono }) {
     return el('input', { type: 'number', value: (value === 0 || value == null) ? '' : value, placeholder: '0',
       onChange: e => onChange(e.target.value === '' ? 0 : Number(e.target.value)), onBlur: onBlur,
@@ -495,23 +517,25 @@
       { t: ['วันเริ่มต้น', 'Day 0'], items: [
         { k: 'mark', th: ['ได้รับใบจัดสรร'], en: ['Allocation letter received'] } ] },
       { t: ['+30 วัน', '+30 days'], items: [
-        { k: 'out', edit: 'thb', f: 'invAdv1', amt: cfg.invAdv1, th: ['จ่ายค่าของล่วงหน้า (งวด 1)'], en: ['Advance inventory (lot 1)'] } ] },
+        { k: 'out', edit: 'thb', f: 'g1', amt: cfg.g1, th: ['ค่าของ งวด 1 (มัดจำ)'], en: ['Goods lot 1 (deposit)'] } ] },
       { t: ['7 วันก่อนลงนาม', '7 days before signing'], items: [
         { k: 'out', edit: 'pct', f: 'lgPct', amt: C * cfg.lgPct / 100, pv: cfg.lgPct, ret: true, th: ['ออก LG ค้ำประกัน'], en: ['Issue LG (bank guarantee)'] } ] },
       { t: ['ลงนามสัญญา · วันที่ 1', 'Signing · Day 1'], items: [
         { k: 'mark', th: ['ลงนามสัญญา'], en: ['Contract signing'] },
         { k: 'out', edit: 'pct', f: 'commPct', amt: C * cfg.commPct / 100, pv: cfg.commPct, th: ['จ่ายค่าคอมมิชชั่น'], en: ['Pay commission'] },
-        { k: 'out', edit: 'thb', f: 'instAdv1', amt: cfg.instAdv1, th: ['จ่ายค่าติดตั้งล่วงหน้า (งวด 1)'], en: ['Advance installation (lot 1)'] } ] },
+        { k: 'out', edit: 'thb', f: 'i1', amt: cfg.i1, th: ['ค่าติดตั้ง ล่วงหน้า'], en: ['Installation advance'] } ] },
       { t: ['~2 เดือน · เริ่มงานถัง', '~2 months · tank work'], items: [
-        { k: 'out', edit: 'thb', f: 'inv2', amt: cfg.inv2, th: ['จ่ายค่าของ (งวด 2)'], en: ['Inventory (lot 2)'] } ] },
+        { k: 'out', edit: 'thb', f: 'g2', amt: cfg.g2, th: ['ค่าของ งวด 2 (ผลิต)'], en: ['Goods lot 2 (production)'] } ] },
+      { t: ['หลังงาน PnP เสร็จ', 'After PnP done'], items: [
+        { k: 'out', edit: 'thb', f: 'i2', amt: cfg.i2, th: ['ค่าติดตั้ง งวด 1'], en: ['Installation lot 1'] } ] },
       { t: ['+7 วัน · ติดตั้งถังเสร็จ', '+7 days · tank installed'], items: [
         { k: 'mark', th: ['ส่งมอบงานงวด 1', 'เคลม 40% ของมูลค่าโครงการ'], en: ['Deliver milestone 1', 'Claim 40% of project value'] },
-        { k: 'out', edit: 'thb', f: 'inv3', amt: cfg.inv3, th: ['จ่ายค่าของ (งวดสุดท้าย)'], en: ['Inventory (final lot)'] } ] },
+        { k: 'out', edit: 'thb', f: 'g3', amt: cfg.g3, th: ['ค่าของ งวดสุดท้าย (ประกอบ)'], en: ['Goods final lot (assembly)'] } ] },
       { t: ['+30 วัน', '+30 days'], items: [
         { k: 'in', edit: 'pct', f: 'm1Pct', amt: C * cfg.m1Pct / 100, pv: cfg.m1Pct, th: ['รับเงินงวด 1 (40%)'], en: ['Cash received #1 (40%)'] } ] },
       { t: ['วันส่งมอบงวด 2', 'At milestone 2'], items: [
         { k: 'mark', th: ['ส่งมอบงานงวด 2'], en: ['Deliver milestone 2'] },
-        { k: 'out', edit: 'thb', f: 'inst3', amt: cfg.inst3, th: ['จ่ายค่าติดตั้ง (งวดสุดท้าย)'], en: ['Installation (final)'] } ] },
+        { k: 'out', edit: 'thb', f: 'i3', amt: cfg.i3, th: ['ค่าติดตั้ง งวดสุดท้าย'], en: ['Installation final'] } ] },
       { t: ['+30 วัน', '+30 days'], items: [
         { k: 'in', edit: 'pct', f: 'm2Pct', amt: C * cfg.m2Pct / 100, pv: cfg.m2Pct, th: ['รับเงินงวดสุดท้าย (60%)'], en: ['Final cash received (60%)'] } ] },
       { t: ['+2 ปี', '+2 years'], items: [
@@ -524,13 +548,13 @@
     const [code, setCode] = invSt('PL');
     const prod = INV_PRODUCTS.find(x => x.code === code) || INV_PRODUCTS[0];
     const cfgKey = (c) => 'cfp.' + c;
-    const loadCfg = (c, price) => { try { const raw = invGet(cfgKey(c), ''); if (raw) return Object.assign(INV_CF_DEF(price), JSON.parse(raw)); } catch (_) {} return INV_CF_DEF(price); };
+    const loadCfg = (c, price) => { try { const raw = invGet(cfgKey(c), ''); if (raw) return Object.assign(INV_CF_DEF(c, price), JSON.parse(raw)); } catch (_) {} return INV_CF_DEF(c, price); };
     const [cfg, setCfg] = invSt(() => loadCfg('PL', INV_PRODUCTS.find(x => x.code === 'PL').price));
     const cfgRef = invRef(cfg);
     invEff(() => { const c = loadCfg(code, prod.price); cfgRef.current = c; setCfg(c); }, [code]);
     const setField = (k, v) => { const next = Object.assign({}, cfgRef.current, { [k]: v }); cfgRef.current = next; setCfg(next); };
     const persist = () => { try { invSet(cfgKey(code), JSON.stringify(cfgRef.current)); } catch (_) {} };
-    const resetCfg = () => { const c = INV_CF_DEF(prod.price); cfgRef.current = c; setCfg(c); invSet(cfgKey(code), JSON.stringify(c)); };
+    const resetCfg = () => { const c = INV_CF_DEF(code, prod.price); cfgRef.current = c; setCfg(c); invSet(cfgKey(code), JSON.stringify(c)); };
 
     const C = cfg.contract || 0;
     const groups = invCfGroups(cfg);
@@ -542,29 +566,45 @@
     let run = 0, minRun = 0, beforeRecv1 = 0, seenIn = false;
     events.forEach(e => { const flow = e.k === 'out' ? -e.amt : e.k === 'in' ? e.amt : 0; if (e.k === 'in' && !seenIn) { beforeRecv1 = -run; seenIn = true; } run += flow; if (run < minRun) minRun = run; });
     const peak = -minRun;
-    const totalCost = cfg.invAdv1 + cfg.inv2 + cfg.inv3 + cfg.instAdv1 + cfg.inst3 + C * cfg.commPct / 100;
+    const goodsTot = cfg.g1 + cfg.g2 + cfg.g3, instTot = cfg.i1 + cfg.i2 + cfg.i3;
+    const totalCost = goodsTot + instTot + C * cfg.commPct / 100;
     const margin = C - totalCost;
     const costSeg = [
-      { th: 'ค่าของ (Inventory)', en: 'Inventory', pct: Math.round((cfg.invAdv1 + cfg.inv2 + cfg.inv3) / (C || 1) * 100), color: p.brand },
-      { th: 'ค่าติดตั้ง', en: 'Installation', pct: Math.round((cfg.instAdv1 + cfg.inst3) / (C || 1) * 100), color: p.brand2 },
+      { th: 'ค่าของ (Inventory)', en: 'Inventory', pct: Math.round(goodsTot / (C || 1) * 100), color: p.brand },
+      { th: 'ค่าติดตั้ง', en: 'Installation', pct: Math.round(instTot / (C || 1) * 100), color: p.brand2 },
       { th: 'คอมมิชชั่น', en: 'Commission', pct: Math.round(cfg.commPct), color: p.gold },
       { th: 'กำไรขั้นต้น', en: 'Margin', pct: Math.max(0, Math.round(margin / (C || 1) * 100)), color: p.accent },
     ];
+    // step-by-step รับ/จ่าย/สุทธิ/สะสม (one row per day-group)
+    let cum = 0;
+    const stepRows = groups.map((g, i) => {
+      const inn = g.items.filter(it => it.k === 'in').reduce((s, it) => s + it.amt, 0);
+      const out = g.items.filter(it => it.k === 'out').reduce((s, it) => s + it.amt, 0);
+      const net = inn - out; cum += net;
+      const label = (lang === 'th' ? g.items[0].th : g.items[0].en)[0];
+      return { bold: i === groups.length - 1, cells: [
+        el('div', null, el('div', { style: { fontWeight: 700 } }, (i + 1) + '. ' + label), el('div', { style: { fontSize: 10.5, color: p.sub } }, (lang === 'th' ? g.t[0] : g.t[1]))),
+        { t: inn ? '฿' + invCompact(inn) : '—' },
+        { t: out ? '฿' + invCompact(out) : '—', neg: out > 0 },
+        { t: (net >= 0 ? '+' : '−') + '฿' + invCompact(Math.abs(net)), neg: net < 0 },
+        { t: (cum < 0 ? '−' : '') + '฿' + invCompact(Math.abs(cum)), neg: cum < 0 },
+      ] };
+    });
 
     const [tlFull, setTlFull] = invSt(false);
     invEff(() => { if (!tlFull) return; const onKey = (e) => { if (e.key === 'Escape') setTlFull(false); }; window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey); }, [tlFull]);
 
     // layout metrics (axis stays aligned across columns; stacks reserve a fixed zone)
     const lay = (big) => {
-      const cardH = big ? 116 : 84, gap = big ? 12 : 9, cardTop = big ? 8 : 4, dot = big ? 20 : 15, w = big ? 218 : 178;
+      const cardH = big ? 116 : 84, gap = big ? 12 : 9, cardTop = big ? 8 : 4, bd = big ? 54 : 40, w = big ? 224 : 188;
       const aboveH = maxAbove * cardH + (maxAbove - 1) * gap;
       const belowH = maxBelow * cardH + (maxBelow - 1) * gap;
-      const pillTop = cardTop + aboveH + (big ? 8 : 6);
-      const dotTop = pillTop + (big ? 24 : 21);
-      const line = dotTop + dot / 2 - 1;
-      const outTop = line + (big ? 16 : 13);
+      const pillTop = cardTop + aboveH + (big ? 6 : 4);
+      const badgeTop = pillTop + (big ? 28 : 23);
+      const line = badgeTop + bd / 2;
+      const outTop = badgeTop + bd + (big ? 12 : 9);
       const h = outTop + belowH + (big ? 12 : 8);
-      return { cardH, gap, cardTop, dot, w, aboveH, belowH, pillTop, dotTop, line, outTop, h, title: big ? 13 : 10.5, val: big ? 19 : 14, sub: big ? 12 : 10, inW: big ? 112 : 86, ic: big ? 17 : 13 };
+      return { cardH, gap, cardTop, bd, w, aboveH, belowH, pillTop, badgeTop, line, outTop, h, title: big ? 13 : 10.5, val: big ? 19 : 14, sub: big ? 12 : 10, inW: big ? 112 : 86, ic: big ? 17 : 13, badgeIc: big ? 25 : 18 };
     };
 
     // one event card (no positioning)
@@ -593,26 +633,28 @@
                 : (e.ret ? (lang === 'th' ? '↩ คืนภายหลัง' : '↩ returned') : ''))));
     };
 
-    // one day-column: shared dot + timing pill, cards stacked (in/milestone above, out below)
+    // one day-column: a circular icon badge on the axis + timing pill, cards stacked
     const column = (big) => (g, i) => {
       const L = lay(big);
       const above = g.items.filter(it => it.k !== 'out');
       const below = g.items.filter(it => it.k === 'out');
       const hasMark = g.items.some(it => it.k === 'mark');
-      const dotCol = hasMark ? p.brand : (below.length ? p.bad : p.good);
+      const hasIn = g.items.some(it => it.k === 'in');
+      const bCol = hasMark ? p.brand : (hasIn ? p.good : p.bad);
+      const bIcon = hasMark ? '🚩' : (hasIn ? '💰' : '💸');
       return el('div', { key: i, style: { position: 'relative', flex: '0 0 ' + L.w + 'px', width: L.w, height: L.h } },
         above.length ? el('div', { style: { position: 'absolute', top: L.cardTop, left: 9, right: 9, display: 'flex', flexDirection: 'column', gap: L.gap } }, above.map((e, j) => buildCard(e, L, j))) : null,
-        above.length ? el('div', { style: { position: 'absolute', left: '50%', transform: 'translateX(-50%)', width: 2, top: L.cardTop + L.aboveH, height: L.dotTop - (L.cardTop + L.aboveH), background: invRgba(dotCol, 0.5), zIndex: 1 } }) : null,
+        above.length ? el('div', { style: { position: 'absolute', left: '50%', transform: 'translateX(-50%)', width: 2, top: L.cardTop + L.aboveH, height: L.badgeTop - (L.cardTop + L.aboveH), background: invRgba(bCol, 0.45), zIndex: 1 } }) : null,
         el('div', { style: { position: 'absolute', top: L.pillTop, left: 0, right: 0, textAlign: 'center', zIndex: 2 } },
-          el('span', { style: { fontSize: big ? 11.5 : 10, color: p.ink, fontWeight: 700, background: p.card, border: '1px solid ' + p.line, padding: big ? '3px 10px' : '2px 8px', borderRadius: 7, whiteSpace: 'nowrap', boxShadow: p.shadow } }, (lang === 'th' ? g.t[0] : g.t[1]))),
-        el('div', { style: { position: 'absolute', top: L.dotTop, left: '50%', transform: 'translateX(-50%)', width: L.dot, height: L.dot, borderRadius: '50%', background: 'radial-gradient(circle at 35% 30%,' + invRgba(dotCol, 1) + ',' + dotCol + ')', border: '3px solid ' + p.card, boxShadow: '0 0 0 4px ' + invRgba(dotCol, 0.18) + ', 0 3px 8px ' + invRgba(dotCol, 0.4), zIndex: 3 } }),
-        below.length ? el('div', { style: { position: 'absolute', left: '50%', transform: 'translateX(-50%)', width: 2, top: L.line, height: L.outTop - L.line, background: invRgba(p.bad, 0.5), zIndex: 1 } }) : null,
+          el('span', { style: { fontSize: big ? 11.5 : 9.5, color: p.ink, fontWeight: 700, background: p.card, border: '1px solid ' + p.line, padding: big ? '3px 11px' : '2px 9px', borderRadius: 99, whiteSpace: 'nowrap', boxShadow: p.shadow } }, (lang === 'th' ? g.t[0] : g.t[1]))),
+        el('div', { style: { position: 'absolute', top: L.badgeTop, left: '50%', transform: 'translateX(-50%)', width: L.bd, height: L.bd, borderRadius: '50%', background: 'linear-gradient(135deg,' + bCol + ',' + invRgba(bCol, 0.68) + ')', border: '3px solid ' + p.card, boxShadow: '0 0 0 5px ' + invRgba(bCol, 0.14) + ', 0 6px 16px ' + invRgba(bCol, 0.45), display: 'grid', placeItems: 'center', fontSize: L.badgeIc, zIndex: 3 } }, bIcon),
+        below.length ? el('div', { style: { position: 'absolute', left: '50%', transform: 'translateX(-50%)', width: 2, top: L.badgeTop + L.bd, height: L.outTop - (L.badgeTop + L.bd), background: invRgba(p.bad, 0.45), zIndex: 1 } }) : null,
         below.length ? el('div', { style: { position: 'absolute', top: L.outTop, left: 9, right: 9, display: 'flex', flexDirection: 'column', gap: L.gap } }, below.map((e, j) => buildCard(e, L, j))) : null);
     };
 
     const renderTimeline = (big) => { const L = lay(big); return el('div', { style: { overflowX: 'auto', overflowY: 'hidden', paddingBottom: 8 } },
       el('div', { style: { display: 'inline-flex', position: 'relative', minWidth: '100%' } },
-        el('div', { style: { position: 'absolute', top: L.line, left: L.w / 2, right: L.w / 2, height: 3, borderRadius: 2, background: 'linear-gradient(90deg,' + invRgba(p.bad, 0.45) + ' 0%,' + invRgba(p.gold, 0.4) + ' 55%,' + invRgba(p.good, 0.5) + ' 100%)', zIndex: 0 } }),
+        el('div', { style: { position: 'absolute', top: L.line - 2, left: L.w / 2, right: L.w / 2, height: 5, borderRadius: 3, background: 'linear-gradient(90deg,' + invRgba(p.bad, 0.55) + ' 0%,' + invRgba(p.gold, 0.5) + ' 55%,' + invRgba(p.good, 0.6) + ' 100%)', boxShadow: '0 2px 12px ' + invRgba(p.brand, 0.22), zIndex: 0 } }),
         groups.map(column(big)))); };
 
     const products = INV_PRODUCTS.map(pr => el('option', { key: pr.code, value: pr.code }, pr.code + ' · ' + pr.name + ' (฿' + invCompact(pr.price) + ')'));
@@ -657,6 +699,11 @@
           el('div', { style: { marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 } }, legend,
             el('button', { onClick: () => setTlFull(true), style: { height: 32, padding: '0 13px', borderRadius: 8, border: 'none', background: 'linear-gradient(135deg,' + p.brand + ',' + p.brand2 + ')', color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer' } }, '⛶ ' + (lang === 'th' ? 'นำเสนอเต็มจอ' : 'Present')))),
         renderTimeline(false)),
+      // step-by-step cash summary: รับ / จ่าย / สุทธิ / คงเหลือสะสม
+      el(InvCard, { p, title: (lang === 'th' ? 'สรุปกระแสเงินสดรายสเต็ป' : 'Step-by-step cash flow'), note: lang === 'th' ? 'คงเหลือสะสมติดลบ = ต้องใช้เงินทุน/สินเชื่อ' : 'negative cumulative = funding/loan needed', style: { marginBottom: 14 } },
+        el(InvTable, { p, head: [lang === 'th' ? 'ขั้นตอน' : 'Step', lang === 'th' ? 'รับ' : 'In', lang === 'th' ? 'จ่าย' : 'Out', lang === 'th' ? 'สุทธิ' : 'Net', lang === 'th' ? 'คงเหลือสะสม' : 'Cumulative'], rows: stepRows }),
+        el('div', { style: { fontSize: 11.5, color: p.sub, marginTop: 10, lineHeight: 1.6 } },
+          (lang === 'th' ? 'จุดต่ำสุด (ต้องใช้เงินทุน) ' : 'Lowest point (funding need) ') + '฿' + invCompact(peak) + ' · ' + (lang === 'th' ? 'กำไรขั้นต้นเมื่อจบโครงการ ' : 'Gross margin at project end ') + '฿' + invCompact(margin) + ' (' + pctOf(margin) + '%)')),
       // cost structure + pipeline + loans
       el('div', { style: gridR(2) },
         el(InvCard, { p, title: lang === 'th' ? 'โครงสร้างต้นทุนโครงการ (คำนวณจากที่กรอก)' : 'Project Cost Structure (computed)', note: '฿' + invCompact(C) },
