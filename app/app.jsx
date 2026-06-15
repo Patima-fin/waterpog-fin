@@ -3,6 +3,25 @@
 
 const { useState: aState, useEffect: aEffect, useMemo: aMemo } = React;
 
+// ─── One-time stale-projects cache reset (2026-06-15) ───────────────────────
+// อาการ: บางเครื่อง cache projects ค้างจำนวนเก่า (เช่น 319) < ชีตจริง (648) →
+//   anti-wedge เด้งวนไม่หยุด (ข้อมูลไม่หาย เพราะระบบยึดชีต แต่ log รก + เครื่องหน่วง).
+// แก้: ล้าง "เฉพาะ projects" ใน cache รอบเดียว — คง users ไว้ให้ยังล็อกอินได้ —
+//   + ทิ้ง snapshot 120-คอลัมน์เก่า → บังคับ re-sync projects จากชีต (648) แล้วค้างนิ่ง.
+// flag กันรันซ้ำ. ปลอดภัย: anti-empty-push + server base-reconcile กันดัน [] ทับชีต.
+(function () {
+  try {
+    if (localStorage.getItem('wtp-proj-resync-v1') === '1') return;
+    var raw = localStorage.getItem('wtp-fin-data-v8');
+    if (raw) {
+      var c = JSON.parse(raw);
+      if (c && Array.isArray(c.projects)) { c.projects = []; localStorage.setItem('wtp-fin-data-v8', JSON.stringify(c)); }
+    }
+    localStorage.removeItem('wtp-proj-control-v2'); // ทิ้ง snapshot เก่า → ใช้ data.projects (synced 648) แทน
+    localStorage.setItem('wtp-proj-resync-v1', '1');
+  } catch (_) {}
+})();
+
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "themeMode": "blue",
   "accentHue": 245,
