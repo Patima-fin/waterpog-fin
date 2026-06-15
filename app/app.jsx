@@ -956,7 +956,9 @@ function LoginPage({ onLogin }) {
     const known = new Set(users.map(u => u.username));
     configUsers.forEach(u => { if (!known.has(u.username)) users.push(u); });
 
-    const match = users.find(u => u.username === username && u.password === password);
+    // username = ไม่สนตัวพิมพ์ใหญ่-เล็ก + ตัดช่องว่าง (กันพิมพ์ BAIKAO/baikao ไม่ตรง) · password = ตรงเป๊ะ
+    const uIn = String(username || '').trim().toLowerCase();
+    const match = users.find(u => String(u.username || '').trim().toLowerCase() === uIn && u.password === password);
     setTimeout(() => {
       setLoading(false);
       if (match) {
