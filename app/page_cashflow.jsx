@@ -234,13 +234,9 @@ function ivIsTracking(iv) {
   return s === 'tracking' || s === 'อยู่ระหว่างติดตามเงิน';
 }
 function ivActualReceiveDate(iv) {
-  if (!iv.actualReceive) return null;
-  // followUps is parsed JSON in data_sync, actualReceive may be object or string
-  if (typeof iv.actualReceive === 'object' && iv.actualReceive.date) return iv.actualReceive.date;
-  if (typeof iv.actualReceive === 'string') {
-    try { const o = JSON.parse(iv.actualReceive); return o.date || null; } catch (_) { return null; }
-  }
-  return null;
+  // ★ ใช้ helper กลาง — เช็คทั้ง actualReceive.date (JSON) และ actualReceiveDate (คอลัมน์แบน)
+  //   เดิมอ่านแค่ JSON → ช่อง "รับจริง" (Actual) นับใบที่วันรับอยู่ในคอลัมน์แบนไม่ได้
+  return (typeof ivReceivedDate === 'function' ? ivReceivedDate(iv) : (iv.actualReceive && iv.actualReceive.date)) || null;
 }
 
 // ─── IV PLAN lock — freeze "คาดรับ" baseline ตั้งแต่วันที่ 1 ของเดือน ─────────

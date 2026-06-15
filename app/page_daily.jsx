@@ -89,20 +89,21 @@ function DailyRevenueDashboard({ data, setData, toast }) {
 
     // 2) data.invoices status=paid — secondary (เฉพาะใบที่ยังไม่ปรากฏใน receipts)
     (invoices || []).forEach(iv => {
-      if (iv.status !== 'paid' || !iv.actualReceive?.date) return;
+      const rd = ivReceivedDate(iv);                            // ★ actualReceive.date || actualReceiveDate
+      if (iv.status !== 'paid' || !rd) return;
       if (seenIvNo.has(iv.ivNo)) return;
       if (!matchType(iv)) return;
       const cj = drNormJobNo(iv.jobNo);
       const p  = projectByCode[cj] || {};
       out.push({
         id:          iv.id || iv.ivNo,
-        receiveDate: iv.actualReceive.date,
+        receiveDate: rd,
         jobNo:       cj,
         ivNo:        iv.ivNo,
         projectName: p['พื้นที่'] || p.name || iv.projectName || '—',
         period:      (() => { const n = Number(iv.period ?? 1); return Number.isFinite(n) ? n : 1; })(),
         balance:     Number(iv.balance) || 0,
-        netReceived: Number(iv.actualReceive.amount) || Number(iv.balance) || 0,
+        netReceived: Number(iv.actualReceive?.amount) || Number(iv.balance) || 0,   // ★ guard: actualReceive อาจเป็น null (วันรับมาจากคอลัมน์แบน)
         invType:     drInvType(iv),
         source:      'invoice',
       });

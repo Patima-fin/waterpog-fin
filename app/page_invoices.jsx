@@ -903,10 +903,10 @@ function InvoicesPage({ data, setData, toast }) {
                 <td className="num" style={{ whiteSpace: 'nowrap', color: 'var(--good)', fontWeight: 700 }}>{fmtNum(iv.netExpected, 0)}</td>
                 <td style={{ whiteSpace: 'nowrap', textAlign: 'center', padding: '4px 6px' }} onClick={(e) => e.stopPropagation()}>
                   {iv.status === 'paid' ? (
-                    iv.actualReceive?.date ? (
+                    ivReceivedDate(iv) ? (
                       <div>
                         <div style={{ fontSize: 10, color: 'var(--good)', fontWeight: 600 }}>รับจริง</div>
-                        <div style={{ color: 'var(--good)', fontWeight: 600 }}>{fmtDate(iv.actualReceive.date)}</div>
+                        <div style={{ color: 'var(--good)', fontWeight: 600 }}>{fmtDate(ivReceivedDate(iv))}</div>
                       </div>
                     ) : <span className="muted">—</span>
                   ) : (
@@ -1015,7 +1015,7 @@ function IvReportView({ rows, onOpen }) {
       key: 'today',
       icon: '✓', label: 'รับเงินแล้ววันนี้',
       grad: 'linear-gradient(135deg, #d1fae5 0%, #6ee7b7 100%)', text: '#065f46', border: '#34d399', // emerald (Daily MTD)
-      rows: rows.filter(iv => iv.status === 'paid' && iv.actualReceive?.date === today),
+      rows: rows.filter(iv => iv.status === 'paid' && ivReceivedDate(iv) === today),   // ★ ivReceivedDate = actualReceive.date || actualReceiveDate (เดิมอ่านแค่ JSON เลยพลาดใบส่วนใหญ่)
     },
     {
       key: 'this_week',
@@ -1172,9 +1172,9 @@ function IvReportView({ rows, onOpen }) {
 
         {/* Col 4: Date / status */}
         <div style={{ textAlign: 'right', lineHeight: 1.2 }}>
-          {isPaid && iv.actualReceive?.date ? (
+          {isPaid && ivReceivedDate(iv) ? (
             <>
-              <div style={{ fontSize: 11, color: '#276749', fontWeight: 600 }}>✓ {fmtDate(iv.actualReceive.date)}</div>
+              <div style={{ fontSize: 11, color: '#276749', fontWeight: 600 }}>✓ {fmtDate(ivReceivedDate(iv))}</div>
             </>
           ) : iv.expectedReceive ? (
             <>

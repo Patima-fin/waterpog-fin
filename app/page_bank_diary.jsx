@@ -84,7 +84,11 @@ function bdToISO(v) {
   if (!v) return '';
   const s = String(v).trim();
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
-  const t = Date.parse(s);
+  // ★ parseDateFlexible (global) รองรับ DD/MM/YYYY ไทย + พ.ศ. — เดิมใช้ Date.parse อ่าน
+  //   "05/06/2026" เป็น 6 พ.ค. (เดือนสลับ) / "25/05/2569" เป็น NaN → AP due/forecast/PV เพี้ยน
+  const d = (typeof parseDateFlexible === 'function') ? parseDateFlexible(s) : null;
+  if (d && !isNaN(d)) return bdISO(d);
+  const t = Date.parse(s);                       // fallback เดิม (กันรูปแบบที่ parseDateFlexible ไม่รู้จัก)
   return isNaN(t) ? '' : bdISO(new Date(t));
 }
 
@@ -168,7 +172,7 @@ function bdNormAP(p) {
                : (p.Amount != null && p.Amount !== '' ? p.Amount
                : (p.net_new != null && p.net_new !== '' ? p.net_new : p.Balance_Amount1)));
   return {
-    id: p.id, vendor: p.cust_name || '—', due: bdToISO(p.due), amount: amount,
+    id: p.id, vendor: p.cust_name || '—', due: bdToISO(p.due2 || p.dueDate || p.due), amount: amount,   // ★ due2 = ฟิลด์ครบกำหนดจริง (p.due มักว่าง) — ตรงกับ Home/page_home; กันโชว์ "—"+ไม่เตือนเลยกำหนด
     vchno: p.vchno || p.docno || '', remark: p.remark || '', cfCategory: p.cf_category != null ? String(p.cf_category) : '', raw: p,
   };
 }

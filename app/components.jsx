@@ -63,6 +63,31 @@ function parseDateFlexible(v) {
   return isNaN(d) ? null : d;
 }
 
+// ── ivReceivedDate — "วันรับเงิน" ของใบแจ้งหนี้จาก 2 แหล่ง (helper กลาง) ─────────────
+// ใบ IV เก็บวันรับเงินได้ 2 ที่: actualReceive.date (JSON, มัก "ว่าง") และ actualReceiveDate
+// (คอลัมน์แบน, มัก "มีค่า"). โค้ดที่กรอง/จัดกลุ่ม "รับตามวัน" โดยอ่านแค่ JSON จะพลาดใบส่วนใหญ่
+// → เคส Daily (อ่าน receipts) โชว์รับเงิน แต่ IV report/Cashflow (อ่าน actualReceive.date) ไม่โชว์.
+// ใช้ helper นี้ทุกที่ที่ต้องการ "วันรับเงินของใบ". คืน ISO YYYY-MM-DD หรือ '' ถ้าไม่มี.
+function ivReceivedDate(iv) {
+  if (!iv) return '';
+  let raw = '';
+  const ar = iv.actualReceive;
+  if (ar) {
+    if (typeof ar === 'object' && ar.date) raw = ar.date;
+    else if (typeof ar === 'string') { try { const o = JSON.parse(ar); if (o && o.date) raw = o.date; } catch (_) {} }
+  }
+  if (!raw && iv.actualReceiveDate) raw = iv.actualReceiveDate;   // ★ fallback คอลัมน์แบน
+  if (!raw) return '';
+  raw = String(raw).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);    // ISO อยู่แล้ว
+  const d = parseDateFlexible(raw);                               // normalize DD/MM/พ.ศ.
+  if (d && !isNaN(d)) {
+    const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), dd = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${dd}`;
+  }
+  return raw;
+}
+
 function fmtDate(iso) {
   const d = parseDateFlexible(iso);
   if (!d) return '—';
