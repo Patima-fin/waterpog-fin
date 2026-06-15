@@ -18,9 +18,9 @@
   // เปิด DevTools Console แล้วดูบรรทัดนี้ เพื่อยืนยันว่าเบราว์เซอร์โหลด "โค้ดใหม่" จริง
   // (ถ้าไม่เห็น = ยังรัน cache เก่า → hard refresh Ctrl+Shift+R + ปิดแท็บเก่าทุกอัน)
   // เช็คเร็ว: พิมพ์ WTPData.buildId ใน console
-  var BUILD_ID = '20260615b';
+  var BUILD_ID = '20260616a';
   try {
-    console.info('%c[WTP Sync] build ' + BUILD_ID + ' — row-level + anti-empty-push + server-guard + read-your-writes + no-push-when-logged-out + presence',
+    console.info('%c[WTP Sync] build ' + BUILD_ID + ' — row-level + anti-empty-push + server-guard + read-your-writes + no-push-when-logged-out + presence + auto-push-only-on-activity',
                  'color:#2a6fdb;font-weight:bold');
     if (window.WTPData) WTPData.buildId = BUILD_ID;
   } catch (_) {}
@@ -83,6 +83,14 @@
   var autoTimer        = null;          // setInterval handle (so we can restart)
   var recentPushAt     = {};            // entity → ts(ms) ของ push ล่าสุดที่สำเร็จ (anti-bounce)
   var cycleCount       = 0;             // นับรอบ auto-refresh (ใช้ตัดสิน hot vs full)
+
+  // ── Auto-push activity gate (กันแท็บเปิดค้างดัน "diff หลอก" ทับชีต = ข้อมูลหาย) ──
+  //   auto-push (debounced ใน WTPData.save wrapper) จะยิงเฉพาะเมื่อผู้ใช้ "เพิ่งแตะ"
+  //   (พิมพ์/คลิก/แก้) ภายใน window. แท็บค้างเฉยๆ poll แล้ว normalize ต่าง → ไม่ push.
+  //   ★ forceSyncNow (ปุ่มบันทึกจริง) ข้าม gate นี้เสมอ → การแก้ผ่านปุ่มยังเซฟ 100%
+  var AUTO_PUSH_REQUIRES_ACTIVITY  = cfg.AUTO_PUSH_REQUIRES_ACTIVITY !== false;     // default true
+  var AUTO_PUSH_ACTIVITY_WINDOW_MS = cfg.AUTO_PUSH_ACTIVITY_WINDOW_MS || 120000;    // 2 นาที
+  var lastUserActivity = 0;             // ts แตะล่าสุด; 0 = แท็บค้าง/เพิ่งเปิด ยังไม่แตะ → ไม่ auto-push
 
   // ── Anti-flip (กันยอด "เด้งไปเด้งมา") ──────────────────────────────
   // gviz CSV มีหลาย cache edge ที่ไม่ sync กัน → บางรอบ poll คืนค่าเก่า บางรอบค่าใหม่
@@ -1165,8 +1173,35 @@
     // Skip if we're already inside syncDiff (prevents re-entrant loops when
     // syncDiff calls subscribers, which might trigger React → setData → save).
     if (inSyncDiff) return;
+    // ★ AUTO-PUSH ACTIVITY GATE — ดันขึ้นชีตอัตโนมัติเฉพาะตอนผู้ใช้ "เพิ่งแตะ" (พิมพ์/คลิก/แก้)
+    //   ภายใน window. แท็บที่เปิดค้างเฉยๆ (poll รับข้อมูล → normalize ต่าง → diff หลอก) จะไม่
+    //   push ทับชีต = ตัดต้นเหตุข้อมูลหายจากแท็บค้าง. การกดปุ่มบันทึกจริงใช้ forceSyncNow (ข้าม gate นี้).
+    if (AUTO_PUSH_REQUIRES_ACTIVITY &&
+        (lastUserActivity === 0 || (Date.now() - lastUserActivity) > AUTO_PUSH_ACTIVITY_WINDOW_MS)) {
+      return;
+    }
     clearTimeout(syncTimer);
     syncTimer = setTimeout(function () { syncDiff(data); }, 3000);
+  };
+
+  // ── ดัก "การแตะของผู้ใช้" (พิมพ์/แก้/คลิกควบคุม) → เปิดสิทธิ์ auto-push ชั่วคราว ───────
+  //   ใช้เฉพาะ event ที่สื่อถึง "กำลังทำงานกับข้อมูล" — ไม่นับ mousemove/scroll (แท็บค้างอาจมี)
+  try {
+    ['keydown', 'input', 'change', 'mousedown', 'touchstart', 'paste'].forEach(function (ev) {
+      window.addEventListener(ev, function () { lastUserActivity = Date.now(); }, { passive: true, capture: true });
+    });
+  } catch (_) {}
+
+  // Diagnostic (read-only): เช็คสถานะ gate จาก console — WTPData._autoPushInfo()
+  WTPData._autoPushInfo = function () {
+    var since = lastUserActivity ? (Date.now() - lastUserActivity) : null;
+    return {
+      requiresActivity: AUTO_PUSH_REQUIRES_ACTIVITY,
+      windowMs: AUTO_PUSH_ACTIVITY_WINDOW_MS,
+      msSinceActivity: since,
+      wouldAutoPush: !AUTO_PUSH_REQUIRES_ACTIVITY ||
+                     (lastUserActivity > 0 && since <= AUTO_PUSH_ACTIVITY_WINDOW_MS),
+    };
   };
 
   /* ── subscribe (for React) ───────────────────────────────────────── */

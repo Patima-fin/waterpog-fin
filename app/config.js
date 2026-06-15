@@ -71,4 +71,13 @@ window.WTP_CONFIG = {
   //   ★ ต้อง redeploy Apps Script (มี entity presence) ก่อนถึงจะทำงาน — ถ้ายังไม่ deploy
   //     จะเงียบ (degrade) ไม่พัง. ตั้ง 0 เพื่อปิดการ heartbeat
   PRESENCE_HEARTBEAT_MS: 5 * 60 * 1000,  // 5 นาที
+
+  // ── Auto-push เฉพาะตอนผู้ใช้ "แก้จริง" (กันแท็บค้างดันข้อมูลหาย) ──────────────
+  // true  = auto-push (ตัว debounced หลัง setData) จะยิงเฉพาะเมื่อผู้ใช้เพิ่งแตะ
+  //         (พิมพ์/คลิก/แก้) ภายใน AUTO_PUSH_ACTIVITY_WINDOW_MS → แท็บเปิดค้างเฉยๆ
+  //         (poll แล้ว normalize ต่าง = "diff หลอก") จะไม่ push ทับชีต = หยุดข้อมูลหาย
+  // false = กลับไปพฤติกรรมเดิม (push ทุกครั้งที่ data เปลี่ยน แม้ poll) — ใช้ถอยกลับถ้าพบปัญหา
+  // ★ ปุ่มบันทึกจริง (forceSyncNow) ข้าม gate นี้เสมอ → การแก้ผ่านปุ่มยังเซฟ 100%
+  AUTO_PUSH_REQUIRES_ACTIVITY: true,
+  AUTO_PUSH_ACTIVITY_WINDOW_MS: 2 * 60 * 1000,  // 2 นาที — แตะภายในช่วงนี้ถือว่า "กำลังแก้จริง"
 };

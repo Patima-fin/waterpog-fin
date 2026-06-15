@@ -20,3 +20,10 @@ Thumbs.db
 
 # Local data backups (contain real vendor names / amounts — never commit)
 backups/
+
+# Real financial data files — NEVER commit (repo is public via GitHub Pages)
+# (ไฟล์ export/สำเนาฐานข้อมูล มีชื่อลูกค้า/ยอดเงินจริง — ห้ามขึ้น repo เด็ดขาด)
+*.xlsx
+*.xls
+*.csv
+_audit_tmp/
