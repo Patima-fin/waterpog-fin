@@ -47,6 +47,7 @@ window.WTP_CONFIG = {
     { username: 'acc.manager', password: 'waterpog2026', displayName: 'บัญชี',           role: 'staff'   },
     { username: 'nantawan',    password: 'nan2026',      displayName: 'Nantawan',        role: 'manager' },
     { username: 'patima',      password: 'toey2026',     displayName: 'Patima',          role: 'manager' },
+    { username: 'itd',         password: 'itd2026',      displayName: 'ITD',             role: 'manager' },
   ],
 
   // อายุ session (มิลลิวินาที) — 0 = ไม่หมดอายุ
