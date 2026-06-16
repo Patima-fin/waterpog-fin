@@ -28,9 +28,15 @@
 
   <div class="card">
     <div class="cfg" id="cfg"></div>
+    <div id="loginBox" style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input type="text" id="u" placeholder="ชื่อผู้ใช้" style="padding:9px 11px;border:1.5px solid #e2e8f0;border-radius:9px;font-size:14px">
+      <input type="password" id="p" placeholder="รหัสผ่าน" style="padding:9px 11px;border:1.5px solid #e2e8f0;border-radius:9px;font-size:14px">
+      <button class="btn-dl" id="login" style="padding:9px 18px">เข้าสู่ระบบ</button>
+      <span id="who" style="color:#5a6478;font-size:13px"></span>
+    </div>
     <p style="margin:14px 0 0">
       <button class="btn-dl" id="dl" disabled>⬇ ดาวน์โหลด Backup (JSON)</button>
-      <label class="btn-rs" style="display:inline-block;padding:11px 20px;border-radius:10px;">↩ กู้คืนจากไฟล์…<input type="file" id="file" accept=".json" style="display:none"></label>
+      <label class="btn-rs" id="rsLabel" style="display:inline-block;padding:11px 20px;border-radius:10px;opacity:.45;pointer-events:none">↩ กู้คืนจากไฟล์…<input type="file" id="file" accept=".json" style="display:none"></label>
     </p>
   </div>
 
@@ -109,10 +115,34 @@
     rd.readAsText(file);
   }
 
-  document.getElementById('dl').disabled = !ok;
-  document.getElementById('dl').onclick = download;
-  document.getElementById('file').onchange = function(e){ if(e.target.files[0]) restore(e.target.files[0]); };
-  if(!ok) log('⚠ ตั้งค่า SUPABASE_URL/ANON_KEY ใน config.js ก่อน'); else log('พร้อม — กด "ดาวน์โหลด Backup"');
+  // ── login ก่อนใช้ (หลังเปิด RLS, anon อ่าน/เขียนไม่ได้แล้ว — ต้อง login เป็น staff/manager) ──
+  var DOMAIN = cfg.AUTH_EMAIL_DOMAIN || 'waterpog.app';
+  var loggedIn = false;
+  function setEnabled(on){
+    loggedIn = on;
+    document.getElementById('dl').disabled = !on;
+    var rs = document.getElementById('rsLabel');
+    rs.style.opacity = on ? '1' : '.45';
+    rs.style.pointerEvents = on ? 'auto' : 'none';
+  }
+  document.getElementById('login').onclick = function(){
+    if(!ok){ log('⚠ ตั้งค่า config ก่อน'); return; }
+    var u = document.getElementById('u').value, p = document.getElementById('p').value;
+    if(!u || !p){ log('กรอกชื่อผู้ใช้ + รหัสผ่าน'); return; }
+    var email = String(u).trim().toLowerCase() + '@' + DOMAIN;
+    sb.auth.signInWithPassword({ email: email, password: p }).then(function(res){
+      if(res.error){ log('✗ login ไม่ได้: '+res.error.message); return; }
+      var meta = (res.data && res.data.user && res.data.user.app_metadata) || {};
+      document.getElementById('who').textContent = '✓ เข้าระบบ: '+(meta.username||u)+' ('+(meta.role||'?')+')';
+      setEnabled(true);
+      log('เข้าระบบแล้ว — กด "ดาวน์โหลด Backup" ได้เลย');
+    }, function(e){ log('✗ login error: '+(e&&e.message)); });
+  };
+
+  document.getElementById('dl').onclick = function(){ if(loggedIn) download(); };
+  document.getElementById('file').onchange = function(e){ if(loggedIn && e.target.files[0]) restore(e.target.files[0]); };
+  setEnabled(false);
+  if(!ok) log('⚠ ตั้งค่า SUPABASE_URL/ANON_KEY ใน config.js ก่อน'); else log('เปิด RLS แล้ว — login (staff/manager) ก่อนดาวน์โหลด/กู้คืน');
 })();
 </script>
 </body>
