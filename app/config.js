@@ -34,7 +34,7 @@ window.WTP_CONFIG = {
   //     (สร้าง Supabase Auth users + รหัสใหม่แล้ว) ไม่งั้นทุกคน login ไม่ได้
   //   เมื่อ true: login เรียก WTPData.authSignIn (signInWithPassword), role มาจาก app_metadata,
   //     และควรลบ password ออกจาก USERS ด้านล่าง (ไม่ใช้แล้ว + ไม่ให้รั่วใน repo)
-  USE_SUPABASE_AUTH: false,
+  USE_SUPABASE_AUTH: true,
 
   // Sheet ID — ใช้สำหรับ READ ทาง CSV (เร็ว ไม่ใช้ Apps Script quota)
   SHEET_ID: '1Q0enboLihOYiYCn7otK9zXBlk6Yy8oHfoAXaFnGujwA',
@@ -57,23 +57,21 @@ window.WTP_CONFIG = {
   // client จะ fallback เป็น replaceAll ให้อัตโนมัติ (ปลอดภัย)
   ROW_LEVEL_SYNC: true,
 
-  // ผู้ใช้ระบบ — แก้ไข username/password/role ได้ตามต้องการ
-  //
-  // Roles (เลือก 1 ใน 4):
-  //  - viewer  : ดูเฉพาะ dashboard (Daily, War Room) — ห้ามดูประมาณการ + จัดการข้อมูล
-  //  - staff   : ทำงานปกติ ดูทุกหน้า + เพิ่ม/แก้ไข ได้ แต่ลบไม่ได้
-  //  - manager : ทำได้ทุกอย่าง รวมจัดการ users
-  //  - owner   : ดูทุกหน้า แต่แก้/ลบไม่ได้ — มองไม่เห็นหน้าจัดการ users
+  // ผู้ใช้ระบบ — ★ Phase 4: รหัสผ่านย้ายไป Supabase Auth แล้ว (hash ฝั่ง server)
+  //   จึง "ลบ password ออกจากไฟล์นี้" (เป็น public repo) — login ตรวจกับ Supabase Auth แทน
+  //   รายการนี้เหลือไว้เป็น directory (username/displayName/role) + ให้ tool สร้าง user อ่าน
+  //   เพิ่ม/แก้คน/รหัส → แก้ที่นี่ (username/role/displayName) แล้วรัน tools/supabase-auth-setup.html
+  // Roles: viewer (ดู dashboard) · staff (แก้ได้ ลบไม่ได้) · manager (ทุกอย่าง+users) · owner (ดูอย่างเดียว)
   USERS: [
-    { username: 'admin',       password: 'waterpog2025', displayName: 'ผู้ดูแลระบบ',     role: 'manager' },
-    { username: 'finance1',    password: 'fin1234',      displayName: 'การเงิน 1',       role: 'staff'   },
-    { username: 'finance2',    password: 'fin1234',      displayName: 'การเงิน 2',       role: 'staff'   },
-    { username: 'viewer',      password: 'view2025',     displayName: 'ผู้บริหาร (ดู)',  role: 'viewer'  },
-    { username: 'owner',       password: 'own2025',      displayName: 'เจ้าของบริษัท',   role: 'owner'   },
-    { username: 'acc.manager', password: 'waterpog2026', displayName: 'บัญชี',           role: 'staff'   },
-    { username: 'nantawan',    password: 'nan2026',      displayName: 'Nantawan',        role: 'manager' },
-    { username: 'patima',      password: 'toey2026',     displayName: 'Patima',          role: 'manager' },
-    { username: 'itd',         password: 'itd2026',      displayName: 'ITD',             role: 'manager' },
+    { username: 'admin',       displayName: 'ผู้ดูแลระบบ',     role: 'manager' },
+    { username: 'finance1',    displayName: 'การเงิน 1',       role: 'staff'   },
+    { username: 'finance2',    displayName: 'การเงิน 2',       role: 'staff'   },
+    { username: 'viewer',      displayName: 'ผู้บริหาร (ดู)',  role: 'viewer'  },
+    { username: 'owner',       displayName: 'เจ้าของบริษัท',   role: 'owner'   },
+    { username: 'acc.manager', displayName: 'บัญชี',           role: 'staff'   },
+    { username: 'nantawan',    displayName: 'Nantawan',        role: 'manager' },
+    { username: 'patima',      displayName: 'Patima',          role: 'manager' },
+    { username: 'itd',         displayName: 'ITD',             role: 'manager' },
   ],
 
   // อายุ session (มิลลิวินาที) — 0 = ไม่หมดอายุ
@@ -91,7 +89,7 @@ window.WTP_CONFIG = {
   //   ★ อัปเดตค่านี้ทุกครั้งที่อยาก "บังคับทุกคน re-login ตอน deploy" (ใส่ epoch ปัจจุบัน)
   //   นอกจากนี้ admin ยังกด "บังคับทุกคนออกจากระบบ" ระหว่างวันได้ผ่านหน้า Users
   //   (เขียน override `system.forceLogoutBefore` — เด้งเครื่องที่รันโค้ดใหม่ภายใน ~2 นาที)
-  FORCE_LOGOUT_BEFORE: 1781505311512,  // 2026-06-15 (เวลา deploy build 20260615b)
+  FORCE_LOGOUT_BEFORE: 1781616189511,  // 2026-06-16 13:23 (Phase 4 go-live: บังคับทุกคน re-login ด้วย Supabase Auth + รหัสใหม่)
 
   // Presence "ใครออนไลน์อยู่" — เครื่องที่ล็อกอิน+เปิดอยู่+ไม่ idle เขียน heartbeat
   //   ทุกช่วงนี้ (ms, 0 = ปิด) ไปที่ตาราง `presence` (ไม่ลง audit) → หน้า Users โชว์
