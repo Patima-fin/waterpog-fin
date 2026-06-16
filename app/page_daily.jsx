@@ -61,6 +61,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
   const paidInvoices = dRMemo(() => {
     const out = [];
     const seenIvNo = new Set();
+    const seenReceiptKey = new Set();   // กันแถว receipt ซ้ำใน data.receipts เอง (ดูคอมเมนต์ด้านล่าง)
 
     // 1) data.receipts — primary source (ประวัติรับเงิน 684 ใบ)
     (data.receipts || []).forEach(r => {
@@ -68,6 +69,12 @@ function DailyRevenueDashboard({ data, setData, toast }) {
       const ownIvType = (r.invType || '').toString().trim().toUpperCase();
       const ivType    = (ownIvType === 'O' || ownIvType === 'P') ? ownIvType : (ivTypeByInvNo[r.invoiceNo] || 'P');
       if (ivTypeFilter !== 'all' && ivType !== ivTypeFilter) return;
+      // ★ dedup ภายใน receipts: 2 แถวที่ receiptNo+invoiceNo เดียวกัน = "ใบรับเงินเดียวกัน" ที่ถูก
+      //   สร้างซ้ำ (auto-gen 2 รอบ ตอน sync race / migrate → คนละ id แต่เนื้อหาเหมือนกัน) → นับครั้งเดียว.
+      //   ใส่ invoiceNo ใน key ด้วย → receipt จริงคนละใบ (receiptNo ต่างกัน) ไม่ถูกยุบ;
+      //   receipt จ่ายหลายงวดของใบเดียว (receiptNo ต่างกัน) ก็ไม่ถูกยุบ. receiptNo ว่าง → ไม่ dedup.
+      const dupKey = (r.receiptNo && r.invoiceNo) ? (String(r.receiptNo).trim() + '|' + String(r.invoiceNo).trim()) : '';
+      if (dupKey && seenReceiptKey.has(dupKey)) return;
       // resolve jobNo & project name: receipt fields first, fallback to invoice lookup by ivNo
       const linkedIv = r.invoiceNo ? invByIvNo[r.invoiceNo] : null;
       const cj = drNormJobNo(r.projectCode || '') || drNormJobNo(linkedIv?.jobNo || '');
@@ -84,6 +91,7 @@ function DailyRevenueDashboard({ data, setData, toast }) {
         invType:     ivType,
         source:      'receipt',
       });
+      if (dupKey) seenReceiptKey.add(dupKey);
       if (r.invoiceNo) seenIvNo.add(r.invoiceNo);
     });
 

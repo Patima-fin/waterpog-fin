@@ -829,7 +829,12 @@
     const mm = String(d.getMonth() + 1).padStart(2, '0');
     const seq = String(list.length + 1).padStart(3, '0');
     const newReceipt = {
-      id:                id(),
+      // ★ id = DETERMINISTIC ('rcp-'+ivNo) ไม่ใช่ id() สุ่ม — กัน "receipt ซ้ำ" ตอน 2 เครื่อง/
+      //   2 รอบ รัน backfill นี้พร้อมกัน โดยยังไม่เห็น receipt ของกันและกันใน list (sync race /
+      //   ตอน migrate): เดิม mint id() ใหม่ทุกครั้ง → คนละ id = คนละแถว (PK=id) อยู่รอดทั้งคู่ →
+      //   ยอด "รับเงิน" เบิ้ล. ตอนนี้ทั้ง 2 รอบได้ id เดียวกัน → upsert ทับเป็นแถวเดียว. (find-by-
+      //   invoiceNo ด้านบนยังจับ receipt ที่มาจาก import/id เดิมได้ตามปกติ — เคสนี้ครอบเฉพาะ "สร้างใหม่")
+      id:                'rcp-' + ivNo,
       receiptNo:         `AR${yy}${mm}-${seq}`,
       receiptDate:       iv.actualReceive.date,
       invoiceNo:         ivNo,
