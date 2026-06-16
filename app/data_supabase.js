@@ -55,7 +55,9 @@
   if (!window.supabase || !window.supabase.createClient) { installStub('supabase-js ยังไม่โหลด'); return; }
 
   var sb = window.supabase.createClient(SUPA_URL, SUPA_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false },   // ใช้ login เดิม (localStorage) ไม่ใช้ Supabase Auth
+    // persistSession/autoRefresh เปิดไว้ — Phase 4 (USE_SUPABASE_AUTH) ใช้ session คุม RLS;
+    // ถ้ายังไม่เปิด flag ก็ไม่มีใครเรียก authSignIn → ไม่มี session (ไม่กระทบ anon flow)
+    auth: { persistSession: true, autoRefreshToken: true },
     realtime: { params: { eventsPerSecond: 20 } },
   });
 
@@ -516,6 +518,33 @@
     var since = lastSyncTime ? (Date.now() - lastSyncTime.getTime()) : Infinity;
     if (since > 30000) loadFromServer();
   });
+
+  /* ── Phase 4: Supabase Auth (ใช้เมื่อ config.USE_SUPABASE_AUTH = true) ──────────
+   *   login จับคู่ username → "<username>@<AUTH_EMAIL_DOMAIN>" แล้ว signInWithPassword.
+   *   หลัง SIGNED_IN → reload (request จะพก JWT → ผ่าน RLS). role มาจาก app_metadata. */
+  var AUTH_DOMAIN = cfg.AUTH_EMAIL_DOMAIN || 'waterpog.app';
+  WTPData.authSignIn = function (username, password) {
+    var email = String(username == null ? '' : username).trim().toLowerCase() + '@' + AUTH_DOMAIN;
+    return sb.auth.signInWithPassword({ email: email, password: password }).then(function (res) {
+      if (res.error) throw res.error;
+      var u = (res.data && res.data.user) || {};
+      var meta = u.app_metadata || {};
+      return {
+        username:    meta.username || username,
+        displayName: meta.displayName || meta.display_name || username,
+        role:        meta.role || 'viewer',
+      };
+    });
+  };
+  WTPData.authSignOut = function () {
+    try { return sb.auth.signOut().then(function () {}, function () {}); } catch (_) { return Promise.resolve(); }
+  };
+  // หลัง login สำเร็จ → โหลดข้อมูลใหม่ด้วย session (JWT) เพื่อให้ผ่าน RLS เมื่อเปิดใช้
+  try {
+    sb.auth.onAuthStateChange(function (event) {
+      if (event === 'SIGNED_IN') loadFromServer();
+    });
+  } catch (_) {}
 
   /* ── first load ────────────────────────────────────────────────────── */
   loadFromServer();

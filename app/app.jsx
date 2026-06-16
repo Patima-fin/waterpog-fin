@@ -110,6 +110,7 @@ function App() {
     setRoute('home');
   };
   const handleLogout = () => {
+    try { if (WTPData.authSignOut) WTPData.authSignOut(); } catch (_) {}   // Phase 4: เคลียร์ Supabase session ด้วย
     localStorage.removeItem('wtp-session');
     setIsLoggedIn(false);
     setCurrentUser(null);
@@ -966,6 +967,13 @@ function LoginPage({ onLogin }) {
     e.preventDefault();
     setLoading(true);
     setError('');
+    // ── Phase 4: login ผ่าน Supabase Auth (เมื่อเปิด flag) — รหัส hash ฝั่ง server, role จาก app_metadata
+    if ((window.WTP_CONFIG && window.WTP_CONFIG.USE_SUPABASE_AUTH) && WTPData.authSignIn) {
+      WTPData.authSignIn(username, password)
+        .then(userObj => { setLoading(false); onLogin(userObj); })
+        .catch(() => { setLoading(false); setError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง'); });
+      return;
+    }
     const uIn = String(username || '').trim().toLowerCase();
     const norm = (n) => String(n || '').trim().toLowerCase();
     const isActive = (u) => {

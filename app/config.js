@@ -24,6 +24,18 @@ window.WTP_CONFIG = {
   SUPABASE_URL: 'https://kibxevldnzquwulcyegr.supabase.co',
   SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpYnhldmxkbnpxdXd1bGN5ZWdyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1ODk1MTQsImV4cCI6MjA5NzE2NTUxNH0.vJ36egIcryH0gN-DTj75i7LjTgh3zpLbC858y2LYQeU',
 
+  // Phase 4 — Supabase Auth: login จับคู่ username → อีเมลภายใน "<username>@<domain>"
+  //   (อีเมลปลอมใช้ภายในระบบ ไม่ส่งจริง · domain ต้องผ่าน format validator ของ Supabase)
+  //   ★ ค่านี้ต้องตรงกันระหว่าง tools/supabase-auth-setup.html (สร้าง user) กับ login (app.jsx)
+  AUTH_EMAIL_DOMAIN: 'waterpog.app',
+
+  // เปิด login ผ่าน Supabase Auth (Phase 4) — false = ใช้ login เดิม (ตรวจกับ USERS/ชีต)
+  //   ★ เปิดเป็น true เฉพาะหลังทำ docs/supabase-phase4-auth-guide.md ขั้น A–B เสร็จ
+  //     (สร้าง Supabase Auth users + รหัสใหม่แล้ว) ไม่งั้นทุกคน login ไม่ได้
+  //   เมื่อ true: login เรียก WTPData.authSignIn (signInWithPassword), role มาจาก app_metadata,
+  //     และควรลบ password ออกจาก USERS ด้านล่าง (ไม่ใช้แล้ว + ไม่ให้รั่วใน repo)
+  USE_SUPABASE_AUTH: false,
+
   // Sheet ID — ใช้สำหรับ READ ทาง CSV (เร็ว ไม่ใช้ Apps Script quota)
   SHEET_ID: '1Q0enboLihOYiYCn7otK9zXBlk6Yy8oHfoAXaFnGujwA',
 

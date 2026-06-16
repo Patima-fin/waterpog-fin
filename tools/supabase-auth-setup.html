@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Water POG — ตั้งค่า Supabase Auth (สร้างผู้ใช้ + รหัสใหม่)</title>
+<script>document.write('<scr' + 'ipt src="../app/config.js?_=' + Date.now() + '"><\/scr' + 'ipt>');</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<style>
+  body { font: 15px/1.6 "IBM Plex Sans Thai", system-ui, sans-serif; max-width: 920px; margin: 24px auto; padding: 0 16px; color: #1f2733; background: #f4f7fb; }
+  h1 { font-size: 22px; margin: 0 0 4px; } .sub { color: #5a6478; margin: 0 0 16px; }
+  .card { background: #fff; border: 1px solid #e2e8f2; border-radius: 12px; padding: 16px 18px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(20,40,80,.05); }
+  .danger { background: #fff0f0; border: 1px solid #ffc9c9; border-radius: 10px; padding: 12px 14px; font-size: 13.5px; color: #a01818; margin-bottom: 14px; }
+  label.f { display:block; font-weight:600; font-size:13px; margin-bottom:6px; }
+  input[type=password], input[type=text] { width:100%; box-sizing:border-box; padding:10px 12px; border:1.5px solid #e2e8f0; border-radius:9px; font:14px ui-monospace,monospace; }
+  button { font: 600 15px "IBM Plex Sans Thai", system-ui; border: 0; border-radius: 10px; padding: 11px 20px; cursor: pointer; }
+  .btn-go { background: linear-gradient(90deg,#2a6fdb,#36a9e1); color:#fff; } button:disabled{opacity:.5;cursor:not-allowed;}
+  table { width:100%; border-collapse:collapse; font-size:13.5px; margin-top:10px; }
+  th,td { text-align:left; padding:6px 8px; border-bottom:1px solid #eef2f8; }
+  th { color:#5a6478; font-weight:500; }
+  .pw { font:13px ui-monospace,monospace; background:#f1f5fb; padding:2px 6px; border-radius:5px; }
+  .st-ok{color:#0a7d3c;font-weight:600;} .st-err{color:#c0392b;font-weight:600;}
+  #log { background:#0f1722; color:#c8e1ff; font:12px/1.5 ui-monospace,monospace; border-radius:10px; padding:12px; height:160px; overflow:auto; white-space:pre-wrap; }
+  textarea { width:100%; box-sizing:border-box; height:120px; font:12px ui-monospace,monospace; border:1px solid #e2e8f0; border-radius:9px; padding:10px; }
+</style>
+</head>
+<body>
+  <h1>ตั้งค่า Supabase Auth — สร้างผู้ใช้ + รหัสใหม่</h1>
+  <p class="sub">สร้างบัญชี Supabase Auth ให้ทีม (จาก USERS ใน config.js) พร้อมรหัสผ่านใหม่ + ฝัง role ใน app_metadata (ใช้กับ RLS)</p>
+
+  <div class="danger">
+    🔐 <b>service_role key คือกุญแจระดับสูงสุด</b> — วางในหน้านี้ใช้ครั้งเดียวในเครื่องคุณเท่านั้น (เก็บในหน่วยความจำ ไม่บันทึก ไม่ขึ้น repo).
+    เอาจาก Supabase → Project Settings → API → <b>service_role · secret</b> (กด Reveal). <br>
+    ★ ทำเสร็จแนะนำ <b>หมุน (regenerate) service_role key</b> ใน Supabase เพื่อความปลอดภัยสูงสุด (แอปใช้แค่ anon key ไม่กระทบ)
+  </div>
+
+  <div class="card" id="cfgCard"></div>
+
+  <div class="card">
+    <label class="f">service_role key (secret)</label>
+    <input type="password" id="srk" placeholder="eyJ... (service_role)" autocomplete="off" />
+    <p style="margin:14px 0 0">
+      <button class="btn-go" id="go" disabled>สร้าง / อัปเดตผู้ใช้ทั้งหมด (รหัสใหม่)</button>
+      <span style="color:#5a6478;font-size:13px;margin-left:8px">domain: <b id="dom"></b></span>
+    </p>
+  </div>
+
+  <div class="card" id="resCard" style="display:none">
+    <b>รหัสผ่านใหม่ (โชว์ครั้งเดียว — ก็อปแจกทีม แล้วปิดหน้านี้)</b>
+    <table id="tbl"><thead><tr><th>ชื่อผู้ใช้</th><th>อีเมลระบบ</th><th>role</th><th>รหัสผ่านใหม่</th><th>สถานะ</th></tr></thead><tbody></tbody></table>
+    <p style="margin:12px 0 4px"><b>ก็อปทั้งหมด:</b></p>
+    <textarea id="dump" readonly></textarea>
+  </div>
+
+  <div class="card"><div id="log"></div></div>
+
+<script>
+(function(){
+  'use strict';
+  var cfg = window.WTP_CONFIG || {};
+  var URL_ = cfg.SUPABASE_URL || '';
+  var DOMAIN = cfg.AUTH_EMAIL_DOMAIN || 'waterpog.app';
+  var USERS = (cfg.USERS || []).slice();
+  document.getElementById('dom').textContent = '@' + DOMAIN;
+
+  var logEl = document.getElementById('log');
+  function log(m){ logEl.textContent += m + '\n'; logEl.scrollTop = logEl.scrollHeight; }
+
+  var libOk = !!(window.supabase && window.supabase.createClient);
+  document.getElementById('cfgCard').innerHTML =
+    '<div style="font-size:14px"><b>SUPABASE_URL:</b> <span style="color:'+(URL_?'#0a7d3c':'#c0392b')+'">'+(URL_||'✗ ยังไม่ตั้งใน config.js')+'</span>'+
+    '<br><b>จำนวน user ใน config:</b> '+USERS.length+
+    '<br><b>supabase-js:</b> <span style="color:'+(libOk?'#0a7d3c':'#c0392b')+'">'+(libOk?'พร้อม':'✗ ไม่โหลด')+'</span></div>';
+
+  // strong password, ตัดอักษรกำกวม (O/0/I/l/1)
+  function genPw(){ var cs='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'; var a=new Uint32Array(12); crypto.getRandomValues(a); var s=''; for(var i=0;i<12;i++) s+=cs[a[i]%cs.length]; return s; }
+  function emailOf(u){ return String(u.username||'').trim().toLowerCase() + '@' + DOMAIN; }
+
+  var srk = document.getElementById('srk');
+  var go = document.getElementById('go');
+  function refresh(){ go.disabled = !(URL_ && libOk && srk.value.trim().length > 20 && USERS.length); }
+  srk.addEventListener('input', refresh); refresh();
+
+  go.onclick = function(){
+    if(!confirm('สร้าง/อัปเดต '+USERS.length+' ผู้ใช้ พร้อม "รหัสใหม่" ใน Supabase Auth?\n(คนเดิมจะถูกตั้งรหัสใหม่ทับ)')) return;
+    go.disabled = true;
+    var admin = window.supabase.createClient(URL_, srk.value.trim(), { auth:{ persistSession:false, autoRefreshToken:false } });
+    var tbody = document.querySelector('#tbl tbody'); tbody.innerHTML='';
+    document.getElementById('resCard').style.display='block';
+    var dump=[]; log('=== เริ่ม '+new Date().toLocaleString('th-TH')+' ===');
+
+    // หา user เดิมจากอีเมล (list ครั้งเดียว)
+    admin.auth.admin.listUsers({ page:1, perPage:1000 }).then(function(r){
+      var byEmail = {};
+      ((r.data && r.data.users) || []).forEach(function(u){ byEmail[(u.email||'').toLowerCase()] = u; });
+      var i=0;
+      function nx(){
+        if(i>=USERS.length){ log('=== เสร็จ ==='); document.getElementById('dump').value = dump.join('\n'); go.disabled=false; return; }
+        var u=USERS[i++]; var email=emailOf(u); var pw=genPw();
+        var meta={ role:u.role||'viewer', username:u.username, displayName:u.displayName||u.username };
+        var existing = byEmail[email];
+        var p = existing
+          ? admin.auth.admin.updateUserById(existing.id, { password:pw, app_metadata:meta, email_confirm:true })
+          : admin.auth.admin.createUser({ email:email, password:pw, email_confirm:true, app_metadata:meta });
+        p.then(function(res){
+          var err = res && res.error;
+          var st = err ? ('✗ '+err.message) : (existing?'อัปเดต (รหัสใหม่)':'สร้างใหม่');
+          var tr=document.createElement('tr');
+          tr.innerHTML='<td>'+u.username+'</td><td>'+email+'</td><td>'+meta.role+'</td>'+
+            '<td>'+(err?'—':'<span class="pw">'+pw+'</span>')+'</td><td class="'+(err?'st-err':'st-ok')+'">'+st+'</td>';
+          tbody.appendChild(tr);
+          if(!err) dump.push(u.username+'  '+pw+'  ('+meta.role+')');
+          log((err?'✗ ':'✓ ')+u.username+' → '+st);
+          nx();
+        }, function(e){ log('✗ '+u.username+': '+(e&&e.message)); nx(); });
+      }
+      nx();
+    }, function(e){ log('✗ listUsers ล้มเหลว — service_role ถูกไหม? '+(e&&e.message)); go.disabled=false; });
+  };
+
+  if(!URL_) log('⚠ ตั้ง SUPABASE_URL ใน config.js ก่อน');
+  else log('วาง service_role key แล้วกดปุ่ม · ผู้ใช้จาก config.js: '+USERS.map(function(u){return u.username;}).join(', '));
+})();
+</script>
+</body>
+</html>
