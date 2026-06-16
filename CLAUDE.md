@@ -27,7 +27,7 @@ Live at **https://patima-fin.github.io/waterpog-fin/** — GitHub Pages serves t
 ## Architecture
 - **`app/app.jsx`** — root component + **hash router** (`location.hash` → route key → page component), `data`/`setData` state, login gate (`currentUser` from `wtp-session`), sidebar/topbar. Default route is **`home`** (was `daily`).
 - **`app/data.js`** — `window.WTPData`: `load()` (reads `localStorage` cache `wtp-fin-data-v8`, else seed), `save()`, `subscribe()`, `forceSyncNow()`, `refreshFromServer()`. Holds seed/mock data. `app/config.js` defines `window.WTP_CONFIG` (`APPS_SCRIPT_URL`, `AUTO_REFRESH_MS`, bootstrap `USERS`).
-- **`app/data_sync.js`** — Google Sheets sync layer: polling (hot/cold), grace windows, anti-clobber / anti-wedge guards, row-level writes. Hardened repeatedly against data-loss (see `git log` `fix(sync)`).
+- **`app/data_sync.js`** — Google Sheets sync layer: polling (hot/cold), grace windows, anti-clobber / anti-wedge guards, row-level writes. Hardened repeatedly against data-loss (see `git log` `fix(sync)`). **★ มี backend ทางเลือก = Supabase: ตั้ง `WTP_CONFIG.BACKEND:'supabase'` แล้ว `data_sync.js` จะ early-return (ปิดตัว) ปล่อยให้ [`app/data_supabase.js`](app/data_supabase.js) เป็นเจ้าของ `WTPData` แทน — ดูหัวข้อ "2026-06-16 — Supabase backend (Phase 1)" ท้ายไฟล์.**
 - **`apps_script/Code.gs`** — the backend, pasted into Google Apps Script bound to the Sheet (`Code.standalone.gs` = standalone variant, `PnL.additions.gs` = extra). Server-side guards reject emptying/halving any table.
 - **`app/components.jsx`** — shared UI globals: `Modal`, `Icon`, `Badge`, `KpiTile`, `EditableNumber`, formatters `fmtNum`/`fmtMoney`/`fmtDate`.
 - **`app/page_*.jsx`** — one file per page (`page_home`, `page_cashflow`, `page_bank_diary`, `page_bank_recon`, `page_debt`, `page_debt_ledger`, `page_daily_balance`, `page_invoices`, `page_warroom_p1/p2`, `page_pnl`, `page_budget`, `page_projects`, `page_receipts`, `page_checks`, `page_users`, `page_audit_log`, `page_sts_*`, `page_interest_calc`, `page_data_extras`, `page_investor`). Plus `app/charts.jsx`, root `tweaks-panel.jsx`.
@@ -250,6 +250,23 @@ Live at **https://patima-fin.github.io/waterpog-fin/** — GitHub Pages serves t
   - **line 2186 (useEffect):** `const rawStr = String(raw == null ? '' : raw);` แล้วใช้ `rawStr.trim()` + `parseRawIv(rawStr)` แทนการเรียก `raw.trim()` / `parseRawIv(raw)` ตรงๆ
   - **line 2408 (JSX render):** `{String(raw == null ? '' : raw).trim() && (` — defensive coerce ก่อน trim เหมือน `normalizeJobNo` pattern
 - **Pattern ที่ต้องจำ (เพิ่มจาก [[global-scope-name-collision]]):** ตัวแปรที่มาจาก external library (SheetJS), synced field, หรือถูก set จาก async callback **ต้องเสมอ** coerce ผ่าน `String(x == null ? '' : x)` ก่อน `.trim()` — JS ไม่มี null-safe `.trim()`.
+
+## 2026-06-16 — Supabase backend (Phase 1) — สลับด้วย flag เดียว (build `data_supabase 20260616s1`)
+**ทำไม:** Google Sheets เป็น DB (อ่าน gviz CSV / เขียน Apps Script = สอง cache คนละตัว) คือ "ราก" ของอาการ
+แก้แล้วเด้งกลับ / ข้อมูลหาย / กระพริบ ที่ต้องใส่เกราะ 7+ ชั้น (ดู [[data-loss-root-cause-audit]] / [[data-backend-migration]]).
+แก้ถาวร = ย้ายไป Postgres (อ่านหลังเขียนเห็นทันที + เขียนทีละแถว + realtime push). รอบนี้ทำ **Phase 1** ครบ — โค้ดพร้อม,
+รอผู้ใช้ทำ cutover ตาม [docs/supabase-setup-guide.md](docs/supabase-setup-guide.md).
+- **สลับด้วย flag เดียว:** `app/config.js` → `BACKEND: 'sheets' | 'supabase'` (+ `SUPABASE_URL`, `SUPABASE_ANON_KEY`).
+  default `'sheets'` = พฤติกรรมเดิมเป๊ะ (verify แล้ว: serverVersion ยังเป็น `…actualguard`, data_sync ทำงานปกติ). **ถอยกลับ = ตั้ง `'sheets'` + push.**
+- **`app/data_supabase.js` (ใหม่) — adapter ที่ "คง interface `WTPData` เดิมทุกเมธอด"** → `app.jsx` + ทุก `page_*.jsx` **ไม่ต้องแก้เลย**.
+  เปิดทำงานเฉพาะเมื่อ `BACKEND==='supabase'` (ไม่งั้น early-return เงียบ). `data_sync.js` ก็ได้ guard ตรงข้าม (early-return เมื่อ supabase) → เจ้าของ `WTPData` มีตัวเดียวเสมอ.
+  เมธอดที่ define: `save`(diff→upsert/delete ทีละแถว) · `subscribe`(realtime push) · `getSyncStatus` · `forceSyncNow` · `refreshFromServer` · `pushPresence` · `forceDeleteRows`(ข้ามเกราะ) · `fetchSheetRows`(CRUD→Supabase, P&L/Budget/auditLog→gviz fallback) · `fetchSheetRowRaw` · `serverVersion='supabase'` · `_autoPushInfo` · `buildId`. (`load` คง = data.js เดิม).
+- **Schema = JSONB ต่อ entity** ([supabase/schema.sql](supabase/schema.sql)): ทุกตาราง = `"id" text PK, "data" jsonb, "updated_at" timestamptz`.
+  **★ ชื่อตารางต้อง quote (camelCase) เป๊ะ** เช่น `"forecastEntries"` ไม่งั้น PostgREST/supabase-js หาไม่เจอ. map ง่าย: `row ↔ {id, data:row}` (data เก็บทั้งแถวรวม id). 23 ตาราง (= `CRUD_KEYS` ใน data.js) + `audit_log` + trigger updated_at + realtime publication + grant anon/authenticated. **RLS ปิดไว้ก่อน** (anon key อ่าน/เขียนได้ — โพสเจอร์เดียวกับ Apps Script เดิม); RLS+policy ต่อ role = Phase 4 (comment ไว้ท้าย schema).
+- **GOTCHA สำคัญ:** PostgREST `select` คืน **สูงสุด 1000 แถว/ครั้ง** → ต้อง paginate ด้วย `.range()` (debtLedger ~4000 แถว ไม่งั้นขาด). adapter มี `selectAll()` วน range ทีละ 1000.
+- **ทิ้งเกราะ Sheets ได้ (Postgres consistent):** grace window/anti-flip/base-reconcile/3-way merge/CLEARABLE/hot-cold/mass-delete heuristic. **คงเกราะเบา 3 ตัว:** `_hasValidSession` (ไม่ล็อกอิน=ไม่ push) + activity-gate (แท็บค้างไม่แตะ=ไม่ push) + light mass-delete guard (กัน cache เพี้ยนสั่งลบ >50%). **whole-row upsert** (ไม่ใช่ field-patch — jsonb เก็บทั้งแถว; realtime ทำให้ state สดก่อน save → lost-field ระหว่างคน ~ศูนย์).
+- **`tools/migrate-to-supabase.html`** — ย้ายข้อมูลครั้งเดียว (self-contained: โหลดแค่ config.js + supabase-js, มี gviz reader ในตัว ไม่ขึ้นกับ flag): อ่าน 23 ชีต → parse JSON fields (invoices/stsCalcResult) → `upsert {id,data}` batch 500 → verify count. รันตอน RLS ปิด, anon key.
+- **Phase 1 ไม่ย้าย:** P&L / Budget / Audit Log ยังอ่านจาก Google Sheet (hybrid ผ่าน `fetchSheetRows` gviz fallback) → ต้องคง `SHEET_ID` ใน config. **index.html** เพิ่ม `<script>` supabase-js CDN (`@supabase/supabase-js@2.45.4` UMD → `window.supabase`) + `app/data_supabase.js`. **ยังไม่ตัด** Apps Script/data_sync.js (เก็บเป็น fallback). Phase 4: RLS + Supabase Auth + ย้าย P&L/Budget/audit + ตัด Sheets.
 
 ## Repo rule: keep CLAUDE.md current
 **Every time you `git push`, update this `CLAUDE.md`** to reflect anything that changed (architecture, conventions, new pages, gotchas). Treat it as part of the push, like the `?v=` bump.

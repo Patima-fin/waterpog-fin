@@ -10,6 +10,20 @@
  * ===================================================================== */
 
 window.WTP_CONFIG = {
+  // ── เลือก Backend ─────────────────────────────────────────────────
+  //  'sheets'   = Google Sheets เดิม (อ่าน gviz CSV / เขียน Apps Script) — ค่าตั้งต้น
+  //  'supabase' = Postgres + Realtime (อ่านหลังเขียนเห็นทันที, push, เขียนทีละแถว)
+  //  ★ สลับได้ทันที: ตั้ง 'supabase' หลังทำตาม docs/supabase-setup-guide.md ครบ
+  //    (สร้าง project → รัน supabase/schema.sql → กรอก URL/key ด้านล่าง → migrate)
+  //    ถ้ามีปัญหา ตั้งกลับ 'sheets' + push = ถอยกลับทันที
+  BACKEND: 'supabase',
+
+  // Supabase (ใช้เมื่อ BACKEND === 'supabase') — เอาจาก Project Settings → API
+  //  SUPABASE_URL      = Project URL (เช่น https://xxxx.supabase.co)
+  //  SUPABASE_ANON_KEY = anon public key (อยู่ในเครื่อง client เหมือน Apps Script URL เดิม)
+  SUPABASE_URL: 'https://kibxevldnzquwulcyegr.supabase.co',
+  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpYnhldmxkbnpxdXd1bGN5ZWdyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE1ODk1MTQsImV4cCI6MjA5NzE2NTUxNH0.vJ36egIcryH0gN-DTj75i7LjTgh3zpLbC858y2LYQeU',
+
   // Sheet ID — ใช้สำหรับ READ ทาง CSV (เร็ว ไม่ใช้ Apps Script quota)
   SHEET_ID: '1Q0enboLihOYiYCn7otK9zXBlk6Yy8oHfoAXaFnGujwA',
 

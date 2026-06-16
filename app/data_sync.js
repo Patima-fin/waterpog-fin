@@ -26,6 +26,15 @@
   } catch (_) {}
 
   var cfg = window.WTP_CONFIG || {};
+
+  // ── ถ้าเลือก backend = Supabase → ไม่ทำงานเลย (ปล่อยให้ data_supabase.js เป็นเจ้าของ
+  //   WTPData ทั้งหมด). data_supabase.js โหลดหลังไฟล์นี้ + define interface ครบเอง.
+  //   ค่าตั้งต้น BACKEND='sheets' → ข้าม guard นี้ → ทำงานเหมือนเดิมเป๊ะ.
+  if ((cfg.BACKEND || 'sheets') === 'supabase') {
+    console.info('[WTP Sync] BACKEND=supabase → ปิด Google Sheets sync (ใช้ data_supabase.js แทน)');
+    return;
+  }
+
   var SHEET_ID = cfg.SHEET_ID || '';
   var POST_URL = cfg.APPS_SCRIPT_URL || '';
 
