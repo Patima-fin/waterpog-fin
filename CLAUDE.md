@@ -289,5 +289,15 @@ Live at **https://patima-fin.github.io/waterpog-fin/** — GitHub Pages serves t
   3. **Daily Pass 1 dedup ภายใน receipts** ด้วย key `receiptNo|invoiceNo` (เกราะกันแถวซ้ำ receiptNo เดียวกันหลุดมา; ใส่ invoiceNo ใน key → receipt จริงคนละใบ/จ่ายหลายงวด receiptNo ต่างกันไม่ถูกยุบ; receiptNo ว่าง=ไม่ dedup).
 - **บทเรียน (ตระกูล [[global-scope-name-collision]] / sync race):** entity ใดที่ "auto-generate แล้ว mint `id()` สุ่ม" บน backend ที่ PK=id + เขียนหลายเครื่อง = เสี่ยงแถวซ้ำเมื่อ list ยังไม่ sync — ใช้ **id แบบ deterministic จาก natural key** เสมอ. และหน้าใดที่ aggregate จาก `data.receipts` (Daily, War Room §01, ประวัติรับเงิน) ควร dedup ภายในด้วย ไม่พึ่งความสะอาดของตารางอย่างเดียว.
 
+## 2026-06-17 — Phase 5: ย้าย P&L + Budget จาก Google Sheet ไป Supabase (build `data_supabase 20260617a` / `page_pnl 20260617a` / `page_budget 20260617a`)
+- **ทำไม:** หลัง Phase 1 (23 CRUD entities) + Phase 4 (Auth+RLS) แอปยังอ่าน P&L + Budget จาก Google Sheet ผ่าน gviz → 2 backend คนละชุด; ย้ายให้ครบจบใน Supabase เดียว.
+- **2 ตารางใหม่ (`supabase/pnl-budget.sql`):** `pnlBase` (ฐาน DATA P&L) + `budgetHo` (BUDGET HO) — JSONB schema เดียวกับ 23 entity เดิม + RLS (read=authenticated, write=staff/manager). รันใน SQL Editor แล้ว.
+- **ย้ายข้อมูล:** P&L 169 แถว + Budget 457 แถว migrate จาก Google Sheet → Supabase ผ่าน preview browser (อ่าน gviz → upsert). verify: อ่านกลับได้ครบ (HTTP 200 count ตรง).
+- **`app/data_supabase.js`** (`SHEET_TABLES = ['pnlBase','budgetHo']`, `SHEET_TABLE_SET`): `fetchSheetRows` route — entity ใน `TABLE_SET` (23 CRUD) หรือ `SHEET_TABLE_SET` (2 analytics) → อ่านจาก Supabase; ที่เหลือ → gviz fallback. เพิ่ม **`WTPData.writeTable(entity, rows, idOf)`** — full-sync (upsert all + delete missing ids, ข้าม RLS ด้วย session ปัจจุบัน) → ใช้โดย P&L + Budget import.
+- **`app/page_pnl.jsx`:** `PL_SHEET = 'pnlBase'` (แทน `'ฐาน DATA'`). `postImport` ใหม่ = client-side port ของ Apps Script `plUpsertBase_`: โหลด current pnlBase → upsert `m{month}` ต่อ code → clear `m{month}=0` สำหรับ code ที่หายไปจากไฟล์ → `writeTable('pnlBase', out, r => String(r.code))`. ไม่ต้อง POST Apps Script อีก.
+- **`app/page_budget.jsx`:** `BCC_SHEET = 'budgetHo'` (แทน `'BUDGET HO'`). `onUpload` ใหม่ = `writeTable('budgetHo', rows, r => r.dept+'|'+r.acct)` แทน Apps Script POST.
+- **verify (preview ก่อน push):** P&L `hasRealAcct:true, sampleBadge:false` (169 แถวจริง) + Budget `hasBudgetContent:true, sampleBadge:false` (457 แถว) + ไม่มี console error.
+- **ผลรวม:** ไม่ต้อง Apps Script + Google Sheet อีก (hybrid P&L/Budget ปิดแล้ว). ทุก read/write ผ่าน Supabase เดียว. `fetchSheetRows` gviz fallback ยังอยู่สำหรับ `auditLog` (อ่าน Apps Script audit ชีต) เท่านั้น.
+
 ## Repo rule: keep CLAUDE.md current
 **Every time you `git push`, update this `CLAUDE.md`** to reflect anything that changed (architecture, conventions, new pages, gotchas). Treat it as part of the push, like the `?v=` bump.

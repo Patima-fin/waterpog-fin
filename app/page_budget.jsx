@@ -23,7 +23,7 @@
 (function () {
   const { useState, useEffect, useMemo, useRef } = React;
 
-  const BCC_SHEET = 'BUDGET HO';
+  const BCC_SHEET = 'budgetHo';   // ตาราง Supabase (ย้ายจาก Google Sheet "BUDGET HO")
 
   // palette — ตรงกับดีไซน์ Budget Control Center
   const P = {
@@ -1319,20 +1319,13 @@
         if (!base.departments.length) throw new Error('no departments parsed');
         // instant preview
         setData(base); setIsSample(false); setPicked(null); setCatPick(null);
-        // persist to the sheet via the additive backend action
-        const url = (window.WTP_CONFIG && window.WTP_CONFIG.APPS_SCRIPT_URL) || '';
-        if (url) {
-          let sess = null; try { sess = JSON.parse(localStorage.getItem('wtp-session') || 'null'); } catch (_) {}
-          const body = {
-            action: 'budgetImportMonth',
-            rows,
-            meta: { user: (sess && sess.username) || 'unknown', displayName: (sess && sess.displayName) || '', role: (sess && sess.role) || '' },
-          };
+        // persist to Supabase (เขียนทั้งตาราง budgetHo — 1 แถว/dept|acct)
+        if (window.WTPData && window.WTPData.writeTable) {
           try {
-            const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) }).then(r => r.json());
-            if (resp && resp.error) notify('บันทึกขึ้นชีตไม่สำเร็จ: ' + resp.error);
-            else { notify(`อัปเดตสำเร็จ · ${base.departments.length} แผนก · งบรวม ${Fmt.compactBaht(base.meta.totalBudget)}`); setTimeout(loadData, 1500); }
-          } catch (err) { notify('แสดงผลแล้ว แต่บันทึกขึ้นชีตไม่สำเร็จ: ' + err.message); }
+            const res = await window.WTPData.writeTable('budgetHo', rows, r => String(r.dept) + '|' + String(r.acct));
+            notify(`อัปเดตสำเร็จ · ${base.departments.length} แผนก · งบรวม ${Fmt.compactBaht(base.meta.totalBudget)} · บันทึก ${res.count} รายการ`);
+            setTimeout(loadData, 600);
+          } catch (err) { notify('แสดงผลแล้ว แต่บันทึกไม่สำเร็จ: ' + (err && err.message || err)); }
         } else {
           notify(`อ่านไฟล์สำเร็จ · ${base.departments.length} แผนก (ยังไม่ได้ตั้งค่า backend จึงไม่ได้บันทึกถาวร)`);
         }

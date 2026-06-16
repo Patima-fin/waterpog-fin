@@ -74,6 +74,11 @@
   var ALL_TABLES = CRUD_ENTITIES.concat(['presence']);   // 23 ตาราง อ่านทั้งหมดตอน load
   var TABLE_SET  = {}; ALL_TABLES.forEach(function (t) { TABLE_SET[t] = true; });
 
+  // ตาราง analytics ที่อ่าน/เขียนแบบ on-demand (ไม่ preload, ไม่อยู่ใน realtime/diff loop) —
+  // หน้า P&L/Budget เรียกผ่าน fetchSheetRows (อ่าน) + WTPData.writeTable (นำเข้า)
+  var SHEET_TABLES = ['pnlBase', 'budgetHo'];
+  var SHEET_TABLE_SET = {}; SHEET_TABLES.forEach(function (t) { SHEET_TABLE_SET[t] = true; });
+
   // entity ที่ data.js ตัดออกจาก localStorage (กัน quota) → load() ไม่มี → ต้องใช้ React state / cachedData
   var skipCache = (WTPData.SKIP_CACHE_KEYS instanceof Set) ? WTPData.SKIP_CACHE_KEYS : new Set();
 
@@ -380,6 +385,35 @@
     }, function (err) { console.warn('[WTP Supabase] forceDeleteRows ล้มเหลว:', err && err.message); });
   };
 
+  /* ── writeTable: เขียนทั้งตาราง (full sync) สำหรับ analytics on-demand (P&L/Budget นำเข้า) ──
+   *   rows = แถวของแอป, idOf(row)→id (natural key เช่น code / dept|acct).
+   *   upsert ทุกแถว + ลบ id ที่หายไปจากชุดใหม่. ต้อง login (RLS: เขียน=staff/manager).
+   *   คืน Promise<{ok,count,deleted}>. */
+  WTPData.writeTable = function (entity, rows, idOf) {
+    if (!_hasValidSession()) return Promise.reject(new Error('ต้องเข้าสู่ระบบก่อน'));
+    var recs = (rows || []).map(function (r) {
+      var id = idOf ? idOf(r) : (r && r.id);
+      return { id: String(id == null ? '' : id), data: r };
+    }).filter(function (x) { return x.id && x.id !== 'undefined'; });
+    var newIds = {}; recs.forEach(function (x) { newIds[x.id] = true; });
+    return selectAll(entity).then(function (existing) {
+      var delIds = (existing || []).map(function (x) { return String(x.id); })
+        .filter(function (id) { return !newIds[id]; });
+      var ps = [];
+      if (recs.length)  ps.push(sb.from(entity).upsert(recs).then(chk));
+      if (delIds.length) ps.push(sb.from(entity).delete().in('id', delIds).then(chk));
+      return Promise.all(ps).then(function () { return { ok: true, count: recs.length, deleted: delIds.length }; });
+    }).then(function (res) {
+      try {
+        var m = _currentMeta();
+        sb.from('audit_log').insert([{ username: m.user, display_name: m.displayName, role: m.role,
+          action: 'writeTable', entity: entity, summary: entity + ': เขียน ' + res.count + ' แถว (ลบ ' + res.deleted + ')' }])
+          .then(function () {}, function () {});
+      } catch (_) {}
+      return res;
+    });
+  };
+
   /* ── pushPresence: upsert แถว presence (best-effort, แยกจาก diff loop) ──── */
   WTPData.pushPresence = function (row) {
     if (!_hasValidSession()) return;
@@ -405,7 +439,7 @@
    *   หน้า analytics ที่อ่านชีตแยก (page_pnl/page_budget/page_audit_log) ยังทำงานได้
    *   ใน Phase 1 (อ่านจาก Google Sheet เดิมที่ยังมีอยู่; SHEET_ID ยังตั้งไว้ใน config). */
   WTPData.fetchSheetRows = function (entity, predicate) {
-    if (TABLE_SET[entity]) {
+    if (TABLE_SET[entity] || SHEET_TABLE_SET[entity]) {
       return selectAll(entity).then(function (recs) {
         var objs = recs.map(recToRow);
         if (entity === 'presence') objs = objs.filter(function (r) { return r && r.username; });

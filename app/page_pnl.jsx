@@ -19,7 +19,7 @@
 
 const { useState: plState, useEffect: plEffect, useMemo: plMemo, useRef: plRef } = React;
 
-const PL_SHEET = 'ฐาน DATA';
+const PL_SHEET = 'pnlBase';   // ตาราง Supabase (ย้ายจาก Google Sheet "ฐาน DATA")
 
 const PL_MONTHS_TH = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
 const PL_MONTHS_TH_FULL = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
@@ -488,41 +488,63 @@ function PnLPage({ data, setData, toast }) {
     } catch (err) { toast('ผิดพลาด: ' + err.message); setBusy(false); }
   };
 
-  // POST the new additive action; Apps Script appends to DATA INPUT + aggregates ฐาน DATA
+  // นำเข้า P&L ลง Supabase (ตาราง pnlBase) — aggregate รายเดือนฝั่ง client
+  //   (ย้าย logic plUpsertBase_ จาก Apps Script มาทำที่นี่: set m{month} ต่อ code,
+  //    เพิ่ม code ใหม่, เคลียร์ m{month}=0 ของ code ที่ไม่อยู่ในไฟล์ใหม่) แล้วเขียนทั้งตารางกลับ
   const postImport = async (accounts, newClassified) => {
-    const url = (window.WTP_CONFIG && window.WTP_CONFIG.APPS_SCRIPT_URL) || '';
-    if (!url) { toast('ยังไม่ได้ตั้งค่า APPS_SCRIPT_URL'); setBusy(false); return; }
-    let sess = null; try { sess = JSON.parse(localStorage.getItem('wtp-session') || 'null'); } catch (_) {}
-    const body = {
-      action: 'plImportMonth',
-      month: Number(impMonth),
-      audit: impAudit,
-      accounts: accounts.map(a => ({
-        code: String(a.code).trim(),
-        name: a.name || '',
-        amount: Number(a.amount) || 0,
-        group: a.group || PL_inferGroup(a.code, a.name) || '',
-      })),
-      newAccounts: (newClassified || []).map(a => ({ code: String(a.code).trim(), name: a.name || '', group: a.group })),
-      meta: { user: (sess && sess.username) || 'unknown', displayName: (sess && sess.displayName) || '', role: (sess && sess.role) || '' },
-    };
+    if (!window.WTPData || !window.WTPData.writeTable) { toast('ระบบยังไม่พร้อม'); setBusy(false); return; }
+    const month = Number(impMonth);
+    if (!(month >= 1 && month <= 12)) { toast('เดือนไม่ถูกต้อง (1–12)'); setBusy(false); return; }
+    const mKey = 'm' + month;
+    const newGroupByCode = {};
+    (newClassified || []).forEach(a => { const c = String(a.code).trim(); if (c) newGroupByCode[c] = a.group || ''; });
     setBusy(true);
     try {
-      const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) }).then(r => r.json());
-      if (resp && resp.error) { toast('นำเข้าไม่สำเร็จ: ' + resp.error); }
-      else {
-        const cl = (resp && resp.cleared) || [];
-        if (cl.length) {
-          // ฟ้องบัญชีที่หายจากไฟล์ใหม่ → ถูกเคลียร์ยอดเดือนนี้ (ยึดข้อมูลไฟล์ใหม่)
-          const names = cl.slice(0, 4).map(a => (a.code || '') + ' ' + (a.name || '')).join(', ');
-          toast('นำเข้าเดือน ' + PL_MONTHS_TH[impMonth - 1] + ' สำเร็จ · ตัด ' + cl.length + ' บัญชีที่ไม่อยู่ในไฟล์ออก (' + names + (cl.length > 4 ? ' …' : '') + ') — กำลังรีเฟรช');
+      // 1) โหลด base ปัจจุบัน
+      const baseRows = await window.WTPData.fetchSheetRows('pnlBase');
+      const byCode = {};
+      (baseRows || []).forEach(r => { const c = String(r.code || '').trim(); if (c) byCode[c] = Object.assign({}, r); });
+      // 2) upsert ยอดเดือน month ต่อ code
+      const now = new Date().toISOString().slice(0, 10);
+      const fileCodes = {};
+      let created = 0, updated = 0;
+      accounts.forEach(a => {
+        const code = String(a.code).trim(); if (!code) return;
+        fileCodes[code] = 1;
+        const grp = newGroupByCode[code] || a.group || PL_inferGroup(a.code, a.name) || '';
+        const amount = Number(a.amount) || 0;
+        let row = byCode[code];
+        if (row) {
+          row[mKey] = amount;
+          if (!String(row.name || '').trim() && a.name) row.name = a.name;
+          if (!String(row.group || '').trim() && grp) row.group = grp;
+          row.updatedAt = now; updated++;
         } else {
-          toast('นำเข้าเดือน ' + PL_MONTHS_TH[impMonth - 1] + ' สำเร็จ — กำลังรีเฟรช');
+          row = { code: code, name: a.name || '', group: grp };
+          for (let m = 1; m <= 12; m++) row['m' + m] = (m === month ? amount : 0);
+          row.updatedAt = now;
+          byCode[code] = row; created++;
         }
-        setNewAccts(null); setFile(null); setUploadOpen(false);
-        setTimeout(loadData, 1200);   // re-read ฐาน DATA after backend aggregates
+      });
+      // 3) เคลียร์ m{month}=0 ของ code ที่ไม่อยู่ในไฟล์ใหม่ (ยึดไฟล์ใหม่)
+      const cleared = [];
+      Object.keys(byCode).forEach(code => {
+        if (fileCodes[code]) return;
+        const prev = Number(byCode[code][mKey]) || 0;
+        if (Math.abs(prev) > 0.005) { byCode[code][mKey] = 0; byCode[code].updatedAt = now; cleared.push({ code: code, name: byCode[code].name || '', amount: prev }); }
+      });
+      // 4) เขียนทั้งตารางกลับ Supabase (id = code)
+      const out = Object.keys(byCode).map(c => byCode[c]);
+      await window.WTPData.writeTable('pnlBase', out, r => String(r.code));
+      if (cleared.length) {
+        const names = cleared.slice(0, 4).map(a => (a.code || '') + ' ' + (a.name || '')).join(', ');
+        toast('นำเข้าเดือน ' + PL_MONTHS_TH[month - 1] + ' สำเร็จ · ตัด ' + cleared.length + ' บัญชีที่ไม่อยู่ในไฟล์ (' + names + (cleared.length > 4 ? ' …' : '') + ') — กำลังรีเฟรช');
+      } else {
+        toast('นำเข้าเดือน ' + PL_MONTHS_TH[month - 1] + ' สำเร็จ (เพิ่ม ' + created + ' · อัปเดต ' + updated + ') — กำลังรีเฟรช');
       }
-    } catch (err) { toast('นำเข้าไม่สำเร็จ: ' + err.message); }
+      setNewAccts(null); setFile(null); setUploadOpen(false);
+      setTimeout(loadData, 600);
+    } catch (err) { toast('นำเข้าไม่สำเร็จ: ' + (err && err.message || err)); }
     finally { setBusy(false); }
   };
 
