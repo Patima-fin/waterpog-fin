@@ -268,7 +268,10 @@ Live at **https://patima-fin.github.io/waterpog-fin/** — GitHub Pages serves t
 - **`tools/migrate-to-supabase.html`** — ย้ายข้อมูลครั้งเดียว (self-contained: โหลดแค่ config.js + supabase-js, มี gviz reader ในตัว ไม่ขึ้นกับ flag): อ่าน 23 ชีต → parse JSON fields (invoices/stsCalcResult) → `upsert {id,data}` batch 500 → verify count. รันตอน RLS ปิด, anon key.
 - **Phase 1 ไม่ย้าย:** P&L / Budget / Audit Log ยังอ่านจาก Google Sheet (hybrid ผ่าน `fetchSheetRows` gviz fallback) → ต้องคง `SHEET_ID` ใน config. **index.html** เพิ่ม `<script>` supabase-js CDN (`@supabase/supabase-js@2.45.4` UMD → `window.supabase`) + `app/data_supabase.js`. **ยังไม่ตัด** Apps Script/data_sync.js (เก็บเป็น fallback). Phase 4: RLS + Supabase Auth + ย้าย P&L/Budget/audit + ตัด Sheets.
 
-## 2026-06-16 — Supabase Phase 4 (Auth + RLS) scaffolding — flag-gated, ยังไม่เปิด (build `data_supabase 20260616s3`)
+## 2026-06-16 — Supabase Phase 4 (Auth + RLS) — ✅ LIVE แล้ว (เปิดใช้จริง)
+**สถานะล่าสุด:** `USE_SUPABASE_AUTH:true` + ลบ password ทั้งหมดออกจาก config.js (public) + `FORCE_LOGOUT_BEFORE` บังคับทุกคน re-login ด้วยรหัสใหม่ + รัน `supabase/rls-phase4.sql` เปิด **RLS แล้ว**. **verify สด (curl):** anon อ่าน projects=`[]` (บล็อก), anon เขียน=401, admin(manager) login→อ่าน 648 + เขียน 201 ✓. → **anon key ที่อยู่ใน repo public ใช้แตะ DB ไม่ได้แล้ว** (ต้อง login จริง). `tools/supabase-backup.html` แก้ให้ login ก่อนใช้ (anon โดน RLS บล็อก). **⚠️ ต้องเช็ค: Supabase → Authentication → "Allow new users to sign up" = OFF** (ไม่งั้นคนนอกสมัครเองแล้วกลายเป็น authenticated → อ่านข้อมูลได้ ทะลุ RLS). รายละเอียด rollout/ถอยกลับ: [docs/supabase-phase4-auth-guide.md](docs/supabase-phase4-auth-guide.md) (ROLLBACK block ปิด RLS อยู่หัว rls-phase4.sql). ด้านล่างคือบันทึกตอนสร้าง scaffolding:
+
+## 2026-06-16 — Supabase Phase 4 (Auth + RLS) scaffolding (build `data_supabase 20260616s3`)
 ต่อจาก cutover Phase 1 — ล็อกความปลอดภัยจริง (anon key เป็น public ใน repo → ตอนนี้ RLS ปิด ใครมี key ก็แตะ DB ได้).
 รอบนี้สร้าง "โครง" ครบ + **flag-gated ปิดไว้** (ยังไม่กระทบ live — verify no-regression แล้ว) รอ rollout:
 - **`tools/supabase-backup.html`** — ดาวน์โหลดทุกตารางเป็น JSON (กันข้อมูลหาย แทน version history ชีต) + restore (upload→upsert non-destructive). verify: ดึง 23 ตาราง 9,012 แถว ~7.7MB. ⚠️ ขณะ RLS ยังปิด = ปุ่มนี้ดึงข้อมูลได้ด้วย anon (โพสเจอร์เดิม) — จะถูกล็อกเมื่อเปิด RLS.
