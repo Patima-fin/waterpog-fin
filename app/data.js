@@ -625,6 +625,23 @@
       return loaded;
     } catch (_) { return freshState(); }
   }
+  // ── SKIP_CACHE_KEYS: entities ที่ไม่เก็บใน localStorage blob เพื่อลดขนาดจาก ~5.7MB → ~0.5MB
+  // ★ ระยะสั้น:  debtLedger — 3964 rows ~2MB คือตัวหลักที่ดัน quota เกิน
+  // ★ ระยะกลาง: projects / pvVouchers / bankReconLines / receipts / payables — server-sourced ทั้งหมด
+  //   applyEntityGuard (build 20260615e) รองรับ local=[] → corruptLocal → recover จาก server
+  //   ดังนั้นการ start ด้วย [] แล้วรอ poll ครั้งแรก (~2–5 วิ) ปลอดภัยและยอมรับได้
+  // ★ projects: 648 rows × 120 cols ≈ 4–5MB เพียงตัวเดียวดัน blob เกิน quota แม้จะตัดตัวอื่นออกแล้ว
+  //   Project Control มี wtp-proj-control-v2 เป็น cache แยก; หน้าอื่นรอ server poll (~5–10 วิ) ได้
+  // ★ data_sync.js ต้องเช็ค WTPData.SKIP_CACHE_KEYS ก่อน storageBroken detection —
+  //   keys เหล่านี้ [] ใน local โดย "ตั้งใจ" ไม่ใช่ storage เสีย
+  const SKIP_CACHE_KEYS = new Set([
+    'debtLedger',     // ระยะสั้น  — ~2MB (3964 rows)
+    'projects',       // ★ ใหม่  — ~4–5MB (648 rows × 120 cols) ← ตัวการหลักที่ยังทำให้ blob เกิน
+    'pvVouchers',     // ระยะกลาง — ~184KB (614 rows)
+    'bankReconLines', // ระยะกลาง — varies, import-only; BankReconStore localStorage เป็น backup
+    'receipts',       // ระยะกลาง — ~137KB (686 rows)
+    'payables',       // ระยะกลาง — ~163KB (545 rows)
+  ]);
   // ── localStorage write — เคยกลืน QuotaExceededError เงียบ → wedge loop:
   //   localStorage ค้างว่าง → load() คืน freshState ว่าง → diff บอก "ลบทั้งตาราง" →
   //   anti-wedge guard บล็อก + resync แต่ applyEntityGuard เห็น local=[] vs snap=full
@@ -632,8 +649,19 @@
   //   ครั้งแรกเมื่อเจอ (กัน spam) เพื่อให้รู้ว่าเครื่องนี้ localStorage เต็ม.
   let _quotaWarned = false;
   function save(data) {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); }
-    catch (e) {
+    try {
+      // ตัด SKIP_CACHE_KEYS ออกก่อน serialise — ลดขนาด blob ~2MB (ไม่กระทบ runtime state)
+      // keys ที่ตัดออก: [] ตอน load → freshState merge → data_sync recover จาก server
+      const toStore = {};
+      Object.keys(data).forEach(function(k) {
+        if (!SKIP_CACHE_KEYS.has(k)) toStore[k] = data[k];
+      });
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(toStore));
+      if (_quotaWarned) {
+        _quotaWarned = false;
+        console.info('[WTPData] localStorage quota ปกติแล้ว — บันทึกสำเร็จ (blob ไม่รวม SKIP_CACHE_KEYS)');
+      }
+    } catch (e) {
       if (!_quotaWarned) {
         _quotaWarned = true;
         console.error('[WTPData] เขียน localStorage ล้มเหลว (น่าจะเกิน quota ~5–10MB) — ข้อมูลจะถูกดึงจากชีตทุก reload, ไม่ persist:', e && e.message);
@@ -936,6 +964,7 @@
 
   window.WTPData = {
     load, save, reset, seed,
+    SKIP_CACHE_KEYS,    // ★ exposed so data_sync.js can reference without duplicating the list
     STATUS_META, DELIVERY_META, IV_STATUS_META, PAY_STATUS_META,
     newId: id,
     daysBetween,

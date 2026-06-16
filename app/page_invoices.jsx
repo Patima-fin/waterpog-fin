@@ -2183,8 +2183,9 @@ function ImportRawIvModal({ open, onClose, existing, onImport }) {
   };
 
   React.useEffect(() => {
-    if (!raw.trim()) { setParsed({ all: [], existing: [], updated: [], new_: [] }); return; }
-    const all = parseRawIv(raw);
+    const rawStr = String(raw == null ? '' : raw);  // raw อาจเป็น null/number จาก XLSX edge case
+    if (!rawStr.trim()) { setParsed({ all: [], existing: [], updated: [], new_: [] }); return; }
+    const all = parseRawIv(rawStr);
     const existingByIv = Object.fromEntries(existing.map(iv => [iv.ivNo, iv]));
     const new_ = [];
     const existingList = [];
@@ -2405,7 +2406,7 @@ refcode\tinvno\tinvdate\tBalance\tremark\tCustomer
       )}
 
       {/* Preview */}
-      {raw.trim() && (
+      {String(raw == null ? '' : raw).trim() && (
         <div style={{ marginTop: 14 }}>
           <div className="grid grid-3" style={{ marginBottom: 10 }}>
             <div style={{ padding: 10, borderRadius: 8, background: '#f0fdf4', border: '1px solid #bbf7d0' }}>

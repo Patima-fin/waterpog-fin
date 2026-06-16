@@ -893,6 +893,10 @@
     var latest = {};
     try { latest = WTPData.load() || {}; } catch (_) {}
 
+    // ★ SKIP_CACHE_KEYS: entities ที่ save() ตัดออกจาก blob โดยตั้งใจ — latest[k] จึง [] เสมอ
+    //   ไม่ใช่เพราะ storage เสีย → ต้องกรองออกก่อน storageBroken check + ใช้ data[entity] เสมอ
+    var skipCache = (WTPData.SKIP_CACHE_KEYS instanceof Set) ? WTPData.SKIP_CACHE_KEYS : new Set();
+
     var jobs = [];
     var recovered = false;
     // ★ ตรวจล่วงหน้า: localStorage โดน quota เต็ม (cleared site data → React state ครบ
@@ -903,6 +907,7 @@
     try {
       var ks = ['pvVouchers', 'payables', 'debtLedger', 'invoices', 'projects'];
       var bigSnapEmptyLatest = ks.filter(function (k) {
+        if (skipCache.has(k)) return false;                          // ★ [] โดยตั้งใจ ไม่นับ
         if (lastSnapshot[k] === undefined) return false;
         var snap = []; try { snap = JSON.parse(lastSnapshot[k] || '[]'); } catch (_) {}
         var lr = latest[k];
@@ -914,8 +919,10 @@
 
     CRUD_ENTITIES.forEach(function (entity) {
       if (lastSnapshot[entity] === undefined) return;          // ยังไม่เคยโหลด server → ข้าม (กัน seed)
+      // ★ SKIP_CACHE_KEYS: latest[entity] ว่างโดยตั้งใจ → ใช้ data (React state) เสมอ
       // ★ storageBroken: ข้าม latest ที่ว่างหลอก ใช้ data (React state) เป็นความจริง
-      var ours = storageBroken
+      var useReactState = storageBroken || skipCache.has(entity);
+      var ours = useReactState
                ? (Array.isArray(data[entity]) ? data[entity] : null)
                : (Array.isArray(latest[entity]) ? latest[entity]
                  : (Array.isArray(data[entity]) ? data[entity] : null));
