@@ -169,7 +169,7 @@ function AuditLogPage({ data, toast }) {
         <div>
           <h1 className="page-title">Audit Log · บันทึกการแก้ไขข้อมูล</h1>
           <div className="page-sub">
-            ดูประวัติว่าใคร-แก้-อะไร-เมื่อไหร่ · ดึงจากชีต <code>auditLog</code>
+            ดูประวัติว่าใคร-แก้-อะไร-เมื่อไหร่ · ดึงจากตาราง <code>audit_log</code> (Supabase)
             {rows && <> · ทั้งหมด {rows.length} รายการ</>}
           </div>
         </div>
@@ -247,8 +247,7 @@ function AuditLogPage({ data, toast }) {
         <div className="card" style={{ padding: 24, textAlign: 'center', color: 'var(--bad)' }}>
           ดึงข้อมูลล้มเหลว: {err}
           <div style={{ fontSize: 11, color: 'var(--ink-400)', marginTop: 8 }}>
-            ตรวจสอบว่ามี sheet ชื่อ <code>auditLog</code> ใน Google Sheet แล้วหรือยัง
-            (สร้างอัตโนมัติเมื่อมีการ CRUD ครั้งแรกหลัง deploy Apps Script ใหม่)
+            ต้องเข้าสู่ระบบด้วยสิทธิ์ manager (RLS อ่านตาราง <code>audit_log</code> เฉพาะ manager)
           </div>
         </div>
       )}

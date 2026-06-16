@@ -435,9 +435,9 @@
 
   WTPData.refreshFromServer = loadFromServer;
 
-  /* ── fetchSheetRows: route CRUD→Supabase, อื่น (P&L/Budget/auditLog)→gviz fallback ──
-   *   หน้า analytics ที่อ่านชีตแยก (page_pnl/page_budget/page_audit_log) ยังทำงานได้
-   *   ใน Phase 1 (อ่านจาก Google Sheet เดิมที่ยังมีอยู่; SHEET_ID ยังตั้งไว้ใน config). */
+  /* ── fetchSheetRows: route CRUD + analytics + auditLog → Supabase; ที่เหลือ → gviz ──
+   *   CRUD (TABLE_SET) + P&L/Budget (SHEET_TABLE_SET) อ่านจากตาราง {id,data};
+   *   auditLog อ่านจากตาราง audit_log (columnar). gviz fallback เหลือไว้เผื่อชีตอื่นเท่านั้น. */
   WTPData.fetchSheetRows = function (entity, predicate) {
     if (TABLE_SET[entity] || SHEET_TABLE_SET[entity]) {
       return selectAll(entity).then(function (recs) {
@@ -445,6 +445,25 @@
         if (entity === 'presence') objs = objs.filter(function (r) { return r && r.username; });
         return predicate ? objs.filter(predicate) : objs;
       });
+    }
+    // auditLog → อ่านจากตาราง audit_log ใน Supabase (columnar, ไม่ใช่ {id,data})
+    //   map คอลัมน์ → key ที่ page_audit_log._norm เข้าใจ. ดึง 3000 รายการล่าสุดพอ
+    //   (page โชว์ tail 200; RLS อ่าน=manager เท่านั้น ตรงกับ route ที่ manager-only).
+    if (entity === 'auditLog') {
+      return sb.from('audit_log').select('*').order('ts', { ascending: false }).limit(3000)
+        .then(function (res) {
+          if (res.error) throw res.error;
+          var objs = (res.data || []).map(function (r) {
+            return {
+              timestamp: r.ts, user: r.username, displayName: r.display_name,
+              role: r.role, action: r.action, entity: r.entity, summary: r.summary,
+            };
+          });
+          return predicate ? objs.filter(predicate) : objs;
+        }, function (err) {
+          console.warn('[WTP Supabase] อ่าน audit_log ล้มเหลว:', err && err.message);
+          return [];
+        });
     }
     // non-CRUD sheet → gviz fallback
     var jsonFields = (entity === 'invoices') ? ['followUps', 'actualReceive']

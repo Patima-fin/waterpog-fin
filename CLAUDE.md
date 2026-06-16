@@ -297,7 +297,14 @@ Live at **https://patima-fin.github.io/waterpog-fin/** — GitHub Pages serves t
 - **`app/page_pnl.jsx`:** `PL_SHEET = 'pnlBase'` (แทน `'ฐาน DATA'`). `postImport` ใหม่ = client-side port ของ Apps Script `plUpsertBase_`: โหลด current pnlBase → upsert `m{month}` ต่อ code → clear `m{month}=0` สำหรับ code ที่หายไปจากไฟล์ → `writeTable('pnlBase', out, r => String(r.code))`. ไม่ต้อง POST Apps Script อีก.
 - **`app/page_budget.jsx`:** `BCC_SHEET = 'budgetHo'` (แทน `'BUDGET HO'`). `onUpload` ใหม่ = `writeTable('budgetHo', rows, r => r.dept+'|'+r.acct)` แทน Apps Script POST.
 - **verify (preview ก่อน push):** P&L `hasRealAcct:true, sampleBadge:false` (169 แถวจริง) + Budget `hasBudgetContent:true, sampleBadge:false` (457 แถว) + ไม่มี console error.
-- **ผลรวม:** ไม่ต้อง Apps Script + Google Sheet อีก (hybrid P&L/Budget ปิดแล้ว). ทุก read/write ผ่าน Supabase เดียว. `fetchSheetRows` gviz fallback ยังอยู่สำหรับ `auditLog` (อ่าน Apps Script audit ชีต) เท่านั้น.
+- **ผลรวม:** ไม่ต้อง Apps Script + Google Sheet อีก (hybrid P&L/Budget ปิดแล้ว). ทุก read/write ผ่าน Supabase เดียว.
+
+## 2026-06-17 — auditLog: อ่านผ่าน Supabase แล้ว (เดิมเขียน Supabase แต่อ่าน gviz) — build `data_supabase 20260617b` / `page_audit_log 20260617a`
+- **อาการ/ช่องโหว่:** หลัง cutover Supabase, audit **เขียน**ลงตาราง `audit_log` แล้ว (`logAudit` ทุก push + `writeTable` ตอน import P&L/Budget) แต่ `page_audit_log` ยัง **อ่าน**ผ่าน `fetchSheetRows('auditLog')` ซึ่ง `'auditLog'` ไม่อยู่ใน `TABLE_SET`/`SHEET_TABLE_SET` → ตกไป **gviz fallback → อ่าน Google Sheet เก่า** → หน้าโชว์ของเก่าก่อนย้าย ไม่เห็น log ใหม่ใน Supabase เลย (เหมือนแช่แข็ง).
+- **FIX (`data_supabase.js fetchSheetRows`):** เพิ่ม branch `entity==='auditLog'` ก่อน gviz fallback → `sb.from('audit_log').select('*').order('ts',{ascending:false}).limit(3000)` แล้ว map คอลัมน์ (columnar `ts/username/display_name/role/action/entity/summary`) → key ที่ `_norm` เข้าใจ (`timestamp/user/displayName/role/action/entity/summary`). **ตาราง `audit_log` schema ไม่ใช่ `{id,data}` JSONB** (เป็น columnar: `id bigint identity, ts, username, display_name, role, action, entity, summary, detail`) จึงใช้ `recToRow` ไม่ได้ ต้อง map เอง. ดึง 3000 ล่าสุดพอ (page โชว์ tail 200; limit dropdown สูงสุด 2000). **RLS อ่าน=manager เท่านั้น** (`rls-phase4.sql`) — ตรงกับ route ที่ manager-only อยู่แล้ว; non-manager ได้ `[]`.
+- **page_audit_log:** แก้ข้อความหัวข้อ + empty-state จาก "ดึงจากชีต auditLog / Google Sheet" → "ดึงจากตาราง audit_log (Supabase)" + "ต้องเข้าสู่ระบบด้วยสิทธิ์ manager".
+- **verify (preview, login=admin/manager):** `fetchSheetRows('auditLog')` คืน 66 รายการ (64 applyDiff + 2 writeTable = การ import P&L/Budget ของ Phase 5 เอง), หน้า render KPI/แท็บ/ตารางครบ, ไม่มี console error.
+- **ผลรวม:** gviz fallback เหลือไว้เผื่อชีตอื่นในอนาคตเท่านั้น — ตอนนี้ **ทุก entity (CRUD + P&L/Budget + auditLog) อ่าน/เขียนผ่าน Supabase ครบ 100%** ไม่แตะ Google Sheet อีกเลย.
 
 ## Repo rule: keep CLAUDE.md current
 **Every time you `git push`, update this `CLAUDE.md`** to reflect anything that changed (architecture, conventions, new pages, gotchas). Treat it as part of the push, like the `?v=` bump.
