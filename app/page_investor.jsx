@@ -532,18 +532,19 @@
         { k: 'out', edit: 'pct', f: 'commPct', amt: C * cfg.commPct / 100, pv: cfg.commPct, tag: ['คอมมิชชั่น', 'Commission'], th: ['จ่ายค่าคอมมิชชั่น'], en: ['Pay commission'] },
         { k: 'out', edit: 'thb', f: 'i1', amt: cfg.i1, tag: ['ค่าติดตั้ง ล่วงหน้า', 'Install adv.'], th: ['ค่าติดตั้ง ล่วงหน้า'], en: ['Installation advance'] } ] },
       { d: 61, t: ['เริ่มงานถัง', 'Tank work begins'], items: [
+        { k: 'mark', th: ['เริ่มงานถัง'], en: ['Tank work begins'] } ] },
+      { d: 68, t: ['จ่ายค่าของ ง.2', 'Pay goods #2'], items: [
         { k: 'out', edit: 'thb', f: 'g2', amt: cfg.g2, tag: ['ค่าของ ง.2', 'Goods #2'], th: ['ค่าของ งวด 2 (ผลิต)'], en: ['Goods lot 2 (production)'] } ] },
-      { d: 91, t: ['หลังงาน PnP เสร็จ', 'After PnP done'], items: [
-        { k: 'out', edit: 'thb', f: 'i2', amt: cfg.i2, tag: ['ค่าติดตั้ง ง.1', 'Install #1'], th: ['ค่าติดตั้ง งวด 1'], en: ['Installation lot 1'] } ] },
-      { d: 98, t: ['ติดตั้งถังเสร็จ', 'Tank installed'], items: [
+      { d: 75, t: ['ส่งมอบงานงวด 1', 'Deliver M1'], items: [
         { k: 'mark', th: ['ส่งมอบงานงวด 1', 'เคลม 40% ของมูลค่าโครงการ'], en: ['Deliver milestone 1', 'Claim 40% of project value'] },
+        { k: 'out', edit: 'thb', f: 'i2', amt: cfg.i2, tag: ['ค่าติดตั้ง ง.1', 'Install #1'], th: ['ค่าติดตั้ง งวด 1'], en: ['Installation lot 1'] },
         { k: 'out', edit: 'thb', f: 'g3', amt: cfg.g3, tag: ['ค่าของ ง.สุดท้าย', 'Goods final'], th: ['ค่าของ งวดสุดท้าย (ประกอบ)'], en: ['Goods final lot (assembly)'] } ] },
-      { d: 128, t: ['รับเงินงวด 1', 'Receive #1'], items: [
+      { d: 105, t: ['รับเงินงวด 1', 'Receive #1'], items: [
         { k: 'in', edit: 'pct', f: 'm1Pct', amt: C * cfg.m1Pct / 100, pv: cfg.m1Pct, tag: ['รับงวด 1', 'Receive #1'], th: ['รับเงินงวด 1 (40%)'], en: ['Cash received #1 (40%)'] } ] },
-      { d: 151, t: ['ส่งมอบงวด 2', 'Deliver M2'], items: [
+      { d: 128, t: ['ส่งมอบงวด 2', 'Deliver M2'], items: [
         { k: 'mark', th: ['ส่งมอบงานงวด 2'], en: ['Deliver milestone 2'] },
         { k: 'out', edit: 'thb', f: 'i3', amt: cfg.i3, tag: ['ค่าติดตั้ง ง.สุดท้าย', 'Install final'], th: ['ค่าติดตั้ง งวดสุดท้าย'], en: ['Installation final'] } ] },
-      { d: 181, t: ['รับเงินงวดสุดท้าย', 'Final receipt'], items: [
+      { d: 158, t: ['รับเงินงวดสุดท้าย', 'Final receipt'], items: [
         { k: 'in', edit: 'pct', f: 'm2Pct', amt: C * cfg.m2Pct / 100, pv: cfg.m2Pct, tag: ['รับงวดสุดท้าย', 'Receive final'], th: ['รับเงินงวดสุดท้าย (60%)'], en: ['Final cash received (60%)'] } ] },
       { d: 731, t: ['คืน LG ค้ำประกัน', 'LG returned'], items: [
         { k: 'in', edit: 'pct', f: 'lgPct', amt: C * cfg.lgPct / 100, pv: cfg.lgPct, ret: true, tag: ['LG คืน', 'LG back'], th: ['ได้รับ LG คืน'], en: ['Bank guarantee returned'] } ] },
