@@ -64,8 +64,6 @@ window.WTP_CONFIG = {
   // Roles: viewer (ดู dashboard) · staff (แก้ได้ ลบไม่ได้) · manager (ทุกอย่าง+users) · owner (ดูอย่างเดียว)
   USERS: [
     { username: 'admin',       displayName: 'ผู้ดูแลระบบ',     role: 'manager' },
-    { username: 'finance1',    displayName: 'การเงิน 1',       role: 'staff'   },
-    { username: 'finance2',    displayName: 'การเงิน 2',       role: 'staff'   },
     { username: 'viewer',      displayName: 'ผู้บริหาร (ดู)',  role: 'viewer'  },
     { username: 'owner',       displayName: 'เจ้าของบริษัท',   role: 'owner'   },
     { username: 'acc.manager', displayName: 'บัญชี',           role: 'staff'   },
