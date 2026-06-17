@@ -1563,11 +1563,16 @@ function ForecastEntriesPage({ data, setData, toast }) {
       searchPlaceholder: 'ค้นหา DESCRIPTION / JOB_NO / CATEGORY…',
       searchKeys: ['DESCRIPTION', 'JOB_NO', 'PROJECT_NAME', 'CATEGORY'],
       filters: [
-        { key: 'PLANNED',  label: 'PLANNED' },
-        { key: 'DONE',     label: 'DONE' },
-        { key: 'CANCELED', label: 'CANCELED' },
+        { key: 'Manual',     label: 'Manual (กรอกเอง)' },
+        { key: 'AP',         label: 'AP (วางแผนจ่าย)' },
+        { key: 'BANK_RECON', label: 'STM (จ่ายจริง)' },
+        { key: 'LOAN',       label: 'LOAN (เงินกู้)' },
       ],
-      filterFn: (r, k) => (r.STATUS || r.status || '') === k,
+      filterFn: (r, k) => {
+        const et = String(r.EXPENSE_TYPE || r.expense_type || '').trim();
+        if (k === 'Manual') return et === 'Manual' || et === 'Salary' || et === '';
+        return et === k;
+      },
       emptyRow: {
         DATE: data.meta.asOf, PAYMENT_DATE: '', EXPENSE_TYPE: 'Manual',
         DESCRIPTION: '', JOB_NO: '', PROJECT_NAME: '',
@@ -1575,18 +1580,27 @@ function ForecastEntriesPage({ data, setData, toast }) {
       },
       tableMaxHeight: 'min(480px, calc(100vh - 400px))',
       columns: [
-        { key: 'DATE',          label: 'วันที่บันทึก', type: 'date', width: 105 },
-        { key: 'PAYMENT_DATE',  label: 'วันที่จ่าย', type: 'date', width: 105 },
+        { key: 'DATE',          label: 'วันที่บันทึก', type: 'date', width: 100 },
+        { key: 'PAYMENT_DATE',  label: 'วันที่จ่าย', type: 'date', width: 100 },
         { key: 'DESCRIPTION',   label: 'รายการ', render: r => <div><div style={{ fontWeight: 500 }}>{r.DESCRIPTION || r.label}</div>{r.NOTE && <div className="muted" style={{ fontSize: 11.5 }}>{r.NOTE}</div>}</div> },
-        { key: 'JOB_NO',        label: 'Job No.', width: 100, mono: true },
-        { key: 'CATEGORY',      label: 'หมวด', width: 110, render: r => r.CATEGORY ? <Badge kind="b-gray" dot={false}>{r.CATEGORY}</Badge> : <span className="muted">—</span> },
-        { key: 'AMOUNT',        label: 'จำนวนเงิน (฿)', align: 'right', width: 140, render: r => {
+        { key: 'EXPENSE_TYPE',  label: 'ต้นทาง', width: 100, render: r => {
+          const et = String(r.EXPENSE_TYPE || r.expense_type || '').trim();
+          const cfg = et === 'AP' ? ['#d97706','AP · BD']
+            : et === 'BANK_RECON' ? ['#2563eb','STM · กระทบ']
+            : et === 'LOAN' ? ['#7c3aed','LOAN']
+            : et === 'Salary' ? ['#059669','Salary']
+            : ['#64748b','Manual'];
+          return <span style={{ display:'inline-block', padding:'1px 7px', borderRadius:4, fontSize:11, fontWeight:700, background: cfg[0]+'22', color: cfg[0], border:'1px solid '+cfg[0]+'55' }}>{cfg[1]}</span>;
+        }},
+        { key: 'JOB_NO',        label: 'Job No.', width: 95, mono: true },
+        { key: 'CATEGORY',      label: 'หมวด', width: 90, render: r => r.CATEGORY ? <Badge kind="b-gray" dot={false}>{r.CATEGORY}</Badge> : <span className="muted">—</span> },
+        { key: 'AMOUNT',        label: 'จำนวนเงิน (฿)', align: 'right', width: 135, render: r => {
           const v = Number(r.AMOUNT || r.amount || 0);
           return <span style={{ color: v < 0 ? 'var(--bad)' : 'var(--good)', fontWeight: 700 }}>{v > 0 ? '+' : ''}{fmtNum(v, 0)}</span>;
         }},
-        { key: 'STATUS',        label: 'สถานะ', width: 100, render: r => {
+        { key: 'STATUS',        label: 'สถานะ', width: 90, render: r => {
           const s = r.STATUS || r.status || '';
-          const kind = s === 'DONE' ? 'b-green' : s === 'CANCELED' ? 'b-red' : 'b-amber';
+          const kind = s === 'DONE' ? 'b-green' : s === 'CANCELED' ? 'b-red' : s === 'ACTUAL' ? 'b-blue' : 'b-amber';
           return <Badge kind={kind} dot={false}>{s || '—'}</Badge>;
         }},
       ],
