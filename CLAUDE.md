@@ -306,5 +306,10 @@ Live at **https://patima-fin.github.io/waterpog-fin/** — GitHub Pages serves t
 - **verify (preview, login=admin/manager):** `fetchSheetRows('auditLog')` คืน 66 รายการ (64 applyDiff + 2 writeTable = การ import P&L/Budget ของ Phase 5 เอง), หน้า render KPI/แท็บ/ตารางครบ, ไม่มี console error.
 - **ผลรวม:** gviz fallback เหลือไว้เผื่อชีตอื่นในอนาคตเท่านั้น — ตอนนี้ **ทุก entity (CRUD + P&L/Budget + auditLog) อ่าน/เขียนผ่าน Supabase ครบ 100%** ไม่แตะ Google Sheet อีกเลย.
 
+## 2026-06-17 — Budget §4 เปลี่ยน Treemap → บาร์แนวนอน Budget vs Actual + §5 Top 5 ประเภท คชจ. (build `page_budget 20260617b`)
+- **§4 "การจัดสรรงบประมาณ" (Treemap) → "งบประมาณ vs ใช้จริง ตามประเภทค่าใช้จ่าย" (CatBars).** บาร์แนวนอนต่อหมวด: ชื่อ+ยอด ซ้าย, track งบ (ฟ้าอ่อน) + bar ใช้จริง (น้ำเงิน=ปกติ / เหลือง=≥90% / แดง=เกินงบ) ตรงกลาง, % + เกิน/เหลือ ขวา. คลิกแถว → `CatPopup` (drill รายแผนก) เหมือนเดิม. `Treemap`/`squarify` ลบทิ้ง.
+- **§5 ใหม่ "อันดับประเภทค่าใช้จ่ายที่ใช้เยอะที่สุด" (TopCats).** sort categories ด้วย `actual` desc → 5 อันดับแรก: medal chip (🥇🥈🥉/4/5) + ชื่อ + ยอด `actual` + % ของยอดใช้รวม + bar ratio · ขวาเทียบ % vs งบ. คลิก → `CatPopup` เหมือน §4. wiring: ใช้ `view.categories` ที่มีอยู่แล้ว ไม่ต้องคำนวณเพิ่ม.
+- **Renumber §5→6 (แจ้งเตือนงบเกิน), §6→7 (คาดการณ์สิ้นปี), §7→8 (ข้อมูลเชิงลึก).** verify preview: 7 หัวข้อเรียงถูก (2→3→4→5→6→7→8), 0 console error, sample data render ต้นทุนงาน 103.5% แดง / เงินเดือน 100.0% เหลือง / ค่าเดินทาง 102.5% แดง ตามเงื่อนไข.
+
 ## Repo rule: keep CLAUDE.md current
 **Every time you `git push`, update this `CLAUDE.md`** to reflect anything that changed (architecture, conventions, new pages, gotchas). Treat it as part of the push, like the `?v=` bump.

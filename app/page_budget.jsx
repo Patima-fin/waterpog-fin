@@ -766,53 +766,111 @@
   }
 
   // ════════════════════════════════════════════════════════════════════════
-  // Treemap (budget allocation by category)
+  // CatBars — Budget vs Actual per ประเภทค่าใช้จ่าย (horizontal bars)
   // ════════════════════════════════════════════════════════════════════════
-  function squarify(items, x, y, w, h) {
-    const out = [];
-    function layout(list, x, y, w, h) {
-      if (!list.length) return;
-      if (list.length === 1) { out.push({ ...list[0], x, y, w, h }); return; }
-      const sum = list.reduce((s, d) => s + d.value, 0);
-      let acc = 0, idx = 0;
-      for (let i = 0; i < list.length; i++) { acc += list[i].value; if (acc >= sum / 2) { idx = i + 1; break; } }
-      idx = Math.max(1, Math.min(list.length - 1, idx));
-      const a = list.slice(0, idx), b = list.slice(idx);
-      const aSum = a.reduce((s, d) => s + d.value, 0);
-      if (w >= h) { const aw = w * (aSum / sum); layout(a, x, y, aw, h); layout(b, x + aw, y, w - aw, h); }
-      else { const ah = h * (aSum / sum); layout(a, x, y, w, ah); layout(b, x, y + ah, w, h - ah); }
-    }
-    layout(items, x, y, w, h);
-    return out;
-  }
-  function Treemap({ categories, onPick }) {
-    const [hover, setHover] = useState(null);
-    const W = 1040, H = 420;
+  function CatBars({ categories, onPick }) {
     const data = categories.filter(c => c.budget > 0);
-    const rects = squarify(data.map(d => ({ ...d, value: d.budget })), 0, 0, W, H);
-    const palette = ['#2F5FD0','#4E89FF','#3D72E0','#6BA0FF','#35B37E','#5BC79A','#F5A623','#F7B84B','#8AAEF0','#A9C4F5','#5FA8D3','#7C9AE8'];
+    if (!data.length) return <div style={{ padding: '24px', textAlign: 'center', color: P.mute, fontSize: 13.5 }}>ยังไม่มีหมวดค่าใช้จ่ายในขอบเขตนี้</div>;
+    const max = Math.max(...data.map(c => Math.max(c.budget, c.actual)), 1);
     return (
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', display: 'block', borderRadius: 14, overflow: 'hidden' }}>
-        {rects.map((r, i) => {
-          const util = r.actual / r.budget;
-          const big = r.w > 120 && r.h > 60;
-          const med = r.w > 80 && r.h > 44;
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 18, fontSize: 12, color: P.mute, fontWeight: 600, paddingLeft: 4 }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 14, height: 10, background: 'rgba(78,137,255,0.22)', border: `1px solid ${P.secondary}`, borderRadius: 3 }}></span>
+            งบประมาณ
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 14, height: 10, background: P.primary, borderRadius: 3 }}></span>
+            ใช้จริง · ปกติ
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 14, height: 10, background: P.warning, borderRadius: 3 }}></span>
+            ใกล้เต็มงบ (≥90%)
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 14, height: 10, background: P.danger, borderRadius: 3 }}></span>
+            เกินงบ
+          </span>
+        </div>
+        {data.map((c, i) => {
+          const util = c.budget > 0 ? c.actual / c.budget : 0;
+          const over = c.actual > c.budget;
+          const utilColor = over ? P.danger : util >= 0.9 ? P.warning : P.primary;
+          const bwPct = (c.budget / max) * 100;
+          const awPct = (c.actual / max) * 100;
+          const diff = c.actual - c.budget;
           return (
-            <g key={i} style={{ cursor: 'pointer' }} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)} onClick={() => onPick && onPick(r)}>
-              <rect x={r.x + 2} y={r.y + 2} width={Math.max(r.w - 4, 0)} height={Math.max(r.h - 4, 0)} rx="8" fill={palette[i % palette.length]} opacity={hover === i ? 1 : 0.92} />
-              {big && (
-                <>
-                  <text x={r.x + 14} y={r.y + 26} fontSize="14" fontWeight="700" fill="#fff">{splitName(r.name)}</text>
-                  <text x={r.x + 14} y={r.y + 47} fontSize="13" fill="#fff" opacity="0.85">{Fmt.compactBaht(r.budget)}</text>
-                  <text x={r.x + 14} y={r.y + r.h - 16} fontSize="12" fill="#fff" opacity="0.8">ใช้ {Fmt.pct(util)}</text>
-                </>
-              )}
-              {!big && med && <text x={r.x + 10} y={r.y + 22} fontSize="12.5" fontWeight="700" fill="#fff">{splitName(r.name)}</text>}
-              {!big && med && <text x={r.x + 10} y={r.y + 40} fontSize="11.5" fill="#fff" opacity="0.85">{Fmt.compactBaht(r.budget)}</text>}
-            </g>
+            <div key={i} onClick={() => onPick && onPick(c)} className="bcc-deptRow"
+              style={{ cursor: 'pointer', display: 'grid', gridTemplateColumns: 'minmax(180px, 220px) 1fr 150px', gap: 16, alignItems: 'center', padding: '12px 14px', borderRadius: 12, border: `1px solid ${P.border}`, background: '#fff' }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 700, color: P.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{splitName(c.name)}</div>
+                <div style={{ fontSize: 11.5, color: P.mute, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>
+                  งบ {Fmt.compactBaht(c.budget)} · ใช้ {Fmt.compactBaht(c.actual)}
+                </div>
+              </div>
+              <div style={{ position: 'relative', height: 26 }}>
+                <div title={`งบประมาณ ${Fmt.bahtPlain(c.budget)} บาท`}
+                  style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${bwPct}%`, background: 'rgba(78,137,255,0.18)', border: `1px solid rgba(78,137,255,0.55)`, borderRadius: 7 }}></div>
+                <div title={`ใช้จริง ${Fmt.bahtPlain(c.actual)} บาท · ${Fmt.pct(util)}`}
+                  style={{ position: 'absolute', left: 0, top: 4, bottom: 4, width: `${awPct}%`, background: utilColor, borderRadius: 5, boxShadow: '0 1px 2px rgba(0,0,0,0.08)' }}></div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: utilColor, fontVariantNumeric: 'tabular-nums' }}>{Fmt.pct(util)}</div>
+                <div style={{ fontSize: 11.5, color: over ? P.danger : P.mute, fontVariantNumeric: 'tabular-nums' }}>
+                  {over ? `เกินงบ ${Fmt.compact(diff)}` : `เหลือ ${Fmt.compact(-diff)}`}
+                </div>
+              </div>
+            </div>
           );
         })}
-      </svg>
+      </div>
+    );
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  // TopCats — อันดับประเภทค่าใช้จ่ายที่ใช้เยอะ 5 อันดับ
+  // ════════════════════════════════════════════════════════════════════════
+  function TopCats({ categories, onPick }) {
+    const sorted = categories.filter(c => c.actual > 0).slice().sort((a, b) => b.actual - a.actual).slice(0, 5);
+    if (!sorted.length) return <div style={{ padding: '24px', textAlign: 'center', color: P.mute, fontSize: 13.5 }}>ยังไม่มีการใช้จ่ายในขอบเขตนี้</div>;
+    const totalActual = categories.reduce((s, c) => s + c.actual, 0);
+    const topMax = sorted[0].actual || 1;
+    const medals = [
+      { bg: 'linear-gradient(135deg,#F5A623,#D4881A)', label: '🥇' },
+      { bg: 'linear-gradient(135deg,#B7BFCB,#8A95A6)', label: '🥈' },
+      { bg: 'linear-gradient(135deg,#C67A3E,#A05A24)', label: '🥉' },
+      { bg: 'linear-gradient(135deg,#6BA0FF,#4E89FF)', label: '4' },
+      { bg: 'linear-gradient(135deg,#8AAEF0,#6BA0FF)', label: '5' },
+    ];
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {sorted.map((c, i) => {
+          const shareOfTotal = totalActual > 0 ? c.actual / totalActual : 0;
+          const util = c.budget > 0 ? c.actual / c.budget : 0;
+          const over = c.actual > c.budget;
+          const m = medals[i];
+          return (
+            <div key={i} onClick={() => onPick && onPick(c)} className="bcc-deptRow"
+              style={{ cursor: 'pointer', display: 'grid', gridTemplateColumns: '54px 1fr 170px', gap: 16, alignItems: 'center', padding: '14px 16px', borderRadius: 14, border: `1px solid ${P.border}`, background: i < 3 ? 'linear-gradient(180deg, rgba(47,95,208,0.04), #fff)' : '#fff' }}>
+              <div style={{ width: 44, height: 44, borderRadius: 12, background: m.bg, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: i < 3 ? 22 : 18, fontWeight: 800, boxShadow: '0 2px 6px rgba(0,0,0,0.10)' }}>{m.label}</div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 14.5, fontWeight: 800, color: P.ink, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{splitName(c.name)}</div>
+                <div style={{ fontSize: 12, color: P.mute, marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>
+                  ใช้จริง <b style={{ color: P.ink }}>{Fmt.compactBaht(c.actual)}</b> · <b>{Fmt.pct(shareOfTotal)}</b> ของยอดใช้รวม
+                </div>
+                <div style={{ marginTop: 8, height: 7, background: P.grid, borderRadius: 6, overflow: 'hidden' }}>
+                  <div style={{ width: `${(c.actual / topMax) * 100}%`, height: '100%', background: over ? P.danger : P.primary, borderRadius: 6 }}></div>
+                </div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 11.5, color: P.mute, fontWeight: 600 }}>เทียบงบ</div>
+                <div style={{ fontSize: 17, fontWeight: 800, color: over ? P.danger : util >= 0.9 ? P.warning : P.success, fontVariantNumeric: 'tabular-nums', lineHeight: 1.15 }}>{Fmt.pct(util)}</div>
+                <div style={{ fontSize: 11, color: P.mute, fontVariantNumeric: 'tabular-nums' }}>งบ {Fmt.compactBaht(c.budget)}</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     );
   }
 
@@ -1399,17 +1457,22 @@
           <DeptTable departments={view.departments} onPick={setPicked} query={filters.q} />
         </SectionCard>
 
-        <SectionCard n="4" title="การจัดสรรงบประมาณ" sub="Budget Allocation · ตามหมวดค่าใช้จ่าย · คลิกเพื่อเจาะลึก"
-          actions={<span style={{ fontSize: 12, color: P.mute, fontWeight: 600 }}>คลิกบล็อก → ดูรายแผนก</span>}>
-          <Treemap categories={view.categories} onPick={setCatPick} />
+        <SectionCard n="4" title="งบประมาณ vs ใช้จริง ตามประเภทค่าใช้จ่าย" sub="Budget vs Actual by Category · คลิกแถว → ดูรายแผนก"
+          actions={<span style={{ fontSize: 12, color: P.mute, fontWeight: 600 }}>{view.categories.filter(c => c.budget > 0).length} หมวด</span>}>
+          <CatBars categories={view.categories} onPick={setCatPick} />
         </SectionCard>
 
-        <SectionCard n="5" title="แจ้งเตือนงบเกิน" sub="Overspending Alert · รายการที่ใช้จริงเกินงบสูงสุด"
+        <SectionCard n="5" title="อันดับประเภทค่าใช้จ่ายที่ใช้เยอะที่สุด" sub="Top 5 Expense Categories · เรียงตามยอดใช้จริง · คลิก → ดูรายแผนก"
+          actions={<span style={{ fontSize: 12, fontWeight: 700, color: P.primary, background: 'rgba(47,95,208,0.10)', padding: '5px 12px', borderRadius: 999 }}>🏆 Top 5</span>}>
+          <TopCats categories={view.categories} onPick={setCatPick} />
+        </SectionCard>
+
+        <SectionCard n="6" title="แจ้งเตือนงบเกิน" sub="Overspending Alert · รายการที่ใช้จริงเกินงบสูงสุด"
           actions={<span style={{ fontSize: 12, fontWeight: 700, color: P.danger, background: 'rgba(231,76,60,0.1)', padding: '5px 12px', borderRadius: 999 }}>⚠️ {view.overBudget.length} รายการ</span>}>
           <Overspend items={view.overBudget} onPick={(code) => setPicked(data.departments.find(d => d.code === code))} />
         </SectionCard>
 
-        <SectionCard n="6" title="คาดการณ์สิ้นปี" sub="Year-End Forecast · เปรียบเทียบ 2 วิธี"
+        <SectionCard n="7" title="คาดการณ์สิ้นปี" sub="Year-End Forecast · เปรียบเทียบ 2 วิธี"
           actions={
             <div style={{ display: 'flex', gap: 4, background: P.bg, padding: 4, borderRadius: 10 }}>
               {[['runrate', 'อัตราใช้จริง'], ['budget', 'ตามงบ']].map(([k, l]) => (
@@ -1429,7 +1492,7 @@
           </div>
         </SectionCard>
 
-        <SectionCard n="7" title="ข้อมูลเชิงลึก" sub="Insight · สรุปอัตโนมัติสำหรับผู้บริหาร">
+        <SectionCard n="8" title="ข้อมูลเชิงลึก" sub="Insight · สรุปอัตโนมัติสำหรับผู้บริหาร">
           <Insight data={view} />
         </SectionCard>
 
