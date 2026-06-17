@@ -65,11 +65,12 @@ function brRowsToLines(rows) {
 function brStateToRows(stateMap) {
   return Object.keys(stateMap || {}).map(id => ({
     id: id, decision: (stateMap[id] && stateMap[id].decision) || '', forecastId: (stateMap[id] && stateMap[id].forecastId) || '',
+    pvRef: (stateMap[id] && stateMap[id].pvRef) || '',   // decision='matched' → อ้างอิง PV ที่จับคู่มือ (id หรือเลขที่ PV)
   }));
 }
 function brRowsToState(rows) {
   const m = {};
-  (rows || []).forEach(r => { if (r && r.id != null && r.id !== '') m[r.id] = { decision: r.decision || '', forecastId: r.forecastId || '' }; });
+  (rows || []).forEach(r => { if (r && r.id != null && r.id !== '') m[r.id] = { decision: r.decision || '', forecastId: r.forecastId || '', pvRef: r.pvRef || '' }; });
   return m;
 }
 
@@ -287,14 +288,26 @@ function brReconcile(opts) {
   const scopedKeys = new Set(pvs.map(pvKey));
   const refExtra = refPool.filter(p => p.pvNo && !scopedKeys.has(pvKey(p))).map((p, i) => ({ p, i: 'x' + i, used: false, extra: true }));
   const matched = [], recorded = [], transfers = [];
-  const toMatch = [];
+  const toMatch = [], manualMatched = [];
   outLines.forEach(l => {
     const st = reconState[l.id];
     if (st && st.decision === 'recorded') recorded.push({ line: l, forecastId: st.forecastId });
     else if (st && st.decision === 'transfer') transfers.push(l);   // โอนระหว่างบัญชี — ไม่นับเป็นรายจ่าย
+    else if (st && st.decision === 'matched') manualMatched.push({ line: l, pvRef: st.pvRef });  // ผูก PV เอง
     else toMatch.push(l);
   });
   toMatch.sort((a, b) => (a.date + a.id) < (b.date + b.id) ? -1 : 1);
+
+  // ── จับคู่เอง (manual match) — ผู้ใช้ผูก statement line ↔ PV เอง (เคสเลขเอกสารเปลี่ยน auto-match พลาด) ──
+  //   จองก่อน pass อัตโนมัติ เพื่อกัน PV ที่ผูกมือไปโดนจับให้บรรทัดอื่น · ไม่สร้าง Actual ใหม่
+  //   (PV เป็น Actual ในระบบอยู่แล้ว) — แค่ทำให้ทั้งสองฝั่งออกจากถังค้าง
+  manualMatched.forEach(mm => {
+    const ref = brNormRef(mm.pvRef);
+    const c = pvAvail.find(x => !x.used && (String(x.p.id) === String(mm.pvRef) || (ref && brNormRef(x.p.pvNo) === ref)));
+    if (c) c.used = true;
+    matched.push({ line: mm.line, pv: c ? c.p : { pvNo: mm.pvRef, amount: -Math.abs(mm.line.amount), date: mm.line.date },
+      via: 'manual', manual: true, score: 300 });
+  });
 
   // ── pass 0: ref = เลขที่ PV ใน statement (เช่น SCB คอลัมน์ Note = PVxxxx) — แม่นสุด ──
   //   รองรับ 1 PV หลายขา (เลข PV เดียวกันหลายบรรทัด → จับเป็นกลุ่มเดียว)
@@ -413,6 +426,7 @@ function BankReconPage({ data, setData, toast }) {
   const [reconState, setReconState] = brState(() => BankReconStore.getState());
   const [preview, setPreview]     = brState(null);   // { fileName, sheetNames, sheetIdx, aoa, mapping, brand }
   const [recordLine, setRecordLine] = brState(null); // line ในถัง missing → modal บันทึกจ่ายจริง
+  const [matchLine, setMatchLine]   = brState(null); // line → modal จับคู่ PV เอง
   const [pwdPrompt, setPwdPrompt]   = brState(null); // { file, error, unsupported } → modal ใส่รหัสไฟล์ (KTB)
   const fileRef = brRef(null);
 
@@ -611,6 +625,27 @@ function BankReconPage({ data, setData, toast }) {
     if (toast) toast('ยกเลิกบันทึก — ลบออกจาก Actual แล้ว');
   };
 
+  // ── จับคู่ PV เอง (manual match) — เคสเลขเอกสารเปลี่ยน auto-match พลาด ──────────
+  //   ผูก statement line ↔ PV ที่เลือก: ทั้งคู่ออกจากถังค้าง ไปอยู่ "แมตช์แล้ว (จับคู่เอง)"
+  //   ★ ทนทานกว่ากด "ยกเลิก": ถ้าบรรทัดนี้เคยกด "บันทึกจ่ายจริง" มาก่อน (decision='recorded')
+  //     จะ "เปลี่ยน decision เป็น matched" (ไม่ใช่ลบทิ้ง) → self-heal เลิกสร้างแถว BANK_RECON
+  //     กลับมา (มันกู้เฉพาะ decision='recorded') + ไม่นับ Actual ซ้ำกับ PV
+  const manualMatchPv = (line, pv) => {
+    if (readOnly) { if (toast) toast('สิทธิ์นี้ดูได้อย่างเดียว'); return; }
+    if (!pv) return;
+    const prev = reconState[line.id];
+    if (prev && prev.decision === 'recorded' && prev.forecastId) {
+      brUndoneRef.current[String(prev.forecastId)] = true;             // กัน self-heal สร้างแถวจ่ายจริงกลับ
+      setData(d => ({ ...d, forecastEntries: (d.forecastEntries || []).filter(e => e.id !== prev.forecastId) }));
+      if (window.WTPData && typeof WTPData.forceDeleteRows === 'function') WTPData.forceDeleteRows('forecastEntries', prev.forecastId);
+    }
+    const pvRef = (pv.id != null && pv.id !== '') ? String(pv.id) : (pv.pvNo || '');
+    const ns = { ...reconState, [line.id]: { decision: 'matched', forecastId: '', pvRef } };
+    setReconState(ns); BankReconStore.setState(ns); pushReconState(ns);
+    setMatchLine(null);
+    if (toast) toast('จับคู่ PV เองแล้ว — ไม่สร้างรายการ Actual ซ้ำ (PV เป็น Actual อยู่แล้ว)');
+  };
+
   // ── ทำเครื่องหมาย "โอนระหว่างบัญชี" — ออกจากถังขาดบันทึก โดยไม่สร้าง Actual (ไม่ใช่รายจ่าย) ──
   const markTransfer = (line) => {
     if (readOnly) { if (toast) toast('สิทธิ์นี้ดูได้อย่างเดียว'); return; }
@@ -755,7 +790,7 @@ function BankReconPage({ data, setData, toast }) {
         </div>
       ) : (
         <BRReconcileSection recon={recon} acct={acct} readOnly={readOnly}
-          onRecord={setRecordLine} onUndo={undoRecord}
+          onRecord={setRecordLine} onUndo={undoRecord} onMatch={setMatchLine}
           onMarkTransfer={markTransfer} isLikelyTransfer={isLikelyTransfer} />
       )}
 
@@ -777,6 +812,12 @@ function BankReconPage({ data, setData, toast }) {
         <BRRecordModal line={recordLine} onSave={recordActual} onClose={() => setRecordLine(null)} />
       )}
 
+      {/* Manual-match modal — เลือก PV ในระบบมาผูกกับบรรทัด statement เอง */}
+      {matchLine && (
+        <BRMatchModal line={matchLine} candidates={recon.unmatchedPv || []} allPvs={pvRefPool}
+          onMatch={manualMatchPv} onClose={() => setMatchLine(null)} />
+      )}
+
       {/* Password modal — ไฟล์มีรหัส (เช่น KTB .xls) ใส่รหัสเปิดแล้วดึงข้อมูลในแอปได้เลย */}
       {pwdPrompt && (
         <BRPasswordModal prompt={pwdPrompt} onSubmit={(pwd) => parseAndPreview(pwdPrompt.file, pwd)} onClose={() => setPwdPrompt(null)} />
@@ -793,7 +834,7 @@ function BankReconPage({ data, setData, toast }) {
 }
 
 // ─── ส่วนกระทบยอด 3 ถัง ───────────────────────────────────────────────────────
-function BRReconcileSection({ recon, acct, readOnly, onRecord, onUndo, onMarkTransfer, isLikelyTransfer }) {
+function BRReconcileSection({ recon, acct, readOnly, onRecord, onUndo, onMatch, onMarkTransfer, isLikelyTransfer }) {
   const [tab, setTab] = brState('missing');
   const { matched, missing, unmatchedPv, recorded, transfers, stats } = recon;
   const tabs = [
@@ -817,11 +858,11 @@ function BRReconcileSection({ recon, acct, readOnly, onRecord, onUndo, onMarkTra
         ))}
       </div>
       <div style={{ padding: 14 }}>
-        {tab === 'missing'  && <BRMissingTable rows={missing} readOnly={readOnly} onRecord={onRecord} onMarkTransfer={onMarkTransfer} isLikelyTransfer={isLikelyTransfer} />}
+        {tab === 'missing'  && <BRMissingTable rows={missing} readOnly={readOnly} onRecord={onRecord} onMatch={onMatch} onMarkTransfer={onMarkTransfer} isLikelyTransfer={isLikelyTransfer} />}
         {tab === 'unmatch'  && <BRPvTable rows={unmatchedPv} />}
-        {tab === 'matched'  && <BRMatchedTable rows={matched} />}
+        {tab === 'matched'  && <BRMatchedTable rows={matched} readOnly={readOnly} onUndo={onUndo} />}
         {tab === 'transfer' && <BRTransfersTable rows={transfers || []} readOnly={readOnly} onUndo={onUndo} />}
-        {tab === 'recorded' && <BRRecordedTable rows={recorded} readOnly={readOnly} onUndo={onUndo} />}
+        {tab === 'recorded' && <BRRecordedTable rows={recorded} readOnly={readOnly} onUndo={onUndo} onMatch={onMatch} />}
       </div>
     </div>
   );
@@ -830,14 +871,14 @@ function BRReconcileSection({ recon, acct, readOnly, onRecord, onUndo, onMarkTra
 function BREmpty({ text }) { return <div style={{ padding: 24, textAlign: 'center', color: 'var(--ink-400)', fontSize: 12.5 }}>{text}</div>; }
 
 // ถัง (b) — statement ออก แต่ไม่มี PV → กดบันทึกจ่ายจริง
-function BRMissingTable({ rows, readOnly, onRecord, onMarkTransfer, isLikelyTransfer }) {
+function BRMissingTable({ rows, readOnly, onRecord, onMatch, onMarkTransfer, isLikelyTransfer }) {
   if (!rows.length) return <BREmpty text="✓ ไม่มีรายการที่ขาดการบันทึก — statement ทุกรายการมี PV รองรับ" />;
   return (
     <div style={{ maxHeight: '52vh', overflow: 'auto' }}>
-      <div style={{ fontSize: 12, color: 'var(--ink-600)', marginBottom: 8 }}>เงินออกจากบัญชีจริง แต่ยังไม่มี PV ในระบบ — กด <b>บันทึกจ่ายจริง</b> (รายจ่าย) หรือ <b>🔁 โอนระหว่างบัญชี</b> (ถ้าเป็นการโอนเงินไปบัญชีตัวเอง ไม่ใช่รายจ่าย)</div>
+      <div style={{ fontSize: 12, color: 'var(--ink-600)', marginBottom: 8 }}>เงินออกจากบัญชีจริง แต่ยังไม่มี PV รองรับใน statement — กด <b>🔗 จับคู่ PV</b> (ถ้ามี PV ในระบบแต่เลขไม่ตรง เช่นแก้เอกสาร) · <b>บันทึกจ่ายจริง</b> (ยังไม่มี PV เลย) · <b>🔁 โอนระหว่างบัญชี</b> (โอนเข้าบัญชีตัวเอง)</div>
       <table className="tbl" style={{ width: '100%', fontSize: 12.5 }}>
         <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
-          <tr><th style={{ width: 100 }}>วันที่</th><th>รายละเอียด</th><th style={{ width: 110 }}>อ้างอิง/เช็ค</th><th style={{ width: 120, textAlign: 'right' }}>จำนวน (฿)</th><th style={{ width: 200, textAlign: 'center' }}>จัดการ</th></tr>
+          <tr><th style={{ width: 100 }}>วันที่</th><th>รายละเอียด</th><th style={{ width: 110 }}>อ้างอิง/เช็ค</th><th style={{ width: 120, textAlign: 'right' }}>จำนวน (฿)</th><th style={{ width: 280, textAlign: 'center' }}>จัดการ</th></tr>
         </thead>
         <tbody>
           {rows.map(l => {
@@ -849,7 +890,11 @@ function BRMissingTable({ rows, readOnly, onRecord, onMarkTransfer, isLikelyTran
               <td style={{ fontFamily: 'ui-monospace', fontSize: 11.5, color: 'var(--brand-700)' }}>{l.ref || '—'}</td>
               <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: 'var(--bad)' }}>{fmtNum(Math.abs(l.amount), 2)}</td>
               <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
-                {!readOnly ? (<span style={{ display: 'inline-flex', gap: 5, justifyContent: 'center' }}>
+                {!readOnly ? (<span style={{ display: 'inline-flex', gap: 5, justifyContent: 'center', flexWrap: 'wrap' }}>
+                  {onMatch && <button title="ผูกกับ PV ในระบบเอง (เคสเลขเอกสารเปลี่ยน) — ไม่สร้าง Actual ซ้ำ"
+                    style={{ fontSize: 11.5, padding: '4px 9px', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit',
+                      border: '1px solid var(--good)', background: '#fff', color: 'var(--good)', fontWeight: 700 }}
+                    onClick={() => onMatch(l)}>🔗 จับคู่ PV</button>}
                   <button className="btn btn-primary" style={{ fontSize: 11.5, padding: '4px 9px' }} onClick={() => onRecord(l)}>บันทึกจ่ายจริง</button>
                   {onMarkTransfer && <button title="เป็นการโอนเงินไปบัญชีตัวเอง — ไม่นับเป็นรายจ่าย"
                     style={{ fontSize: 11.5, padding: '4px 9px', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit',
@@ -923,30 +968,35 @@ function BRPvTable({ rows }) {
 }
 
 // ถัง (a) — แมตช์แล้ว
-function BRMatchedTable({ rows }) {
+function BRMatchedTable({ rows, readOnly, onUndo }) {
   if (!rows.length) return <BREmpty text="ยังไม่มีรายการที่แมตช์" />;
+  const hasManual = rows.some(m => m.manual);
   return (
     <div style={{ maxHeight: '52vh', overflow: 'auto' }}>
       <table className="tbl" style={{ width: '100%', fontSize: 12.5 }}>
         <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
-          <tr><th style={{ width: 100 }}>วันที่</th><th>รายการ statement</th><th style={{ width: 150 }}>PV</th><th style={{ width: 60, textAlign: 'center' }}>วิธี</th><th style={{ width: 130, textAlign: 'right' }}>จำนวน (฿)</th></tr>
+          <tr><th style={{ width: 100 }}>วันที่</th><th>รายการ statement</th><th style={{ width: 150 }}>PV</th><th style={{ width: 64, textAlign: 'center' }}>วิธี</th><th style={{ width: 130, textAlign: 'right' }}>จำนวน (฿)</th>{hasManual && <th style={{ width: 90, textAlign: 'center' }}>จัดการ</th>}</tr>
         </thead>
         <tbody>
           {rows.map((m, i) => {
             const pvList = m.pvs || [m.pv];
             const pvNos = [...new Set(pvList.map(p => p.pvNo || p.apNo || '—'))];
-            const viaLabel = m.via === 'ref' ? 'PV' : m.via === 'split' ? 'รวม' : '1:1';
+            const viaLabel = m.via === 'manual' ? 'จับคู่เอง' : m.via === 'ref' ? 'PV' : m.via === 'split' ? 'รวม' : '1:1';
             const viaWarn = m.via === 'split';
+            const viaManual = m.via === 'manual';
             return (
-              <tr key={m.line.id || ('g' + i)}>
+              <tr key={m.line.id || ('g' + i)} style={viaManual ? { background: 'color-mix(in oklch, var(--good) 5%, transparent)' } : undefined}>
                 <td style={{ whiteSpace: 'nowrap', color: 'var(--ink-600)' }}>{fmtDate(m.line.date) || m.line.date}</td>
                 <td>{m.line.desc || '—'} {m.line.ref && <span style={{ fontFamily: 'ui-monospace', fontSize: 11, color: 'var(--ink-400)' }}>· {m.line.ref}</span>}
                   {m.amtMismatch ? <span style={{ color: 'var(--warn)', fontSize: 11 }}> · ⚠️ ยอดต่าง {fmtNum(Math.abs(m.amtMismatch), 2)}</span> : null}</td>
                 <td style={{ fontFamily: 'ui-monospace', fontSize: 11 }}>{pvNos.join(', ')}</td>
                 <td style={{ textAlign: 'center' }}>
-                  <span style={{ fontSize: 10, fontWeight: 700, color: viaWarn ? 'var(--warn)' : 'var(--good)', background: viaWarn ? 'var(--warn-bg)' : 'var(--good-bg)', padding: '2px 6px', borderRadius: 4 }}>{viaLabel}</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: viaManual ? 'oklch(50% 0.13 250)' : viaWarn ? 'var(--warn)' : 'var(--good)', background: viaManual ? 'color-mix(in oklch, oklch(60% 0.13 250) 14%, #fff)' : viaWarn ? 'var(--warn-bg)' : 'var(--good-bg)', padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap' }}>{viaLabel}</span>
                 </td>
                 <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: 'var(--good)' }}>{fmtNum(Math.abs(m.line.amount), 2)}</td>
+                {hasManual && <td style={{ textAlign: 'center' }}>
+                  {viaManual && !readOnly ? <button className="btn btn-ghost" style={{ fontSize: 11, padding: '3px 8px', color: 'var(--bad)' }} onClick={() => onUndo(m.line, '')}>↩ ยกเลิก</button> : <span style={{ color: 'var(--ink-300)' }}>—</span>}
+                </td>}
               </tr>
             );
           })}
@@ -957,13 +1007,14 @@ function BRMatchedTable({ rows }) {
 }
 
 // ถังที่บันทึกจาก statement แล้ว (เด้งเข้า cashflow แล้ว)
-function BRRecordedTable({ rows, readOnly, onUndo }) {
+function BRRecordedTable({ rows, readOnly, onUndo, onMatch }) {
   if (!rows.length) return <BREmpty text="ยังไม่มีรายการที่บันทึกจ่ายจริงจาก statement" />;
   return (
     <div style={{ maxHeight: '52vh', overflow: 'auto' }}>
+      <div style={{ fontSize: 12, color: 'var(--ink-600)', marginBottom: 8 }}>บันทึกเป็น "จ่ายจริง" จาก statement แล้ว (เป็น Actual หน้า Cashflow) — ถ้าจริงๆ มี <b>PV ในระบบ</b> รองรับอยู่แล้ว (เลขเอกสารเปลี่ยนเลย auto-match ไม่เจอ) ให้กด <b>🔗 จับคู่ PV แทน</b> เพื่อกันยอดนับซ้ำ</div>
       <table className="tbl" style={{ width: '100%', fontSize: 12.5 }}>
         <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
-          <tr><th style={{ width: 100 }}>วันที่</th><th>รายละเอียด</th><th style={{ width: 130, textAlign: 'right' }}>จำนวน (฿)</th><th style={{ width: 110, textAlign: 'center' }}>จัดการ</th></tr>
+          <tr><th style={{ width: 100 }}>วันที่</th><th>รายละเอียด</th><th style={{ width: 130, textAlign: 'right' }}>จำนวน (฿)</th><th style={{ width: 210, textAlign: 'center' }}>จัดการ</th></tr>
         </thead>
         <tbody>
           {rows.map(r => (
@@ -971,8 +1022,13 @@ function BRRecordedTable({ rows, readOnly, onUndo }) {
               <td style={{ whiteSpace: 'nowrap', color: 'var(--ink-600)' }}>{fmtDate(r.line.date) || r.line.date}</td>
               <td>{r.line.desc || '—'} <span style={{ fontSize: 11, color: 'var(--good)' }}>✓ เป็น Actual แล้ว</span></td>
               <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700, color: 'var(--ink-700)' }}>{fmtNum(Math.abs(r.line.amount), 2)}</td>
-              <td style={{ textAlign: 'center' }}>
-                {!readOnly ? <button className="btn btn-ghost" style={{ fontSize: 11, padding: '3px 8px', color: 'var(--bad)' }} onClick={() => onUndo(r.line, r.forecastId)}>↩ ยกเลิก</button> : <span style={{ color: 'var(--ink-300)' }}>—</span>}
+              <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                {!readOnly ? (<span style={{ display: 'inline-flex', gap: 5, justifyContent: 'center', flexWrap: 'wrap' }}>
+                  {onMatch && <button title="จริงๆ มี PV รองรับ — ผูกกับ PV แทน (เลิกนับเป็น Actual ซ้ำ)"
+                    style={{ fontSize: 11, padding: '3px 8px', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid var(--good)', background: '#fff', color: 'var(--good)', fontWeight: 700 }}
+                    onClick={() => onMatch(r.line)}>🔗 จับคู่ PV แทน</button>}
+                  <button className="btn btn-ghost" style={{ fontSize: 11, padding: '3px 8px', color: 'var(--bad)' }} onClick={() => onUndo(r.line, r.forecastId)}>↩ ยกเลิก</button>
+                </span>) : <span style={{ color: 'var(--ink-300)' }}>—</span>}
               </td>
             </tr>
           ))}
@@ -1104,6 +1160,89 @@ function BRRecordModal({ line, onSave, onClose }) {
       <select className="select input" value={cat} onChange={e => setCat(e.target.value)} style={{ width: '100%', fontSize: 13, padding: '7px 10px' }}>
         {BD_CF_CATEGORIES.map(c => <option key={c.code} value={c.code}>{c.code} · {c.label}</option>)}
       </select>
+    </Modal>
+  );
+}
+
+// ── Modal จับคู่ PV เอง — เลือก PV ในระบบมาผูกกับบรรทัด statement (เคสเลขเอกสารเปลี่ยน) ──
+function BRMatchModal({ line, candidates, allPvs, onMatch, onClose }) {
+  const target = Math.abs(Number(line.amount) || 0);
+  const keyOf = p => (p.id != null && p.id !== '' ? 'i' + p.id : 'p' + (p.pvNo || ''));
+  const closeness = (p) => {
+    const ad = Math.abs((Math.abs(Number(p.amount) || 0)) - target);
+    const dd = p.date ? brDateDiff(line.date, p.date) : 999;
+    return ad * 1000 + dd;   // ยอดต่างมาก่อน แล้วค่อยวันที่
+  };
+  const sortedCand = brMemo(() => (candidates || []).slice().sort((a, b) => closeness(a) - closeness(b)), [candidates, line.id]);
+  const [q, setQ] = brState('');
+  const qn = q.trim().toLowerCase();
+  const searchHits = brMemo(() => {
+    if (!qn) return [];
+    const qDigits = qn.replace(/[,\s]/g, '');
+    return (allPvs || []).filter(p =>
+      String(p.pvNo || '').toLowerCase().indexOf(qn) >= 0 ||
+      String(p.payee || '').toLowerCase().indexOf(qn) >= 0 ||
+      (qDigits && String(Math.abs(Number(p.amount) || 0)).indexOf(qDigits) >= 0)
+    ).sort((a, b) => closeness(a) - closeness(b)).slice(0, 60);
+  }, [qn, allPvs, line.id]);
+  const list = qn ? searchHits : sortedCand;
+  const best = sortedCand[0] && Math.abs(Math.abs(Number(sortedCand[0].amount) || 0) - target) < 0.01 ? sortedCand[0] : null;
+  const [sel, setSel] = brState(best || null);
+  return (
+    <Modal open title="🔗 จับคู่ PV เอง" maxWidth={620} onClose={onClose}
+      footer={<>
+        <button className="btn btn-ghost" onClick={onClose}>ยกเลิก</button>
+        <button className="btn btn-primary" disabled={!sel} onClick={() => sel && onMatch(line, sel)}>จับคู่กับ PV นี้</button>
+      </>}>
+      <div style={{ fontSize: 12.5, color: 'var(--ink-600)', marginBottom: 10 }}>
+        ผูกบรรทัดนี้กับ PV ในระบบที่เป็นการจ่ายก้อนเดียวกัน (เคสแก้เอกสาร เลขที่ PV เปลี่ยน เลย auto-match ไม่เจอ) — <b>ไม่สร้างรายการ Actual ใหม่</b> เพราะ PV เป็น Actual อยู่แล้ว ป้องกันยอดนับซ้ำ
+      </div>
+      {/* บรรทัด statement ที่จะจับคู่ */}
+      <div style={{ background: 'var(--ink-50)', borderRadius: 8, padding: '8px 12px', marginBottom: 12, fontSize: 12.5 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+          <span style={{ color: 'var(--ink-600)' }}>{fmtDate(line.date) || line.date} · {line.desc || '—'}{line.ref ? ' · ' + line.ref : ''}</span>
+          <b style={{ color: 'var(--bad)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(target, 2)} ฿</b>
+        </div>
+      </div>
+      <input className="input" value={q} onChange={e => setQ(e.target.value)} placeholder="🔍 ค้นทุก PV ในระบบ (เลขที่ PV / ผู้รับเงิน / ยอด)…"
+        style={{ width: '100%', fontSize: 13, padding: '7px 10px', marginBottom: 8 }} />
+      <div style={{ fontSize: 11.5, color: 'var(--ink-500)', marginBottom: 6 }}>
+        {qn ? `ผลค้นหา ${list.length} รายการ` : `PV ที่ยังไม่จับคู่ในบัญชี/เดือนนี้ ${list.length} รายการ (เรียงตามความใกล้เคียงยอด+วันที่)`}
+      </div>
+      <div style={{ maxHeight: '40vh', overflow: 'auto', border: '1px solid var(--line)', borderRadius: 8 }}>
+        {list.length === 0 ? (
+          <div style={{ padding: 18, textAlign: 'center', color: 'var(--ink-400)', fontSize: 12.5 }}>
+            {qn ? 'ไม่พบ PV ที่ตรงกับคำค้น' : 'ไม่มี PV ค้างในบัญชี/เดือนนี้ — พิมพ์ค้นหาด้านบนเพื่อหา PV จากทุกบัญชี/เดือน'}
+          </div>
+        ) : list.map(p => {
+          const k = keyOf(p);
+          const active = sel && keyOf(sel) === k;
+          const amt = Math.abs(Number(p.amount) || 0);
+          const exact = Math.abs(amt - target) < 0.01;
+          const dd = p.date ? brDateDiff(line.date, p.date) : null;
+          return (
+            <button key={k} type="button" onClick={() => setSel(p)}
+              style={{ display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit',
+                border: 'none', borderBottom: '1px solid var(--line)', padding: '8px 12px',
+                background: active ? 'color-mix(in oklch, var(--good) 12%, #fff)' : '#fff' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+                <span style={{ fontSize: 12.5 }}>
+                  <b style={{ fontFamily: 'ui-monospace' }}>{p.pvNo || '—'}</b>
+                  <span style={{ color: 'var(--ink-600)' }}> · {p.payee || '—'}</span>
+                  {p.chqNo ? <span style={{ color: 'var(--ink-400)', fontFamily: 'ui-monospace', fontSize: 11 }}> · เช็ค {p.chqNo}</span> : null}
+                </span>
+                <b style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', color: exact ? 'var(--good)' : 'var(--ink-700)' }}>{fmtNum(amt, 2)} ฿</b>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--ink-500)', marginTop: 2 }}>
+                {fmtDate(p.date) || p.date || '—'}
+                {exact ? <span style={{ color: 'var(--good)', fontWeight: 700 }}> · ✓ ยอดตรง</span> : <span style={{ color: 'var(--warn)' }}> · ⚠️ ยอดต่าง {fmtNum(Math.abs(amt - target), 2)}</span>}
+                {dd != null && dd <= 3 ? <span style={{ color: 'var(--good)' }}> · วันใกล้กัน</span> : (dd != null ? <span style={{ color: 'var(--ink-400)' }}> · ต่าง {dd} วัน</span> : null)}
+                {active ? <span style={{ color: 'var(--good)', fontWeight: 700 }}> · เลือกแล้ว</span> : null}
+              </div>
+            </button>
+          );
+        })}
+      </div>
     </Modal>
   );
 }
