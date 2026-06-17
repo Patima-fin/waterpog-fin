@@ -317,5 +317,10 @@ Live at **https://patima-fin.github.io/waterpog-fin/** — GitHub Pages serves t
 - `companyBanks` (useMemo จาก `data.bankAccounts`) — บัญชีบริษัทแบบ `{bankName, accountNo, nick}` (dedupe by bank+ac) → 3 จุด: (a) `<select>` "เลือกจากบัญชีบริษัท" เหนือ ธนาคาร/เลขบัญชี → เลือก 1 ครั้ง เติม 2 ฟิลด์อัตโนมัติ (b) datalist `chk-bank-list` (ชื่อธนาคารไม่ซ้ำ) (c) datalist `chk-ac-list` (เลขบัญชี + ชื่อธนาคารในป้าย).
 - input ทุกตัวเป็น `<input list="...">` + `autoComplete="off"` → ผู้ใช้พิมพ์เองได้ตามปกติ ดอปดาวลิสต์เป็น suggestion ล้วน. select ขึ้นเฉพาะเมื่อ `companyBanks.length > 0`.
 
+## 2026-06-17 — เช็ค: ประเภทเช็ค + datalist ธนาคารไทย + relabel ฟิลด์ (build `page_checks 20260617d`)
+- **`CHECK_TYPES`** (constant ระดับ module, 5 ตัว: `principal_guarantee` ค้ำเงินต้น / `interest` ดอกเบี้ย / `principal_interest` เงินต้นและดอกเบี้ย / `expense` ชำระค่าใช้จ่าย / `other` อื่นๆ) + helper `CHECK_TYPE_LABEL(v)`. ฟิลด์ใหม่ `checkType` ใน emptyForm. ใน modal มี `<select>` กว้างเต็ม (gridColumn 1/-1) อยู่ใต้ "สถานะ". view modal โชว์ผ่าน `fld('ประเภทเช็ค', CHECK_TYPE_LABEL(view.checkType))`.
+- **`COMMON_TH_BANKS`** (constant 17 ธนาคารไทย: กสิกร/SCB/KTB/BBL/BAY/TTB/GSB/GHB/KKP/CIMB/UOB/LH/TISCO/TCR/ICBC/HSBC/SCBT) — merge เข้า `chk-bank-list` datalist เดิม (companyBanks + COMMON, dedupe ด้วย Set) → กรอกธนาคารแล้วได้ suggestion ครบ.
+- **Relabel** "อ้างอิง / PO" → "เลขที่สัญญาเงินกู้ / PO" (พร้อม placeholder เช่น `LN-2569-001 หรือ PO-XXX`) · "หมายเหตุ" → "หมายเหตุเพิ่มเติม (ถ้ามี)". อัปเดต view modal ให้ตรงกัน.
+
 ## Repo rule: keep CLAUDE.md current
 **Every time you `git push`, update this `CLAUDE.md`** to reflect anything that changed (architecture, conventions, new pages, gotchas). Treat it as part of the push, like the `?v=` bump.

@@ -18,6 +18,24 @@ const CHECKS_STATUS_META = {
   cancelled: { label:'ยกเลิก',    color:'b-gray' },
 };
 
+// ประเภทเช็ค — ระบุว่าเช็คนี้ใช้ทำอะไร (ค้ำเงินต้น/ดอกเบี้ย/เงินต้น+ดอกเบี้ย/ชำระค่าใช้จ่าย/อื่นๆ)
+const CHECK_TYPES = [
+  { v:'principal_guarantee', label:'ค้ำเงินต้น' },
+  { v:'interest',            label:'ดอกเบี้ย' },
+  { v:'principal_interest',  label:'เงินต้นและดอกเบี้ย' },
+  { v:'expense',             label:'ชำระค่าใช้จ่าย' },
+  { v:'other',               label:'อื่นๆ' },
+];
+const CHECK_TYPE_LABEL = (v) => { const m = CHECK_TYPES.find(x => x.v === v); return m ? m.label : (v || ''); };
+
+// ธนาคารไทยที่พบบ่อย — ใช้เติม datalist ของช่อง "ธนาคาร"
+const COMMON_TH_BANKS = [
+  'กสิกรไทย', 'ไทยพาณิชย์', 'กรุงไทย', 'กรุงเทพ', 'กรุงศรีอยุธยา',
+  'ทหารไทยธนชาต', 'ออมสิน', 'อาคารสงเคราะห์', 'เกียรตินาคินภัทร',
+  'ซีไอเอ็มบีไทย', 'ยูโอบี', 'แลนด์ แอนด์ เฮ้าส์', 'ทิสโก้',
+  'ไทยเครดิต', 'ไอซีบีซี (ไทย)', 'เอชเอสบีซี', 'สแตนดาร์ดชาร์เตอร์ด',
+];
+
 // Normalize Thai status values (imported from RAW) → internal status codes
 function normStatus(s) {
   if (!s) return 'pending';
@@ -48,7 +66,7 @@ const ChecksPage = ({ data: propData, setData, toast }) => {
   ];
 
   const emptyForm = { checkNo:'', checkDate:'', payee:'', amount:'', bankName:'', accountNo:'',
-                      referenceNo:'', linkedProjectCode:'', status:'pending', note:'' };
+                      checkType:'', referenceNo:'', linkedProjectCode:'', status:'pending', note:'' };
 
   const [tab, setTab]       = React.useState('all');
   const [query, setQuery]   = React.useState('');
@@ -427,6 +445,14 @@ const ChecksPage = ({ data: propData, setData, toast }) => {
                   ))}
                 </select>
               </label>
+              <label style={{ display:'flex', flexDirection:'column', gap: 4, fontSize: 13, gridColumn:'1/-1' }}>
+                ประเภทเช็ค
+                <select className="input" value={form.checkType || ''}
+                        onChange={e => setForm(f=>({...f, checkType:e.target.value}))}>
+                  <option value="">— เลือกประเภท —</option>
+                  {CHECK_TYPES.map(t => <option key={t.v} value={t.v}>{t.label}</option>)}
+                </select>
+              </label>
               {companyBanks.length > 0 && (
                 <label style={{ display:'flex', flexDirection:'column', gap: 4, fontSize: 13, gridColumn:'1/-1' }}>
                   เลือกจากบัญชีบริษัท <span style={{ fontSize: 11, color:'var(--ink-400)', fontWeight: 400 }}>· เลือกแล้วเติม "ธนาคาร" + "เลขบัญชี" ให้อัตโนมัติ</span>
@@ -451,7 +477,8 @@ const ChecksPage = ({ data: propData, setData, toast }) => {
                 <input className="input" value={form.bankName} list="chk-bank-list" autoComplete="off"
                        onChange={e => setForm(f=>({...f, bankName:e.target.value}))} />
                 <datalist id="chk-bank-list">
-                  {Array.from(new Set(companyBanks.map(b => b.bankName).filter(Boolean))).map((b, i) => <option key={i} value={b} />)}
+                  {Array.from(new Set([...companyBanks.map(b => b.bankName).filter(Boolean), ...COMMON_TH_BANKS]))
+                    .map((b, i) => <option key={i} value={b} />)}
                 </datalist>
               </label>
               <label style={{ display:'flex', flexDirection:'column', gap: 4, fontSize: 13 }}>
@@ -465,8 +492,8 @@ const ChecksPage = ({ data: propData, setData, toast }) => {
                 </datalist>
               </label>
               <label style={{ display:'flex', flexDirection:'column', gap: 4, fontSize: 13 }}>
-                อ้างอิง / PO
-                <input className="input" value={form.referenceNo}
+                เลขที่สัญญาเงินกู้ / PO
+                <input className="input" value={form.referenceNo} placeholder="เช่น LN-2569-001 หรือ PO-XXX"
                        onChange={e => setForm(f=>({...f, referenceNo:e.target.value}))} />
               </label>
               <label style={{ display:'flex', flexDirection:'column', gap: 4, fontSize: 13 }}>
@@ -475,8 +502,8 @@ const ChecksPage = ({ data: propData, setData, toast }) => {
                        onChange={e => setForm(f=>({...f, linkedProjectCode:e.target.value}))} />
               </label>
               <label style={{ display:'flex', flexDirection:'column', gap: 4, fontSize: 13, gridColumn:'1/-1' }}>
-                หมายเหตุ
-                <input className="input" value={form.note}
+                หมายเหตุเพิ่มเติม <span style={{ fontSize: 11, color:'var(--ink-400)', fontWeight: 400 }}>(ถ้ามี)</span>
+                <input className="input" value={form.note} placeholder="ระบุรายละเอียดเพิ่มเติม"
                        onChange={e => setForm(f=>({...f, note:e.target.value}))} />
               </label>
             </div>
@@ -547,9 +574,10 @@ const ChecksPage = ({ data: propData, setData, toast }) => {
                 <div style={{ gridColumn: '1/-1' }}>{fld('ผู้รับเงิน', view.payee)}</div>
                 {fld('ธนาคาร', view.bankName)}
                 {fld('เลขที่บัญชี', view.accountNo)}
-                {fld('เลขอ้างอิง / PO', view.referenceNo)}
+                <div style={{ gridColumn: '1/-1' }}>{fld('ประเภทเช็ค', CHECK_TYPE_LABEL(view.checkType))}</div>
+                {fld('เลขที่สัญญาเงินกู้ / PO', view.referenceNo)}
                 {fld('โครงการ', view.linkedProjectCode)}
-                <div style={{ gridColumn: '1/-1' }}>{fld('หมายเหตุ', view.note)}</div>
+                <div style={{ gridColumn: '1/-1' }}>{fld('หมายเหตุเพิ่มเติม', view.note)}</div>
               </div>
 
               <div className="modal-foot">
