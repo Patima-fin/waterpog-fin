@@ -90,6 +90,8 @@ function DailyBalancePage({ data, setData, toast }) {
   const snapshots = data.cashflowSnapshots || [];
 
   // Split by accountType (default 'main' if unset — for backward compat)
+  // เรียงแต่ละกลุ่มตามลำดับที่ทีมจัดเอง (override 'bankSortOrder', sync ทั้งทีม) —
+  // ไม่งั้นจะอิงลำดับแถวจาก Supabase ที่ไม่นิ่ง (ดู wtpSortBankAccounts ใน components.jsx)
   const accountsByType = dbMemo(() => {
     const main = [], dormant = [];
     accounts.forEach(a => {
@@ -98,8 +100,18 @@ function DailyBalancePage({ data, setData, toast }) {
       if (t === 'dormant') dormant.push(a);
       else main.push(a);
     });
-    return { main, dormant };
-  }, [accounts]);
+    return {
+      main:    wtpSortBankAccounts(main,    a => a.Bank_AC, data.manualOverrides),
+      dormant: wtpSortBankAccounts(dormant, a => a.Bank_AC, data.manualOverrides),
+    };
+  }, [accounts, data.manualOverrides]);
+
+  // ย้ายลำดับบัญชีขึ้น/ลง (เฉพาะ manager/staff) — persist ลง override → sync ทั้งทีม
+  const moveAccount = (acNo, dir, group) => {
+    const groupAcs = (group === 'dormant' ? accountsByType.dormant : accountsByType.main).map(a => a.Bank_AC);
+    const allAcs   = accounts.filter(a => (a.accountType || 'main').toLowerCase() !== 'closed').map(a => a.Bank_AC);
+    wtpMoveBankAccount(acNo, dir, groupAcs, allAcs, data.manualOverrides);
+  };
 
   // Yesterday balance lookup — for each account, most recent snapshot BEFORE entryDate
   const yesterdayByAc = dbMemo(() => {
@@ -291,6 +303,25 @@ function DailyBalancePage({ data, setData, toast }) {
 
   const weekend = isWeekend(entryDate);
 
+  // ปุ่ม ▲▼ จัดลำดับบัญชี (เฉพาะคนแก้ได้) — โชว์ในเซลล์ # คู่กับเลขลำดับ
+  const reorderArrows = (i, count, ac, group) => {
+    if (!canEdit || count < 2) return null;
+    const btn = (dir, disabled, label) => (
+      <button type="button" disabled={disabled} onClick={() => moveAccount(ac, dir, group)}
+        title={dir < 0 ? 'เลื่อนขึ้น' : 'เลื่อนลง'}
+        style={{ border: 'none', background: 'transparent', padding: 0, height: 11, width: 13, lineHeight: 1,
+          fontSize: 9, cursor: disabled ? 'default' : 'pointer', color: disabled ? 'var(--ink-200)' : 'var(--ink-400)' }}>
+        {label}
+      </button>
+    );
+    return (
+      <span style={{ display: 'inline-flex', flexDirection: 'column', marginRight: 3, verticalAlign: 'middle' }}>
+        {btn(-1, i === 0, '▲')}
+        {btn(+1, i === count - 1, '▼')}
+      </span>
+    );
+  };
+
   return (
     <div className="page">
       <div className="page-head anim-in">
@@ -368,7 +399,7 @@ function DailyBalancePage({ data, setData, toast }) {
         <table className="tbl" style={{ width: '100%' }}>
           <thead>
             <tr>
-              <th style={{ width: 32, textAlign: 'center' }}>#</th>
+              <th style={{ width: 58, textAlign: 'center' }}>#</th>
               <th style={{ width: 150 }}>ธนาคาร</th>
               <th style={{ width: 130 }}>เลขที่บัญชี</th>
               <th style={{ width: 130, textAlign: 'right' }}>ยอดเมื่อวาน</th>
@@ -392,7 +423,10 @@ function DailyBalancePage({ data, setData, toast }) {
               const big = r.delta != null && Math.abs(r.delta) >= 100000;
               return (
                 <tr key={r.ac} style={{ background: r.saved ? 'color-mix(in oklch, var(--good) 5%, transparent)' : undefined }}>
-                  <td style={{ textAlign: 'center', color: 'var(--ink-400)' }}>{i + 1}</td>
+                  <td style={{ textAlign: 'center', color: 'var(--ink-400)', whiteSpace: 'nowrap' }}>
+                    {reorderArrows(i, mainRows.length, r.ac, 'main')}
+                    <span style={{ verticalAlign: 'middle' }}>{i + 1}</span>
+                  </td>
                   <td style={{ fontWeight: 600, color: 'var(--brand-700)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                       <HpBankLogo name={r.a.BANK_NAME} />
@@ -485,7 +519,7 @@ function DailyBalancePage({ data, setData, toast }) {
           <table className="tbl" style={{ width: '100%' }}>
             <thead>
               <tr>
-                <th style={{ width: 40, textAlign: 'center' }}>#</th>
+                <th style={{ width: 58, textAlign: 'center' }}>#</th>
                 <th style={{ width: 150 }}>ธนาคาร</th>
                 <th style={{ width: 160 }}>เลขที่บัญชี</th>
                 <th style={{ width: 140, textAlign: 'right' }}>ยอดล่าสุด</th>
@@ -497,7 +531,10 @@ function DailyBalancePage({ data, setData, toast }) {
             <tbody>
               {dormantRows.map((r, i) => (
                 <tr key={r.ac} style={{ background: r.saved ? 'color-mix(in oklch, var(--good) 5%, transparent)' : undefined }}>
-                  <td style={{ textAlign: 'center', color: 'var(--ink-400)' }}>{i + 1}</td>
+                  <td style={{ textAlign: 'center', color: 'var(--ink-400)', whiteSpace: 'nowrap' }}>
+                    {reorderArrows(i, dormantRows.length, r.ac, 'dormant')}
+                    <span style={{ verticalAlign: 'middle' }}>{i + 1}</span>
+                  </td>
                   <td style={{ fontWeight: 600 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                       <HpBankLogo name={r.a.BANK_NAME} />

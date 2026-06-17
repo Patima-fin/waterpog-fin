@@ -1772,8 +1772,12 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
   const canEdit   = window.WTPAuth ? window.WTPAuth.can('canEdit')   : true;
   const canDelete = window.WTPAuth ? window.WTPAuth.can('canDelete') : true;
 
-  /* Normalize accounts (รองรับชื่อ field จาก Sheet) */
-  const accounts = React.useMemo(() => rawAccounts.map(bdAcct), [rawAccounts]);
+  /* Normalize accounts (รองรับชื่อ field จาก Sheet) + เรียงตามลำดับที่ทีมจัดเอง
+     (override 'bankSortOrder' ตัวเดียวกับหน้า Daily Balance → เลข # ตรงกันทั้งสองหน้า) */
+  const accounts = React.useMemo(
+    () => wtpSortBankAccounts(rawAccounts.map(bdAcct), a => a.accountNo, raw.manualOverrides),
+    [rawAccounts, raw.manualOverrides]
+  );
 
   /* Normalize checks + attach status code */
   const checks = React.useMemo(
