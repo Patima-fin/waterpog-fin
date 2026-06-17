@@ -563,6 +563,8 @@ function ReconcilePanel({ transferPairs, bankAccounts, onReconcile, onEdit, canE
 
   const pairs = Object.entries(transferPairs);
 
+  const [collapsed, setCollapsed] = React.useState(true);   // ย่อไว้ก่อน — กดหัวการ์ดเพื่อกาง (เหมือนพาเนลประมาณการ)
+
   // ── Sort (กดหัวคอลัมน์) ──────────────────────────────────────────────
   const [sort, setSort] = React.useState({ key: 'date', dir: 'desc' });
   const toggleSort = (k) => setSort(s => s.key === k
@@ -595,29 +597,36 @@ function ReconcilePanel({ transferPairs, bankAccounts, onReconcile, onEdit, canE
 
   return (
     <div className="card" style={{ marginBottom:20, padding:0, overflow:'hidden' }}>
-      {/* Header */}
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'12px 16px', background:'linear-gradient(135deg,#faf5ff,#ede9fe)', borderBottom:'1px solid #d6bcfa' }}>
-        <div>
-          <div style={{ fontWeight:700, fontSize:14, color:'#44337a' }}>⇄ ตรวจสอบการโอนเงินระหว่างบัญชี</div>
-          <div style={{ fontSize:12, color:'#6b46c1', marginTop:2 }}>
-            {pairs.length} คู่โอนทั้งหมด
-            {pendingCount > 0 && ` · ${pendingCount} รายการรอกลืนยอด`}
-            <span style={{ color:'#9f7aea' }}> · กดยืนยันเมื่อโอนจริง+ลง PV แล้ว (จะเลิกนับในยอดคาดการณ์)</span>
+      {/* Header — กดเพื่อย่อ/กาง (ย่อไว้ก่อน เหมือนพาเนลประมาณการ) */}
+      <div onClick={() => setCollapsed(c => !c)}
+        style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, padding:'12px 16px', background:'linear-gradient(135deg,#faf5ff,#ede9fe)', borderBottom: collapsed ? 'none' : '1px solid #d6bcfa', cursor:'pointer' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10, minWidth:0 }}>
+          <span style={{ fontSize:12, color:'#6b46c1', transform: collapsed ? 'none' : 'rotate(90deg)', transition:'transform .15s' }}>▶</span>
+          <div>
+            <div style={{ fontWeight:700, fontSize:14, color:'#44337a' }}>⇄ ตรวจสอบการโอนเงินระหว่างบัญชี</div>
+            <div style={{ fontSize:12, color:'#6b46c1', marginTop:2 }}>
+              {pairs.length} คู่โอนทั้งหมด
+              {pendingCount > 0 && ` · ${pendingCount} รายการรอกลืนยอด`}
+              <span style={{ color:'#9f7aea' }}> · กดยืนยันเมื่อโอนจริง+ลง PV แล้ว (จะเลิกนับในยอดคาดการณ์)</span>
+            </div>
           </div>
         </div>
-        {pendingCount > 0 && (
-          <span style={{ background:'#fed7d7', color:'#c53030', fontSize:11, fontWeight:700, borderRadius:20, padding:'4px 12px' }}>
-            ⚠ {pendingCount} รอ Reconcile
-          </span>
-        )}
-        {pendingCount === 0 && pairs.length > 0 && (
-          <span style={{ background:'#c6f6d5', color:'#276749', fontSize:11, fontWeight:700, borderRadius:20, padding:'4px 12px' }}>
-            ✓ ยืนยันครบทุกรายการ
-          </span>
-        )}
+        <div style={{ display:'flex', alignItems:'center', gap:10, whiteSpace:'nowrap' }}>
+          {pendingCount > 0 && (
+            <span style={{ background:'#fed7d7', color:'#c53030', fontSize:11, fontWeight:700, borderRadius:20, padding:'4px 12px' }}>
+              ⚠ {pendingCount} รอ Reconcile
+            </span>
+          )}
+          {pendingCount === 0 && pairs.length > 0 && (
+            <span style={{ background:'#c6f6d5', color:'#276749', fontSize:11, fontWeight:700, borderRadius:20, padding:'4px 12px' }}>
+              ✓ ยืนยันครบทุกรายการ
+            </span>
+          )}
+          <span style={{ fontSize:11, fontWeight:600, color:'#6b46c1' }}>{collapsed ? 'กดเพื่อดู ▾' : 'ย่อ ▴'}</span>
+        </div>
       </div>
 
-      {/* Table */}
+      {!collapsed && (
       <div style={{ overflowX:'auto' }}>
         <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
           <thead>
@@ -697,6 +706,7 @@ function ReconcilePanel({ transferPairs, bankAccounts, onReconcile, onEdit, canE
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }
@@ -2182,15 +2192,6 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
         )}
       </div>
 
-      {/* Reconcile Panel — only when there are manual transfers */}
-      <ReconcilePanel
-        transferPairs={transferPairs}
-        bankAccounts={accounts}
-        onReconcile={handleReconcile}
-        onEdit={(obj) => setEditTransfer(obj)}
-        canEdit={canEdit}
-      />
-
       {/* No accounts fallback */}
       {accounts.length === 0 && (
         <div className="card" style={{ padding:'28px 16px', textAlign:'center', color:'#94a3b8', marginBottom:20 }}>
@@ -2225,6 +2226,15 @@ const BankDiaryPage = ({ data: propData, setData, toast }) => {
         totalRealBalance={totalBalance}
         onAdd={() => { setEditForecast(null); setApPrefill(null); setShowAddForecast(true); }}
         onEdit={(r) => setEditForecast(r)}
+        canEdit={canEdit}
+      />
+
+      {/* Reconcile Panel — โอนระหว่างบัญชี (ย่อไว้ใต้ประมาณการ · กดหัวการ์ดเพื่อกาง · sort ได้) */}
+      <ReconcilePanel
+        transferPairs={transferPairs}
+        bankAccounts={accounts}
+        onReconcile={handleReconcile}
+        onEdit={(obj) => setEditTransfer(obj)}
         canEdit={canEdit}
       />
 
