@@ -378,5 +378,8 @@ Live at **https://patima-fin.github.io/waterpog-fin/** — GitHub Pages serves t
 - **`data_supabase 20260617d` (งานก่อนหน้า, รวม push):** `onAuthStateChange` จับ `INITIAL_SESSION` (เปิดแท็บที่ session ค้าง → supabase-js restore JWT) → `loadFromServer()` ซ้ำให้ผ่าน RLS (first load ยิงก่อน JWT พร้อม = อ่านไม่ได้).
 - **⚠️ ค้าง (รู้แล้ว, ยังไม่แก้ — ผู้ใช้รับทราบ):** `saveOne`/`saveAll` ยัง set `bankAccounts.BALANCE`/`HOLD_AMOUNT` = ค่าของ "วันที่กำลังบันทึก" เสมอ → **แก้วันย้อนหลังจะเขียนทับ field "ปัจจุบัน"**. Cashflow + Daily Balance **ไม่กระทบ** (อ่าน snapshot รายวันตรงๆ แล้ว) แต่หน้าอื่นที่อ่าน `BALANCE`/`HOLD_AMOUNT` ตรงๆ อาจเพี้ยนชั่วคราว (self-heal เมื่อบันทึกวันปัจจุบัน). harden = ตอนบันทึกให้ตั้ง field = snapshot วันล่าสุด (ไม่ใช่วันที่กำลังแก้).
 
+## 2026-06-18 — Bank Diary: หัวกลุ่มวันโชว์ ↑รับรวม · ↓จ่ายรวม (build `page_bank_diary 20260618a`)
+- **ตามคำขอผู้ใช้:** หัวกลุ่มวัน (`BDDayGroup` ในการ์ดบัญชี) เดิมโชว์แค่ "N รายการ" + **net** (+/−) + คงเหลือสะสม → วันที่มีทั้งรับทั้งจ่าย เห็น net เป็นบวกแต่ดู "ยอดจ่ายสุทธิรวม" ไม่ได้. เพิ่มบรรทัดย่อยใต้ "N รายการ" = **↑{รับรวม}** (เขียว) · **↓{จ่ายรวม}** (แดง) — คำนวณจาก `day.items` ที่มีอยู่: `dayIn = Σ signed>0`, `dayOut = Σ −signed<0`. โชว์เฉพาะฝั่งที่ >0 (ไม่โชว์ 0). net เดิมยังอยู่บนขวา. ฝั่งแสดงผลล้วน (ไม่แตะ compute/sync). render จริงที่บรรทัด ~1127 (`visibleGroups.map(... <BDDayGroup/>)`). verify: logic dayIn/dayOut ถูก + Babel compile ผ่าน (preview ไม่มีข้อมูลจริงเพราะ RLS — verify ด้วย DOM/eval).
+
 ## Repo rule: keep CLAUDE.md current
 **Every time you `git push`, update this `CLAUDE.md`** to reflect anything that changed (architecture, conventions, new pages, gotchas). Treat it as part of the push, like the `?v=` bump.

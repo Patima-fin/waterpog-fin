@@ -784,6 +784,8 @@ function BDDayGroup({ day, today, onItemEdit }) {
   const isToday   = day.date === today;
   const isOverdue = day.date < today;
   const dueColor  = isOverdue ? '#c026d3' : isToday ? '#dc2626' : '#1e293b';
+  const dayIn  = day.items.reduce((s, i) => i.signed > 0 ? s + i.signed : s, 0);
+  const dayOut = day.items.reduce((s, i) => i.signed < 0 ? s - i.signed : s, 0);
 
   return (
     <div style={{ borderBottom:'1px solid #f0f4f8' }}>
@@ -802,8 +804,13 @@ function BDDayGroup({ day, today, onItemEdit }) {
           {isToday   && <span style={{ display:'block', fontSize:9, fontWeight:700, color:'#dc2626' }}>วันนี้</span>}
           {isOverdue && <span style={{ display:'block', fontSize:9, fontWeight:700, color:'#c026d3' }}>เลยกำหนด</span>}
         </div>
-        <div style={{ fontSize:11, color:'#64748b' }}>
-          {day.items.length} รายการ
+        <div style={{ fontSize:11, color:'#64748b', lineHeight:1.5 }}>
+          <span>{day.items.length} รายการ</span>
+          <span style={{ display:'block', fontSize:10, whiteSpace:'nowrap' }}>
+            {dayIn  > 0 && <span style={{ color:'#276749', fontVariantNumeric:'tabular-nums' }}>↑{fmtMoney(dayIn)}</span>}
+            {dayIn > 0 && dayOut > 0 && <span style={{ color:'#94a3b8' }}> · </span>}
+            {dayOut > 0 && <span style={{ color:'#c53030', fontVariantNumeric:'tabular-nums' }}>↓{fmtMoney(dayOut)}</span>}
+          </span>
         </div>
         <div style={{ textAlign:'right', fontWeight:700, fontSize:12, color: day.net >= 0 ? '#276749' : '#c53030', fontVariantNumeric:'tabular-nums', whiteSpace:'nowrap' }}>
           {day.net >= 0 ? '+' : '−'}{fmtMoney(Math.abs(day.net))}
