@@ -6,7 +6,17 @@
 (function () {
   const STORAGE_KEY = 'wtp-fin-data-v8';
 
-  const id = (() => { let n = 1000; return () => 'id_' + (++n).toString(36); })();
+  // Globally-unique id = timestamp + per-session counter + random.
+  //   ★ เดิมเป็น counter เริ่มที่ 1000 ที่ "รีเซ็ตทุกครั้งที่โหลดหน้า" → แถวใหม่ใบแรกได้
+  //     id_rt, ใบสองได้ id_ru เหมือนกันทุก session/เครื่อง/รีโหลด. บน backend ที่ PK=id
+  //     (Supabase) การ upsert id ที่ซ้ำ = "ทับ" แถวเดิม → ข้อมูลหาย (เช่น เพิ่มเช็คใบที่ 2
+  //     หลังรีเฟรช แล้วใบที่ 1 หาย เพราะทั้งคู่ได้ id_rt) และทับงานของคนอื่นที่เพิ่มพร้อมกัน.
+  //     timestamp (มิลลิวินาที) + counter (กันซ้ำใน ms เดียวกันต่อ session) + random
+  //     (กันซ้ำข้าม session/เครื่องที่เรียกใน ms เดียวกัน) → ไม่ซ้ำทุกมิติ.
+  const id = (() => {
+    let n = 0;
+    return () => 'id_' + Date.now().toString(36) + '-' + (++n).toString(36) + Math.random().toString(36).slice(2, 8);
+  })();
 
   // Helper: days between two ISO dates
   const daysBetween = (a, b) => {
