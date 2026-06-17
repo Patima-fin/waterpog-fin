@@ -466,6 +466,24 @@ function CashFlowDashboard({ data, setData, toast }) {
     return grid;
   }, [pvVouchers, payables, forecastEntries, ovTick, weeks, year, month]);
 
+  // ── ประมาณการรายจ่าย "คงเหลือ" = forecast − จ่ายจริงแล้ว (ราย week × cat, floor 0) ──────
+  //   ตารางประมาณการรายสัปดาห์ (Section 01) แสดง "ยอดที่ยังต้องจ่าย" — หักส่วนที่จ่าย Actual (PV) ไปแล้ว
+  //   เหตุผล: เงินที่จ่ายจริงไปแล้วออกจากยอดเงินสดคงเหลือ (B/F สัปดาห์ = ยอดสดปัจจุบัน) ไปแล้ว
+  //           ถ้าหักประมาณการเต็มอีก = นับซ้ำ → คงเหลือปลายงวดต่ำเกินจริง
+  //           (mirror ฝั่งรับเงิน ivInflowByWeek.forecastRemaining ที่ตัด IV ที่รับแล้วออก)
+  //   ⚠️ ใช้เฉพาะตารางประมาณการ (Section 01) — KPI การ์ด (outflowForecast) + การ์ดติดตามรายสัปดาห์
+  //      (Section 02) ยังใช้ forecast เต็ม เพื่อเทียบ Forecast vs Actual ตามเดิม
+  const forecastRemainingByWeekCat = cfMemo(() =>
+    forecastByWeekCat.map((g, i) => {
+      const a = pvActualByWeekCat[i] || {};
+      return {
+        1: Math.max(0, (g[1] || 0) - (a[1] || 0)),
+        2: Math.max(0, (g[2] || 0) - (a[2] || 0)),
+        3: Math.max(0, (g[3] || 0) - (a[3] || 0)),
+        4: Math.max(0, (g[4] || 0) - (a[4] || 0)),
+      };
+    }), [forecastByWeekCat, pvActualByWeekCat]);
+
   // ── IV PLAN lock — baseline "คาดรับ" ที่ freeze ตั้งแต่วันที่ 1 ของเดือน ──
   //   ovTick กระตุ้น recompute เมื่อ override (จาก cloud/user อื่น) เปลี่ยน
   const ivPlanLock = cfMemo(() => readIvPlanLock(ovPrefix), [ovPrefix, ovTick, year, month]);
@@ -684,12 +702,14 @@ function CashFlowDashboard({ data, setData, toast }) {
 
   const planIv   = currentRestSplit(ivCombinedByWeek,   nextMonthInflow.iv);
   const planLoan = currentRestSplit(loanCombinedByWeek, nextMonthInflow.loan);
-  // ตาราง Plan รายสัปดาห์ — ใช้ forecast grid เดียวกับ KPI/Grand Total (ตัวเลขบน=ล่างตรงกัน)
+  // ตาราง Plan รายสัปดาห์ (รายจ่าย) — ใช้ "ยอดคงเหลือ" (forecast − จ่ายจริงแล้ว) ไม่ใช่ forecast เต็ม
+  //   → ช่องสัปดาห์ปัจจุบันโชว์เฉพาะส่วนที่ "ยังต้องจ่าย" (mirror ฝั่งรับเงิน ivCombinedByWeek)
+  //   KPI การ์ด + Section 02 (ติดตามจ่ายจริง) ยังใช้ forecast เต็ม — ตัวเลขจึงต่างกันโดยตั้งใจ
   const planOut  = {
-    1: currentRestSplit(forecastByWeekCat.map(g => g[1]), nextMonthInflow.out[1]),
-    2: currentRestSplit(forecastByWeekCat.map(g => g[2]), nextMonthInflow.out[2]),
-    3: currentRestSplit(forecastByWeekCat.map(g => g[3]), nextMonthInflow.out[3]),
-    4: currentRestSplit(forecastByWeekCat.map(g => g[4]), nextMonthInflow.out[4]),
+    1: currentRestSplit(forecastRemainingByWeekCat.map(g => g[1]), nextMonthInflow.out[1]),
+    2: currentRestSplit(forecastRemainingByWeekCat.map(g => g[2]), nextMonthInflow.out[2]),
+    3: currentRestSplit(forecastRemainingByWeekCat.map(g => g[3]), nextMonthInflow.out[3]),
+    4: currentRestSplit(forecastRemainingByWeekCat.map(g => g[4]), nextMonthInflow.out[4]),
   };
   // ใช้ค่าที่ resolve override แล้ว เพื่อให้ "รวมรายจ่าย" สะท้อนยอดที่ user คีย์มือ
   // และ net end-of-week/month ก็ใช้ยอดนี้คำนวณต่อด้วย
@@ -897,6 +917,8 @@ function CashFlowDashboard({ data, setData, toast }) {
         if (status === 'CANCELED') return;
         const isLoan = String(fe.EXPENSE_TYPE || fe.CATEGORY || '').toUpperCase() === 'LOAN';
         if (isLoan) return;
+        // จ่ายจริงจากกระทบยอด (BANK_RECON) ไม่ใช่ประมาณการ — ตัดออกให้ตรงกับ forecastByWeekCat
+        if (String(fe.EXPENSE_TYPE || '').toUpperCase() === 'BANK_RECON') return;
         const amt = Number(fe.AMOUNT || fe.amount || 0);
         if (amt >= 0) return;
         const d = fe.PAYMENT_DATE || fe.DATE;
@@ -929,9 +951,19 @@ function CashFlowDashboard({ data, setData, toast }) {
       });
     }
 
+    // สรุปยอดช่องรายจ่าย: ประมาณการเต็ม − จ่ายจริงแล้ว = คงเหลือ (ตรงกับตัวเลขในช่องของตาราง)
+    let outRecon = null;
+    if (row && row.startsWith('out')) {
+      const cat = Number(row.slice(3));
+      const fF = currentRestSplit(forecastByWeekCat.map(g => g[cat] || 0),         nextMonthInflow.out[cat]);
+      const fA = currentRestSplit(pvActualByWeekCat.map(g => g[cat] || 0),          0);
+      const fR = currentRestSplit(forecastRemainingByWeekCat.map(g => g[cat] || 0), nextMonthInflow.out[cat]);
+      outRecon = { forecast: fF[period], actual: fA[period], remaining: fR[period] };
+    }
+
     // Sort by date ascending
     items.sort((a, b) => String(a.date).localeCompare(String(b.date)));
-    setDrillDown({ title: label, period, row, items });
+    setDrillDown({ title: label, period, row, items, outRecon });
   };
 
   // ─── Drill-down ฝั่ง "จ่ายจริง" (Actual) ราย week×cat ──────────────────────
@@ -1333,6 +1365,9 @@ function CashFlowDashboard({ data, setData, toast }) {
             <tr style={{ background: 'color-mix(in oklch, var(--bad) 8%, transparent)' }}>
               <td colSpan={4} style={{ fontWeight: 700, color: 'var(--bad)', fontSize: cfScale(16), padding: `${cfScale(8)} ${cfScale(14)}` }}>
                 2: กระแสเงินสดออก (Outflow Details) · 4 หมวด
+                <span style={{ fontWeight: 500, fontSize: cfScale(11.5), color: 'var(--ink-500)', marginLeft: cfScale(8) }}>
+                  · ยอด<strong>คงเหลือต้องจ่าย</strong> (หักที่จ่ายจริงแล้ว)
+                </span>
               </td>
             </tr>
             {[1, 2, 3, 4].map(cat => {
@@ -1794,6 +1829,23 @@ function CashFlowDashboard({ data, setData, toast }) {
             </>
           ) : (
             <>
+              {drillDown.outRecon ? (
+                /* ── ช่องรายจ่าย: ประมาณการเต็ม − จ่ายจริงแล้ว = คงเหลือต้องจ่าย (= ตัวเลขในช่อง) ── */
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 12 }}>
+                  <div style={{ padding: '11px 12px', borderRadius: 8, background: 'var(--ink-50)', textAlign: 'center' }}>
+                    <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>ประมาณการเต็ม</div>
+                    <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--ink-700)', fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>{fmtNum(drillDown.outRecon.forecast, 0)}</div>
+                  </div>
+                  <div style={{ padding: '11px 12px', borderRadius: 8, background: 'var(--good-bg)', textAlign: 'center' }}>
+                    <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>− จ่ายจริงแล้ว</div>
+                    <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--good)', fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>{fmtNum(drillDown.outRecon.actual, 0)}</div>
+                  </div>
+                  <div style={{ padding: '11px 12px', borderRadius: 8, background: 'var(--warn-bg)', textAlign: 'center', border: '1.5px solid color-mix(in oklch, var(--warn) 40%, transparent)' }}>
+                    <div style={{ fontSize: 11, color: 'var(--ink-600)', fontWeight: 600 }}>= คงเหลือต้องจ่าย</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--warn)', fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>{fmtNum(drillDown.outRecon.remaining, 0)}</div>
+                  </div>
+                </div>
+              ) : (
               <div style={{
                 display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12,
                 padding: 12, background: 'var(--brand-50)', borderRadius: 8,
@@ -1810,6 +1862,12 @@ function CashFlowDashboard({ data, setData, toast }) {
                   </div>
                 </div>
               </div>
+              )}
+              {drillDown.outRecon && (
+                <div style={{ fontSize: 11, color: 'var(--ink-500)', margin: '-4px 0 12px', lineHeight: 1.6 }}>
+                  💡 รายการด้านล่าง = <strong>ประมาณการเต็ม</strong>ของช่วงนี้ · ส่วนที่ <strong>จ่ายจริงแล้ว</strong> ({fmtNum(drillDown.outRecon.actual, 0)} ฿) ดูรายตัวได้ที่หัวข้อ <strong>02 ติดตามจ่ายจริง</strong> (คลิกยอด Actual)
+                </div>
+              )}
               {(() => {
                 const pending = drillDown.items.filter(x => !x.isPaid);
                 const paid    = drillDown.items.filter(x =>  x.isPaid);

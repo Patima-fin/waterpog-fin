@@ -19,7 +19,7 @@
 (function () {
   'use strict';
 
-  var BUILD_ID = '20260616s1';
+  var BUILD_ID = '20260617s2';
   var cfg = window.WTP_CONFIG || {};
 
   // ── เปิดเฉพาะโหมด supabase ─────────────────────────────────────────
@@ -140,7 +140,11 @@
   function selectAll(table) {
     var all = [], from = 0;
     function next() {
-      return sb.from(table).select('id,data').range(from, from + PAGE - 1).then(function (res) {
+      // ★ .order('id') = ลำดับแถวคงที่ทุกครั้ง. SELECT ที่ไม่มี ORDER BY ไม่การันตีลำดับ —
+      //   Postgres คืนตาม heap ซึ่งขยับเมื่อแถวถูก UPDATE → ลำดับบัญชีในหน้า Daily/Bank Diary
+      //   (ที่อิง index ของ array) เด้งไปมา. ยังจำเป็นต่อความถูกต้องของ pagination (range)
+      //   ของ entity ใหญ่ (debtLedger ~4000) ไม่ให้แถวซ้ำ/หายข้ามหน้า.
+      return sb.from(table).select('id,data').order('id', { ascending: true }).range(from, from + PAGE - 1).then(function (res) {
         if (res.error) throw res.error;
         var rows = res.data || [];
         all = all.concat(rows);
