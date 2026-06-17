@@ -159,17 +159,23 @@ function DailyBalancePage({ data, setData, toast }) {
   };
 
   // ── HOLD draft state — separate from balance draft ─────────────────
+  //   HOLD เก็บราย "วัน" ใน snapshot (field hold) — pre-fill ตามลำดับ:
+  //   วันนี้ที่บันทึกแล้ว → HOLD ล่าสุด (snapshot วันก่อน) → ค่าคงที่เดิม HOLD_AMOUNT
   const [holdDraft, setHoldDraft] = dbState({});
   dbEffect(() => {
-    // Initialise from bankAccounts.HOLD_AMOUNT
     const init = {};
     accounts.forEach(a => {
-      if (a.HOLD_AMOUNT != null && a.HOLD_AMOUNT !== '' && a.HOLD_AMOUNT !== 0) {
-        init[a.Bank_AC] = String(a.HOLD_AMOUNT);
-      }
+      const ac = a.Bank_AC;
+      const todays = todayByAc[ac];
+      const yest   = yesterdayByAc[ac];
+      let h = null;
+      if (todays && todays.hold != null && todays.hold !== '') h = todays.hold;       // วันนี้บันทึกแล้ว → ใช้ของวันนี้
+      else if (yest && yest.hold != null && yest.hold !== '')  h = yest.hold;         // ยก HOLD ล่าสุดมา
+      else if (a.HOLD_AMOUNT != null && a.HOLD_AMOUNT !== '' && a.HOLD_AMOUNT !== 0) h = a.HOLD_AMOUNT;  // fallback ค่าคงที่เดิม
+      if (h != null) init[ac] = String(h);
     });
     setHoldDraft(init);
-  }, [accounts.length]);
+  }, [entryDate, accounts.length, snapshots.length]);
   const setHoldVal = (ac, v) => setHoldDraft(d => ({ ...d, [ac]: v }));
 
   // ── Compute totals + diff per row ─────────────────────────────────
@@ -179,8 +185,13 @@ function DailyBalancePage({ data, setData, toast }) {
     const newBal  = draft[ac] !== undefined && draft[ac] !== '' ? Number(draft[ac]) : null;
     const delta   = (yestBal != null && newBal != null) ? (newBal - yestBal) : null;
     const hold    = holdDraft[ac] !== undefined && holdDraft[ac] !== '' ? Number(holdDraft[ac]) : (Number(a.HOLD_AMOUNT) || 0);
+    // HOLD ล่าสุด (จาก snapshot วันก่อน) — โชว์เทียบกับ HOLD วันนี้
+    const ys      = yesterdayByAc[ac];
+    const yestHold = (ys && ys.hold != null && ys.hold !== '') ? Number(ys.hold) : null;
+    // latestHold = ค่าที่โชว์คอลัมน์ "HOLD ล่าสุด" เสมอ: snapshot วันก่อนถ้ามี, ไม่งั้น fallback HOLD_AMOUNT
+    const latestHold = yestHold != null ? yestHold : (Number(a.HOLD_AMOUNT) || 0);
     const available = (newBal != null ? newBal : (yestBal || 0)) - (hold || 0);
-    return { a, ac, yestBal, newBal, delta, hold, available, saved: !!todayByAc[ac] };
+    return { a, ac, yestBal, newBal, delta, hold, yestHold, latestHold, available, saved: !!todayByAc[ac] };
   });
 
   const mainRows    = rowsWithDiff(accountsByType.main);
@@ -192,6 +203,7 @@ function DailyBalancePage({ data, setData, toast }) {
   const yestTotal      = mainRows.reduce((s, r) => s + (r.yestBal != null ? r.yestBal : 0), 0);
   const todayDelta     = todayTotal - yestTotal;
   const totalHold      = mainRows.reduce((s, r) => s + (r.hold || 0), 0);
+  const totalLatestHold= mainRows.reduce((s, r) => s + (r.latestHold || 0), 0);
   const totalAvailable = todayTotal - totalHold;
 
   // แถบวันสำหรับกดสลับวันที่เร็วๆ — 8 วัน: ย้อนหลัง 6 วัน + วันนี้ + พรุ่งนี้
@@ -230,6 +242,7 @@ function DailyBalancePage({ data, setData, toast }) {
       bankAc: ac,
       bankName: a?.BANK_NAME || '',
       balance,
+      hold: holdVal,                              // เก็บ HOLD ราย "วัน" ลง snapshot
       takenAt: new Date().toISOString(),
       enteredBy: (session && session.username) || 'unknown',
       source: 'manual_daily',
@@ -278,6 +291,7 @@ function DailyBalancePage({ data, setData, toast }) {
       bankAc: r.ac,
       bankName: r.a.BANK_NAME || '',
       balance: Number(draft[r.ac]),
+      hold: (holdDraft[r.ac] !== undefined && holdDraft[r.ac] !== '') ? Number(holdDraft[r.ac]) : (Number(r.a.HOLD_AMOUNT) || 0),  // เก็บ HOLD ราย "วัน"
       takenAt: stamp,
       enteredBy: (session && session.username) || 'unknown',
       source: 'manual_daily',
@@ -405,8 +419,11 @@ function DailyBalancePage({ data, setData, toast }) {
               <th style={{ width: 130, textAlign: 'right' }}>ยอดเมื่อวาน</th>
               <th style={{ width: 160, textAlign: 'right' }}>ยอดวันนี้</th>
               <th style={{ width: 100, textAlign: 'right' }}>Δ</th>
+              <th style={{ width: 120, textAlign: 'right', background: 'oklch(96% 0.025 55)' }}>
+                HOLD ล่าสุด<br/><span style={{ fontSize: 9, fontWeight: 400, color: 'var(--ink-500)' }}>กันไว้ก่อนหน้า</span>
+              </th>
               <th style={{ width: 140, textAlign: 'right', background: 'oklch(95% 0.04 55)' }}>
-                ยอด HOLD<br/><span style={{ fontSize: 9, fontWeight: 400, color: 'var(--ink-500)' }}>กันไว้สำหรับ commit</span>
+                HOLD วันนี้<br/><span style={{ fontSize: 9, fontWeight: 400, color: 'var(--ink-500)' }}>กันไว้ commit · กรอกวันนี้</span>
               </th>
               <th style={{ width: 130, textAlign: 'right', background: 'var(--good-bg)' }}>
                 ใช้ได้จริง<br/><span style={{ fontSize: 9, fontWeight: 400, color: 'var(--ink-500)' }}>ยอด−HOLD</span>
@@ -417,7 +434,7 @@ function DailyBalancePage({ data, setData, toast }) {
           </thead>
           <tbody>
             {mainRows.length === 0 && (
-              <tr><td colSpan={10} style={{ padding: 24, textAlign: 'center' }} className="muted">ยังไม่มีบัญชีหลัก — เพิ่มได้ที่หน้า DATA BANK</td></tr>
+              <tr><td colSpan={11} style={{ padding: 24, textAlign: 'center' }} className="muted">ยังไม่มีบัญชีหลัก — เพิ่มได้ที่หน้า DATA BANK</td></tr>
             )}
             {mainRows.map((r, i) => {
               const big = r.delta != null && Math.abs(r.delta) >= 100000;
@@ -452,6 +469,13 @@ function DailyBalancePage({ data, setData, toast }) {
                     {big && <span title="เปลี่ยนแปลงเกิน 100,000 — ตรวจสอบอีกครั้ง" style={{ marginRight: 4 }}>⚠️</span>}
                     <DiffBadge delta={r.delta} />
                   </td>
+                  <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--ink-500)', fontSize: 12,
+                    background: 'color-mix(in oklch, oklch(70% 0.16 55) 3%, transparent)' }}>
+                    {fmtNum(r.latestHold, 2)}
+                    {r.yestHold != null && yesterdayByAc[r.ac]
+                      ? <div style={{ fontSize: 10, color: 'var(--ink-400)' }}>{fmtDate(yesterdayByAc[r.ac].date)}</div>
+                      : <div style={{ fontSize: 10, color: 'var(--ink-300)' }}>ค่าตั้งต้น</div>}
+                  </td>
                   <td style={{ background: 'color-mix(in oklch, oklch(70% 0.16 55) 6%, transparent)' }}>
                     <MoneyInput
                       value={holdDraft[r.ac] !== undefined ? holdDraft[r.ac] : ''}
@@ -459,6 +483,12 @@ function DailyBalancePage({ data, setData, toast }) {
                       placeholder="0.00"
                       disabled={!canEdit}
                     />
+                    {r.hold !== r.latestHold && (
+                      <div style={{ fontSize: 10, textAlign: 'right', marginTop: 2, fontWeight: 600,
+                        color: r.hold > r.latestHold ? 'var(--bad)' : 'var(--good)' }}>
+                        {r.hold > r.latestHold ? '▲' : '▼'} {fmtNum(Math.abs(r.hold - r.latestHold), 0)}
+                      </div>
+                    )}
                   </td>
                   <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 700,
                     color: r.available < 0 ? 'var(--bad)' : 'var(--good)',
@@ -500,6 +530,7 @@ function DailyBalancePage({ data, setData, toast }) {
                 <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(yestTotal, 2)}</td>
                 <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(todayTotal, 2)}</td>
                 <td style={{ textAlign: 'right' }}><DiffBadge delta={todayDelta} /></td>
+                <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--ink-500)' }}>{fmtNum(totalLatestHold, 2)}</td>
                 <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'oklch(60% 0.16 55)' }}>{fmtNum(totalHold, 2)}</td>
                 <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: totalAvailable < 0 ? 'var(--bad)' : 'var(--good)' }}>{fmtNum(totalAvailable, 2)}</td>
                 <td colSpan={2}></td>

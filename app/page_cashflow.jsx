@@ -316,6 +316,19 @@ function getBalanceAtDate(snapshots, dateISO) {
   });
   return Object.values(latestPerAc).reduce((sum, s) => sum + (Number(s.balance) || 0), 0);
 }
+// HOLD ที่ "ณ วันที่" — รวม hold ของ snapshot ล่าสุดต่อบัญชี ≤ dateISO (คู่กับ getBalanceAtDate)
+//   ใช้คิด "ยอดใช้ได้ต้นเดือน" = เงินต้นเดือน − HOLD ต้นเดือน (HOLD แต่ละวันไม่เท่ากัน)
+//   snapshot เก่าที่ยังไม่มี field hold → นับเป็น 0 (รอผู้ใช้บันทึก HOLD ของวันนั้น)
+function getHoldAtDate(snapshots, dateISO) {
+  if (!dateISO) return 0;
+  const latestPerAc = {};
+  (snapshots || []).forEach(s => {
+    if (!s.date || s.date > dateISO) return;
+    const prev = latestPerAc[s.bankAc];
+    if (!prev || s.date > prev.date) latestPerAc[s.bankAc] = s;
+  });
+  return Object.values(latestPerAc).reduce((sum, s) => sum + (Number(s.hold) || 0), 0);
+}
 // ยอดเงินสด "ต้นงวด" ที่ cutoff — ปกติใช้ snapshot ล่าสุด ≤ cutoff
 //   แต่ถ้าไม่มี snapshot ในเดือนเดียวกับ cutoff เลย (ข้อมูลขาด → ยอดค้างเก่า)
 //   ให้ fallback มาใช้ "ยอดสดปัจจุบัน" แทน เพื่อไม่ให้หยิบยอดเดือนเก่ามาแสดงผิด
@@ -379,25 +392,53 @@ function CashFlowDashboard({ data, setData, toast }) {
   const mainAccounts   = bankAccounts.filter(a => (a.accountType || 'main').toLowerCase() !== 'closed' && (a.accountType || 'main').toLowerCase() !== 'dormant');
 
   // ── Live balance + HOLD (sum across main bank accounts) ──────────────
-  //   liveBalance     = ยอดรวมที่อยู่ในบัญชี (gross)
+  //   liveBalance     = ยอดรวมบัญชี "ณ วันล่าสุดที่บันทึก" (จากหน้าบันทึกยอดบัญชี = cashflowSnapshots)
   //   liveHold        = ยอดที่กันไว้ HOLD (เช่น ค้ำประกัน LG, เช็คออกแล้วยังไม่ขึ้น)
-  //   liveAvailable   = ใช้ได้จริง = balance - HOLD
-  const liveBalance   = mainAccounts.reduce((s, a) => s + (Number(a.BALANCE) || 0), 0);
-  const liveHold      = mainAccounts.reduce((s, a) => s + (Number(a.HOLD_AMOUNT) || 0), 0);
+  //   liveAvailable   = ใช้ได้จริง = balance - HOLD  ("เงินสดใช้ได้ปัจจุบัน" = ยอดวันล่าสุด)
+  //   ★ ห้ามใช้ field bankAccounts.BALANCE — มันค้างที่ยอด "ต้นเดือน" (= snapshot สิ้นเดือนก่อน)
+  //     ไม่อัปเดตระหว่างเดือน → ทำให้ "ใช้ได้ปัจจุบัน" กลายเป็นยอดต้นเดือน (เคสติดลบ −1.8M)
+  //     ต้องดึง snapshot วันล่าสุดต่อบัญชี ให้ตรงกับหน้าบันทึกยอดบัญชี (fallback BALANCE ถ้าไม่เคยบันทึก)
+  const liveBalance   = cfMemo(() => {
+    const latestByAc = {};
+    (snapshots || []).forEach(s => {
+      const ac = s.bankAc; if (!ac) return;
+      const k = `${s.date || ''} ${s.takenAt || ''}`;
+      if (!latestByAc[ac] || k > latestByAc[ac].k) latestByAc[ac] = { k, balance: Number(s.balance) || 0 };
+    });
+    return mainAccounts.reduce((sum, a) => {
+      const rec = latestByAc[a.Bank_AC];
+      return sum + (rec ? rec.balance : (Number(a.BALANCE) || 0));
+    }, 0);
+  }, [snapshots, bankAccounts]);
+  // liveHold = HOLD "วันล่าสุด" ต่อบัญชี (จาก snapshot) — ไม่ใช่ field HOLD_AMOUNT
+  //   เพราะ HOLD_AMOUNT ถูกเขียนทับทุกครั้งที่บันทึกวันใดวันหนึ่ง (รวมแก้วันย้อนหลัง)
+  //   → ถ้าอ่าน HOLD_AMOUNT "ใช้ได้ปัจจุบัน" จะเพี้ยนเป็น HOLD ของวันที่เพิ่งแก้ ไม่ใช่ HOLD วันนี้
+  const liveHold      = cfMemo(() => {
+    const latestByAc = {};
+    (snapshots || []).forEach(s => {
+      const ac = s.bankAc; if (!ac) return;
+      const k = `${s.date || ''} ${s.takenAt || ''}`;
+      if (!latestByAc[ac] || k > latestByAc[ac].k) latestByAc[ac] = { k, hold: (s.hold != null && s.hold !== '') ? Number(s.hold) : null };
+    });
+    return mainAccounts.reduce((sum, a) => {
+      const rec = latestByAc[a.Bank_AC];
+      return sum + ((rec && rec.hold != null) ? rec.hold : (Number(a.HOLD_AMOUNT) || 0));
+    }, 0);
+  }, [snapshots, bankAccounts]);
   const liveAvailable = liveBalance - liveHold;
 
-  // ── B/F: balance at last day of previous month (auto from snapshots) ──
-  //   ถ้าไม่มี snapshot ในเดือนก่อนเลย (ข้อมูลขาด) → fallback ใช้ยอดสดปัจจุบัน
-  //   วันที่ 1 (ยังไม่มีรายการ) ยอดยกมาจะ = ใช้ได้ปัจจุบันโดยอัตโนมัติ
+  // ── B/F = "ยอดยกมาต้นเดือน" = ยอด+HOLD ที่บันทึกของ "วันที่ 1 ของเดือน" ──────────
+  //   ให้ตรงกับ "ใช้ได้จริง" ของวันที่ 1 ในหน้าบันทึกยอดบัญชี = balance(วันที่1) − HOLD(วันที่1)
+  //   ★ ใช้ snapshot ล่าสุด ≤ วันที่ 1 ต่อบัญชี (= วันที่ 1 ถ้าบันทึก, ไม่งั้นยอดยกมาจากสิ้นเดือนก่อน)
+  //     HOLD ก็ของวันนั้น (HOLD แต่ละวันไม่เท่ากัน — ต้นเดือนน้อย ปลายเดือนเพิ่ม) ไม่ใช่ HOLD วันนี้
+  const bfCutoff = `${year}-${String(month).padStart(2, '0')}-01`;
   const monthBF = cfMemo(() => {
-    const prevYear  = month === 1 ? year - 1 : year;
-    const prevMonth = month === 1 ? 12 : month - 1;
-    const lastDayPrev = new Date(prevYear, prevMonth, 0).getDate();
-    const cutoff = `${prevYear}-${String(prevMonth).padStart(2, '0')}-${String(lastDayPrev).padStart(2, '0')}`;
-    return openingBalanceAt(snapshots, cutoff, liveBalance);
-  }, [snapshots, year, month, liveBalance]);
-  // B/F แสดงเป็น Available (ยอดหลังหัก HOLD) — เพื่อสะท้อนเงินที่ใช้วางแผนจริงได้
-  const monthBFAvailable = Math.max(0, monthBF - liveHold);
+    const anyBefore = (snapshots || []).some(s => s.date && s.date <= bfCutoff);
+    return anyBefore ? getBalanceAtDate(snapshots, bfCutoff) : liveBalance;  // ไม่มีข้อมูลเลย → ยอดสด
+  }, [snapshots, bfCutoff, liveBalance]);
+  const monthBFHold = cfMemo(() => getHoldAtDate(snapshots, bfCutoff), [snapshots, bfCutoff]);
+  // B/F = ยอดใช้ได้ต้นเดือน = เงินต้นเดือน − HOLD ต้นเดือน (โชว์ตามจริง ไม่ปัด 0)
+  const monthBFAvailable = monthBF - monthBFHold;
 
   // ── ovTick — re-render เมื่อ override (จาก cloud/user อื่น) เปลี่ยน ──────────
   //   กระตุ้น recompute ของ memo ที่อ่าน WTPOverride (ivPlanLock + pvActualByWeekCat → cf.pvCat)

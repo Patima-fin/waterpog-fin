@@ -596,13 +596,16 @@
   WTPData.authSignOut = function () {
     try { return sb.auth.signOut().then(function () {}, function () {}); } catch (_) { return Promise.resolve(); }
   };
-  // หลัง login สำเร็จ → โหลดข้อมูลใหม่ด้วย session (JWT) เพื่อให้ผ่าน RLS เมื่อเปิดใช้
+  // หลัง login สำเร็จ / restore session → โหลดข้อมูลใหม่ด้วย JWT เพื่อให้ผ่าน RLS
+  // INITIAL_SESSION = เปิดแท็บใหม่ที่ session ยังค้างอยู่ → supabase-js restore ก่อน
+  //   first load ด้านล่างยิงไปก่อน session พร้อม (RLS block → data=[]) → ต้อง reload
+  //   ด้วย INITIAL_SESSION อีกรอบเมื่อ JWT สด. SIGNED_IN = login ใหม่ตามปกติ.
   try {
     sb.auth.onAuthStateChange(function (event) {
-      if (event === 'SIGNED_IN') loadFromServer();
+      if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') loadFromServer();
     });
   } catch (_) {}
 
-  /* ── first load ────────────────────────────────────────────────────── */
+  /* ── first load (optimistic — อาจไม่มี JWT ทัน ถ้า session ค้างอยู่ INITIAL_SESSION จะ reload) ── */
   loadFromServer();
 })();
