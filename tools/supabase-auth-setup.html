@@ -48,20 +48,25 @@
   </div>
 
   <div class="card">
-    <label class="f">2) ผู้ใช้ + รหัสผ่าน (พิมพ์/แก้ได้ทุกช่อง · ขั้นต่ำ 6 ตัว · อย่าใช้รหัสเก่า)</label>
+    <label class="f">2) ผู้ใช้ + รหัสผ่าน — <b>ติ๊กช่อง "ทำ" เฉพาะคนที่จะตั้งรหัส/เพิ่ม</b> (คนที่ไม่ติ๊ก = ไม่ถูกแตะเลย) · รหัสขั้นต่ำ 6 ตัว</label>
     <div class="quick">
-      <input type="text" id="bulk" placeholder="พิมพ์รหัสเดียวใช้ทุกคน…" style="width:220px" />
-      <button class="btn-sm" id="applyBulk">เติมรหัสทุกช่อง</button>
-      <button class="btn-sm" id="rand">สุ่มรหัสใหม่ทุกช่อง</button>
+      <button class="btn-sm" id="selAll">☑ เลือกทั้งหมด</button>
+      <button class="btn-sm" id="selNone">☐ ไม่เลือก</button>
+      <input type="text" id="bulk" placeholder="พิมพ์รหัสเดียว…" style="width:170px" />
+      <button class="btn-sm" id="applyBulk">เติมรหัส (ที่เลือก)</button>
+      <button class="btn-sm" id="rand">สุ่มรหัส (ที่เลือก)</button>
       <button class="btn-add" id="addRow">+ เพิ่มผู้ใช้ใหม่</button>
       <span style="color:#5a6478;font-size:12.5px;margin-left:auto">domain: <b id="dom"></b></span>
     </div>
-    <table id="utbl"><thead><tr><th>ชื่อผู้ใช้ (username)</th><th>role</th><th>ชื่อแสดง</th><th>รหัสผ่าน</th><th>สถานะ</th></tr></thead><tbody></tbody></table>
-    <p style="margin:14px 0 0"><button class="btn-go" id="go" disabled>สร้าง / อัปเดตผู้ใช้ทั้งหมด</button></p>
+    <table id="utbl"><thead><tr><th style="width:34px;text-align:center">ทำ</th><th>ชื่อผู้ใช้ (username)</th><th>role</th><th>ชื่อแสดง</th><th>รหัสผ่าน</th><th>สถานะ</th></tr></thead><tbody></tbody></table>
+    <p style="margin:14px 0 0"><button class="btn-go" id="go" disabled>สร้าง / อัปเดต เฉพาะที่เลือก</button></p>
   </div>
 
   <div class="card" id="resCard" style="display:none">
-    <b>สรุปรหัส (ก็อปแจกทีม)</b>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:10px">
+      <b>สรุปรหัส — ก็อป/ดาวน์โหลดเก็บก่อนปิดแท็บ (ดูย้อนหลังไม่ได้)</b>
+      <button class="btn-sm" id="dl">⬇ ดาวน์โหลด .txt</button>
+    </div>
     <textarea id="dump" readonly></textarea>
   </div>
 
@@ -95,6 +100,7 @@
   function addRow(username, role, displayName, isNew){
     var tr=document.createElement('tr');
     tr.innerHTML =
+      '<td style="text-align:center"><input type="checkbox" class="u-do"'+(isNew?' checked':'')+'></td>'+
       '<td><input class="u-name" value="'+esc(username)+'"'+(isNew?'':' readonly')+'></td>'+
       '<td>'+roleSelect(role||'staff')+'</td>'+
       '<td><input class="u-disp" value="'+esc(displayName||username)+'"></td>'+
@@ -105,10 +111,16 @@
   }
   USERS.forEach(function(u){ addRow(u.username, u.role, u.displayName, false); });
 
-  function pwInputs(){ return [].slice.call(document.querySelectorAll('.u-pw')); }
-  document.getElementById('applyBulk').onclick = function(){ var v=document.getElementById('bulk').value; pwInputs().forEach(function(i){ i.value=v; }); };
-  document.getElementById('rand').onclick = function(){ pwInputs().forEach(function(i){ i.value=genPw(); }); };
+  // เฉพาะแถวที่ติ๊ก "ทำ" — ปุ่มเติม/สุ่มรหัส + การ submit ทำเฉพาะแถวเหล่านี้
+  function allTrs(){ return [].slice.call(document.querySelectorAll('#utbl tbody tr')); }
+  function checkedTrs(){ return allTrs().filter(function(tr){ var c=tr.querySelector('.u-do'); return c && c.checked; }); }
+  function pwInputs(){ return checkedTrs().map(function(tr){ return tr.querySelector('.u-pw'); }); }
+  document.getElementById('selAll').onclick  = function(){ allTrs().forEach(function(tr){ var c=tr.querySelector('.u-do'); if(c) c.checked=true; }); };
+  document.getElementById('selNone').onclick = function(){ allTrs().forEach(function(tr){ var c=tr.querySelector('.u-do'); if(c) c.checked=false; }); };
+  document.getElementById('applyBulk').onclick = function(){ var v=document.getElementById('bulk').value; var t=pwInputs(); if(!t.length){ alert('ยังไม่ได้ติ๊กเลือกใคร'); return; } t.forEach(function(i){ i.value=v; }); };
+  document.getElementById('rand').onclick = function(){ var t=pwInputs(); if(!t.length){ alert('ยังไม่ได้ติ๊กเลือกใคร'); return; } t.forEach(function(i){ i.value=genPw(); }); };
   document.getElementById('addRow').onclick = function(){ addRow('', 'staff', '', true); };
+  document.getElementById('dl').onclick = function(){ var txt=document.getElementById('dump').value; if(!txt){ alert('ยังไม่มีรหัส'); return; } var blob=new Blob([txt],{type:'text/plain;charset=utf-8'}); var a=document.createElement('a'); a.href=window.URL.createObjectURL(blob); a.download='waterpog-passwords-'+new Date().toISOString().slice(0,10)+'.txt'; a.click(); window.URL.revokeObjectURL(a.href); };
 
   var srk = document.getElementById('srk');
   var go = document.getElementById('go');
@@ -117,7 +129,7 @@
 
   // อ่านทุกแถวในตาราง → [{username, role, displayName, password, tr}]
   function readRows(){
-    return [].slice.call(document.querySelectorAll('#utbl tbody tr')).map(function(tr){
+    return checkedTrs().map(function(tr){
       return {
         username: (tr.querySelector('.u-name').value||'').trim().toLowerCase(),
         role: tr.querySelector('.u-role').value,
@@ -131,12 +143,12 @@
 
   go.onclick = function(){
     var rows = readRows();
-    if(!rows.length){ alert('ไม่มีผู้ใช้'); return; }
+    if(!rows.length){ alert('ยังไม่ได้เลือกใคร — ติ๊กช่อง "ทำ" ของคนที่จะตั้งรหัส/เพิ่มก่อน'); return; }
     var bad = rows.filter(function(r){ return !r.password || r.password.length < 6; });
     if(bad.length){ alert('รหัสของ "'+bad[0].username+'" สั้นไป (ขั้นต่ำ 6 ตัว)'); return; }
     var names={}, dup=null; rows.forEach(function(r){ if(names[r.username]) dup=r.username; names[r.username]=1; });
     if(dup){ alert('username ซ้ำ: '+dup); return; }
-    if(!confirm('สร้าง/อัปเดต '+rows.length+' ผู้ใช้ ด้วยรหัสที่ตั้งไว้?\n(คนเดิมจะถูกตั้งรหัสใหม่ทับ)')) return;
+    if(!confirm('ดำเนินการ '+rows.length+' คนที่เลือก?\n• คนเดิม = ตั้งรหัสใหม่ทับ\n• คนใหม่ = สร้างบัญชี\n• คนที่ไม่ติ๊ก = ไม่ถูกแตะ')) return;
     go.disabled = true;
     var admin = window.supabase.createClient(URL_, srk.value.trim(), { auth:{ persistSession:false, autoRefreshToken:false } });
     document.getElementById('resCard').style.display='block';
@@ -167,7 +179,7 @@
   };
 
   if(!URL_) log('⚠ ตั้ง SUPABASE_URL ใน config.js ก่อน');
-  else log('แก้รหัส/role/เพิ่มคนใหม่ในตารางได้เลย แล้ววาง service_role + กดปุ่ม');
+  else log('ติ๊กช่อง "ทำ" เฉพาะคนที่จะตั้งรหัส/เพิ่ม (คนอื่นไม่ถูกแตะ) → ตั้งรหัส → วาง service_role → กดปุ่ม');
 })();
 </script>
 </body>
