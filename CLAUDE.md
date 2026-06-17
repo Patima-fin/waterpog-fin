@@ -311,5 +311,11 @@ Live at **https://patima-fin.github.io/waterpog-fin/** — GitHub Pages serves t
 - **§5 ใหม่ "อันดับประเภทค่าใช้จ่ายที่ใช้เยอะที่สุด" (TopCats).** sort categories ด้วย `actual` desc → 5 อันดับแรก: medal chip (🥇🥈🥉/4/5) + ชื่อ + ยอด `actual` + % ของยอดใช้รวม + bar ratio · ขวาเทียบ % vs งบ. คลิก → `CatPopup` เหมือน §4. wiring: ใช้ `view.categories` ที่มีอยู่แล้ว ไม่ต้องคำนวณเพิ่ม.
 - **Renumber §5→6 (แจ้งเตือนงบเกิน), §6→7 (คาดการณ์สิ้นปี), §7→8 (ข้อมูลเชิงลึก).** verify preview: 7 หัวข้อเรียงถูก (2→3→4→5→6→7→8), 0 console error, sample data render ต้นทุนงาน 103.5% แดง / เงินเดือน 100.0% เหลือง / ค่าเดินทาง 102.5% แดง ตามเงื่อนไข.
 
+## 2026-06-17 — เช็คจ่ายล่วงหน้า: ดอปดาวลิสต์ผู้รับเงิน+บัญชีบริษัท (build `page_checks 20260617c`)
+- **ฟอร์มเพิ่ม/แก้เช็ค (`ChkAddModal`/edit)**: 3 ดอปดาวลิสต์ + 1 quick-select.
+- `payeeOptions` (useMemo จาก `rawChecks`) — distinct ผู้รับเงินจากเช็คเดิม, sort by frequency desc → ใช้บ่อยอยู่บนสุด → แสดงผ่าน `<datalist id="chk-payee-list">` (HTML5 autocomplete แบบ native).
+- `companyBanks` (useMemo จาก `data.bankAccounts`) — บัญชีบริษัทแบบ `{bankName, accountNo, nick}` (dedupe by bank+ac) → 3 จุด: (a) `<select>` "เลือกจากบัญชีบริษัท" เหนือ ธนาคาร/เลขบัญชี → เลือก 1 ครั้ง เติม 2 ฟิลด์อัตโนมัติ (b) datalist `chk-bank-list` (ชื่อธนาคารไม่ซ้ำ) (c) datalist `chk-ac-list` (เลขบัญชี + ชื่อธนาคารในป้าย).
+- input ทุกตัวเป็น `<input list="...">` + `autoComplete="off"` → ผู้ใช้พิมพ์เองได้ตามปกติ ดอปดาวลิสต์เป็น suggestion ล้วน. select ขึ้นเฉพาะเมื่อ `companyBanks.length > 0`.
+
 ## Repo rule: keep CLAUDE.md current
 **Every time you `git push`, update this `CLAUDE.md`** to reflect anything that changed (architecture, conventions, new pages, gotchas). Treat it as part of the push, like the `?v=` bump.

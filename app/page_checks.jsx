@@ -100,6 +100,31 @@ const ChecksPage = ({ data: propData, setData, toast }) => {
     return rows;
   }, [sorted, tab, query, colFilters]);
 
+  // ── Suggestion sources for the Add/Edit modal ────────────────────────
+  // payee  → distinct ผู้รับเงิน จากเช็คเดิม, sort by frequency desc (ใช้บ่อย = บนสุด)
+  // banks  → บัญชีบริษัท ของ Water POG (จาก data.bankAccounts) เพื่อ quick-pick ธนาคาร+เลขบัญชี
+  const payeeOptions = React.useMemo(() => {
+    const freq = new Map();
+    rawChecks.forEach(c => {
+      const p = String(c.payee || '').trim();
+      if (!p) return;
+      freq.set(p, (freq.get(p) || 0) + 1);
+    });
+    return Array.from(freq.entries()).sort((a, b) => b[1] - a[1]).map(x => x[0]);
+  }, [rawChecks]);
+
+  const companyBanks = React.useMemo(() => {
+    const list = (data.bankAccounts || []).map(a => {
+      const bn = a.BANK_NAME || a.bankName || a.bank || a.Bank || '';
+      const ac = a.Bank_AC || a.accountNo || a.account_no || a.ACCOUNT_NO || '';
+      const nick = a.shortName || a.alias || a.NICKNAME || '';
+      return { bankName: String(bn).trim(), accountNo: String(ac).trim(), nick: String(nick).trim() };
+    }).filter(x => x.bankName || x.accountNo);
+    // dedupe by bank+ac
+    const seen = new Set();
+    return list.filter(x => { const k = x.bankName + '|' + x.accountNo; if (seen.has(k)) return false; seen.add(k); return true; });
+  }, [data.bankAccounts]);
+
   // Reset selection when filter / mode changes
   React.useEffect(() => { setSelected(new Set()); }, [tab, query, colFilters, bulkMode]);
 
@@ -381,9 +406,12 @@ const ChecksPage = ({ data: propData, setData, toast }) => {
                        onChange={e => setForm(f=>({...f, checkDate:e.target.value}))} />
               </label>
               <label style={{ display:'flex', flexDirection:'column', gap: 4, fontSize: 13, gridColumn:'1/-1' }}>
-                ผู้รับเงิน *
-                <input className="input" value={form.payee}
+                ผู้รับเงิน * {payeeOptions.length > 0 && <span style={{ fontSize: 11, color:'var(--ink-400)', fontWeight: 400 }}>· พิมพ์เพื่อค้น หรือเลือกจากรายการ ({payeeOptions.length} ราย)</span>}
+                <input className="input" value={form.payee} list="chk-payee-list" autoComplete="off"
                        onChange={e => setForm(f=>({...f, payee:e.target.value}))} />
+                <datalist id="chk-payee-list">
+                  {payeeOptions.map((p, i) => <option key={i} value={p} />)}
+                </datalist>
               </label>
               <label style={{ display:'flex', flexDirection:'column', gap: 4, fontSize: 13 }}>
                 จำนวนเงิน *
@@ -399,15 +427,42 @@ const ChecksPage = ({ data: propData, setData, toast }) => {
                   ))}
                 </select>
               </label>
+              {companyBanks.length > 0 && (
+                <label style={{ display:'flex', flexDirection:'column', gap: 4, fontSize: 13, gridColumn:'1/-1' }}>
+                  เลือกจากบัญชีบริษัท <span style={{ fontSize: 11, color:'var(--ink-400)', fontWeight: 400 }}>· เลือกแล้วเติม "ธนาคาร" + "เลขบัญชี" ให้อัตโนมัติ</span>
+                  <select className="input" value={form.bankName && form.accountNo ? form.bankName + '|' + form.accountNo : ''}
+                          onChange={e => {
+                            const v = e.target.value;
+                            if (!v) return;
+                            const [bn, ac] = v.split('|');
+                            setForm(f => ({ ...f, bankName: bn || '', accountNo: ac || '' }));
+                          }}>
+                    <option value="">— เลือกบัญชี —</option>
+                    {companyBanks.map((b, i) => (
+                      <option key={i} value={b.bankName + '|' + b.accountNo}>
+                        {b.bankName}{b.accountNo ? ' · ' + b.accountNo : ''}{b.nick ? ' (' + b.nick + ')' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <label style={{ display:'flex', flexDirection:'column', gap: 4, fontSize: 13 }}>
                 ธนาคาร
-                <input className="input" value={form.bankName}
+                <input className="input" value={form.bankName} list="chk-bank-list" autoComplete="off"
                        onChange={e => setForm(f=>({...f, bankName:e.target.value}))} />
+                <datalist id="chk-bank-list">
+                  {Array.from(new Set(companyBanks.map(b => b.bankName).filter(Boolean))).map((b, i) => <option key={i} value={b} />)}
+                </datalist>
               </label>
               <label style={{ display:'flex', flexDirection:'column', gap: 4, fontSize: 13 }}>
                 เลขบัญชี
-                <input className="input" value={form.accountNo}
+                <input className="input" value={form.accountNo} list="chk-ac-list" autoComplete="off"
                        onChange={e => setForm(f=>({...f, accountNo:e.target.value}))} />
+                <datalist id="chk-ac-list">
+                  {companyBanks.filter(b => b.accountNo).map((b, i) => (
+                    <option key={i} value={b.accountNo}>{b.bankName}{b.nick ? ' (' + b.nick + ')' : ''}</option>
+                  ))}
+                </datalist>
               </label>
               <label style={{ display:'flex', flexDirection:'column', gap: 4, fontSize: 13 }}>
                 อ้างอิง / PO
