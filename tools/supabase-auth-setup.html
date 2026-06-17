@@ -45,6 +45,10 @@
   <div class="card">
     <label class="f">1) service_role key (secret)</label>
     <input type="password" id="srk" placeholder="eyJ... (service_role)" autocomplete="off" />
+    <p style="margin:10px 0 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <button class="btn-sm" id="loadSb" disabled>↻ โหลดผู้ใช้ที่มีอยู่จาก Supabase</button>
+      <span style="color:#5a6478;font-size:12.5px">ดึงรายชื่อจริงทั้งหมด รวม <b>คนที่เพิ่มไปก่อนหน้า</b> ที่ยังไม่อยู่ใน config.js (ไม่งั้นจะแก้รหัสเขาไม่ได้)</span>
+    </p>
   </div>
 
   <div class="card">
@@ -124,8 +128,32 @@
 
   var srk = document.getElementById('srk');
   var go = document.getElementById('go');
-  function refresh(){ go.disabled = !(URL_ && libOk && srk.value.trim().length > 20); }
+  var loadSb = document.getElementById('loadSb');
+  function refresh(){ var ok = !!(URL_ && libOk && srk.value.trim().length > 20); go.disabled = !ok; if(loadSb) loadSb.disabled = !ok; }
   srk.addEventListener('input', refresh); refresh();
+
+  // โหลดผู้ใช้ที่มีอยู่จริงใน Supabase Auth — รวมคนที่เพิ่มไปก่อนหน้าแต่ไม่อยู่ใน config.js
+  // (ไม่งั้นเปิด tool มาจะเห็นแค่คนใน config → แก้รหัสคนที่เพิ่งสร้างไม่ได้)
+  if(loadSb) loadSb.onclick = function(){
+    if(!srk.value.trim()){ alert('วาง service_role key ก่อน'); return; }
+    var admin = window.supabase.createClient(URL_, srk.value.trim(), { auth:{ persistSession:false, autoRefreshToken:false } });
+    loadSb.disabled = true; log('กำลังโหลดผู้ใช้จาก Supabase…');
+    admin.auth.admin.listUsers({ page:1, perPage:1000 }).then(function(r){
+      var have = {};
+      allTrs().forEach(function(tr){ have[(tr.querySelector('.u-name').value||'').trim().toLowerCase()] = true; });
+      var added = 0;
+      ((r.data && r.data.users) || []).forEach(function(u){
+        var meta = u.app_metadata || {};
+        var uname = (meta.username || (u.email||'').split('@')[0] || '').trim().toLowerCase();
+        if(!uname || have[uname]) return;
+        addRow(uname, meta.role || 'viewer', meta.displayName || uname, false);  // มีอยู่แล้ว → username readonly
+        have[uname] = true; added++;
+      });
+      log(added ? ('โหลดเพิ่ม '+added+' คนจาก Supabase → ตอนนี้ตารางมี '+allTrs().length+' คน (ติ๊กคนที่จะแก้รหัสได้เลย)')
+                : 'ไม่มีคนใหม่นอกเหนือจากในตารางแล้ว');
+      loadSb.disabled = false;
+    }, function(e){ log('✗ โหลดล้มเหลว — service_role ถูกไหม? '+(e&&e.message)); loadSb.disabled = false; });
+  };
 
   // อ่านทุกแถวในตาราง → [{username, role, displayName, password, tr}]
   function readRows(){
