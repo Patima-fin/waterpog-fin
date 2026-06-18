@@ -108,6 +108,8 @@ function inMonth(dateISO, year, month) {
 //   5. Default → cat 1 (operating)
 // ── Per-PV manual category override (cf.pvCat.<PL_PV_No> = 1-4) ──────────────
 const cfPvCatKey = (pvNo) => 'cf.pvCat.' + String(pvNo || '').trim();
+// ── ติ๊กรวมรายการตั้งมือใน "แผนจ่ายจริง (AP)" Section 01 (cf.sec1Inc.<feId> = 1)
+const cfSec1IncKey = (id) => 'cf.sec1Inc.' + String(id || '').trim();
 // ── Vendor → หมวด mapping (เจ้าหนี้กลุ่มการเงิน/ลีสซิ่ง → หมวด 3) · แก้รายชื่อใน localStorage ได้
 const CF_VENDOR_CAT_LS_KEY = 'wtp-cf-vendor-cat';
 const CF_VENDOR_CAT_DEFAULTS = [
@@ -348,6 +350,16 @@ function CashFlowDashboard({ data, setData, toast }) {
   const [editMode, setEditMode] = cfState(false);  // Manual override mode
   useOverrideSubAny();  // re-render หน้าทุกครั้งที่ override เปลี่ยน (sum/total/% ใช้ค่าใหม่)
 
+  // โหมดช่องรายจ่าย Section 01: 'remaining' (ประมาณการคงเหลือ) | 'apPlan' (แผนจ่ายจริง AP)
+  const [s01OutMode, setS01OutMode] = cfState(() => {
+    try { return localStorage.getItem('wtp-cf-s01outmode') === 'apPlan' ? 'apPlan' : 'remaining'; }
+    catch (_) { return 'remaining'; }
+  });
+  const setS01OutModePersist = (m) => {
+    setS01OutMode(m);
+    try { localStorage.setItem('wtp-cf-s01outmode', m); } catch (_) {}
+  };
+
   // Drill-down popup: { title, rows, kind } where kind ∈ {iv, loan, ap, fe, mixed}
   const [drillDown, setDrillDown] = cfState(null);
   // Per-item detail popup (ซ้อนบน drill-down) — เก็บ item ที่กด "ดู"
@@ -524,6 +536,53 @@ function CashFlowDashboard({ data, setData, toast }) {
         4: Math.max(0, (g[4] || 0) - (a[4] || 0)),
       };
     }), [forecastByWeekCat, pvActualByWeekCat]);
+
+  // ── โหมด "แผนจ่ายจริง (AP)" — grids เพิ่มเติมสำหรับ Section 01 ─────────────
+  //   paidApSet: เลขที่ AP ที่จ่ายผ่าน PV แล้ว (ตัดออกจากแผน AP)
+  const paidApSet = cfMemo(() => {
+    const s = new Set();
+    (pvVouchers || []).forEach(pv => { if (pv.AP_No) s.add(pv.AP_No); });
+    return s;
+  }, [pvVouchers]);
+  //   apPlanByWeekCat: forecastEntries ที่ Bank Diary สร้างตอนเลือก AP (EXPENSE_TYPE='AP', PLANNED, ไม่ผ่าน paidApSet)
+  const apPlanByWeekCat = cfMemo(() => {
+    const grid = weeks.map(() => ({ 1: 0, 2: 0, 3: 0, 4: 0 }));
+    (data.forecastEntries || []).forEach(fe => {
+      if ((fe.EXPENSE_TYPE || '') !== 'AP') return;
+      if ((fe.STATUS || 'PLANNED') !== 'PLANNED') return;
+      if (fe.REF_DOC && paidApSet.has(fe.REF_DOC)) return;
+      const d = fe.PAYMENT_DATE || fe.DATE;
+      if (!d || !inMonth(d, year, month)) return;
+      const w = findWeekIdx(d, weeks);
+      if (w < 0) return;
+      const cat = categorizeForecastEntry(fe);
+      grid[w][cat] = (grid[w][cat] || 0) + Math.abs(Number(fe.AMOUNT) || 0);
+    });
+    return grid;
+  }, [data.forecastEntries, weeks, year, month, paidApSet]);
+  //   manualIncludedByWeekCat: รายการตั้งมือที่ user ติ๊กรวมเอง (WTPOverride cf.sec1Inc.<feId>)
+  const manualIncludedByWeekCat = cfMemo(() => {
+    const grid = weeks.map(() => ({ 1: 0, 2: 0, 3: 0, 4: 0 }));
+    forecastEntries.forEach(fe => {
+      if (!WTPOverride.resolve(cfSec1IncKey(fe.id), 0)) return;
+      const d = fe.PAYMENT_DATE || fe.DATE;
+      if (!d || !inMonth(d, year, month)) return;
+      const w = findWeekIdx(d, weeks);
+      if (w < 0) return;
+      const cat = categorizeForecastEntry(fe);
+      const amt = Math.abs(Number(fe.AMOUNT) || 0);
+      grid[w][cat] = (grid[w][cat] || 0) + amt;
+    });
+    return grid;
+  }, [forecastEntries, weeks, year, month, ovTick]);
+  //   apPlanCombinedByWeekCat: รวม AP ที่เลือก + ตั้งมือที่ติ๊ก
+  const apPlanCombinedByWeekCat = cfMemo(() =>
+    weeks.map((_, i) => ({
+      1: (apPlanByWeekCat[i][1] || 0) + (manualIncludedByWeekCat[i][1] || 0),
+      2: (apPlanByWeekCat[i][2] || 0) + (manualIncludedByWeekCat[i][2] || 0),
+      3: (apPlanByWeekCat[i][3] || 0) + (manualIncludedByWeekCat[i][3] || 0),
+      4: (apPlanByWeekCat[i][4] || 0) + (manualIncludedByWeekCat[i][4] || 0),
+    })), [apPlanByWeekCat, manualIncludedByWeekCat, weeks]);
 
   // ── IV PLAN lock — baseline "คาดรับ" ที่ freeze ตั้งแต่วันที่ 1 ของเดือน ──
   //   ovTick กระตุ้น recompute เมื่อ override (จาก cloud/user อื่น) เปลี่ยน
@@ -746,11 +805,13 @@ function CashFlowDashboard({ data, setData, toast }) {
   // ตาราง Plan รายสัปดาห์ (รายจ่าย) — ใช้ "ยอดคงเหลือ" (forecast − จ่ายจริงแล้ว) ไม่ใช่ forecast เต็ม
   //   → ช่องสัปดาห์ปัจจุบันโชว์เฉพาะส่วนที่ "ยังต้องจ่าย" (mirror ฝั่งรับเงิน ivCombinedByWeek)
   //   KPI การ์ด + Section 02 (ติดตามจ่ายจริง) ยังใช้ forecast เต็ม — ตัวเลขจึงต่างกันโดยตั้งใจ
+  const _outGrid     = s01OutMode === 'apPlan' ? apPlanCombinedByWeekCat : forecastRemainingByWeekCat;
+  const _outRollover = s01OutMode === 'apPlan' ? { 1: 0, 2: 0, 3: 0, 4: 0 } : nextMonthInflow.out;
   const planOut  = {
-    1: currentRestSplit(forecastRemainingByWeekCat.map(g => g[1]), nextMonthInflow.out[1]),
-    2: currentRestSplit(forecastRemainingByWeekCat.map(g => g[2]), nextMonthInflow.out[2]),
-    3: currentRestSplit(forecastRemainingByWeekCat.map(g => g[3]), nextMonthInflow.out[3]),
-    4: currentRestSplit(forecastRemainingByWeekCat.map(g => g[4]), nextMonthInflow.out[4]),
+    1: currentRestSplit(_outGrid.map(g => g[1]), _outRollover[1]),
+    2: currentRestSplit(_outGrid.map(g => g[2]), _outRollover[2]),
+    3: currentRestSplit(_outGrid.map(g => g[3]), _outRollover[3]),
+    4: currentRestSplit(_outGrid.map(g => g[4]), _outRollover[4]),
   };
   // ใช้ค่าที่ resolve override แล้ว เพื่อให้ "รวมรายจ่าย" สะท้อนยอดที่ user คีย์มือ
   // และ net end-of-week/month ก็ใช้ยอดนี้คำนวณต่อด้วย
@@ -791,6 +852,43 @@ function CashFlowDashboard({ data, setData, toast }) {
   // ── Week selector ─────────────────────────────────────────────────────
   // ─── Drill-down builder ──────────────────────────────────────────────────
   // For a given row+period, collect the underlying source rows so user can verify.
+  // ─── Drill-down โหมด "แผนจ่ายจริง (AP)" — modal รายการ AP + ติ๊กตั้งมือ ───
+  const openApPlanDrill = (cat, period, label) => {
+    const readOnly = cfIsReadOnly();
+    // รายการ AP ที่เลือกจ่าย (ยังไม่ผ่าน PV)
+    const apItems = [];
+    (data.forecastEntries || []).forEach(fe => {
+      if ((fe.EXPENSE_TYPE || '') !== 'AP') return;
+      if ((fe.STATUS || 'PLANNED') !== 'PLANNED') return;
+      if (fe.REF_DOC && paidApSet.has(fe.REF_DOC)) return;
+      const d = fe.PAYMENT_DATE || fe.DATE;
+      if (!d || !inMonth(d, year, month)) return;
+      if (categorizeForecastEntry(fe) !== cat) return;
+      const inPeriodAP = period === 'total' ? true
+        : period === 'current' ? findWeekIdx(d, weeks) === nowWeek
+        : findWeekIdx(d, weeks) > nowWeek;
+      if (!inPeriodAP) return;
+      apItems.push({ feId: fe.id, date: d, name: fe.DESCRIPTION || fe.REF_DOC || '—',
+        ref: fe.REF_DOC || '', amount: Math.abs(Number(fe.AMOUNT) || 0), note: fe.NOTE || '' });
+    });
+    // รายการตั้งมือที่ยังไม่ถูกติ๊ก (candidates)
+    const manualCands = [];
+    forecastEntries.forEach(fe => {
+      if (categorizeForecastEntry(fe) !== cat) return;
+      const d = fe.PAYMENT_DATE || fe.DATE;
+      if (!d || !inMonth(d, year, month)) return;
+      const inPeriodFE = period === 'total' ? true
+        : period === 'current' ? findWeekIdx(d, weeks) === nowWeek
+        : findWeekIdx(d, weeks) > nowWeek;
+      if (!inPeriodFE) return;
+      const incKey = cfSec1IncKey(fe.id);
+      manualCands.push({ feId: fe.id, date: d, name: fe.DESCRIPTION || '—',
+        amount: Math.abs(Number(fe.AMOUNT) || 0), note: fe.NOTE || '',
+        included: !!WTPOverride.resolve(incKey, 0), incKey, readOnly });
+    });
+    setDrillDown({ title: label, period, row: `out${cat}`, apMode: true, apItems, manualCands });
+  };
+
   // row    : 'iv' | 'loan' | 'out1' | 'out2' | 'out3' | 'out4'
   // period : 'current' | 'rest' | 'total'
   const openDrillDown = (row, period, label) => {
@@ -1406,13 +1504,31 @@ function CashFlowDashboard({ data, setData, toast }) {
             <tr style={{ background: 'color-mix(in oklch, var(--bad) 8%, transparent)' }}>
               <td colSpan={4} style={{ fontWeight: 700, color: 'var(--bad)', fontSize: cfScale(16), padding: `${cfScale(8)} ${cfScale(14)}` }}>
                 2: กระแสเงินสดออก (Outflow Details) · 4 หมวด
-                <span style={{ fontWeight: 500, fontSize: cfScale(11.5), color: 'var(--ink-500)', marginLeft: cfScale(8) }}>
-                  · ยอด<strong>คงเหลือต้องจ่าย</strong> (หักที่จ่ายจริงแล้ว)
+                <span style={{ fontWeight: 400, fontSize: cfScale(11), color: 'var(--ink-500)', marginLeft: cfScale(8) }}>
+                  {s01OutMode === 'apPlan'
+                    ? '· 📋 แผนจ่ายจริง (AP ที่เลือก + ตั้งมือที่ติ๊ก)'
+                    : '· ยอดคงเหลือต้องจ่าย (หักที่จ่ายจริงแล้ว)'}
+                </span>
+                <span style={{ marginLeft: cfScale(12), display: 'inline-flex', gap: cfScale(4), verticalAlign: 'middle' }}>
+                  {[['remaining','ประมาณการคงเหลือ'],['apPlan','แผนจ่ายจริง (AP)']].map(([m, lbl]) => (
+                    <button key={m} onClick={() => setS01OutModePersist(m)}
+                      style={{ fontSize: cfScale(10), padding: `1px ${cfScale(7)}px`, borderRadius: 99,
+                        border: `1px solid ${s01OutMode===m ? 'var(--brand-500)' : 'var(--ink-300)'}`,
+                        background: s01OutMode===m ? 'var(--brand-500)' : 'transparent',
+                        color: s01OutMode===m ? '#fff' : 'var(--ink-600)',
+                        cursor: 'pointer', fontWeight: s01OutMode===m ? 600 : 400 }}>
+                      {lbl}
+                    </button>
+                  ))}
                 </span>
               </td>
             </tr>
             {[1, 2, 3, 4].map(cat => {
-              const drill = (p) => openDrillDown(`out${cat}`, p, `${CATEGORY_LABELS[cat]} · ${p === 'current' ? weeks[nowWeek]?.label : p === 'rest' ? 'สัปดาห์ที่เหลือ' : 'TOTAL'}`);
+              const drill = (p) => {
+                const lbl = `${CATEGORY_LABELS[cat]} · ${p === 'current' ? weeks[nowWeek]?.label : p === 'rest' ? 'สัปดาห์ที่เหลือ' : 'TOTAL'}`;
+                if (s01OutMode === 'apPlan') { openApPlanDrill(cat, p, lbl); return; }
+                openDrillDown(`out${cat}`, p, lbl);
+              };
               return (
                 <PlanRow key={cat}
                   label={`${cat}. ${CATEGORY_LABELS[cat]}`}
@@ -1808,7 +1924,82 @@ function CashFlowDashboard({ data, setData, toast }) {
         <Modal open={!!drillDown} title={'รายละเอียด · ' + drillDown.title} maxWidth={920}
           onClose={() => setDrillDown(null)}
           footer={<button className="btn btn-primary" onClick={() => setDrillDown(null)}>ปิด</button>}>
-          {drillDown.items.length === 0 ? (
+          {drillDown.apMode ? (() => {
+            const { apItems = [], manualCands = [] } = drillDown;
+            const tickedManual = manualCands.filter(c => c.included);
+            const apTotal   = apItems.reduce((s, x) => s + x.amount, 0);
+            const manTotal  = tickedManual.reduce((s, x) => s + x.amount, 0);
+            const combined  = apTotal + manTotal;
+            return (
+              <div>
+                {/* สรุป 3 ช่อง */}
+                <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+                  {[
+                    { label: 'AP ที่เลือกจ่าย', count: apItems.length, total: apTotal, color: 'var(--bad)' },
+                    { label: 'ตั้งมือที่ติ๊กรวม', count: tickedManual.length, total: manTotal, color: 'var(--warn)' },
+                    { label: 'รวมในช่อง', count: apItems.length + tickedManual.length, total: combined, color: 'var(--brand-600)', bold: true },
+                  ].map(({ label, count, total, color, bold }) => (
+                    <div key={label} style={{ flex: 1, background: 'var(--ink-50)', borderRadius: 8, padding: '10px 14px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 11, color: 'var(--ink-500)', marginBottom: 2 }}>{label}</div>
+                      <div style={{ fontSize: 18, fontWeight: 700, color }}>{count} รายการ</div>
+                      <div style={{ fontSize: 13, fontWeight: bold ? 700 : 400, color }}>({fmtNum(total, 0)}) ฿</div>
+                    </div>
+                  ))}
+                </div>
+                {/* ตาราง AP */}
+                <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--ink-600)', marginBottom: 4 }}>📋 AP ที่เลือกจ่าย (จาก Bank Diary)</div>
+                {apItems.length === 0
+                  ? <div style={{ fontSize: 12, color: 'var(--ink-400)', padding: '8px 0', marginBottom: 12 }}>ไม่มีรายการ AP ที่เลือกจ่ายในช่วงนี้</div>
+                  : <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginBottom: 16 }}>
+                      <thead><tr style={{ background: 'var(--ink-100)' }}>
+                        <th style={{ padding: '4px 8px', textAlign: 'left' }}>วันที่</th>
+                        <th style={{ padding: '4px 8px', textAlign: 'left' }}>รายการ</th>
+                        <th style={{ padding: '4px 8px', textAlign: 'left' }}>เลขที่ AP</th>
+                        <th style={{ padding: '4px 8px', textAlign: 'right' }}>จำนวน (฿)</th>
+                      </tr></thead>
+                      <tbody>{apItems.map((x, i) => (
+                        <tr key={i} style={{ borderBottom: '1px solid var(--ink-100)' }}>
+                          <td style={{ padding: '4px 8px' }}>{fmtDate(x.date)}</td>
+                          <td style={{ padding: '4px 8px' }}>{x.name}</td>
+                          <td style={{ padding: '4px 8px', color: 'var(--ink-500)' }}>{x.ref}</td>
+                          <td style={{ padding: '4px 8px', textAlign: 'right', color: 'var(--bad)' }}>({fmtNum(x.amount, 0)})</td>
+                        </tr>
+                      ))}</tbody>
+                    </table>}
+                {/* ตาราง รายการตั้งมือ + ติ๊กเลือก */}
+                <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--ink-600)', marginBottom: 4 }}>
+                  ✏️ รายการตั้งมือ — ติ๊กเพื่อรวมในช่อง
+                  <span style={{ fontWeight: 400, color: 'var(--ink-400)', marginLeft: 8 }}>(ค่าเริ่มต้น: ไม่รวม — เพราะนับใน Section 02 ยอด FORECAST แล้ว)</span>
+                </div>
+                {manualCands.length === 0
+                  ? <div style={{ fontSize: 12, color: 'var(--ink-400)', padding: '8px 0' }}>ไม่มีรายการตั้งมือในช่วงนี้</div>
+                  : <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                      <thead><tr style={{ background: 'var(--ink-100)' }}>
+                        <th style={{ padding: '4px 8px', width: 32 }}></th>
+                        <th style={{ padding: '4px 8px', textAlign: 'left' }}>วันที่</th>
+                        <th style={{ padding: '4px 8px', textAlign: 'left' }}>รายการ</th>
+                        <th style={{ padding: '4px 8px', textAlign: 'right' }}>จำนวน (฿)</th>
+                      </tr></thead>
+                      <tbody>{manualCands.map((c, i) => (
+                        <tr key={i} onClick={() => {
+                          if (c.readOnly) return;
+                          if (c.included) WTPOverride.clear(c.incKey);
+                          else WTPOverride.set(c.incKey, 1);
+                        }} style={{ borderBottom: '1px solid var(--ink-100)', cursor: c.readOnly ? 'default' : 'pointer',
+                          background: c.included ? 'color-mix(in oklch, var(--warn) 10%, transparent)' : 'transparent' }}>
+                          <td style={{ padding: '4px 8px', textAlign: 'center' }}>
+                            <input type="checkbox" checked={!!c.included} readOnly={c.readOnly}
+                              onChange={() => {}} style={{ cursor: c.readOnly ? 'default' : 'pointer' }} />
+                          </td>
+                          <td style={{ padding: '4px 8px' }}>{fmtDate(c.date)}</td>
+                          <td style={{ padding: '4px 8px' }}>{c.name}</td>
+                          <td style={{ padding: '4px 8px', textAlign: 'right', color: 'var(--warn)' }}>({fmtNum(c.amount, 0)})</td>
+                        </tr>
+                      ))}</tbody>
+                    </table>}
+              </div>
+            );
+          })() : drillDown.items && drillDown.items.length === 0 ? (
             <div style={{ padding: 30, textAlign: 'center', color: 'var(--ink-500)', fontSize: 12.5 }}>
               ไม่มีรายการในช่วงนี้
             </div>

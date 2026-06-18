@@ -386,5 +386,14 @@ Live at **https://patima-fin.github.io/waterpog-fin/** — GitHub Pages serves t
 - **ใช้ตัวช่วยกลางที่มีอยู่แล้ว `exportRowsToExcel(rows, cols, opts)` (global จาก [components.jsx](app/components.jsx))** — ไม่ต้องเขียน XLSX เอง. cols 8 ช่อง: วันจ่าย(วางแผน) [`plannedDateByRef[vchno]`→fmtDate] · ครบกำหนด · ผู้ขาย · เลขที่ AP · ประเภท CF [`code + bdCatLabel`] · **ยอดสุทธิ (`type:'number'` → SUM ได้ใน Excel)** · สถานะ [วางแผนจ่ายแล้ว/ยังไม่วางแผน] · หมายเหตุ. filename `AP-<scope>_<วันที่>.xlsx`, sheet "รายการจ่าย", มี title row สรุป (scope · จำนวน · รวมยอด). ปุ่มโชว์ทุก role ที่เห็นพาเนล (read-only action; bank screens ซ่อนจาก owner/viewer อยู่แล้ว).
 - **verify (isolated render ใน preview + ดัก `XLSX.writeFile`, mock 3 รายการ/วางแผน 2):** Export "ทั้งหมด" → 3 แถว, ยอดเป็น number, วันที่ DD/MM/YYYY ค.ศ., สถานะ+วันจ่ายถูกต้อง · กด "วางแผนแล้ว" → Export เหลือ **2 แถว** (AP-001/AP-003) + วันจ่ายที่วางแผน · ไม่มี error. (RLS บล็อกข้อมูลจริงตอนไม่ล็อกอิน → verify ด้วย mock + DOM/eval.)
 
+## 2026-06-18 — Weekly Forecast Section 01: โหมด "แผนจ่ายจริง (AP)" ที่ช่องรายจ่าย (build `page_cashflow 20260618r`)
+- **Port จาก BIOAXEL** — เหมือนเป๊ะ ต่างแค่ localStorage key `wtp-cf-s01outmode` (BIO ใช้ `bio-cf-s01outmode`).
+- **toggle 2 โหมดที่หัวข้อ "2: กระแสเงินสดออก"** (`s01OutMode` ∈ `'remaining'|'apPlan'`, default `'remaining'` = พฤติกรรมเดิมเป๊ะ):
+  - **`remaining` (เดิม):** `forecastRemainingByWeekCat` = ตั้งมือ − จ่ายจริง (ไม่แตะ).
+  - **`apPlan` (ใหม่):** `apPlanCombinedByWeekCat` = **`apPlanByWeekCat`** (forecastEntries `EXPENSE_TYPE='AP'`, PLANNED, `REF_DOC ∉ paidApSet` — ตัด AP ที่จ่ายผ่าน PV แล้ว) **+ `manualIncludedByWeekCat`** (ตั้งมือที่ user ติ๊กเลือกรวมเอง).
+- **กลไกเลือกรวมตั้งมือ = ติ๊กราย entry ผ่าน `WTPOverride cf.sec1Inc.<feId>`** (helper `cfSec1IncKey`, sync ทั้งทีม) — default ไม่รวม. กดที่ช่องในโหมด apPlan → `openApPlanDrill` → modal โชว์ 3 ช่องสรุป + ตาราง AP (read-only) + ตาราง ตั้งมือ (ติ๊กได้). **ไม่รวมทุกรายการตั้งมือเพราะตั้งมือนับใน Section 02 ยอด FORECAST อยู่แล้ว** — ติ๊กรวมเฉพาะที่ต้องการ (กันนับซ้ำ).
+- **Section 02 + KPI การ์ด ไม่กระทบ** (ยังใช้ forecast เต็ม).
+- `cfSec1IncKey` constant (หลัง `cfPvCatKey`): `const cfSec1IncKey = (id) => 'cf.sec1Inc.' + String(id || '').trim();`
+
 ## Repo rule: keep CLAUDE.md current
 **Every time you `git push`, update this `CLAUDE.md`** to reflect anything that changed (architecture, conventions, new pages, gotchas). Treat it as part of the push, like the `?v=` bump.
