@@ -1527,7 +1527,7 @@ function CashFlowDashboard({ data, setData, toast }) {
             <tr style={{ background: 'color-mix(in oklch, var(--bad) 8%, transparent)' }}>
               <td colSpan={4} style={{ fontWeight: 700, color: 'var(--bad)', fontSize: cfScale(16), padding: `${cfScale(8)} ${cfScale(14)}` }}>
                 2: กระแสเงินสดออก (Outflow Details) · 4 หมวด
-                <span style={{ fontWeight: 400, fontSize: cfScale(11), color: 'var(--ink-500)', marginLeft: cfScale(8) }}>
+                <span className="no-present" style={{ fontWeight: 400, fontSize: cfScale(11), color: 'var(--ink-500)', marginLeft: cfScale(8) }}>
                   {s01OutMode === 'apPlan'
                     ? '· 📋 แผนจ่ายจริง (AP ที่เลือก + ตั้งมือที่ติ๊ก)' + (s01ApScope === 'week' ? ' · เฉพาะสัปดาห์นี้' : '')
                     : '· ยอดคงเหลือต้องจ่าย (หักที่จ่ายจริงแล้ว)'}
