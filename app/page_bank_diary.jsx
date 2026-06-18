@@ -1557,6 +1557,30 @@ function BDApPanel({ apList, plannedRefs, plannedDateByRef, bankAccounts, defaul
     setSelected(new Set());
   };
 
+  // ── Export รายการ AP (ตามที่กรองอยู่บนหน้าจอ) → Excel ──────────────────
+  // กด "วางแผนแล้ว" ก่อน แล้ว Export = ได้เฉพาะรายการที่วางแผนจ่ายแล้ว
+  const exportExcel = () => {
+    if (!rows.length) { alert('ไม่มีรายการให้ Export'); return; }
+    const scope = statusFilter === 'planned'   ? 'วางแผนจ่ายแล้ว'
+                : statusFilter === 'unplanned' ? 'ยังไม่วางแผน'
+                : 'ทั้งหมด';
+    const cols = [
+      { key:'_payDate',   label:'วันจ่าย (วางแผน)', fmt:(_, a) => (plannedDateByRef && plannedDateByRef[a.vchno]) ? fmtDate(plannedDateByRef[a.vchno]) : '' },
+      { key:'due',        label:'ครบกำหนด',         fmt:(v) => v ? fmtDate(v) : '' },
+      { key:'vendor',     label:'ผู้ขาย' },
+      { key:'vchno',      label:'เลขที่ (AP)' },
+      { key:'cfCategory', label:'ประเภท (CF)',      fmt:(v) => v ? (v + '. ' + bdCatLabel(v)) : '' },
+      { key:'amount',     label:'ยอดสุทธิ',          type:'number' },
+      { key:'_status',    label:'สถานะ',            fmt:(_, a) => isPlanned(a) ? 'วางแผนจ่ายแล้ว' : 'ยังไม่วางแผน' },
+      { key:'remark',     label:'หมายเหตุ' },
+    ];
+    exportRowsToExcel(rows, cols, {
+      filename:  'AP-' + scope,
+      sheetName: 'รายการจ่าย',
+      title:     'เจ้าหนี้ต้องจ่าย (AP) — ' + scope + ' · ' + rows.length + ' รายการ · รวม ' + fmtMoney(totalAmt),
+    });
+  };
+
   const colCount = canEdit ? 8 : 7;
 
   return (
@@ -1592,7 +1616,13 @@ function BDApPanel({ apList, plannedRefs, plannedDateByRef, bankAccounts, defaul
             {s.l}
           </button>
         ))}
-        <span style={{ fontSize:11, color:'#a0aec0', marginLeft:'auto' }}>{rows.length} รายการ</span>
+        <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:10 }}>
+          <span style={{ fontSize:11, color:'#a0aec0' }}>{rows.length} รายการ</span>
+          <button onClick={exportExcel} title="ดาวน์โหลดรายการที่กรองอยู่เป็นไฟล์ Excel (กด ‘วางแผนแล้ว’ ก่อน = ได้เฉพาะรายการที่วางแผนจ่าย)"
+            style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'4px 12px', borderRadius:14, fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'inherit', border:'1px solid #16a34a', background:'#16a34a', color:'#fff' }}>
+            📥 Export Excel
+          </button>
+        </div>
       </div>
 
       {/* Due-date filter */}
