@@ -402,6 +402,14 @@ Live at **https://patima-fin.github.io/waterpog-fin/** — GitHub Pages serves t
 - **(2) ซ่อนปุ่มตอนนำเสนอ** = ใส่ **`className="no-present"`** ที่ `<span>` ปุ่มสลับ (CSS เดิม `body.present-mode .no-present { display:none !important }`). subtitle ยังโชว์ (+ " · เฉพาะสัปดาห์นี้" เมื่อ scope=week).
 - **verify (preview, isolated render `CashFlowDashboard` จริง + mock AP 2 สัปดาห์):** month: current=100k/rest=50k/total=150k → คลิก "เฉพาะสัปดาห์นี้": **current=100k/rest=0/total=100k** (AP สัปดาห์ถัดไป 50k ถูกตัด) ✓. compile ผ่าน (ไม่มี Babel error). present-mode + scope-only-in-apPlan verify บนฝั่ง BIO (โค้ดเดียวกัน).
 
+## 2026-06-18 — การ์ด IV กรองเฉพาะ invType='P' (โครงการ) ตัด 'O' (อื่นๆ) ออก (build `page_cashflow 20260618x`)
+- **ตามคำขอผู้ใช้:** "รายการที่ดึงมาส่วนการ์ดรับเงินโครงการ ต้องเป็น ประเภทงานโครงการเท่านั้น" — เพิ่ม `ivIsProject(iv)` helper (`String(iv.invType || iv.invtype || 'P').trim().toUpperCase() !== 'O'`) และกรองทุกจุดที่คำนวณ KPI/modal IV:
+  - `ivInflowByWeek` (KPI Plan+Actual numbers): กรองหลัง bySafe entry (bySafe ยังมีทุก IV — ไว้ lookup lock เก่า), ก่อนคำนวณ forecast/actual
+  - `doLockIvPlan` (ล็อกแผน baseline): กรองก่อนประมวลผล
+  - `IvPlanDrillModal.planItems` locked branch: กรองใบที่ `iv && !ivIsProject(iv)` (ป้องกัน lock เก่าที่อาจมี 'O'); non-locked branch: กรองต้น forEach
+  - `IvPlanDrillModal.actualItems`: กรองต้น forEach
+- **ทำใน BIOAXEL ด้วย** (`page_cashflow.jsx?v=20260618p`) — โค้ดเหมือนกันทุกจุด.
+
 ## 2026-06-18 — การ์ด "รับเงินโครงการ (IV)" คลิกได้ → modal รายละเอียด IV (build `page_cashflow 20260618w`)
 - **ตามคำขอผู้ใช้:** การ์ด **"รับเงินโครงการ (IV)"** (Section KPI แถวล่าง) เดิมโชว์แค่ Plan vs Actual + % → **คลิกชื่อการ์ดได้** (ชื่อมี `›` + underline dotted) เปิด **`IvPlanDrillModal`** แสดงรายละเอียด IV แยก 4 tab.
 - **`IvPlanDrillModal`** (function ก่อน `PlanVsActualCard`): รับ props `invoices/ivPlanLock/ivForecast/ivActual/financeByCode/weeks/year/month/monthNames/onClose`. **3 KPI บน:** แผน · รับจริงแล้ว · ▲เกินแผน/▽ขาดแผน. **4 tabs:**
