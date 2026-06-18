@@ -402,5 +402,18 @@ Live at **https://patima-fin.github.io/waterpog-fin/** — GitHub Pages serves t
 - **(2) ซ่อนปุ่มตอนนำเสนอ** = ใส่ **`className="no-present"`** ที่ `<span>` ปุ่มสลับ (CSS เดิม `body.present-mode .no-present { display:none !important }`). subtitle ยังโชว์ (+ " · เฉพาะสัปดาห์นี้" เมื่อ scope=week).
 - **verify (preview, isolated render `CashFlowDashboard` จริง + mock AP 2 สัปดาห์):** month: current=100k/rest=50k/total=150k → คลิก "เฉพาะสัปดาห์นี้": **current=100k/rest=0/total=100k** (AP สัปดาห์ถัดไป 50k ถูกตัด) ✓. compile ผ่าน (ไม่มี Babel error). present-mode + scope-only-in-apPlan verify บนฝั่ง BIO (โค้ดเดียวกัน).
 
+## 2026-06-18 — การ์ด "รับเงินโครงการ (IV)" คลิกได้ → modal รายละเอียด IV (build `page_cashflow 20260618w`)
+- **ตามคำขอผู้ใช้:** การ์ด **"รับเงินโครงการ (IV)"** (Section KPI แถวล่าง) เดิมโชว์แค่ Plan vs Actual + % → **คลิกชื่อการ์ดได้** (ชื่อมี `›` + underline dotted) เปิด **`IvPlanDrillModal`** แสดงรายละเอียด IV แยก 4 tab.
+- **`IvPlanDrillModal`** (function ก่อน `PlanVsActualCard`): รับ props `invoices/ivPlanLock/ivForecast/ivActual/financeByCode/weeks/year/month/monthNames/onClose`. **3 KPI บน:** แผน · รับจริงแล้ว · ▲เกินแผน/▽ขาดแผน. **4 tabs:**
+  - **แผนทั้งหมด** — ทุกใบที่วางแผนรับเดือนนี้ (จาก ivPlanLock.items ถ้าล็อก / else liveForecast), sort วันคาดรับ; คอลัมน์ #/IV No/โครงการ/ลูกค้า/แผน฿/วันคาดรับ/สถานะ (badge + วันรับจริงถ้ารับแล้วในเดือน)
+  - **รับแล้ว ✓** — IV ที่ `ivActualReceiveDate(iv)` ตกในเดือนนี้, sort วันล่าสุดก่อน; คอลัมน์ IV/โครงการ/ลูกค้า/รับจริง฿/วันรับจริง
+  - **ยังไม่รับ** — planItems ที่ `!ivIsPaid(iv)`
+  - **⚡ นอกแผน** — actualItems ที่ `!inPlan` = รับจริงแล้วแต่ไม่ได้อยู่ในแผน (= ต้นเหตุที่ Actual > Plan "เกินแผนมา"); มีป้าย "นอกแผน" แดง
+  - แต่ละ tab มี **footer รวมจำนวนใบ + ยอดรวม**
+- **`PlanVsActualCard`** ได้ prop `onClick` (optional): ชื่อการ์ดกลายเป็น `cursor:pointer` + `underline dotted` + `›` suffix + `title="คลิกเพื่อดูรายละเอียด"` เมื่อมี `onClick`; ถ้าไม่มี = พฤติกรรมเดิม. เฉพาะ IV card ที่ผูก `onClick={() => setIvDrill(true)}`.
+- **State `ivDrill`** (`cfState(false)`) ใน `CashFlowDashboard`; modal render ก่อน detailItem modal.
+- **ทำใน BIOAXEL ด้วย** (`page_cashflow.jsx?v=20260618o`) — โค้ดเหมือนกันทุกจุด.
+- **verify:** modal เปิด/ปิด ✓, 4 tabs ✓, ไม่มี console error ✓, `IvPlanDrillModal`/`PlanVsActualCard` defined ✓.
+
 ## Repo rule: keep CLAUDE.md current
 **Every time you `git push`, update this `CLAUDE.md`** to reflect anything that changed (architecture, conventions, new pages, gotchas). Treat it as part of the push, like the `?v=` bump.
