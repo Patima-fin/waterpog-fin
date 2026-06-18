@@ -394,6 +394,13 @@ Live at **https://patima-fin.github.io/waterpog-fin/** — GitHub Pages serves t
 - **กลไกเลือกรวมตั้งมือ = ติ๊กราย entry ผ่าน `WTPOverride cf.sec1Inc.<feId>`** (helper `cfSec1IncKey`, sync ทั้งทีม) — default ไม่รวม. กดที่ช่องในโหมด apPlan → `openApPlanDrill` → modal โชว์ 3 ช่องสรุป + ตาราง AP (read-only) + ตาราง ตั้งมือ (ติ๊กได้). **ไม่รวมทุกรายการตั้งมือเพราะตั้งมือนับใน Section 02 ยอด FORECAST อยู่แล้ว** — ติ๊กรวมเฉพาะที่ต้องการ (กันนับซ้ำ).
 - **Section 02 + KPI การ์ด ไม่กระทบ** (ยังใช้ forecast เต็ม).
 - `cfSec1IncKey` constant (หลัง `cfPvCatKey`): `const cfSec1IncKey = (id) => 'cf.sec1Inc.' + String(id || '').trim();`
+- **(divergence จาก BIO):** WP ใช้ UI toggle แบบ **pill** + grid filter ง่ายกว่า (เช็ค `STATUS==='PLANNED'`); BIO ใช้ segmented control + filter เข้ม (LOAN/BANK_RECON/sign<0). ตัวเลขสำหรับข้อมูลจริงเท่ากัน (Bank Diary เขียน STATUS=PLANNED + AMOUNT ติดลบเสมอ).
+
+## 2026-06-18 — Weekly Forecast Section 01: เพิ่ม "ขอบเขตสัปดาห์ปัจจุบัน" + ซ่อนปุ่มตอนนำเสนอ (build `page_cashflow 20260618s`)
+- **คำขอผู้ใช้ (เตย, ต่อจากด้านบน):** (1) ในโหมด **แผนจ่ายจริง (AP)** บางครั้งอยากเห็น**เฉพาะสัปดาห์ปัจจุบัน** (2) **ปุ่มสลับต้องไม่ขึ้นตอนโหมดนำเสนอ**.
+- **(1) sub-toggle ขอบเขต** (`s01ApScope` ∈ `'month'|'week'`, localStorage `wtp-cf-s01apscope`, default `'month'`, **แสดงเฉพาะเมื่อ `s01OutMode==='apPlan'`**): `'week'` → `apPlanScopedByWeekCat` = zero ทุกสัปดาห์ยกเว้น `nowWeek` → ผ่าน `currentRestSplit` ได้ current = สัปดาห์ปัจจุบัน, **rest = 0, total = current เท่านั้น**. `_outGrid` ใช้ `apPlanScopedByWeekCat`. **drill** (`openApPlanDrill`) เพิ่ม helper `wkOK(d)` scope-aware: `'week'` → ทุก period เห็นเฉพาะ `nowWeek`.
+- **(2) ซ่อนปุ่มตอนนำเสนอ** = ใส่ **`className="no-present"`** ที่ `<span>` ปุ่มสลับ (CSS เดิม `body.present-mode .no-present { display:none !important }`). subtitle ยังโชว์ (+ " · เฉพาะสัปดาห์นี้" เมื่อ scope=week).
+- **verify (preview, isolated render `CashFlowDashboard` จริง + mock AP 2 สัปดาห์):** month: current=100k/rest=50k/total=150k → คลิก "เฉพาะสัปดาห์นี้": **current=100k/rest=0/total=100k** (AP สัปดาห์ถัดไป 50k ถูกตัด) ✓. compile ผ่าน (ไม่มี Babel error). present-mode + scope-only-in-apPlan verify บนฝั่ง BIO (โค้ดเดียวกัน).
 
 ## Repo rule: keep CLAUDE.md current
 **Every time you `git push`, update this `CLAUDE.md`** to reflect anything that changed (architecture, conventions, new pages, gotchas). Treat it as part of the push, like the `?v=` bump.
