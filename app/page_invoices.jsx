@@ -1529,7 +1529,7 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
             }}>{draft.productType}</span>
           )}
           <span style={{ color: 'var(--ink-300)', fontSize: 12 }}>·</span>
-          <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink-700)' }}>{project?.['พื้นที่'] || project?.name || iv.projectName || '—'}</span>
+          <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink-700)' }}>{iv.projectName || project?.['พื้นที่'] || project?.name || '—'}</span>
         </div>
       )}
       maxWidth={920}
