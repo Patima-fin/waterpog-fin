@@ -1359,16 +1359,28 @@
       if (!window.WTPData || !window.WTPData.fetchSheetRows) {
         setData(sampleBase()); setIsSample(true); setLoading(false); return;
       }
+      // ★ Timeout = แสดง sample เป็น "ตัวยึดที่นั่ง" ถ้า fetch ช้าเกิน 12 วิ (เปิด UI +
+      //   ปุ่มอัปโหลดให้กดได้) แต่ "ไม่ล็อก" — ข้อมูลจริงที่มาทีหลังจะ override sample เสมอ
+      //   (gviz fallback ช้าได้ถ้า Supabase timeout ก่อน). done=true เฉพาะเมื่อได้ข้อมูลจริง.
+      let done = false;
+      const showSample = () => { if (!done) { setData(sampleBase()); setIsSample(true); setLoading(false); } };
+      const timeoutId = setTimeout(() => {
+        if (done) return;
+        console.warn('[Budget] fetchSheetRows ช้าเกิน 12 วิ — แสดง sample ชั่วคราว (ข้อมูลจริงจะมาแทนเมื่อโหลดเสร็จ)');
+        showSample();
+      }, 12000);
       window.WTPData.fetchSheetRows(BCC_SHEET)
         .then(rows => {
           const parsed = parseSheetRows(rows);
-          if (parsed) { setData(parsed); setIsSample(false); }
-          else { setData(sampleBase()); setIsSample(true); }
+          if (parsed) { done = true; clearTimeout(timeoutId); setData(parsed); setIsSample(false); setLoading(false); }
+          else { clearTimeout(timeoutId); showSample(); }
         })
-        .catch(() => { setData(sampleBase()); setIsSample(true); })
-        .finally(() => setLoading(false));
+        .catch(() => { clearTimeout(timeoutId); showSample(); });
     };
     useEffect(() => { loadData(); }, []);
+
+    // ── Emergency upload UI (loading screen) — ผู้ใช้กดอัปโหลดได้แม้หน้ายังโหลด ──
+    const loadingFileRef = React.useRef(null);
 
     async function onUpload(file) {
       setUploading(true);
@@ -1416,7 +1428,21 @@
       return (
         <div className="page bcc-page present-page">
           <div className="page-head"><div><h1 className="page-title">Budget Control Center</h1><div className="page-sub">กำลังโหลดข้อมูลจาก BUDGET HO…</div></div></div>
-          <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--ink-400)' }}>กำลังโหลด…</div>
+          <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--ink-400)' }}>
+            <div style={{ marginBottom: 16 }}>กำลังโหลด… (รอสูงสุด 8 วิ)</div>
+            {canEdit && (
+              <div>
+                <div style={{ fontSize: 13, color: 'var(--ink-300)', marginBottom: 8 }}>โหลดนานเกินไป? อัปโหลด Budget.xlsx ใหม่ได้เลย</div>
+                <button onClick={() => loadingFileRef.current && loadingFileRef.current.click()}
+                  disabled={uploading}
+                  style={{ background: 'var(--brand-500)', color: '#fff', border: 0, borderRadius: 8, padding: '10px 18px', fontWeight: 600, cursor: 'pointer' }}>
+                  {uploading ? '⏳ กำลังอ่าน…' : '⬆️ อัปโหลด Budget.xlsx'}
+                </button>
+                <input ref={loadingFileRef} type="file" accept=".xlsx" style={{ display: 'none' }}
+                  onChange={e => { if (e.target.files[0]) onUpload(e.target.files[0]); e.target.value = ''; }} />
+              </div>
+            )}
+          </div>
         </div>
       );
     }

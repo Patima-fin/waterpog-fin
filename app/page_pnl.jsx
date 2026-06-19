@@ -341,14 +341,23 @@ function PnLPage({ data, setData, toast }) {
       setModel(PL_SAMPLE.groups ? { groups: PL_SAMPLE.groups, accounts: {}, lastMonth: PL_SAMPLE.lastMonth } : null);
       setIsSample(true); setLoading(false); return;
     }
+    // ★ Timeout = แสดง sample เป็น "ตัวยึดที่นั่ง" ถ้าช้าเกิน 12 วิ (เปิด UI ให้กดนำเข้าได้)
+    //   แต่ "ไม่ล็อก" — ข้อมูลจริง (รวม gviz fallback ที่อาจช้า) จะ override sample เสมอ
+    const sampleModel = () => ({ groups: PL_SAMPLE.groups, accounts: {}, lastMonth: PL_SAMPLE.lastMonth });
+    let done = false;
+    const showSample = () => { if (!done) { setModel(sampleModel()); setIsSample(true); setLoading(false); } };
+    const timeoutId = setTimeout(() => {
+      if (done) return;
+      console.warn('[P&L] fetchSheetRows ช้าเกิน 12 วิ — แสดง sample ชั่วคราว (ข้อมูลจริงจะมาแทนเมื่อโหลดเสร็จ)');
+      showSample();
+    }, 12000);
     WTPData.fetchSheetRows(PL_SHEET)
       .then(rows => {
         const parsed = PL_parseRows(rows);
-        if (parsed) { setModel(parsed); setIsSample(false); }
-        else { setModel({ groups: PL_SAMPLE.groups, accounts: {}, lastMonth: PL_SAMPLE.lastMonth }); setIsSample(true); }
+        if (parsed) { done = true; clearTimeout(timeoutId); setModel(parsed); setIsSample(false); setLoading(false); }
+        else { clearTimeout(timeoutId); showSample(); }
       })
-      .catch(() => { setModel({ groups: PL_SAMPLE.groups, accounts: {}, lastMonth: PL_SAMPLE.lastMonth }); setIsSample(true); })
-      .finally(() => setLoading(false));
+      .catch(() => { clearTimeout(timeoutId); showSample(); });
   };
   plEffect(() => { loadData(); }, []);
 

@@ -78,6 +78,11 @@
   // หน้า P&L/Budget เรียกผ่าน fetchSheetRows (อ่าน) + WTPData.writeTable (นำเข้า)
   var SHEET_TABLES = ['pnlBase', 'budgetHo'];
   var SHEET_TABLE_SET = {}; SHEET_TABLES.forEach(function (t) { SHEET_TABLE_SET[t] = true; });
+  // ★ Fallback: ถ้าตาราง Supabase ว่าง (เช่น migration หาย/ยังไม่ได้นำเข้า) → อ่าน
+  //   ข้อมูลเดิมจาก Google Sheet tab เดิมแทน (อ่านอย่างเดียว, gviz public, ไม่ต้อง auth).
+  //   คอลัมน์ของ tab เดิมตรงกับที่ parseSheetRows/PL_parseRows ต้องการอยู่แล้ว
+  //   (Phase 5 migrate มาจาก tab พวกนี้). map: pnlBase→'ฐาน DATA', budgetHo→'BUDGET HO'.
+  var SHEET_TABLE_GVIZ = { pnlBase: 'ฐาน DATA', budgetHo: 'BUDGET HO' };
 
   // entity ที่ data.js ตัดออกจาก localStorage (กัน quota) → load() ไม่มี → ต้องใช้ React state / cachedData
   var skipCache = (WTPData.SKIP_CACHE_KEYS instanceof Set) ? WTPData.SKIP_CACHE_KEYS : new Set();
@@ -447,6 +452,17 @@
       return selectAll(entity).then(function (recs) {
         var objs = recs.map(recToRow);
         if (entity === 'presence') objs = objs.filter(function (r) { return r && r.username; });
+        // ★ Supabase ว่าง + มี gviz fallback (P&L/Budget) → อ่านจาก Google Sheet เดิม
+        if (objs.length === 0 && SHEET_TABLE_GVIZ[entity]) {
+          console.warn('[WTP Supabase] ' + entity + ' ว่างใน Supabase — อ่าน fallback จาก Google Sheet tab "' + SHEET_TABLE_GVIZ[entity] + '"');
+          return gvizFetch(SHEET_TABLE_GVIZ[entity]).then(function (rows) {
+            var gobjs = gvizRowsToObjects(rows, null);
+            return predicate ? gobjs.filter(predicate) : gobjs;
+          }).catch(function (err) {
+            console.warn('[WTP Supabase] gviz fallback ล้มเหลว:', err && err.message);
+            return [];
+          });
+        }
         return predicate ? objs.filter(predicate) : objs;
       });
     }
