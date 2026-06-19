@@ -1375,9 +1375,9 @@ function CashFlowDashboard({ data, setData, toast }) {
                 html, body { background: #f4f7fb !important; }
               }
             `;
-            document.body.classList.add('cf-print-mode');
+            document.body.classList.add('present-mode', 'cf-print-mode');
             const cleanup = () => {
-              document.body.classList.remove('cf-print-mode');
+              document.body.classList.remove('present-mode', 'cf-print-mode');
               if (style.parentNode) style.parentNode.removeChild(style);
               window.removeEventListener('afterprint', cleanup);
             };

@@ -429,6 +429,12 @@ Live at **https://patima-fin.github.io/waterpog-fin/** — GitHub Pages serves t
 - **FIX:** `slice(0, 36)` → `slice(0, 120)` — รองรับชื่อยาวได้สบาย synthetic code ยังเป็น text ธรรมดา ไม่มี constraint ความยาว (Postgres `text` PK). **ไม่กระทบ id ของโครงการที่มีเลขสัญญาจริง** (path แยกกัน).
 - **⚠️ หลังแก้: ต้องอัปโหลดไฟล์ใหม่อีกครั้ง** — โครงการที่เคยถูก merge เป็น 1 จะถูกสร้างเป็น 2 รายการ (id ใหม่); Finance Master (`pcfin.*`) ของโครงการเดิมไม่ติดมาด้วย (ต้องกรอกใหม่).
 
+## 2026-06-19 — cf-print-mode: เลย์เอาท์เหมือนโหมดนำเสนอ (build `page_cashflow 20260619c` / `styles.css 20260619e`)
+- **ปัญหา:** ผลลัพธ์ PDF ไม่สวย เลย์เอาท์และสีพื้นหลังการ์ดไม่ตรงกับโหมดนำเสนอ.
+- **แนวทางใหม่:** ปุ่มพิมพ์ใน `page_cashflow.jsx` เพิ่ม **ทั้ง `present-mode` และ `cf-print-mode`** พร้อมกัน → `present-mode` จัดการ card styling ที่สวยงาม (`border-radius:20px`, box-shadow แบบนำเสนอ, ซ่อน sidebar/no-present) — เหมือนกับที่เห็นบนจอตอนนำเสนอจริง; `cf-print-mode` override เฉพาะ print-specific: compact padding, ซ่อน topbar, แสดง gradient header, zoom 0.78, A4 page.
+- **CSS simplification:** ลบ rule ที่ duplicate กับ present-mode ออก (`border: 1px solid`, `border-radius: 12px`, sidebar hiding, etc.) — ตอนนี้ cf-print-mode เป็นแค่ "print overrides on top of present-mode" ไม่ใช่ full standalone mode.
+- **Verify (preview):** `heroCard_bg=linear-gradient ✓` / `border-radius=20px ✓` / `printHdr=flex ✓` / `topbar=none ✓` / `pageHead=none ✓` / `grandCard_bg=#0f244d ✓`.
+
 ## 2026-06-19 — cf-print-mode: แก้การ์ดไม่มีสีพื้นหลัง (ROOT CAUSE: background !important ทับ inline gradient) — build `styles.css 20260619d`
 - **ROOT CAUSE:** `body.cf-print-mode .cf-page .card { background: var(--surface) !important; }` ใน cf-print-mode block ทับ inline style `style={{ background: 'linear-gradient(...)' }}` ของ `BalanceCard` — CSS `!important` ชนะ inline style ทุกกรณีถ้า specificity เท่ากัน → การ์ด hero (B/F + ยอดใช้ได้ปัจจุบัน) โชว์สีพื้นขาว ไม่มี gradient.
 - **FIX:** ลบ `background` และ `padding` ออกจาก rule `.card` ทั่วไปใน cf-print-mode → แต่ละการ์ดควบคุม background ตัวเอง (inline gradient ปรากฏปกติ). `.grid-2 .card` ยังมี `padding: 10px 14px !important` (เฉพาะ hero cards) + `.grid-3 .card` มี `padding: 6px 10px !important`. Rule ทั่วไปเหลือแค่ `box-shadow`/`border`/`border-radius`.
