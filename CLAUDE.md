@@ -429,5 +429,10 @@ Live at **https://patima-fin.github.io/waterpog-fin/** — GitHub Pages serves t
 - **FIX:** `slice(0, 36)` → `slice(0, 120)` — รองรับชื่อยาวได้สบาย synthetic code ยังเป็น text ธรรมดา ไม่มี constraint ความยาว (Postgres `text` PK). **ไม่กระทบ id ของโครงการที่มีเลขสัญญาจริง** (path แยกกัน).
 - **⚠️ หลังแก้: ต้องอัปโหลดไฟล์ใหม่อีกครั้ง** — โครงการที่เคยถูก merge เป็น 1 จะถูกสร้างเป็น 2 รายการ (id ใหม่); Finance Master (`pcfin.*`) ของโครงการเดิมไม่ติดมาด้วย (ต้องกรอกใหม่).
 
+## 2026-06-19 — cf-print-mode: แก้การ์ดไม่มีสีพื้นหลัง (ROOT CAUSE: background !important ทับ inline gradient) — build `styles.css 20260619d`
+- **ROOT CAUSE:** `body.cf-print-mode .cf-page .card { background: var(--surface) !important; }` ใน cf-print-mode block ทับ inline style `style={{ background: 'linear-gradient(...)' }}` ของ `BalanceCard` — CSS `!important` ชนะ inline style ทุกกรณีถ้า specificity เท่ากัน → การ์ด hero (B/F + ยอดใช้ได้ปัจจุบัน) โชว์สีพื้นขาว ไม่มี gradient.
+- **FIX:** ลบ `background` และ `padding` ออกจาก rule `.card` ทั่วไปใน cf-print-mode → แต่ละการ์ดควบคุม background ตัวเอง (inline gradient ปรากฏปกติ). `.grid-2 .card` ยังมี `padding: 10px 14px !important` (เฉพาะ hero cards) + `.grid-3 .card` มี `padding: 6px 10px !important`. Rule ทั่วไปเหลือแค่ `box-shadow`/`border`/`border-radius`.
+- **Pattern:** ถ้า `card` ใดมี inline `background: linear-gradient(...)` ห้ามมี CSS rule `background: ... !important` ครอบ `.card` ทั่วไป — ต้องระบุ selector เฉพาะ (เช่น `.cf-grand-card` ที่ต้องการ `background: #0f244d !important`).
+
 ## Repo rule: keep CLAUDE.md current
 **Every time you `git push`, update this `CLAUDE.md`** to reflect anything that changed (architecture, conventions, new pages, gotchas). Treat it as part of the push, like the `?v=` bump.

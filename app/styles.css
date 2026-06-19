@@ -967,13 +967,13 @@ body.present-mode .wr-page { zoom: 1.3; }
   /* Scale down for A4 portrait — portrait is narrower (~190mm) than landscape (~270mm) */
   body.cf-print-mode .cf-page { zoom: 0.78; }
 
-  /* ── Restore presentation card style (override default print stripping) ── */
+  /* ── Restore card chrome (override generic print stripping) ── */
   body.cf-print-mode .cf-page .card {
     box-shadow: 0 2px 4px rgba(0,0,0,0.06) !important;
     border: 1px solid var(--ink-100) !important;
     border-radius: 12px !important;
-    padding: 10px 12px !important;
-    background: var(--surface) !important;
+    /* ✦ NO background override — let inline gradient styles on BalanceCard / cf-grand-card show through */
+    /* ✦ NO padding override — each card controls its own padding */
   }
 
   /* Dedicated gradient print header — shown when cf-print-mode active */
