@@ -965,6 +965,9 @@ body.present-mode .wr-page { zoom: 1.3; }
   body.cf-print-mode .main { display: block !important; }
   body.cf-print-mode .page { padding: 0 !important; max-width: 100% !important; }
 
+  /* Scale down for A4 portrait — portrait is narrower (~190mm) than landscape (~270mm) */
+  body.cf-print-mode .cf-page { zoom: 0.78; }
+
   /* ── Restore presentation card style (override default print stripping) ── */
   body.cf-print-mode .cf-page .card {
     box-shadow: 0 2px 4px rgba(0,0,0,0.06) !important;
@@ -1557,6 +1560,109 @@ body.present-mode .wr-page { zoom: 1.3; }
   /* Hide cursors / hover affordances */
   body.dr-print-mode * { cursor: default !important; }
   body.dr-print-mode * { animation: none !important; transition: none !important; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   WAR ROOM PAGES — A4 portrait print mode (สวยเหมือนโหมดนำเสนอ)
+   Trigger: body.wr-print-mode (injected by print handler, removed after)
+   WarRoomPage1 (#warroom1) + WarRoomPage2 (#warroom2) both use .wr-page
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media print {
+  body.wr-print-mode,
+  body.wr-print-mode * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  body.wr-print-mode { background: #f0f4ff !important; font-size: 9pt; }
+
+  /* Hide chrome */
+  body.wr-print-mode .sb,
+  body.wr-print-mode .topbar,
+  body.wr-print-mode .sb-scrim,
+  body.wr-print-mode .tabnav,
+  body.wr-print-mode .modal-back,
+  body.wr-print-mode .toast-stack,
+  body.wr-print-mode .no-print,
+  body.wr-print-mode .row-act,
+  body.wr-print-mode .menu-btn,
+  body.wr-print-mode .wr-page .page-head-r {
+    display: none !important;
+  }
+
+  /* Full-width layout */
+  body.wr-print-mode .app,
+  body.wr-print-mode .main { display: block !important; }
+  body.wr-print-mode .page.wr-page { padding: 0 !important; max-width: 100% !important; }
+
+  /* Page header — gradient brand band (เหมือน iv-print-header) */
+  body.wr-print-mode .wr-page .page-head {
+    background: linear-gradient(135deg, #1a4490 0%, #1f56b8 50%, #2a6fdb 100%) !important;
+    color: white !important;
+    padding: 12pt 16pt !important;
+    border-radius: 10pt !important;
+    margin-bottom: 9pt !important;
+    border: none !important;
+    box-shadow: 0 4pt 12pt rgba(26,68,144,.22) !important;
+  }
+  body.wr-print-mode .wr-page .page-title {
+    font-size: 16pt !important;
+    color: white !important;
+    margin: 0 !important;
+  }
+  body.wr-print-mode .wr-page .page-sub {
+    font-size: 9pt !important;
+    color: rgba(255,255,255,0.85) !important;
+    margin-top: 3pt !important;
+  }
+
+  /* Cards — restore visual from generic @media print strip */
+  body.wr-print-mode .wr-page .card {
+    box-shadow: 0 1pt 4pt rgba(0,0,0,0.09) !important;
+    border: 1px solid rgba(26,68,144,0.10) !important;
+    padding: 0 !important;
+    margin-bottom: 7pt !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  body.wr-print-mode .wr-page .kpi {
+    box-shadow: 0 1pt 4pt rgba(0,0,0,0.09) !important;
+    border: 1px solid rgba(26,68,144,0.10) !important;
+    padding: 10pt 14pt !important;
+    break-inside: avoid;
+  }
+
+  /* KPI grids */
+  body.wr-print-mode .wr-page .grid-2 { display: grid !important; grid-template-columns: repeat(2, 1fr) !important; gap: 5pt !important; margin-bottom: 6pt !important; }
+  body.wr-print-mode .wr-page .grid-3 { display: grid !important; grid-template-columns: repeat(3, 1fr) !important; gap: 5pt !important; }
+  body.wr-print-mode .wr-page .grid-4 { display: grid !important; grid-template-columns: repeat(4, 1fr) !important; gap: 4pt !important; }
+  body.wr-print-mode .wr-page .grid-5 { display: grid !important; grid-template-columns: repeat(5, 1fr) !important; gap: 3pt !important; }
+
+  /* Tables */
+  body.wr-print-mode .wr-page .tbl { width: 100% !important; font-size: 8.5pt !important; }
+  body.wr-print-mode .wr-page .tbl thead { display: table-header-group !important; }
+  body.wr-print-mode .wr-page .tbl tbody tr { break-inside: avoid; page-break-inside: avoid; }
+  body.wr-print-mode .wr-page .tbl tbody tr:hover { background: transparent !important; }
+  body.wr-print-mode .wr-page .tbl thead th {
+    background: var(--brand-50) !important;
+    color: var(--brand-700) !important;
+    border-color: var(--brand-200) !important;
+    padding: 4pt 8pt !important;
+    font-size: 8pt !important;
+  }
+  body.wr-print-mode .wr-page .tbl tbody td { border-color: var(--line) !important; padding: 3pt 8pt !important; }
+  body.wr-print-mode .wr-page .tbl tfoot tr { background: var(--brand-50) !important; }
+  body.wr-print-mode .wr-page .tbl tfoot td {
+    font-weight: 700 !important;
+    padding: 5pt 8pt !important;
+    color: var(--brand-800) !important;
+    border-top: 2px solid var(--brand-300) !important;
+  }
+
+  /* Section headings */
+  body.wr-print-mode .wr-page h2 { font-size: 11pt !important; margin: 0 0 4pt !important; color: var(--ink-900) !important; }
+
+  body.wr-print-mode * { cursor: default !important; animation: none !important; transition: none !important; }
 }
 
 /* ──────────────────────────────────────────────────────────────────────────

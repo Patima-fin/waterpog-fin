@@ -1354,7 +1354,7 @@ function CashFlowDashboard({ data, setData, toast }) {
             }
             style.textContent = `
               @media print {
-                @page { size: A4 landscape; margin: 8mm 10mm; }
+                @page { size: A4 portrait; margin: 8mm 10mm; }
                 html, body { background: #f4f7fb !important; }
               }
             `;
@@ -1367,7 +1367,7 @@ function CashFlowDashboard({ data, setData, toast }) {
             window.addEventListener('afterprint', cleanup);
             setTimeout(cleanup, 60000);
             setTimeout(() => window.print(), 50);
-          }} title="พิมพ์ A4 แนวนอน (เฉพาะส่วน Present)">
+          }} title="พิมพ์ A4 แนวตั้ง">
             <Icon name="print" size={14} /> พิมพ์ / PDF
           </button>
         </div>

@@ -175,12 +175,22 @@ function WarRoomPage1({ data, setData, toast }) {
         </div>
         <div className="page-head-r">
           <a className="btn btn-ghost" href="#warroom2"><Icon name="arrow" size={14} /> หน้าถัดไป · ประมาณการรายปี</a>
-          <button className="btn btn-ghost no-present"><Icon name="download" size={14} /> ส่งออก PDF</button>
+          <button className="btn btn-ghost no-present" onClick={() => {
+            const styleId = 'wr1-print-style';
+            let s = document.getElementById(styleId);
+            if (!s) { s = document.createElement('style'); s.id = styleId; document.head.appendChild(s); }
+            s.textContent = '@media print { @page { size: A4 portrait; margin: 8mm 10mm; } }';
+            document.body.classList.add('wr-print-mode');
+            const cleanup = () => { document.body.classList.remove('wr-print-mode'); if (s.parentNode) s.parentNode.removeChild(s); window.removeEventListener('afterprint', cleanup); };
+            window.addEventListener('afterprint', cleanup);
+            setTimeout(cleanup, 60000);
+            setTimeout(() => window.print(), 50);
+          }} title="พิมพ์ A4 แนวตั้ง"><Icon name="print" size={14} /> พิมพ์ / PDF</button>
         </div>
       </div>
 
       {/* invType filter toggle */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }} className="anim-in">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }} className="anim-in no-print">
         <span style={{ fontSize: 12, color: 'var(--ink-500)' }}>กรองประเภทใบแจ้งหนี้:</span>
         {[
           { k: 'all', label: 'ทั้งหมด',           bg: '#f8fafc', color: '#2d3748', bd: '#cbd5e0' },
