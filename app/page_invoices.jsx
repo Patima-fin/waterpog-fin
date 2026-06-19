@@ -371,8 +371,8 @@ function InvoicesPage({ data, setData, toast }) {
     // invType: 'P' = ใบแจ้งหนี้โครงการ (default), 'O' = ใบแจ้งหนี้อื่นๆ
     const rawIvType = (iv.invType || iv.invtype || 'P').toString().trim().toUpperCase();
     const invType   = rawIvType === 'O' ? 'O' : 'P';
-    // customer: cloud sheet ใช้ customerName + customerCode (รองรับชื่อเก่าด้วย)
-    const customerName = (iv.customerName || iv.customer || iv.Customer || iv.cust_name || '').toString().trim();
+    // customer: อ่านจาก IV ก่อน fallback projects['Customer']
+    const customerName = (iv.customerName || iv.customer || iv.Customer || iv.cust_name || p['Customer'] || '').toString().trim();
     const customerCode = (iv.customerCode || iv.cust_code || '').toString().trim();
     const customer = customerName;
     return {
