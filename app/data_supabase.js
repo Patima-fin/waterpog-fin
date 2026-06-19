@@ -624,15 +624,20 @@
     try { return sb.auth.signOut().then(function () {}, function () {}); } catch (_) { return Promise.resolve(); }
   };
   // หลัง login สำเร็จ / restore session → โหลดข้อมูลใหม่ด้วย JWT เพื่อให้ผ่าน RLS
-  // INITIAL_SESSION = เปิดแท็บใหม่ที่ session ยังค้างอยู่ → supabase-js restore ก่อน
-  //   first load ด้านล่างยิงไปก่อน session พร้อม (RLS block → data=[]) → ต้อง reload
-  //   ด้วย INITIAL_SESSION อีกรอบเมื่อ JWT สด. SIGNED_IN = login ใหม่ตามปกติ.
+  // ★ แก้ "เข้าระบบช้า": เดิมมี loadFromServer() แบบ eager (ยิงทันทีตอน init เป็น anon
+  //   ก่อน JWT restore → RLS บล็อก ได้ของเปล่า เสียเที่ยว) ซ้อนกับ INITIAL_SESSION ที่
+  //   supabase-js ยิงเสมอตอน init (พร้อม JWT) → โหลด 23 ตาราง 2 ชุดพร้อมกัน แย่ง bandwidth
+  //   = ช้า/timeout. ตอนนี้ให้ "auth event เป็นตัวขับ" อย่างเดียว:
+  //     INITIAL_SESSION = เปิดแท็บ (มี/ไม่มี session ก็ยิง) → โหลดครั้งแรกด้วย JWT ที่ถูกต้อง
+  //     SIGNED_IN       = login ใหม่ → โหลดด้วย JWT ใหม่
+  //   + fallback กันเหนียว: ถ้า auth event ไม่ยิงภายใน 2.5s (เผื่อ race หา handler ไม่ทัน) → โหลดเอง
+  var loadKicked = false;
+  var _loadFromServer = loadFromServer;
+  loadFromServer = function () { loadKicked = true; return _loadFromServer(); };
   try {
     sb.auth.onAuthStateChange(function (event) {
       if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') loadFromServer();
     });
   } catch (_) {}
-
-  /* ── first load (optimistic — อาจไม่มี JWT ทัน ถ้า session ค้างอยู่ INITIAL_SESSION จะ reload) ── */
-  loadFromServer();
+  setTimeout(function () { if (!loadKicked) loadFromServer(); }, 2500);
 })();
