@@ -61,6 +61,15 @@
     realtime: { params: { eventsPerSecond: 20 } },
   });
 
+  // ── ★ auth-ready gate (แก้รากอาการ "หน้า Budget/P&L หมุนช้า") ──────────────
+  //   เปิดแท็บใหม่ที่ session ค้างอยู่ → supabase-js ต้อง restore JWT แบบ async ก่อน.
+  //   ถ้ายิง query ก่อน JWT พร้อม จะวิ่งเป็น anon → RLS ปฏิเสธ คืน [] เงียบๆ →
+  //   เดิมตก gviz fallback (อ่าน Google Sheet ทั้ง tab) = ช้าหลายวิ. authReady
+  //   resolve เมื่อ getSession() เสร็จ (มี/ไม่มี session ก็ถือว่า "พร้อม") → ทุก
+  //   read (selectAll) รอจุดนี้ก่อน → JWT ทันเสมอ ไม่ตก gviz, ไม่ต้องพึ่ง timeout.
+  //   getSession อ่านจาก storage (เร็ว); ไม่บล็อกนานเหมือน gviz.
+  var authReady = sb.auth.getSession().then(function () {}, function () {});
+
   /* ── entity lists (ให้ตรงกับ CRUD_KEYS ใน data.js + CRUD_ENTITIES ใน data_sync.js) ─ */
   // CRUD_ENTITIES = entity ที่ push ผ่าน save()/diff (presence เขียนผ่าน pushPresence แยก)
   var CRUD_ENTITIES = ['projects', 'invoices', 'forecastEntries',
@@ -158,7 +167,9 @@
         return next();
       });
     }
-    return next();
+    // ★ รอ authReady ก่อน query เสมอ → JWT พร้อม → RLS ผ่าน (ไม่คืน [] หลอกจน
+    //   ตก gviz). authReady เป็น resolved-promise เร็ว ไม่เพิ่ม latency ที่สังเกตได้.
+    return authReady.then(next);
   }
 
   /* ── โหลดข้อมูลทั้งหมดจาก Supabase แล้วประกอบ data object ──────────────── */
