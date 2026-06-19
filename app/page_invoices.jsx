@@ -1419,8 +1419,9 @@ function InvoiceDetailModal({ iv, onClose, onSave, bankAccounts, projects, finan
 
   const isNew    = !draft.id;
   const isPaid   = draft.status === 'paid';
-  const project  = projectByCode[draft.jobNo];
-  const finance  = financeByCode[draft.jobNo];
+  const _cleanDraftJobNo = normalizeJobNo(draft.jobNo).jobNo;
+  const project  = projectByCode[_cleanDraftJobNo] || projectByCode[draft.contractRef] || projectByCode[draft.jobNo];
+  const finance  = financeByCode[_cleanDraftJobNo] || financeByCode[draft.contractRef] || financeByCode[draft.jobNo];
   const debt     = resolveDebt(draft, finance);
 
   // ── debt override display state — formatted number with commas, blank = use default ─
