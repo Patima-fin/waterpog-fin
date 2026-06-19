@@ -385,7 +385,7 @@ function InvoicesPage({ data, setData, toast }) {
       customer,
       customerName,
       customerCode,
-      projectName: p['พื้นที่'] || p.name || iv.projectName || '—',
+      projectName: iv.projectName || p['พื้นที่'] || p.name || '—',
       assignee,
       assigneeIsOverride,
       debt,
