@@ -1327,6 +1327,23 @@ function CashFlowDashboard({ data, setData, toast }) {
 
   return (
     <div className="page bg-pattern cf-page present-page">
+      {/* ── Print-only gradient header — shown in cf-print-mode (like iv-print-header) ── */}
+      <div className="cf-print-header" style={{ display: 'none' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 44, height: 44, borderRadius: 9, background: 'white', display: 'grid', placeItems: 'center', padding: 4, boxShadow: '0 2pt 8pt rgba(0,0,0,.18)', flexShrink: 0 }}>
+            <img src="waterpog_Logo-02.png" style={{ width: '100%', height: 'auto', objectFit: 'contain' }} alt="Water POG" />
+          </div>
+          <div>
+            <div style={{ fontSize: '8pt', opacity: .88, letterSpacing: '.18em', textTransform: 'uppercase', fontWeight: 600 }}>Water POG · Finance</div>
+            <div style={{ fontSize: '15pt', fontWeight: 800, lineHeight: 1.1, marginTop: 3 }}>ประมาณการกระแสเงินสด</div>
+            <div style={{ fontSize: '8.5pt', opacity: .78, marginTop: 2 }}>Weekly Cash Flow Forecast</div>
+          </div>
+        </div>
+        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+          <div style={{ fontSize: '20pt', fontWeight: 800, lineHeight: 1, letterSpacing: '-.02em' }}>{monthNames[month - 1]} {year}</div>
+          <div style={{ fontSize: '8.5pt', opacity: .9, marginTop: 4, fontWeight: 500 }}>ข้อมูล ณ {fmtDate(today.toISOString().slice(0, 10))}</div>
+        </div>
+      </div>
       {/* Header */}
       <div className="page-head anim-in">
         <div>

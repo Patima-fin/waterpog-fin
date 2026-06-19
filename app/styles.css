@@ -928,13 +928,12 @@ body.present-mode .wr-page { zoom: 1.3; }
 .print-only { display: none; }     /* hidden on screen, shown in print */
 
 /* ============================================================================
-   PRINT — Cashflow page (A4 landscape, present-only, keep visual style)
-   Triggered when body.cf-print-mode is added before window.print()
-   Strategy: minimal overrides — preserve gradients, colors, card shadows
-   so the PDF looks like the on-screen presentation.
-   Landscape A4: 297 × 210 mm usable ~ 277 × 194mm with 8/10mm margins
+   PRINT — Cashflow page (A4 portrait, like present mode)
+   @media screen,print → styles apply on-screen (when cf-print-mode set) AND
+   in print dialog/PDF. .cf-print-header (gradient band) replaces .page-head
+   (same pattern as iv-print-mode / iv-print-header).
    ============================================================================ */
-@media print {
+@media screen, print {
   /* ── Force backgrounds + colors to print (Chrome/Edge/Safari) ───────────── */
   body.cf-print-mode,
   body.cf-print-mode * {
@@ -977,18 +976,22 @@ body.present-mode .wr-page { zoom: 1.3; }
     background: var(--surface) !important;
   }
 
-  /* Page header — gradient brand band (same as iv-print-header) */
-  body.cf-print-mode .cf-page .page-head {
+  /* Dedicated gradient print header — shown when cf-print-mode active */
+  body.cf-print-mode .cf-print-header {
+    display: flex !important;
+    justify-content: space-between;
+    align-items: center;
     background: linear-gradient(135deg, #1a4490 0%, #1f56b8 50%, #2a6fdb 100%) !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
     color: white !important;
     padding: 10pt 14pt !important;
-    border-radius: 8pt !important;
+    border-radius: 10pt !important;
     margin-bottom: 8pt !important;
-    border: none !important;
-    box-shadow: 0 3pt 10pt rgba(26,68,144,.22) !important;
+    box-shadow: 0 4pt 12pt rgba(26,68,144,.22) !important;
   }
-  body.cf-print-mode .cf-page .page-title { font-size: 15pt !important; color: #fff !important; margin: 0 !important; }
-  body.cf-print-mode .cf-page .page-sub   { font-size: 9pt !important; color: rgba(255,255,255,0.85) !important; margin-top: 2pt !important; }
+  /* Hide the regular page header — cf-print-header replaces it */
+  body.cf-print-mode .cf-page .page-head { display: none !important; }
 
   /* Hero cards (B/F + Strategic) + 3 KPIs side-by-side in landscape
      → fits 5 cards in one row (2+3) for compact landscape layout */
