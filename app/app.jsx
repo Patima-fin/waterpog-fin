@@ -429,6 +429,9 @@ function App() {
   // Auto-close drawer when route changes (after tapping a nav item)
   aEffect(() => { setSbOpen(false); }, [route]);
 
+  // แจ้ง Supabase realtime เมื่อเปลี่ยนหน้า → subscribe เฉพาะตารางที่หน้านั้นต้องการ
+  aEffect(() => { if (window.WTPData && WTPData.setRoute) WTPData.setRoute(route); }, [route]);
+
   // Lock body scroll while drawer is open on mobile
   aEffect(() => {
     document.body.style.overflow = sbOpen ? 'hidden' : '';

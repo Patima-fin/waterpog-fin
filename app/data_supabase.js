@@ -19,7 +19,7 @@
 (function () {
   'use strict';
 
-  var BUILD_ID = '20260617s2';
+  var BUILD_ID = '20260619f';
   var cfg = window.WTP_CONFIG || {};
 
   // ── เปิดเฉพาะโหมด supabase ─────────────────────────────────────────
@@ -220,18 +220,85 @@
     });
   }
 
-  /* ── Realtime: 1 channel ฟังทุกตาราง public แล้ว apply เข้า cache + แจ้ง React ── */
-  var rtChannel = null;
-  function ensureRealtime() {
-    if (rtChannel) return;
-    rtChannel = sb.channel('wtp-all')
-      .on('postgres_changes', { event: '*', schema: 'public' }, function (payload) {
-        try { applyRealtime(payload); } catch (e) { console.warn('[WTP Supabase] realtime apply error:', e && e.message); }
-      })
-      .subscribe(function (status) {
-        if (status === 'SUBSCRIBED') console.info('[WTP Supabase] realtime พร้อม (push)');
-      });
+  /* ── Realtime: subscribe เฉพาะตารางที่หน้าปัจจุบันต้องการ (ลด CPU Postgres WAL) ──
+   *   ทุก write ใน public schema ทำให้ Postgres ประมวล WAL event ส่งไปทุก client ที่ subscribe.
+   *   wildcard (schema:'public') = Postgres เช็คทุก write ทุกตาราง → CPU พุ่ง.
+   *   แก้: subscribe เฉพาะตารางของหน้าที่เปิดอยู่ + ตารางกลางที่ทุกหน้าต้องการ.
+   *
+   *   ALWAYS_TABLES = ตารางที่ทุกหน้าใช้ร่วม (sidebar counts, home alerts, session)
+   *   ROUTE_TABLES  = ตารางเพิ่มตามหน้า
+   *   WTPData.setRoute(route) เรียกจาก app.jsx เมื่อเปลี่ยนหน้า → rebuild channel
+   */
+  var ALWAYS_TABLES = ['manualOverrides', 'presence', 'bankAccounts', 'forecastEntries', 'invoices'];
+
+  var ROUTE_TABLES = {
+    home:          ['cashflowSnapshots', 'payables', 'checks', 'receipts', 'projects'],
+    cashflow:      ['cashflowSnapshots', 'pvVouchers', 'payables', 'receipts'],
+    bank_diary:    ['cashflowSnapshots', 'pvVouchers', 'payables', 'checks', 'bankEntries', 'bankTransfers'],
+    bank_recon:    ['bankReconLines', 'bankReconState', 'pvVouchers'],
+    daily_balance: ['cashflowSnapshots'],
+    daily:         ['pvVouchers', 'receipts'],
+    warroom1:      ['pvVouchers', 'receipts', 'projects', 'cashflowSnapshots'],
+    warroom2:      ['pvVouchers', 'receipts', 'projects', 'cashflowSnapshots'],
+    invoices:      ['receipts', 'projects'],
+    iv_report:     ['receipts', 'projects'],
+    receipts:      ['receipts', 'projects'],
+    projects:      ['projects'],
+    investor:      ['projects', 'receipts'],
+    debt:          ['debtMaster', 'debtLedger', 'debtEvents'],
+    debt_ledger:   ['debtMaster', 'debtLedger', 'debtEvents'],
+    interest_calc: ['debtMaster', 'debtLedger', 'debtEvents'],
+    checks:        ['checks', 'pvVouchers'],
+    data_forecast: ['payables', 'pvVouchers'],
+    data_bank:     ['bankEntries', 'bankTransfers', 'cashflowSnapshots'],
+    data_pv:       ['pvVouchers'],
+    data_payable:  ['payables'],
+    sts_calc:      ['stsServiceFee', 'stsPendingCalc', 'stsCalcResult', 'debtMaster'],
+    sts_workflow:  ['stsServiceFee', 'stsPendingCalc', 'stsCalcResult'],
+    pnl:           [],
+    budget:        [],
+    audit_log:     [],
+    users:         [],
+  };
+
+  var rtChannel   = null;
+  var rtTables    = [];     // ตารางที่ channel ปัจจุบัน subscribe อยู่
+  var currentRoute = 'home';
+
+  function _tablesForRoute(route) {
+    var extra = ROUTE_TABLES[route] || [];
+    var set = {}, out = [];
+    ALWAYS_TABLES.concat(extra).forEach(function (t) { if (!set[t]) { set[t] = true; out.push(t); } });
+    return out;
   }
+
+  function _rebuildRealtime(tables) {
+    // ถ้า channel เดิมมีตารางชุดเดิมพอดี → ไม่ต้อง rebuild
+    if (rtChannel && JSON.stringify(rtTables.slice().sort()) === JSON.stringify(tables.slice().sort())) return;
+    // ถอด channel เก่า
+    if (rtChannel) { try { sb.removeChannel(rtChannel); } catch (_) {} rtChannel = null; }
+    rtTables = tables;
+    if (!tables.length) return;
+
+    var ch = sb.channel('wtp-page');
+    tables.forEach(function (t) {
+      ch = ch.on('postgres_changes', { event: '*', schema: 'public', table: t }, function (payload) {
+        try { applyRealtime(payload); } catch (e) { console.warn('[WTP Supabase] realtime apply error:', e && e.message); }
+      });
+    });
+    rtChannel = ch.subscribe(function (status) {
+      if (status === 'SUBSCRIBED')
+        console.info('[WTP Supabase] realtime พร้อม — ' + tables.length + ' ตาราง: ' + tables.join(', '));
+    });
+  }
+
+  function ensureRealtime() { _rebuildRealtime(_tablesForRoute(currentRoute)); }
+
+  // app.jsx เรียกเมื่อเปลี่ยน route → rebuild channel เฉพาะตารางที่หน้านั้นต้องการ
+  WTPData.setRoute = function (route) {
+    currentRoute = route || 'home';
+    _rebuildRealtime(_tablesForRoute(currentRoute));
+  };
   function applyRealtime(payload) {
     var t = payload.table;
     if (!TABLE_SET[t] || !cachedData) return;      // เฉพาะตาราง entity ที่รู้จัก
@@ -597,10 +664,12 @@
   });
 
   /* ── กลับมาที่ tab → refresh (กัน realtime หลุดช่วง tab ค้าง) ─────────────── */
+  // threshold 5 นาที (เดิม 30s ทำให้ full reload ทุกครั้งที่สลับแท็บ → CPU พุ่ง)
   document.addEventListener('visibilitychange', function () {
     if (document.hidden) return;
     var since = lastSyncTime ? (Date.now() - lastSyncTime.getTime()) : Infinity;
-    if (since > 30000) loadFromServer();
+    if (since > 300000) loadFromServer();
+    else _rebuildRealtime(_tablesForRoute(currentRoute)); // realtime อาจหลุดช่วง hidden → reconnect เบาๆ
   });
 
   /* ── Phase 4: Supabase Auth (ใช้เมื่อ config.USE_SUPABASE_AUTH = true) ──────────
