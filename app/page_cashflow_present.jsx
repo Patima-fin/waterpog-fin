@@ -224,7 +224,7 @@
       bank: find(/^BANK$/i), acct: find(/ACCOUNT\s*NO/i), dept: find(/Department/i),
       doc: find(/Document\s*No/i), date: find(/DD\/MM|^DATE$|วันที่/i), vender: find(/Vender|Vendor/i),
       desc: find(/Description|รายละเอียด|คำอธิบาย/i), amt: find(/^Amount$/i),
-      cat: find(/Account\s*Code/i), act: find(/ประเภทกิจกรรม/), dir: find(/รับ\s*-?\s*จ่าย/), month: find(/^เดือน$/),
+      code: find(/รหัสค่าใช/), cat: find(/Account\s*Code/i), act: find(/ประเภทกิจกรรม/), dir: find(/รับ\s*-?\s*จ่าย/), month: find(/^เดือน$/),
     };
   }
   function cfpDataAccount(bank, acctNo) {
@@ -261,6 +261,7 @@
         iso, month,
         docNo: String(at(row, C.doc) || '').trim(),
         note: desc || vender, vender,
+        code: String(at(row, C.code) || '').trim(),   // รหัสค่าใช้จ่าย → ใช้เรียงลำดับงบให้ตรงไฟล์
         category: category || '(ไม่ระบุหมวด)', actKey: cfpActKey(activity, category),
         withdraw: flow < 0 ? -flow : 0, deposit: flow > 0 ? flow : 0, balance: 0, flow,
       });
@@ -340,8 +341,9 @@
       if (t.actKey === 'other') { otherNet += t.flow; return; }
       const a = acts[t.actKey]; if (!a) return;
       a.net += t.flow; a.byMonth[t.month] = (a.byMonth[t.month] || 0) + t.flow;
-      if (!a.cats[t.category]) a.cats[t.category] = { name: t.category, net: 0, count: 0, txns: [] };
+      if (!a.cats[t.category]) a.cats[t.category] = { name: t.category, net: 0, count: 0, txns: [], code: t.code || '' };
       const cat = a.cats[t.category]; cat.net += t.flow; cat.count++; cat.txns.push(t);
+      if (t.code && (!cat.code || t.code < cat.code)) cat.code = t.code;   // รหัสน้อยสุดของหมวด → เรียงงบ
     });
     ['op', 'inv', 'fin'].forEach(k => {
       acts[k].catList = Object.keys(acts[k].cats).map(n => acts[k].cats[n]).sort((x, y) => Math.abs(y.net) - Math.abs(x.net));
@@ -371,6 +373,9 @@
     //   leaf ผูก catName → กดแถวเปิดรายการของหมวดนั้นตรงๆ (ไม่ต้อง fuzzy-match/จัดหมวด).
     const ACT_STMT_NAME = { op: 'ดำเนินงาน', inv: 'ลงทุน', fin: 'จัดหาเงิน' };
     const monthFlow = (list, m) => list.reduce((s, t) => s + (t.month === m ? t.flow : 0), 0);
+    // ★ งบเรียงตาม "รหัสค่าใช้จ่าย" (10001=รับ → 20xxx=จ่าย จัดกลุ่มตามประเภท) = ลำดับเดียวกับไฟล์เตย
+    //    (ไม่ใช้ catList ที่เรียงตามยอด — นั่นไว้ให้แท็บสรุปกิจกรรมโชว์หมวดใหญ่ก่อน)
+    const byCode = (x, y) => String(x.code || '~').localeCompare(String(y.code || '~'), 'en', { numeric: true });
     const groups = Array.isArray(catGroups) ? catGroups : [];
     const useGroups = groups.length > 0;
     const stmt = [];
@@ -393,7 +398,7 @@
         });
         pushLeaf('อื่นๆ', a.catList.filter(c => !assigned[c.name]));
       } else {
-        a.catList.forEach(c => pushLeaf(c.name, [c]));
+        a.catList.slice().sort(byCode).forEach(c => pushLeaf(c.name, [c]));
       }
       stmt.push({ label: 'กระแสเงินสดสุทธิจากกิจกรรม' + ACT_STMT_NAME[k], vals: months.map(m => a.byMonth[m] || 0), total: a.net, type: 'net', actKey: k });
     });
