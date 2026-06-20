@@ -85,7 +85,8 @@
 
   // ตาราง analytics ที่อ่าน/เขียนแบบ on-demand (ไม่ preload, ไม่อยู่ใน realtime/diff loop) —
   // หน้า P&L/Budget เรียกผ่าน fetchSheetRows (อ่าน) + WTPData.writeTable (นำเข้า)
-  var SHEET_TABLES = ['pnlBase', 'budgetHo'];
+  //   cashflowPresent = หน้า "พรีเซนต์ Cash Flow" (#cashflow_present) เก็บ 1 แถว id='current'
+  var SHEET_TABLES = ['pnlBase', 'budgetHo', 'cashflowPresent'];
   var SHEET_TABLE_SET = {}; SHEET_TABLES.forEach(function (t) { SHEET_TABLE_SET[t] = true; });
   // ★ Fallback: ถ้าตาราง Supabase ว่าง (เช่น migration หาย/ยังไม่ได้นำเข้า) → อ่าน
   //   ข้อมูลเดิมจาก Google Sheet tab เดิมแทน (อ่านอย่างเดียว, gviz public, ไม่ต้อง auth).
