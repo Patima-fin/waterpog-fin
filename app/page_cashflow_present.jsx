@@ -448,11 +448,11 @@
       [['in', 'รับ'], ['out', 'จ่าย']].forEach(([sd, lab]) => {
         const si = items.filter(it => it.side === sd).sort((x, y) => codeCmp(x.code, y.code));
         if (!si.length) return;
-        stmt.push({ label: 'เงินสด' + lab + 'จากกิจกรรม' + nm, code: sideCodeOf(k, sd), vals: [], total: 0, type: 'group', actKey: k, indent: 22 });
+        stmt.push({ label: 'เงินสด' + lab + 'จากกิจกรรม' + nm, code: sideCodeOf(k, sd), vals: [], total: 0, type: 'group', actKey: k, indent: 22, side: sd });
         let subTx = [];
         const emitLeaf = (it, lvl, pre) => {
           let tx = []; it.cats.forEach(c => { tx = tx.concat(c.txns); }); subTx = subTx.concat(tx);
-          stmt.push({ label: it.label, code: it.code, vals: months.map(m => monthFlow(tx, m)), total: it.cats.reduce((s, c) => s + c.net, 0), type: 'leaf', actKey: k, catNames: it.cats.map(c => c.name), indent: lvl, prefix: pre });
+          stmt.push({ label: it.label, code: it.code, vals: months.map(m => monthFlow(tx, m)), total: it.cats.reduce((s, c) => s + c.net, 0), type: 'leaf', actKey: k, catNames: it.cats.map(c => c.name), indent: lvl, prefix: pre, side: sd });
         };
         if (useGroups) {
           si.forEach(it => emitLeaf(it, 34, null));   // กลุ่มจัดเอง = leaf ตรงๆ ใต้รับ/จ่าย
@@ -461,11 +461,11 @@
           const byPre = {}; si.forEach(it => { const p = cfpCodePrefix(it.code) || '~'; (byPre[p] = byPre[p] || []).push(it); });
           Object.keys(byPre).sort(codeCmp).forEach(p => {
             const gi = byPre[p]; let gtx = []; gi.forEach(it => it.cats.forEach(c => { gtx = gtx.concat(c.txns); }));
-            stmt.push({ label: (codeDict[p] || ('รหัส ' + p)), code: p, vals: months.map(m => monthFlow(gtx, m)), total: gtx.reduce((s, t) => s + t.flow, 0), type: 'codegroup', actKey: k, catNames: gi.reduce((acc, it) => acc.concat(it.cats.map(c => c.name)), []), prefix: p, indent: 34 });
+            stmt.push({ label: (codeDict[p] || ('รหัส ' + p)), code: p, vals: months.map(m => monthFlow(gtx, m)), total: gtx.reduce((s, t) => s + t.flow, 0), type: 'codegroup', actKey: k, catNames: gi.reduce((acc, it) => acc.concat(it.cats.map(c => c.name)), []), prefix: p, indent: 34, side: sd });
             gi.forEach(it => emitLeaf(it, 48, p));
           });
         }
-        stmt.push({ label: 'รวมเงินสด' + lab + 'จากกิจกรรม' + nm, code: '', vals: months.map(m => monthFlow(subTx, m)), total: subTx.reduce((s, t) => s + t.flow, 0), type: 'subtotal', actKey: k, catNames: si.reduce((acc, it) => acc.concat(it.cats.map(c => c.name)), []), indent: 22 });
+        stmt.push({ label: 'รวมเงินสด' + lab + 'จากกิจกรรม' + nm, code: '', vals: months.map(m => monthFlow(subTx, m)), total: subTx.reduce((s, t) => s + t.flow, 0), type: 'subtotal', actKey: k, catNames: si.reduce((acc, it) => acc.concat(it.cats.map(c => c.name)), []), indent: 22, side: sd });
       });
       stmt.push({ label: 'เงินสดสุทธิจากกิจกรรม' + nm, code: '', vals: months.map(m => a.byMonth[m] || 0), total: a.net, type: 'net', actKey: k, indent: 22 });
     });
@@ -791,24 +791,30 @@
             {rows.map((r, ri) => {
               const isLeaf = r.type === 'leaf', isSection = r.type === 'section', isNet = r.type === 'net', isGrand = r.type === 'grand', isSub = r.type === 'subtotal', isGroup = r.type === 'group', isCode = r.type === 'codegroup';
               if (isLeaf && r.prefix && collapsed[r.prefix]) return null;   // ซ่อนรายการย่อยเมื่อกลุ่มถูกย่อ
-              const rowBg = isSection ? '#dce9fb' : isCode ? '#f0f5fd' : isNet ? '#e7f0fc' : isGrand ? '#e3edfb' : isSub ? '#eef4fc' : 'transparent';
+              // สีไล่ระดับชั้นให้ดูกลุ่มง่าย: section (เข้มสุด) > หัวรับ-จ่าย > รวม > สุทธิ > กลุ่มรหัส > รายการย่อย(ขาว)
+              const rowBg = isSection ? '#cdddf7' : isGrand ? '#c9dcf6' : isNet ? '#d8e6fb' : isGroup ? '#e8f0fb' : isSub ? '#e9f1fc' : isCode ? '#f4f8fe' : 'transparent';
               const fw = (isSection || isNet || isSub || isGrand) ? 800 : (isGroup || isCode) ? 700 : 400;
               const indent = (typeof r.indent === 'number') ? r.indent : (isSection ? 0 : isGroup ? 14 : (isSub || isNet || isGrand) ? 14 : 26);
               const emptyVals = isSection || isGroup;                       // หัวกิจกรรม / หัวรับ-จ่าย = ไม่มียอด
               const canDrill = isLeaf || isNet || isSub || isGrand || isCode;
-              const col = isSection ? C.primaryD : isCode ? C.primaryD : isNet ? '#1f56b8' : isGrand ? C.primaryD : C.ink;
+              const sideAcc = r.side === 'in' ? C.pos : r.side === 'out' ? C.neg : null;   // เขียว=รับ · แดง=จ่าย
+              const accent = sideAcc || C.primary;
+              const col = (isSection || isNet || isGrand) ? C.primaryD : ((isGroup || isSub) && sideAcc) ? sideAcc : C.ink;
               const labelBg = rowBg === 'transparent' ? '#fff' : rowBg;
+              // แถบสีซ้ายแยกรับ/จ่าย: หัวรับ-จ่าย/รวม/กลุ่มรหัส = เข้ม · รายการย่อย = จาง → เห็นบล็อกกลุ่มชัด
+              const leftBar = (isGroup || isSub || isCode) ? ('4px solid ' + accent) : (isLeaf && sideAcc) ? ('4px solid ' + (r.side === 'in' ? 'rgba(21,164,95,.20)' : 'rgba(229,72,77,.18)')) : '4px solid transparent';
+              const tdTop = isNet ? ('2px solid ' + C.primary) : isCode ? '1px solid #e2e9f4' : (isSub && sideAcc) ? ('1.5px solid ' + accent) : '0';
               return (
                 <tr key={ri} style={{ background: rowBg }}>
-                  <td style={{ padding: '6px 8px', color: isCode ? C.primaryD : C.faint, fontSize: 11, fontWeight: isCode ? 700 : 400, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', position: 'sticky', left: 0, zIndex: 1, background: labelBg, borderBottom: '1px solid ' + C.line }}>{r.code || ''}</td>
-                  <td onClick={() => { if (isCode) toggle(r.prefix); else if (canDrill && onPick) onPick(r, null); }} style={{ padding: '6px 8px', paddingLeft: 8 + indent, fontWeight: fw, color: col, cursor: (isCode || canDrill) ? 'pointer' : 'default', whiteSpace: 'nowrap', position: 'sticky', left: 64, zIndex: 1, background: labelBg, borderBottom: '1px solid ' + C.line }}>
-                    {isCode && <span style={{ color: C.mut, marginRight: 5, display: 'inline-block', width: 10 }}>{collapsed[r.prefix] ? '▸' : '▾'}</span>}
+                  <td style={{ padding: '6px 8px', color: isCode ? C.primaryD : C.faint, fontSize: 11, fontWeight: isCode ? 700 : 400, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', position: 'sticky', left: 0, zIndex: 1, background: labelBg, borderBottom: '1px solid ' + C.line, borderLeft: leftBar, borderTop: tdTop }}>{r.code || ''}</td>
+                  <td onClick={() => { if (isCode) toggle(r.prefix); else if (canDrill && onPick) onPick(r, null); }} style={{ padding: '6px 8px', paddingLeft: 8 + indent, fontWeight: fw, color: col, cursor: (isCode || canDrill) ? 'pointer' : 'default', whiteSpace: 'nowrap', position: 'sticky', left: 64, zIndex: 1, background: labelBg, borderBottom: '1px solid ' + C.line, borderTop: tdTop }}>
+                    {isCode && <span style={{ color: accent, marginRight: 5, display: 'inline-block', width: 10 }}>{collapsed[r.prefix] ? '▸' : '▾'}</span>}
                     {r.label}{(canDrill && !isCode) && <span style={{ color: C.faint, fontWeight: 400 }}> ›</span>}
                   </td>
                   {months.map((m, ci) => (
-                    <td key={ci} onClick={() => { if (!emptyVals && canDrill && onPick) onPick(r, monthNumByIdx(ci)); }} style={{ padding: '6px 8px', textAlign: 'right', fontWeight: (isNet || isSub || isGrand) ? 800 : (isCode ? 700 : 400), cursor: (!emptyVals && canDrill) ? 'pointer' : 'default', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', borderBottom: '1px solid ' + C.line }}>{emptyVals ? '' : acct(r.vals[ci])}</td>
+                    <td key={ci} onClick={() => { if (!emptyVals && canDrill && onPick) onPick(r, monthNumByIdx(ci)); }} style={{ padding: '6px 8px', textAlign: 'right', fontWeight: (isNet || isSub || isGrand) ? 800 : (isCode ? 700 : 400), cursor: (!emptyVals && canDrill) ? 'pointer' : 'default', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', borderBottom: '1px solid ' + C.line, borderTop: tdTop }}>{emptyVals ? '' : acct(r.vals[ci])}</td>
                   ))}
-                  <td onClick={() => { if (!emptyVals && canDrill && onPick) onPick(r, null); }} style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 800, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', cursor: (!emptyVals && canDrill) ? 'pointer' : 'default', background: '#eaf1fb', borderBottom: '1px solid ' + C.line }}>{emptyVals ? '' : acct(r.total)}</td>
+                  <td onClick={() => { if (!emptyVals && canDrill && onPick) onPick(r, null); }} style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 800, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', cursor: (!emptyVals && canDrill) ? 'pointer' : 'default', background: '#eaf1fb', borderBottom: '1px solid ' + C.line, borderTop: tdTop }}>{emptyVals ? '' : acct(r.total)}</td>
                 </tr>
               );
             })}
