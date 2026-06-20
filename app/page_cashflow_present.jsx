@@ -373,34 +373,48 @@
     //   leaf ผูก catName → กดแถวเปิดรายการของหมวดนั้นตรงๆ (ไม่ต้อง fuzzy-match/จัดหมวด).
     const ACT_STMT_NAME = { op: 'ดำเนินงาน', inv: 'ลงทุน', fin: 'จัดหาเงิน' };
     const monthFlow = (list, m) => list.reduce((s, t) => s + (t.month === m ? t.flow : 0), 0);
-    // ★ งบเรียงตาม "รหัสค่าใช้จ่าย" (10001=รับ → 20xxx=จ่าย จัดกลุ่มตามประเภท) = ลำดับเดียวกับไฟล์เตย
-    //    (ไม่ใช้ catList ที่เรียงตามยอด — นั่นไว้ให้แท็บสรุปกิจกรรมโชว์หมวดใหญ่ก่อน)
-    const byCode = (x, y) => String(x.code || '~').localeCompare(String(y.code || '~'), 'en', { numeric: true });
+    // ★ โครงงบ 3 ชั้น: กิจกรรม → เงินสดรับ/เงินสดจ่าย (+ รวม) → รายการย่อย (เรียงตามรหัสค่าใช้จ่าย)
+    //   รับ/จ่าย แยกด้วยเลขหน้าของรหัส: op 1xxxx=รับ/2xxxx=จ่าย · inv 3/4 · fin 5/6 (คี่=รับ คู่=จ่าย)
+    //   เรียงตามรหัส = ลำดับเดียวกับไฟล์งบของเตย (ไม่ใช้ catList ที่เรียงตามยอด — นั่นไว้แท็บสรุปกิจกรรม)
+    const codeCmp = (x, y) => String(x || '~').localeCompare(String(y || '~'), 'en', { numeric: true });
+    const catSide = c => { const d = String(c.code || '').replace(/\D/g, '')[0]; if (d) return '135'.indexOf(d) >= 0 ? 'in' : 'out'; return c.net >= 0 ? 'in' : 'out'; };
+    const minCode = cats => cats.map(c => c.code || '~').sort(codeCmp)[0];
     const groups = Array.isArray(catGroups) ? catGroups : [];
     const useGroups = groups.length > 0;
     const stmt = [];
     ['op', 'inv', 'fin'].forEach(k => {
       const a = acts[k]; if (!a.catList.length) return;
-      stmt.push({ label: 'กระแสเงินสดจากกิจกรรม' + ACT_STMT_NAME[k], vals: [], total: 0, type: 'section', actKey: k });
+      const nm = ACT_STMT_NAME[k];
       const byName = {}; a.catList.forEach(c => { byName[c.name] = c; });
-      // leaf 1 บรรทัด = 1 กลุ่ม (รวมหลายหมวด) หรือ 1 หมวด (โหมดปกติ); ผูก catNames → กดเปิดรายการได้
-      const pushLeaf = (label, cats) => {
-        if (!cats.length) return;
-        let tx = []; cats.forEach(c => { tx = tx.concat(c.txns); });
-        stmt.push({ label, vals: months.map(m => monthFlow(tx, m)), total: cats.reduce((s, c) => s + c.net, 0), type: 'leaf', actKey: k, catNames: cats.map(c => c.name) });
-      };
+      stmt.push({ label: 'กระแสเงินสดจากกิจกรรม' + nm, vals: [], total: 0, type: 'section', actKey: k });
+      // รวม "items" (กลุ่ม หรือ หมวดเดี่ยว) ของกิจกรรมนี้ก่อน แล้วแยกฝั่ง รับ/จ่าย
+      let items;
       if (useGroups) {
         const assigned = {};
-        groups.filter(g => g.actKey === k).forEach(g => {
+        items = groups.filter(g => g.actKey === k).map(g => {
           const cats = (g.cats || []).map(n => byName[n]).filter(Boolean);
           cats.forEach(c => { assigned[c.name] = true; });
-          pushLeaf(g.name || '(ไม่ตั้งชื่อ)', cats);
-        });
-        pushLeaf('อื่นๆ', a.catList.filter(c => !assigned[c.name]));
+          return cats.length ? { label: g.name || '(ไม่ตั้งชื่อ)', cats } : null;
+        }).filter(Boolean);
+        const rest = a.catList.filter(c => !assigned[c.name]);
+        ['in', 'out'].forEach(sd => { const rc = rest.filter(c => catSide(c) === sd); if (rc.length) items.push({ label: 'อื่นๆ', cats: rc, side: sd }); });
       } else {
-        a.catList.slice().sort(byCode).forEach(c => pushLeaf(c.name, [c]));
+        items = a.catList.map(c => ({ label: c.name, cats: [c] }));
       }
-      stmt.push({ label: 'กระแสเงินสดสุทธิจากกิจกรรม' + ACT_STMT_NAME[k], vals: months.map(m => a.byMonth[m] || 0), total: a.net, type: 'net', actKey: k });
+      items.forEach(it => { if (!it.side) { const inN = it.cats.filter(c => catSide(c) === 'in').length; it.side = inN * 2 >= it.cats.length ? 'in' : 'out'; } it.code = minCode(it.cats); });
+      // ฝั่งรับก่อน แล้วฝั่งจ่าย — แต่ละฝั่ง: หัว (ไม่มียอด) → รายการย่อย (เรียงรหัส) → รวม
+      [['in', 'รับ'], ['out', 'จ่าย']].forEach(([sd, lab]) => {
+        const si = items.filter(it => it.side === sd).sort((x, y) => codeCmp(x.code, y.code));
+        if (!si.length) return;
+        stmt.push({ label: 'เงินสด' + lab + 'จากกิจกรรม' + nm, vals: [], total: 0, type: 'group', actKey: k });
+        let subTx = [];
+        si.forEach(it => {
+          let tx = []; it.cats.forEach(c => { tx = tx.concat(c.txns); }); subTx = subTx.concat(tx);
+          stmt.push({ label: it.label, vals: months.map(m => monthFlow(tx, m)), total: it.cats.reduce((s, c) => s + c.net, 0), type: 'leaf', actKey: k, catNames: it.cats.map(c => c.name) });
+        });
+        stmt.push({ label: 'รวมเงินสด' + lab + 'จากกิจกรรม' + nm, vals: months.map(m => monthFlow(subTx, m)), total: subTx.reduce((s, t) => s + t.flow, 0), type: 'subtotal', actKey: k, catNames: si.reduce((acc, it) => acc.concat(it.cats.map(c => c.name)), []) });
+      });
+      stmt.push({ label: 'เงินสดสุทธิจากกิจกรรม' + nm, vals: months.map(m => a.byMonth[m] || 0), total: a.net, type: 'net', actKey: k });
     });
     if (months.length) {
       const mNet = monthly.map(d => d.net);
@@ -927,8 +941,8 @@
         let tx = c.txns; if (monthNum) tx = tx.filter(t => t.month === monthNum);
         return { name: c.name, count: tx.length, net: tx.reduce((s, t) => s + t.flow, 0), txns: tx.slice().sort((x, y) => x.iso < y.iso ? 1 : -1) };
       }).filter(b => b.count > 0).sort((a, b) => Math.abs(b.net) - Math.abs(a.net));
-      // leaf → กลุ่ม (หลายหมวด) = สรุปแยกหมวดก่อน · หมวดเดียว = รายการตรงๆ
-      if (row.type === 'leaf' && row.catNames && row.catNames.length) {
+      // leaf / รวมรับ-จ่าย (subtotal) → กลุ่ม/หลายหมวด = สรุปแยกหมวดก่อน · หมวดเดียว = รายการตรงๆ
+      if ((row.type === 'leaf' || row.type === 'subtotal') && row.catNames && row.catNames.length) {
         const cats = cfpCatsByNames(model, row.catNames);
         if (cats.length > 1) {
           const bd = mkBreakdown(cats); const tot = bd.reduce((s, b) => s + b.net, 0);
