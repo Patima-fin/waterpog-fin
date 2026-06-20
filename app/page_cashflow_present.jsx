@@ -461,20 +461,46 @@
   }
 
   /* ---------- drill modal ---------- */
-  function CfpModal({ title, subtitle, txns, onClose }) {
-    useEffect(() => { const h = e => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, []);
+  function CfpModal({ title, subtitle, txns, breakdown, onClose }) {
+    const hasBd = Array.isArray(breakdown) && breakdown.length > 0;
+    const [sel, setSel] = useState(null);   // null=สรุปหมวด · -1=ทั้งหมด · >=0=หมวดที่เลือก
+    useEffect(() => { const h = e => { if (e.key === 'Escape') { if (hasBd && sel !== null) setSel(null); else onClose(); } }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [hasBd, sel]);
+    const allTxns = useMemo(() => { if (!hasBd) return []; let a = []; breakdown.forEach(b => { a = a.concat(b.txns); }); return a.slice().sort((x, y) => x.iso < y.iso ? 1 : -1); }, [breakdown, hasBd]);
+    const cur = !hasBd ? null : (sel === -1 ? { name: title + ' · ทุกหมวด', txns: allTxns } : (sel >= 0 ? breakdown[sel] : null));
+    const showList = hasBd && sel === null;
+    const maxAbs = hasBd ? Math.max.apply(null, breakdown.map(b => Math.abs(b.net)).concat([1])) : 1;
+    const tableTxns = cur ? cur.txns : (hasBd ? [] : (txns || []));
+    const curNet = cur ? cur.txns.reduce((s, t) => s + t.flow, 0) : 0;
     return (
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(31,58,95,.42)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: 20 }}>
-        <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 20, maxWidth: 900, width: '100%', maxHeight: '86vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 30px 80px rgba(31,58,95,.35)' }}>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(20,35,58,.42)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, padding: 20 }}>
+        <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 20, maxWidth: 900, width: '100%', maxHeight: '86vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 30px 80px rgba(20,35,58,.35)' }}>
           <div style={{ padding: '16px 22px', borderBottom: '1px solid ' + C.line, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: C.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
-              {subtitle && <div style={{ fontSize: 12, color: C.mut, marginTop: 2 }}>{subtitle}</div>}
+            <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
+              {cur && <button onClick={() => setSel(null)} title="กลับไปสรุปหมวด" style={{ cursor: 'pointer', border: '1px solid ' + C.line, background: '#fff', color: C.primaryD, borderRadius: 9, padding: '5px 10px', fontSize: 13, fontWeight: 700, flexShrink: 0, whiteSpace: 'nowrap' }}>← กลับ</button>}
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: C.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cur ? cur.name : title}</div>
+                <div style={{ fontSize: 12, color: C.mut, marginTop: 2 }}>{cur ? (cur.txns.length + ' รายการ · สุทธิ ' + cfpFmtB(curNet)) : (subtitle || '')}</div>
+              </div>
             </div>
             <button onClick={onClose} style={{ cursor: 'pointer', border: 0, background: C.soft, width: 34, height: 34, borderRadius: 10, fontSize: 18, color: C.mut, flexShrink: 0 }}>×</button>
           </div>
           <div style={{ padding: '12px 22px 22px', overflow: 'auto' }}>
-            {txns.length ? <CfpTxnTable txns={txns} /> : <div style={{ fontSize: 13, color: C.faint, padding: '10px 0' }}>ไม่พบรายการ</div>}
+            {showList ? (
+              <div>
+                <button onClick={() => setSel(-1)} style={{ cursor: 'pointer', width: '100%', textAlign: 'left', border: '1px dashed ' + C.line, background: C.soft, color: C.primaryD, borderRadius: 10, padding: '9px 12px', fontSize: 13, fontWeight: 700, marginBottom: 10 }}>📋 ดูรายการทั้งหมดรวมกัน ({allTxns.length})</button>
+                {breakdown.map((b, i) => (
+                  <div key={i} onClick={() => setSel(i)} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.6fr) auto minmax(56px,1fr) auto 14px', gap: 10, alignItems: 'center', padding: '9px 8px', borderBottom: '1px solid ' + C.line, cursor: 'pointer' }}>
+                    <span style={{ fontSize: 13, color: C.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={b.name}>{b.name}</span>
+                    <span style={{ fontSize: 11, color: C.faint, whiteSpace: 'nowrap' }}>{b.count} รายการ</span>
+                    <CfpBar amt={b.net} max={maxAbs} />
+                    <span style={{ fontSize: 13, fontWeight: 700, color: b.net < 0 ? C.neg : C.pos, textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{cfpFmtB(b.net)}</span>
+                    <span style={{ color: C.faint, fontSize: 14 }}>›</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              tableTxns.length ? <CfpTxnTable txns={tableTxns} /> : <div style={{ fontSize: 13, color: C.faint, padding: '10px 0' }}>ไม่พบรายการ</div>
+            )}
           </div>
         </div>
       </div>
@@ -896,20 +922,27 @@
         setModal({ title: row.label, subtitle: txns.length + ' รายการ' + mlab, txns }); return;
       }
       if (!row.actKey) return;
-      // leaf → รายการของหมวด/กลุ่มนั้นตรงๆ (catNames ผูกไว้ตอนสังเคราะห์งบ — ยอดตรงเป๊ะ)
+      // สรุปรายหมวดของรายการชุดหนึ่ง (เรียงยอดมากก่อน, กรองเดือนถ้ามี) → ป้อน breakdown ให้ modal
+      const mkBreakdown = catObjs => catObjs.map(c => {
+        let tx = c.txns; if (monthNum) tx = tx.filter(t => t.month === monthNum);
+        return { name: c.name, count: tx.length, net: tx.reduce((s, t) => s + t.flow, 0), txns: tx.slice().sort((x, y) => x.iso < y.iso ? 1 : -1) };
+      }).filter(b => b.count > 0).sort((a, b) => Math.abs(b.net) - Math.abs(a.net));
+      // leaf → กลุ่ม (หลายหมวด) = สรุปแยกหมวดก่อน · หมวดเดียว = รายการตรงๆ
       if (row.type === 'leaf' && row.catNames && row.catNames.length) {
         const cats = cfpCatsByNames(model, row.catNames);
+        if (cats.length > 1) {
+          const bd = mkBreakdown(cats); const tot = bd.reduce((s, b) => s + b.net, 0);
+          setModal({ title: row.label, subtitle: bd.length + ' หมวด · สุทธิ ' + cfpFmtB(tot) + mlab + ' · กดหมวดเพื่อดูรายการ', breakdown: bd }); return;
+        }
         let txns = []; cats.forEach(c => { txns = txns.concat(c.txns); });
         if (monthNum) txns = txns.filter(t => t.month === monthNum);
         txns = txns.slice().sort((x, y) => x.iso < y.iso ? 1 : -1);
-        setModal({ title: row.label, subtitle: txns.length + ' รายการ · สุทธิ ' + cfpFmtB(row.total) + mlab, txns }); return;
+        setModal({ title: row.label, subtitle: txns.length + ' รายการ · สุทธิ ' + cfpFmtB(txns.reduce((s, t) => s + t.flow, 0)) + mlab, txns }); return;
       }
-      // net (สุทธิรายกิจกรรม) / subtotal → ทั้งกิจกรรม
+      // net (สุทธิรายกิจกรรม) → สรุปแยกหมวดทั้งกิจกรรม
       const a = model.acts[row.actKey]; if (!a) return;
-      let txns = []; a.catList.forEach(c => { txns = txns.concat(c.txns); });
-      if (monthNum) txns = txns.filter(t => t.month === monthNum);
-      txns = txns.slice().sort((x, y) => x.iso < y.iso ? 1 : -1);
-      setModal({ title: row.label, subtitle: 'ทั้ง' + (CFP_ACT_NAME[row.actKey] || 'กิจกรรม') + ' · ' + txns.length + ' รายการ' + mlab, txns });
+      const bd = mkBreakdown(a.catList); const tot = bd.reduce((s, b) => s + b.net, 0);
+      setModal({ title: row.label, subtitle: 'ทั้ง' + (CFP_ACT_NAME[row.actKey] || 'กิจกรรม') + ' · ' + bd.length + ' หมวด · สุทธิ ' + cfpFmtB(tot) + mlab, breakdown: bd });
     }
 
     // อ่านทั้ง workbook ครั้งเดียว → คืน AOA ของชีต DATA + เงินสดต้นงวด (Σ ต้นงวด ชีตเดือนแรก)
@@ -1112,7 +1145,7 @@
           <div style={{ fontSize: 11, color: C.faint, margin: '6px 2px 4px' }}>ข้อมูลจากชีต DATA (WTP-Cash Flow) · งบกระแสเงินสดสังเคราะห์จากรายการ · {synced ? 'ข้อมูลส่วนกลาง (ทุกคนเห็น)' : 'ข้อมูลในเครื่อง'} · วันที่แสดงเป็น ค.ศ. · อัปเดต {stored && stored.uploadedAt ? new Date(stored.uploadedAt).toLocaleString('th-TH-u-ca-gregory') : '-'}</div>
         </React.Fragment>}
 
-        {modal && <CfpModal title={modal.title} subtitle={modal.subtitle} txns={modal.txns} onClose={() => setModal(null)} />}
+        {modal && <CfpModal title={modal.title} subtitle={modal.subtitle} txns={modal.txns} breakdown={modal.breakdown} onClose={() => setModal(null)} />}
         {groupsOpen && model && <CfpGroupModal model={model} groups={(stored && stored.catGroups) || []} onClose={() => setGroupsOpen(false)} onSave={saveGroups} />}
       </div>
     );
