@@ -108,6 +108,46 @@
   const CFP_ACT_NAME = { op: 'กิจกรรมดำเนินงาน', inv: 'กิจกรรมลงทุน', fin: 'กิจกรรมจัดหาเงิน', transfer: 'โอนระหว่างบัญชี', other: 'อื่นๆ' };
   const CFP_ACT_SHORT = { op: 'ดำเนินงาน', inv: 'ลงทุน', fin: 'จัดหาเงิน', transfer: 'โอน', other: 'อื่นๆ' };
 
+  // ── chart of accounts: รหัส 5 หลัก → ชื่อกลุ่ม (ฝัง fallback จากชีต "ค่าใช้จ่าย" ของเตย) ──
+  //   งบจะย่อยรายการตามรหัส: 10001.01/.02 → กลุ่ม "10001" (ชื่อจาก dict). ★ primary = อ่านชีต
+  //   "ค่าใช้จ่าย" จากไฟล์ตอนอัปโหลด (แก้ในไฟล์แล้ว re-upload ได้) · ตัวนี้คือ fallback.
+  const CFP_CODE_GROUPS = {
+    '10000': 'เงินสดรับจากกิจกรรมดำเนินงาน', '10001': 'เงินสดรับจากการขายสินค้า', '10002': 'เงินสดรับอื่นๆ',
+    '20000': 'เงินสดจ่ายจากกิจกรรมดำเนินงาน', '20001': 'เงินสดจ่ายค่าจ้างเหมาติดตั้ง-งานหลัก', '20002': 'เงินสดจ่ายค่าจ้างเหมาติดตั้ง-งานฐานราก',
+    '20003': 'เงินสดจ่ายเกี่ยวกับการจ้างเหมา-งานเพิ่ม', '20004': 'เงินสดจ่าย-งานเพิ่มเติม เกี่ยวกับงานหลัก', '20005': 'เงินสดจ่าย-เกี่ยวกับงานสั่งซื้อถัง PNP',
+    '20006': 'เงินสดจ่ายเกี่ยวกับคืนเงินประกันผลงาน', '20007': 'เงินสดจ่ายเกี่ยวกับค่าบริหารจัดการโครงการ', '20008': 'เงินสดจ่ายเกี่ยวกับการบริการหลังการขาย PM CM',
+    '20009': 'เงินสดจ่ายเกี่ยวกับงานเพิ่มเติม เกี่ยวกับ บริการหลังการขาย', '20010': 'เงินสดจ่ายเกี่ยวกับค่าคอมมิชชั่น', '20011': 'เงินสดจ่ายเกี่ยวกับค่ารับรอง ที่พัก อาหาร และ เครื่องดื่ม',
+    '20012': 'เงินสดจ่ายเกี่ยวกับค่าโฆษณา ประชาสัมพันธ์-เพื่อสังคม', '20013': 'เงินสดจ่ายเกี่ยวกับเงินสดย่อย', '20014': 'เงินสดจ่ายเกี่ยวกับเงินทดรองจ่าย',
+    '20015': 'เงินสดจ่ายในการดำเนินงานการเดินทางและที่พัก', '20016': 'เงินสดจ่ายเกี่ยวกับบริจาคและการกุศล', '20017': 'เงินสดจ่ายเกี่ยวกับค่าทำบัญชี',
+    '20018': 'เงินสดจ่ายเกี่ยวกับค่าตรวจสอบบัญชี', '20019': 'เงินสดจ่ายเกี่ยวกับค่าที่ปรึกษาต่างๆ', '20020': 'เงินสดจ่ายเกี่ยวกับค่าเช่า -สำนักงาน',
+    '20021': 'เงินสดจ่ายเกี่ยวกับค่าน้ำและค่าไฟฟ้า', '20022': 'เงินสดจ่ายเกี่ยวกับค่าเช่า - อื่นๆ', '20023': 'เงินสดจ่าย-ค่าวัสดุและอุปกรณ์สำนักงาน',
+    '20024': 'เงินสดจ่ายเกี่ยวกับค่าโทรศัพท์ อินเตอร์เน็ต IOT และ อื่นๆ', '20025': 'เงินสดจ่ายเกี่ยวกับค่าประกัน', '20026': 'เงินสดจ่าย พรบ.ยานพาหนะ',
+    '20027': 'เงินสดจ่าย ค่าเบี้ยปรับ', '20028': 'เงินสดจ่ายค่าธรรมเนียมธนาคาร', '20029': 'เงินสดจ่าย ค่าธรรมเนียมอื่น เพื่อเข้าSET',
+    '20030': 'เงินสดจ่าย ค่าธรรมเนียมอื่น', '20031': 'เงินสดจ่ายเกี่ยวกับค่าปรับปรุงอาคาร สถานที่', '20032': 'เงินสดจ่ายเกี่ยวกับงานซ่อมแซมต่างๆ',
+    '20033': 'เงินสดจ่ายเกี่ยวกับภาษีอากร', '20034': 'เงินสดจ่ายเกี่ยวกับเงินเดือนและสวัสดิการพนักงาน', '20035': 'เงินสดจ่ายเกี่ยวกับประกันสังคมและกองทุน',
+    '20036': 'เงินสดจ่ายเกี่ยวกับ POG DRINK', '29999': 'เงินสดจ่ายเบ็ดเตล็ด',
+    '30000': 'เงินสดรับจากกิจกรรมลงทุน', '30100': 'เงินสดรับจากการขายสินทรัพย์', '30200': 'เงินสดรับเกี่ยวกับการค้ำประกัน', '30300': 'เงินสดรับจากการขายเงินลงทุน',
+    '40000': 'เงินสดจ่ายจากกิจกรรมลงทุน', '40100': 'เงินสดจ่ายเกี่ยวกับการซื้อสินทรัพย์', '40200': 'เงินสดจ่ายเกี่ยวกับการค้ำประกัน', '40300': 'เงินสดจ่ายจากการซื้อเงินลงทุน', '40400': 'เงินสดจ่ายจากการทำงานวิจัย',
+    '50000': 'เงินสดรับจากกิจกรรมจัดหาเงิน', '50100': 'เงินสดรับจากการกู้ยืม-กรรมการ', '50200': 'เงินสดรับเงินกู้ยืม-สถาบันการเงินที่ไม่ใช่ธนาคาร', '50300': 'เงินสดรับเงินกู้ยืม-ที่เป็นสถาบันการเงินประเภทธนาคาร', '50400': 'เงินสดรับดอกเบี้ย-จากธนาคาร',
+    '60000': 'เงินสดจ่ายจากกิจกรรมจัดหาเงิน', '60100': 'เงินสดจ่ายจากการกู้ยืม-กรรมการ', '60200': 'เงินสดจ่ายเงินกู้ยืม-สถาบันการเงินที่ไม่ใช่ธนาคาร', '60300': 'เงินสดจ่ายเงินกู้ยืม-ที่เป็นสถาบันการเงินประเภทธนาคาร',
+    '60400': 'เงินสดจ่ายดอกเบี้ย-สถาบันการเงินที่ไม่ใช่ธนาคาร', '60500': 'เงินสดจ่ายดอกเบี้ย-ที่เป็นสถาบันการเงินประเภทธนาคาร', '60600': 'เงินสดจ่ายเกี่ยวกับต้นทุนทางการเงิน -โอนสิทธิ', '60700': 'เงินสดจ่ายเพื่อจ่ายเงินปันผล',
+  };
+  const cfpCodePrefix = code => { const m = String(code || '').match(/^(\d{4,6})/); return m ? m[1] : ''; };
+  // อ่านชีต "ค่าใช้จ่าย" (chart of accounts) → { '10001': 'ชื่อกลุ่ม', … } : code 4-6 หลัก (ไม่มีจุด) + ชื่อ (เซลล์แรกที่มีค่าถัดจากรหัส)
+  function cfpParseCodeGroups(aoa) {
+    const out = {};
+    if (!aoa) return out;
+    for (let i = 0; i < aoa.length; i++) {
+      const row = aoa[i] || [];
+      const code = String(row[0] == null ? '' : row[0]).trim();
+      if (!/^\d{4,6}$/.test(code)) continue;       // กลุ่ม = รหัสไม่มีจุด
+      let name = '';
+      for (let j = 1; j < Math.min(row.length, 8); j++) { const v = String(row[j] == null ? '' : row[j]).trim(); if (v) { name = v; break; } }
+      if (name) out[code] = name;
+    }
+    return out;
+  }
+
   function cfpShort(s) {
     s = String(s || '').replace(/^เงินสดรับจากการขาย\s*-?\s*/, '').replace(/^เงินสดจ่ายเกี่ยวกับ\s*-?\s*/, '').replace(/^เงินสดรับ\s*-?\s*/, '').trim();
     return s.length > 28 ? s.slice(0, 28) + '…' : s;
@@ -327,7 +367,7 @@
   }
 
   /* ---------- build model ---------- */
-  function cfpBuildModel(stm, catGroups) {
+  function cfpBuildModel(stm, catGroups, codeGroups) {
     const txns = stm.txns || [];
     const monthsSet = {};
     txns.forEach(t => { if (t.month && t.actKey !== 'transfer' && t.actKey !== 'other') monthsSet[t.month] = true; });
@@ -379,15 +419,17 @@
     const codeCmp = (x, y) => String(x || '~').localeCompare(String(y || '~'), 'en', { numeric: true });
     const catSide = c => { const d = String(c.code || '').replace(/\D/g, '')[0]; if (d) return '135'.indexOf(d) >= 0 ? 'in' : 'out'; return c.net >= 0 ? 'in' : 'out'; };
     const minCode = cats => cats.map(c => c.code || '~').sort(codeCmp)[0];
+    const codeDict = Object.assign({}, CFP_CODE_GROUPS, (codeGroups && typeof codeGroups === 'object') ? codeGroups : {});
     const groups = Array.isArray(catGroups) ? catGroups : [];
     const useGroups = groups.length > 0;
+    const sideCodeOf = (k, sd) => String(k === 'op' ? (sd === 'in' ? 1 : 2) : k === 'inv' ? (sd === 'in' ? 3 : 4) : (sd === 'in' ? 5 : 6)) + '0000';
     const stmt = [];
     ['op', 'inv', 'fin'].forEach(k => {
       const a = acts[k]; if (!a.catList.length) return;
       const nm = ACT_STMT_NAME[k];
       const byName = {}; a.catList.forEach(c => { byName[c.name] = c; });
-      stmt.push({ label: 'กระแสเงินสดจากกิจกรรม' + nm, vals: [], total: 0, type: 'section', actKey: k });
-      // รวม "items" (กลุ่ม หรือ หมวดเดี่ยว) ของกิจกรรมนี้ก่อน แล้วแยกฝั่ง รับ/จ่าย
+      stmt.push({ label: 'กระแสเงินสดจากกิจกรรม' + nm, code: '', vals: [], total: 0, type: 'section', actKey: k, indent: 6 });
+      // รวม "items" (กลุ่มจัดเอง หรือ หมวดเดี่ยว) ของกิจกรรมนี้ก่อน แล้วแยกฝั่ง รับ/จ่าย
       let items;
       if (useGroups) {
         const assigned = {};
@@ -402,27 +444,38 @@
         items = a.catList.map(c => ({ label: c.name, cats: [c] }));
       }
       items.forEach(it => { if (!it.side) { const inN = it.cats.filter(c => catSide(c) === 'in').length; it.side = inN * 2 >= it.cats.length ? 'in' : 'out'; } it.code = minCode(it.cats); });
-      // ฝั่งรับก่อน แล้วฝั่งจ่าย — แต่ละฝั่ง: หัว (ไม่มียอด) → รายการย่อย (เรียงรหัส) → รวม
+      // ฝั่งรับก่อน แล้วฝั่งจ่าย — แต่ละฝั่ง: หัว → [กลุ่มรหัส 5 หลัก → รายการย่อย] → รวม
       [['in', 'รับ'], ['out', 'จ่าย']].forEach(([sd, lab]) => {
         const si = items.filter(it => it.side === sd).sort((x, y) => codeCmp(x.code, y.code));
         if (!si.length) return;
-        stmt.push({ label: 'เงินสด' + lab + 'จากกิจกรรม' + nm, vals: [], total: 0, type: 'group', actKey: k });
+        stmt.push({ label: 'เงินสด' + lab + 'จากกิจกรรม' + nm, code: sideCodeOf(k, sd), vals: [], total: 0, type: 'group', actKey: k, indent: 22 });
         let subTx = [];
-        si.forEach(it => {
+        const emitLeaf = (it, lvl, pre) => {
           let tx = []; it.cats.forEach(c => { tx = tx.concat(c.txns); }); subTx = subTx.concat(tx);
-          stmt.push({ label: it.label, vals: months.map(m => monthFlow(tx, m)), total: it.cats.reduce((s, c) => s + c.net, 0), type: 'leaf', actKey: k, catNames: it.cats.map(c => c.name) });
-        });
-        stmt.push({ label: 'รวมเงินสด' + lab + 'จากกิจกรรม' + nm, vals: months.map(m => monthFlow(subTx, m)), total: subTx.reduce((s, t) => s + t.flow, 0), type: 'subtotal', actKey: k, catNames: si.reduce((acc, it) => acc.concat(it.cats.map(c => c.name)), []) });
+          stmt.push({ label: it.label, code: it.code, vals: months.map(m => monthFlow(tx, m)), total: it.cats.reduce((s, c) => s + c.net, 0), type: 'leaf', actKey: k, catNames: it.cats.map(c => c.name), indent: lvl, prefix: pre });
+        };
+        if (useGroups) {
+          si.forEach(it => emitLeaf(it, 34, null));   // กลุ่มจัดเอง = leaf ตรงๆ ใต้รับ/จ่าย
+        } else {
+          // จัดกลุ่มรายการย่อยตามรหัส 5 หลัก: codegroup (ชื่อจาก chart of accounts) → leaf .01/.02/…
+          const byPre = {}; si.forEach(it => { const p = cfpCodePrefix(it.code) || '~'; (byPre[p] = byPre[p] || []).push(it); });
+          Object.keys(byPre).sort(codeCmp).forEach(p => {
+            const gi = byPre[p]; let gtx = []; gi.forEach(it => it.cats.forEach(c => { gtx = gtx.concat(c.txns); }));
+            stmt.push({ label: (codeDict[p] || ('รหัส ' + p)), code: p, vals: months.map(m => monthFlow(gtx, m)), total: gtx.reduce((s, t) => s + t.flow, 0), type: 'codegroup', actKey: k, catNames: gi.reduce((acc, it) => acc.concat(it.cats.map(c => c.name)), []), prefix: p, indent: 34 });
+            gi.forEach(it => emitLeaf(it, 48, p));
+          });
+        }
+        stmt.push({ label: 'รวมเงินสด' + lab + 'จากกิจกรรม' + nm, code: '', vals: months.map(m => monthFlow(subTx, m)), total: subTx.reduce((s, t) => s + t.flow, 0), type: 'subtotal', actKey: k, catNames: si.reduce((acc, it) => acc.concat(it.cats.map(c => c.name)), []), indent: 22 });
       });
-      stmt.push({ label: 'เงินสดสุทธิจากกิจกรรม' + nm, vals: months.map(m => a.byMonth[m] || 0), total: a.net, type: 'net', actKey: k });
+      stmt.push({ label: 'เงินสดสุทธิจากกิจกรรม' + nm, code: '', vals: months.map(m => a.byMonth[m] || 0), total: a.net, type: 'net', actKey: k, indent: 22 });
     });
     if (months.length) {
       const mNet = monthly.map(d => d.net);
       const mOpen = []; let acc = opening; monthly.forEach(d => { mOpen.push(acc); acc += d.net; });
       const mEnd = mOpen.map((v, i) => v + monthly[i].net);
-      stmt.push({ label: 'กระแสเงินสดเพิ่มขึ้น (ลดลง) สุทธิ', vals: mNet, total: net, type: 'grand', actKey: null });
-      stmt.push({ label: 'เงินสดต้นงวด', vals: mOpen, total: opening, type: 'grand', actKey: null });
-      stmt.push({ label: 'เงินสดปลายงวด', vals: mEnd, total: ending, type: 'grand', actKey: null });
+      stmt.push({ label: 'เงินสดสุทธิเพิ่มขึ้น (ลดลง)', code: '', vals: mNet, total: net, type: 'grand', actKey: null, indent: 22 });
+      stmt.push({ label: 'เงินสดต้นงวด', code: '', vals: mOpen, total: opening, type: 'grand', actKey: null, indent: 22 });
+      stmt.push({ label: 'เงินสดปลายงวด', code: '', vals: mEnd, total: ending, type: 'grand', actKey: null, indent: 22 });
     }
     const yr = (txns.find(t => t.iso) || {}).iso; const year = yr ? yr.slice(0, 4) : '';
 
@@ -713,36 +766,49 @@
   /* ---------- statement table ---------- */
   function CfpStatementTable({ model, onPick }) {
     const rows = model.stmt;
-    if (!rows || !rows.length) return <div style={{ fontSize: 13, color: C.faint, padding: '6px 0' }}>อัปโหลดไฟล์ “งบกระแสเงินสดรายเดือน” เพิ่ม เพื่อแสดงตารางงบ</div>;
+    const [collapsed, setCollapsed] = useState({});   // { prefix: true } = ย่อกลุ่มรหัสนั้น
+    if (!rows || !rows.length) return <div style={{ fontSize: 13, color: C.faint, padding: '6px 0' }}>ยังไม่มีรายการในงบ</div>;
     const months = (model.monthLabels && model.monthLabels.length) ? model.monthLabels : model.months.map(m => CFP_MONTHS[m]);
     const monthNumByIdx = i => model.months[i] || (i + 1);
+    const toggle = p => setCollapsed(c => Object.assign({}, c, { [p]: !c[p] }));
+    const anyCode = rows.some(r => r.type === 'codegroup');
     const acct = v => { if (!v) return <span style={{ color: C.faint }}>-</span>; const neg = v < 0; return <span style={{ color: neg ? C.neg : C.ink }}>{neg ? '(' + cfpFmtPlain(v) + ')' : cfpFmtPlain(v)}</span>; };
     const th = { padding: '8px 8px', fontWeight: 700, color: C.mut, whiteSpace: 'nowrap', borderBottom: '2px solid ' + C.line, fontSize: 12, position: 'sticky', top: 0, background: '#f6f9fe' };
     return (
       <div className="cfp-stmt" style={{ overflowX: 'auto', maxHeight: '76vh', overflowY: 'auto', borderRadius: 12, border: '1px solid ' + C.line }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 680 }}>
+        {anyCode && <div className="no-print" style={{ display: 'flex', gap: 8, padding: '7px 10px', borderBottom: '1px solid ' + C.line, background: '#f6f9fe', position: 'sticky', top: 0, zIndex: 4 }}>
+          <button onClick={() => { const c = {}; rows.forEach(r => { if (r.type === 'codegroup') c[r.prefix] = true; }); setCollapsed(c); }} style={{ cursor: 'pointer', fontSize: 12, fontWeight: 600, border: '1px solid ' + C.line, background: '#fff', color: C.mut, borderRadius: 8, padding: '3px 10px' }}>▸ ย่อทุกกลุ่ม</button>
+          <button onClick={() => setCollapsed({})} style={{ cursor: 'pointer', fontSize: 12, fontWeight: 600, border: '1px solid ' + C.line, background: '#fff', color: C.mut, borderRadius: 8, padding: '3px 10px' }}>▾ กางทุกกลุ่ม</button>
+        </div>}
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 720 }}>
           <thead><tr>
-            <th style={{ ...th, textAlign: 'left', left: 0, zIndex: 3 }}>รายการ</th>
+            <th style={{ ...th, textAlign: 'left', left: 0, zIndex: 3, width: 64 }}>รหัส</th>
+            <th style={{ ...th, textAlign: 'left', left: 64, zIndex: 3 }}>รายการ</th>
             {months.map((m, i) => <th key={i} style={{ ...th, textAlign: 'right' }}>{m}</th>)}
             <th style={{ ...th, textAlign: 'right' }}>รวม</th>
           </tr></thead>
           <tbody>
             {rows.map((r, ri) => {
-              const isLeaf = r.type === 'leaf', isSection = r.type === 'section', isNet = r.type === 'net', isGrand = r.type === 'grand', isSub = r.type === 'subtotal', isGroup = r.type === 'group';
-              const rowBg = isSection ? '#dce9fb' : isNet ? '#e7f0fc' : isGrand ? '#e3edfb' : isSub ? '#eef4fc' : 'transparent';
-              const fw = (isSection || isNet || isSub || isGrand) ? 800 : (isGroup ? 700 : 400);
-              const indent = isSection ? 0 : (isGroup ? 14 : (isSub || isNet || isGrand ? 14 : 26));
-              const clickable = isLeaf || isNet || isSub || isGrand; const emptyVals = isSection || isGroup;
-              const col = isSection ? C.primaryD : isNet ? '#1f56b8' : isGrand ? C.primaryD : C.ink;
+              const isLeaf = r.type === 'leaf', isSection = r.type === 'section', isNet = r.type === 'net', isGrand = r.type === 'grand', isSub = r.type === 'subtotal', isGroup = r.type === 'group', isCode = r.type === 'codegroup';
+              if (isLeaf && r.prefix && collapsed[r.prefix]) return null;   // ซ่อนรายการย่อยเมื่อกลุ่มถูกย่อ
+              const rowBg = isSection ? '#dce9fb' : isCode ? '#f0f5fd' : isNet ? '#e7f0fc' : isGrand ? '#e3edfb' : isSub ? '#eef4fc' : 'transparent';
+              const fw = (isSection || isNet || isSub || isGrand) ? 800 : (isGroup || isCode) ? 700 : 400;
+              const indent = (typeof r.indent === 'number') ? r.indent : (isSection ? 0 : isGroup ? 14 : (isSub || isNet || isGrand) ? 14 : 26);
+              const emptyVals = isSection || isGroup;                       // หัวกิจกรรม / หัวรับ-จ่าย = ไม่มียอด
+              const canDrill = isLeaf || isNet || isSub || isGrand || isCode;
+              const col = isSection ? C.primaryD : isCode ? C.primaryD : isNet ? '#1f56b8' : isGrand ? C.primaryD : C.ink;
+              const labelBg = rowBg === 'transparent' ? '#fff' : rowBg;
               return (
                 <tr key={ri} style={{ background: rowBg }}>
-                  <td onClick={() => clickable && onPick && onPick(r, null)} style={{ padding: '6px 8px', paddingLeft: 8 + indent, fontWeight: fw, color: col, cursor: clickable ? 'pointer' : 'default', whiteSpace: 'nowrap', position: 'sticky', left: 0, background: rowBg === 'transparent' ? '#fff' : rowBg, borderBottom: '1px solid ' + C.line }}>
-                    {r.label}{clickable && <span style={{ color: C.faint, fontWeight: 400 }}> ›</span>}
+                  <td style={{ padding: '6px 8px', color: isCode ? C.primaryD : C.faint, fontSize: 11, fontWeight: isCode ? 700 : 400, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', position: 'sticky', left: 0, zIndex: 1, background: labelBg, borderBottom: '1px solid ' + C.line }}>{r.code || ''}</td>
+                  <td onClick={() => { if (isCode) toggle(r.prefix); else if (canDrill && onPick) onPick(r, null); }} style={{ padding: '6px 8px', paddingLeft: 8 + indent, fontWeight: fw, color: col, cursor: (isCode || canDrill) ? 'pointer' : 'default', whiteSpace: 'nowrap', position: 'sticky', left: 64, zIndex: 1, background: labelBg, borderBottom: '1px solid ' + C.line }}>
+                    {isCode && <span style={{ color: C.mut, marginRight: 5, display: 'inline-block', width: 10 }}>{collapsed[r.prefix] ? '▸' : '▾'}</span>}
+                    {r.label}{(canDrill && !isCode) && <span style={{ color: C.faint, fontWeight: 400 }}> ›</span>}
                   </td>
                   {months.map((m, ci) => (
-                    <td key={ci} onClick={() => clickable && !emptyVals && onPick && onPick(r, monthNumByIdx(ci))} style={{ padding: '6px 8px', textAlign: 'right', fontWeight: (isNet || isSub || isGrand) ? 800 : 400, cursor: (clickable && !emptyVals) ? 'pointer' : 'default', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', borderBottom: '1px solid ' + C.line }}>{emptyVals ? '' : acct(r.vals[ci])}</td>
+                    <td key={ci} onClick={() => { if (!emptyVals && canDrill && onPick) onPick(r, monthNumByIdx(ci)); }} style={{ padding: '6px 8px', textAlign: 'right', fontWeight: (isNet || isSub || isGrand) ? 800 : (isCode ? 700 : 400), cursor: (!emptyVals && canDrill) ? 'pointer' : 'default', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', borderBottom: '1px solid ' + C.line }}>{emptyVals ? '' : acct(r.vals[ci])}</td>
                   ))}
-                  <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 800, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', background: '#eaf1fb', borderBottom: '1px solid ' + C.line }}>{emptyVals ? '' : acct(r.total)}</td>
+                  <td onClick={() => { if (!emptyVals && canDrill && onPick) onPick(r, null); }} style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 800, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', cursor: (!emptyVals && canDrill) ? 'pointer' : 'default', background: '#eaf1fb', borderBottom: '1px solid ' + C.line }}>{emptyVals ? '' : acct(r.total)}</td>
                 </tr>
               );
             })}
@@ -894,10 +960,10 @@
     const fetchedRef = useRef(false);
     const canEdit = !(window._wtpRoleIsReadOnly && window._wtpRoleIsReadOnly());
 
-    const model = useMemo(() => { if (!stored || !stored.stm) return null; try { return cfpBuildModel(stored.stm, stored.catGroups); } catch (e) { console.error('[cfp] build', e); return null; } }, [stored]); useEffect(() => { try { localStorage.setItem('wtp-cfp-era', era); } catch (e) {} }, [era]);
+    const model = useMemo(() => { if (!stored || !stored.stm) return null; try { return cfpBuildModel(stored.stm, stored.catGroups, stored.codeGroups); } catch (e) { console.error('[cfp] build', e); return null; } }, [stored]); useEffect(() => { try { localStorage.setItem('wtp-cfp-era', era); } catch (e) {} }, [era]);
     // บันทึกการจัดกลุ่มหมวด (catGroups) — เก็บลง stored + push ส่วนกลาง (เหมือน BIO saveCatMap)
     function saveGroups(newGroups) {
-      persist({ stm: stored.stm, catGroups: newGroups }).then(r => { toast && toast('บันทึกการจัดกลุ่มแล้ว' + cfpShareSuffix(r), r.reason === 'error' ? 'error' : undefined); });
+      persist({ stm: stored.stm, catGroups: newGroups, codeGroups: (stored && stored.codeGroups) || null }).then(r => { toast && toast('บันทึกการจัดกลุ่มแล้ว' + cfpShareSuffix(r), r.reason === 'error' ? 'error' : undefined); });
       setGroupsOpen(false);
     }
 
@@ -941,8 +1007,8 @@
         let tx = c.txns; if (monthNum) tx = tx.filter(t => t.month === monthNum);
         return { name: c.name, count: tx.length, net: tx.reduce((s, t) => s + t.flow, 0), txns: tx.slice().sort((x, y) => x.iso < y.iso ? 1 : -1) };
       }).filter(b => b.count > 0).sort((a, b) => Math.abs(b.net) - Math.abs(a.net));
-      // leaf / รวมรับ-จ่าย (subtotal) → กลุ่ม/หลายหมวด = สรุปแยกหมวดก่อน · หมวดเดียว = รายการตรงๆ
-      if ((row.type === 'leaf' || row.type === 'subtotal') && row.catNames && row.catNames.length) {
+      // leaf / กลุ่มรหัส (codegroup) / รวมรับ-จ่าย (subtotal) → หลายหมวด = สรุปแยกหมวดก่อน · หมวดเดียว = รายการตรงๆ
+      if ((row.type === 'leaf' || row.type === 'subtotal' || row.type === 'codegroup') && row.catNames && row.catNames.length) {
         const cats = cfpCatsByNames(model, row.catNames);
         if (cats.length > 1) {
           const bd = mkBreakdown(cats); const tot = bd.reduce((s, b) => s + b.net, 0);
@@ -977,7 +1043,10 @@
             const MON = ['Jan.', 'Feb.', 'Mar.', 'Apr.', 'May.', 'Jun.', 'Jul.', 'Aug.', 'Sep.', 'Oct.', 'Nov.', 'Dec.', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
             let opening = 0;
             for (const mn of MON) { const a = aoaOf(mn); if (a) { const o = cfpOpeningFromAoa(a); if (o) { opening = o; break; } } }
-            resolve({ dataAoa, opening });
+            // 3) chart of accounts จากชีต "ค่าใช้จ่าย" (รหัส 5 หลัก → ชื่อกลุ่ม) — แก้ในไฟล์แล้ว re-upload ได้
+            const cn = names.find(n => /ค่าใช้จ่าย/.test(n));
+            const codeGroups = cn ? cfpParseCodeGroups(aoaOf(cn)) : {};
+            resolve({ dataAoa, opening, codeGroups });
           } catch (err) { reject(err); }
         };
         r.onerror = () => reject(new Error('อ่านไฟล์ไม่สำเร็จ')); r.readAsArrayBuffer(file);
@@ -986,13 +1055,14 @@
     async function onUpload(files) { cfpEraHint = era;
       setUploading(true);
       try {
-        const { dataAoa, opening } = await readWorkbook(files[0]);
+        const { dataAoa, opening, codeGroups } = await readWorkbook(files[0]);
         if (!dataAoa) { toast && toast('ไม่พบชีต "DATA" — ตรวจว่าเป็นไฟล์ WTP-Cash Flow', 'error'); setUploading(false); return; }
         const stm = cfpParseStm(dataAoa);
         if (!stm.txns.length) { toast && toast('อ่านชีต DATA ไม่พบรายการ — ตรวจหัวคอลัมน์ (BANK / Amount / ประเภทกิจกรรม)', 'error'); setUploading(false); return; }
         stm.opening = opening || 0;
-        const r = await persist({ stm, catGroups: (stored && stored.catGroups) || null });
-        toast && toast('อ่านข้อมูลสำเร็จ · ' + stm.txns.length + ' รายการ' + (opening ? ' · ต้นงวด ' + cfpFmtM(opening) : '') + cfpShareSuffix(r), r.reason === 'error' ? 'error' : undefined);
+        const nCg = codeGroups ? Object.keys(codeGroups).length : 0;
+        const r = await persist({ stm, catGroups: (stored && stored.catGroups) || null, codeGroups: codeGroups || null });
+        toast && toast('อ่านข้อมูลสำเร็จ · ' + stm.txns.length + ' รายการ' + (opening ? ' · ต้นงวด ' + cfpFmtM(opening) : '') + (nCg ? ' · ' + nCg + ' กลุ่มรหัส' : '') + cfpShareSuffix(r), r.reason === 'error' ? 'error' : undefined);
       } catch (e) { console.error(e); toast && toast('อ่านไฟล์ไม่สำเร็จ: ' + (e.message || e), 'error'); }
       setUploading(false);
     }
