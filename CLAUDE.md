@@ -458,5 +458,8 @@ Live at **https://patima-fin.github.io/waterpog-fin/** — GitHub Pages serves t
 - **โทนสี = แบรนด์ Water POG (น้ำเงิน `--brand-*`)** — รีธีมจากเขียวของ BIO (`20260620b`): palette `C` (primary `#2a6fdb`/primaryD `#1a4490`/teal `#1f56b8`), `ACT_COLOR.op`=น้ำเงิน (inv ส้ม/fin ม่วง คงไว้เป็น accent แยกกิจกรรม), tab gradient/insights/statement bands/present box-shadow → น้ำเงิน. **★ คง เขียว=เงินเข้า / แดง=เงินออก (`C.pos`/`C.neg`) ตามหลักการเงิน** — ไม่เปลี่ยนเป็นน้ำเงิน (semantic ไม่ใช่ brand).
 - **verify (preview, ไฟล์จริง):** net ฿4,637,974.85 = REPORT · ต้นงวด ฿70.62M · ปลายงวด ฿75.26M · ม.ค. net −8.21M (ตรง "Cash added" ชีต Jan.) · 1347 รายการ · 12 บัญชี · งบ 139 แถว · ทั้ง 4 แท็บ render ไม่ error · โทนน้ำเงิน POG.
 
+## 2026-06-21 — Cash Flow Present: เอา legend ซ้ำในกราฟรายเดือนออก (build `page_cashflow_present 20260621a`)
+- คำขอผู้ใช้ ("เอาในกรอบสีแดงออก ทั้ง POG และ BIO"): กราฟ "กระแสเงินสดรายเดือน (แยกตามกิจกรรม)" (`CfpMonthly`) มี legend ดำเนินงาน/ลงทุน/จัดหาเงิน **2 ชุด** — ชุดในหัวการ์ด (มุมขวาบน) + ชุดซ้ำใน SVG (มุมซ้ายบนในตัวกราฟ). ลบ **ชุดใน SVG** (บล็อก `{/* legend */}{acts.map(...)}` หลังแท็ก `<svg>`) ออก เหลือ legend หัวการ์ดชุดเดียว. ไม่แตะ `padTop`/ขนาดแท่ง/ป้ายค่า/ป้ายเดือน; `const acts` ยังใช้วาดแท่งกราฟต่อ (ไม่ลบ). verify: Babel transform ผ่าน, legend หาย, `<svg>`→`{mo.map}` ตรง. (แก้คู่กับ BIO build เดียวกัน.)
+
 ## Repo rule: keep CLAUDE.md current
 **Every time you `git push`, update this `CLAUDE.md`** to reflect anything that changed (architecture, conventions, new pages, gotchas). Treat it as part of the push, like the `?v=` bump.
