@@ -306,11 +306,9 @@ function PL_compute(d, lastMonth) {
   const gpMargin      = grossProfit.map((v, i) => totalRevenue[i] ? (v / totalRevenue[i] * 100) : NaN);
   const totalSGA      = PL_addArr(PL_addArr(d.selling, d.admin), d.finance);
   const netProfit     = grossProfit.map((v, i) => v - totalSGA[i]);
-  const trend = netProfit.map((v, i) => {
-    if (i === 0 || netProfit[i - 1] === 0 || i >= lastMonth) return NaN;
-    return (v - netProfit[i - 1]) / Math.abs(netProfit[i - 1]) * 100;
-  });
-  return { salesRevenue, totalRevenue, constructCost, totalCost, grossProfit, gpMargin, totalSGA, netProfit, trend };
+  // % กำไรสุทธิต่อรายได้ (net margin) รายงวด
+  const netMargin     = netProfit.map((v, i) => totalRevenue[i] ? (v / totalRevenue[i] * 100) : NaN);
+  return { salesRevenue, totalRevenue, constructCost, totalCost, grossProfit, gpMargin, totalSGA, netProfit, netMargin };
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -629,7 +627,7 @@ function PnLPage({ data, setData, toast }) {
     { label: 'Finance costs',               arr: d.finance,     indent: true, key: 'finance' },
     { label: 'รวมค่าใช้จ่ายขายและบริหาร',    arr: c.totalSGA,    cls: 'pnl-strong' },
     { label: 'Net Profit',                  arr: c.netProfit,   cls: 'pnl-net' },
-    { label: 'Trend %',                     arr: c.trend,       cls: 'pnl-pct', pct: true, totalVal: NaN },
+    { label: '% net margin',                arr: c.netMargin,   cls: 'pnl-pct', pct: true, totalVal: (PL_sum(c.totalRevenue, lastMonth) ? PL_sum(c.netProfit, lastMonth) / PL_sum(c.totalRevenue, lastMonth) * 100 : NaN) },
   ];
 
   const renderCell = (v, pct) => {
@@ -666,11 +664,10 @@ function PnLPage({ data, setData, toast }) {
       const gp  = periods.sum(c.grossProfit, p);
       return rev ? gp / rev * 100 : NaN;
     }
-    if (row.label === 'Trend %') {
-      if (p === 0) return NaN;
-      const prev = periods.sum(c.netProfit, p - 1);
-      const curr = periods.sum(c.netProfit, p);
-      return prev ? (curr - prev) / Math.abs(prev) * 100 : NaN;
+    if (row.label === '% net margin') {
+      const rev = periods.sum(c.totalRevenue, p);
+      const net = periods.sum(c.netProfit, p);
+      return rev ? net / rev * 100 : NaN;
     }
     return periods.sum(row.arr, p);
   };
@@ -888,8 +885,9 @@ function PnLPage({ data, setData, toast }) {
                 } else if (row.label === '% margin') {
                   const tr = PL_sum(c.totalRevenue, lastMonth);
                   totVal = tr ? PL_sum(c.grossProfit, lastMonth) / tr * 100 : NaN;
-                } else if (row.label === 'Trend %') {
-                  totVal = NaN;
+                } else if (row.label === '% net margin') {
+                  const tr = PL_sum(c.totalRevenue, lastMonth);
+                  totVal = tr ? PL_sum(c.netProfit, lastMonth) / tr * 100 : NaN;
                 } else {
                   totVal = PL_sum(row.arr, lastMonth);
                 }
