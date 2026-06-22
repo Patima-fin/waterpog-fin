@@ -308,25 +308,47 @@
     }
     return { txns, opening: 0, openingByAcct: {} };
   }
-  // เงินสดต้นงวด = Σ "ต้นงวด" ของชีตเดือน (ตาราง: BANK | ACCOUNT NO. | ต้นงวด | ปลายงวด | …)
-  function cfpOpeningFromAoa(aoa) {
-    if (!aoa || !aoa.length) return 0;
-    let hIdx = -1, col = -1;
+  // ยอดรายบัญชีของ "ชีตเดือนหนึ่ง" (ตาราง: BANK | ACCOUNT NO. | ต้นงวด | ปลายงวด | …)
+  //   คืน [{name,last4,open,close}] — ★ อ่าน "ปลายงวด" จากไฟล์โดยตรง = ยอดคงเหลือจริง
+  //   (ห้ามคำนวณปลายงวดจาก Σ flows เพราะบัญชีดำเนินงาน/เงินโอนทำให้ยอดสะสมเพี้ยนมหาศาล).
+  //   key = cfpDataAccount(bank,acct) เดียวกับ txns.
+  function cfpMonthBalances(aoa) {
+    if (!aoa || !aoa.length) return [];
+    let hIdx = -1, bankCol = -1, acctCol = -1, openCol = -1, closeCol = -1;
     for (let i = 0; i < Math.min(aoa.length, 40); i++) {
       const row = (aoa[i] || []).map(x => String(x == null ? '' : x).trim());
-      const bankI = row.findIndex(c => /^BANK$/i.test(c));
-      const openI = row.findIndex(c => /ต้นงวด/.test(c));
-      if (bankI >= 0 && openI >= 0) { hIdx = i; col = openI; break; }
+      const b = row.findIndex(c => /^BANK$/i.test(c));
+      const o = row.findIndex(c => /ต้นงวด/.test(c));
+      if (b >= 0 && o >= 0) { hIdx = i; bankCol = b; openCol = o; closeCol = row.findIndex(c => /ปลายงวด/.test(c)); acctCol = row.findIndex(c => /ACCOUNT\s*NO/i.test(c)); if (acctCol < 0) acctCol = b + 1; break; }
     }
-    if (hIdx < 0 || col < 0) return 0;
-    let sum = 0;
+    if (hIdx < 0 || openCol < 0) return [];
+    const accts = [];
     for (let i = hIdx + 1; i < aoa.length; i++) {
       const row = aoa[i] || [];
-      const acct = String(row[1] == null ? '' : row[1]).trim();
-      if (!acct) { if (i - hIdx > 1) break; else continue; }   // ตารางจบเมื่อเลขบัญชีว่าง
-      sum += cfpNum(row[col]);
+      const acctRaw = String(row[acctCol] == null ? '' : row[acctCol]).trim();
+      if (!acctRaw) { if (i - hIdx > 1) break; else continue; }   // ตารางจบเมื่อเลขบัญชีว่าง
+      accts.push({ name: cfpDataAccount(row[bankCol], acctRaw), last4: String(acctRaw).replace(/[^\d]/g, '').slice(-4), open: cfpNum(row[openCol]), close: closeCol >= 0 ? cfpNum(row[closeCol]) : cfpNum(row[openCol]) });
     }
-    return sum;
+    return accts;
+  }
+  const CFP_MON_NUM = { Jan: 1, Feb: 2, Mar: 3, Apr: 4, May: 5, Jun: 6, Jul: 7, Aug: 8, Sep: 9, Oct: 10, Nov: 11, Dec: 12 };
+  // รวมชีตเดือนทุกเดือน → ยอดรายบัญชี: opening(ต้นงวดเดือนแรก) · ending(ปลายงวดเดือนล่าสุด) · byMonth Δ=ปลาย−ต้น ต่อเดือน
+  function cfpBuildAcctBalances(aoaOf, MON) {
+    const monthBals = [];
+    for (let i = 0; i < MON.length; i++) {
+      const mn = MON[i]; const a = aoaOf(mn); if (!a) continue;
+      const accts = cfpMonthBalances(a); if (!accts.length) continue;
+      const mNum = CFP_MON_NUM[String(mn).replace(/\.$/, '')];
+      if (!mNum || monthBals.some(x => x.m === mNum)) continue;
+      monthBals.push({ m: mNum, accts });
+    }
+    monthBals.sort((a, b) => a.m - b.m);
+    const balMonths = monthBals.map(x => x.m);
+    const agg = {};
+    monthBals.forEach(mb => mb.accts.forEach(e => { if (!agg[e.name]) { agg[e.name] = { name: e.name, last4: e.last4, opening: null, ending: 0, byMonth: {} }; balMonths.forEach(m => { agg[e.name].byMonth[m] = 0; }); } }));
+    monthBals.forEach(mb => mb.accts.forEach(e => { const ag = agg[e.name]; if (ag.opening == null) ag.opening = e.open; ag.ending = e.close; if (e.last4) ag.last4 = e.last4; ag.byMonth[mb.m] = e.close - e.open; }));
+    const acctBalances = Object.keys(agg).map(n => { const a = agg[n]; return { name: a.name, last4: a.last4, opening: a.opening || 0, ending: a.ending, byMonth: a.byMonth }; });
+    return { acctBalances, balMonths, opening: acctBalances.reduce((s, a) => s + a.opening, 0) };
   }
 
   /* ---------- parse summary statement ---------- */
@@ -479,8 +501,18 @@
     }
     const yr = (txns.find(t => t.iso) || {}).iso; const year = yr ? yr.slice(0, 4) : '';
 
+    // ── ยอดรายบัญชี (per-account) = ยอดจริงจากไฟล์ (stm.acctBalances): ต้นงวด·ปลายงวด·Δรายเดือน
+    //    ★ อ่านปลายงวดจากไฟล์ตรงๆ (ไม่คำนวณจาก flow — บัญชีดำเนินงาน/เงินโอนทำให้ยอดสะสมเพี้ยน).
+    //    ต้องอัปไฟล์ใหม่ 1 ครั้งให้ stm มี acctBalances; ไม่มี = การ์ดโชว์ป้ายให้อัปใหม่. ──
+    const last4of = name => (String(name).match(/(\d{3,4})\s*$/) || [])[1] || '';
+    const fileAccts = Array.isArray(stm.acctBalances) ? stm.acctBalances : [];
+    const accountInfo = fileAccts.map(a => ({ name: a.name, last4: a.last4 || last4of(a.name), opening: cfpNum(a.opening), byMonth: a.byMonth || {}, ending: cfpNum(a.ending) })).sort((a, b) => b.ending - a.ending);
+    const monthsAll = Array.isArray(stm.balMonths) ? stm.balMonths.slice().sort((a, b) => a - b) : [];
+    const hasAcctBalances = accountInfo.length > 0;
+
     return {
       months, monthly, acts, opening, ending, net, transferNet, otherNet,
+      accountInfo, monthsAll, hasAcctBalances,
       allTxns: txns, txnCount: txns.filter(t => t.actKey !== 'transfer' && t.actKey !== 'other').length,
       accounts: Object.keys(accounts), interest, payroll, inflowTotal, topInflow,
       summary: null, stmt: stmt.length ? stmt : null,
@@ -674,6 +706,186 @@
         <div style={{ fontSize: 22, fontWeight: 800, margin: '7px 0 2px', color: value < 0 ? C.neg : C.pos, letterSpacing: '-.5px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cfpFmtM(value)}</div>
         {sub && <div style={{ fontSize: 11, color: C.mut }}>{sub}</div>}
       </div>
+    );
+  }
+
+  /* ---------- "เงินสดนี้ใช้ได้จริงเท่าไร" — แยกตามบัญชี (5 ประเภท) + เพิ่ม-ลดรายเดือนรายบัญชี ----------
+   *  จัดประเภทแต่ละบัญชี (สามารถใช้ได้/ค้ำประกัน/นักลงทุน/บัญชีร่วม/OD) → เก็บใน stored.acctTypes
+   *  {accountName:typeKey} (เก็บเฉพาะที่ต่างจากค่าเริ่มต้น CFP_ACCT_TYPE_DEF). "ใช้ได้จริง"=usable เท่านั้น.
+   *  ยอดรายบัญชี: ต้นงวด·ปลายงวด·Δรายเดือน = ยอดจริงจากไฟล์ (stm.acctBalances; ปลายงวดอ่านตรงจากคอลัมน์
+   *  "ปลายงวด" ของชีตเดือน — ไม่คำนวณจาก flow เพราะบัญชีดำเนินงาน/เงินโอนทำให้ยอดเพี้ยน).
+   *  sync ส่วนกลางผ่าน persist. การ์ดย่อ → กดยอด/ชิปประเภท → modal ที่มา (รายบัญชี+รายเดือน). viewer อ่านอย่างเดียว.
+   *  ★ persist ไม่ merge ฟิลด์เก่าเอง → saveGroups/onUpload ต้องส่ง acctTypes มาด้วยทุกครั้ง.
+   *  ★ ต้องอัปไฟล์ใหม่ 1 ครั้งหลัง deploy เพื่อให้ stm มี acctBalances (ยอดรายบัญชีจากไฟล์). */
+  const cfpCard = { background: C.card, backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,.6)', borderRadius: 18, padding: '16px 20px', boxShadow: C.shadow, marginBottom: 16 };
+  function cfpDeltaM(v) { if (!v) return '–'; return (v < 0 ? '-' : '+') + '฿' + (Math.abs(v) / 1e6).toFixed(2) + 'M'; }   // ยอด Δ สั้นในตาราง
+  // 5 ประเภทบัญชี — "ใช้ได้จริง" = 'usable' เท่านั้น; ที่เหลือ = เงินที่ติดเงื่อนไข/ใช้ไม่ได้อิสระ
+  const CFP_ACCT_TYPES = [
+    { key: 'usable', label: 'สามารถใช้ได้', short: 'ใช้ได้', icon: '✅', color: C.pos },
+    { key: 'guarantee', label: 'วงเงินค้ำประกัน (ติดภาระ)', short: 'ค้ำประกัน', icon: '🔒', color: '#e08a3c' },
+    { key: 'investor', label: 'เงินนักลงทุน', short: 'นักลงทุน', icon: '💼', color: '#9b7bff' },
+    { key: 'joint', label: 'บัญชีร่วม', short: 'ร่วม', icon: '👥', color: '#1f6fb8' },
+    { key: 'od', label: 'OD (เบิกเกินบัญชี)', short: 'OD', icon: '➖', color: '#e5484d' },
+  ];
+  function cfpTypeMeta(k) { for (let i = 0; i < CFP_ACCT_TYPES.length; i++) if (CFP_ACCT_TYPES[i].key === k) return CFP_ACCT_TYPES[i]; return CFP_ACCT_TYPES[0]; }
+  // ค่าเริ่มต้น Water POG (จับด้วยเลขท้ายบัญชี 4 หลัก) — แก้ทับได้ผ่าน ✏️ จัดประเภทบัญชี (sync ทั้งทีม)
+  const CFP_ACCT_TYPE_DEF = {
+    '0669': 'investor', '4863': 'usable', '0093': 'usable', '1345': 'od', '3834': 'guarantee',
+    '4999': 'joint', '5979': 'joint', '2441': 'usable', '1079': 'usable', '2477': 'guarantee',
+    '2125': 'usable', '6816': 'guarantee', '0228': 'od', '6419': 'usable', '7120': 'guarantee', '1921': 'usable',
+  };
+  function CfpCashUsable({ model, acctTypes, canEdit, onSave }) {
+    const [editing, setEditing] = useState(false);
+    const [draft, setDraft] = useState(null);
+    const [drill, setDrill] = useState(null);   // null | 'all' | <typeKey> → เปิดโมดัล "ยอดนี้มาจากบัญชีไหน"
+    const accts = (model.accountInfo && model.accountInfo.length) ? model.accountInfo : [];
+    const typeMap = (acctTypes && typeof acctTypes === 'object') ? acctTypes : {};
+    const active = (editing && draft) ? draft : typeMap;
+    const defOf = a => CFP_ACCT_TYPE_DEF[a.last4] || 'usable';
+    const typeOf = a => (active[a.name] != null ? active[a.name] : defOf(a));
+    const modalOpen = editing || drill !== null;
+    useEffect(() => {
+      if (!modalOpen) return;
+      const h = e => { if (e.key === 'Escape') { setEditing(false); setDrill(null); } };
+      window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h);
+    }, [modalOpen]);
+
+    // ----- ยังไม่มียอดรายบัญชี (ไฟล์เก่า ยังไม่ได้อัปใหม่หลัง deploy) -----
+    if (!model.hasAcctBalances || !accts.length) {
+      if (!canEdit) return null;
+      return (
+        <div className="cfp-card no-print no-present" style={{ ...cfpCard, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: 'linear-gradient(135deg,rgba(42,111,219,.07),rgba(31,86,184,.10))' }}>
+          <div style={{ fontSize: 13, color: C.ink, flex: 1 }}>💡 <b>แยกเงินตามประเภทบัญชี</b> — อัปโหลดไฟล์ Cash Flow <b>อีกครั้ง 1 รอบ</b> เพื่อดึงยอดต้นงวดรายบัญชี จากนั้นจะจัดประเภทแต่ละบัญชี (ใช้ได้/ค้ำประกัน/นักลงทุน/บัญชีร่วม/OD) + เห็นเพิ่ม-ลดรายเดือนรายบัญชีได้</div>
+        </div>
+      );
+    }
+
+    const total = accts.reduce((s, a) => s + a.ending, 0);
+    const pct = v => total > 0 ? Math.round(v / total * 100) : 0;
+    const months = model.monthsAll || [];
+    // ยอดต่อประเภท (เรียงตาม CFP_ACCT_TYPES, เก็บเฉพาะที่มีบัญชี)
+    const byType = CFP_ACCT_TYPES.map(t => {
+      const list = accts.filter(a => typeOf(a) === t.key);
+      return { ...t, amount: list.reduce((s, a) => s + a.ending, 0), count: list.length };
+    }).filter(t => t.count > 0);
+    const usableTotal = accts.filter(a => typeOf(a) === 'usable').reduce((s, a) => s + a.ending, 0);
+    const restrictedTotal = total - usableTotal;
+    const unclassified = byType.length <= 1 && byType[0] && byType[0].key === 'usable';
+
+    function openDrill(scope) { setEditing(false); setDraft(null); setDrill(scope); }
+    function startEdit() { const d = {}; accts.forEach(a => { d[a.name] = typeOf(a); }); setDraft(d); setDrill(null); setEditing(true); }
+    function setType(name, t) { setDraft(d => ({ ...d, [name]: t })); }
+    function commit() { const out = {}; accts.forEach(a => { const t = draft[a.name] || 'usable'; if (t !== defOf(a)) out[a.name] = t; }); onSave(out); setEditing(false); }
+    function closeModal() { setEditing(false); setDrill(null); }
+
+    // เรียง: usable ท้ายสุด · ที่เหลือ (ติดเงื่อนไข) ขึ้นก่อนตามลำดับประเภท แล้วยอดมากก่อน
+    const typeRank = {}; CFP_ACCT_TYPES.forEach((t, i) => { typeRank[t.key] = t.key === 'usable' ? 99 : i; });
+    const rankOf = a => { const r = typeRank[typeOf(a)]; return r != null ? r : 50; };
+    const ordered = accts.slice().sort((a, b) => { const ra = rankOf(a), rb = rankOf(b); return ra !== rb ? ra - rb : b.ending - a.ending; });
+    const cell = { padding: '6px 8px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' };
+    const th = { padding: '7px 8px', fontWeight: 700, fontSize: 11, color: C.mut, whiteSpace: 'nowrap', textAlign: 'right', position: 'sticky', top: 0, background: C.cardSolid, zIndex: 1 };
+    const TypeBadge = ({ k }) => { const m = cfpTypeMeta(k); return <span title={m.label} style={{ background: m.color + '1f', color: m.color, borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>{m.icon} {m.short}</span>; };
+    const clk = { cursor: 'pointer', borderBottom: '1.5px dotted currentColor' };   // ยอดที่กดดูที่มาได้
+    const selSty = { border: '1px solid ' + C.line, borderRadius: 8, padding: '3px 6px', fontSize: 11, fontFamily: 'inherit', background: '#fff', color: C.ink, cursor: 'pointer' };
+
+    // บัญชีที่จะโชว์ในโมดัล: แก้ไข/รวม → ทุกบัญชี · ดูที่มา → เฉพาะประเภทที่กด
+    const shown = (editing || drill === 'all' || drill == null) ? ordered : ordered.filter(a => typeOf(a) === drill);
+    const shownTotal = shown.reduce((s, a) => s + a.ending, 0);
+    const dMeta = (drill && drill !== 'all') ? cfpTypeMeta(drill) : null;
+    const modalTitle = editing ? '🏷️ จัดประเภทบัญชี' : dMeta ? (dMeta.icon + ' ' + dMeta.label + ' — มาจากบัญชีไหนบ้าง') : '💰 ยอดเงินสด — ทุกบัญชี';
+
+    return (
+      <React.Fragment>
+        {/* การ์ดสรุป (ย่อ) — กดที่ยอด/ชิปประเภท เพื่อดูว่ามาจากบัญชีไหน */}
+        <div className="cfp-card" style={cfpCard}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
+            <span style={{ fontSize: 15, fontWeight: 700 }}>💰 เงินสดนี้ “ใช้ได้จริง” เท่าไร — แยกตามบัญชี</span>
+            {canEdit && <button className="no-print no-present" onClick={startEdit} style={{ border: '1px solid ' + C.line, background: '#fff', color: C.primaryD, borderRadius: 9, padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>✏️ จัดประเภทบัญชี</button>}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+            <span onClick={() => openDrill('all')} title="กดดูทุกบัญชี" style={{ fontSize: 28, fontWeight: 800, color: C.ink, letterSpacing: '-.5px', cursor: 'pointer' }}>{cfpFmtM(total)}</span>
+            <span style={{ fontSize: 13, color: C.mut }}>เงินสดรวมทุกบัญชี — <b onClick={() => openDrill('usable')} title="กดดูว่ามาจากบัญชีไหน" style={{ color: C.pos, ...clk }}>ใช้ได้จริง {cfpFmtM(usableTotal)} ({pct(usableTotal)}%)</b>{restrictedTotal > 0 ? <span> · ติดเงื่อนไข {cfpFmtM(restrictedTotal)} ({pct(restrictedTotal)}%)</span> : null}</span>
+          </div>
+          {/* แถบ 100% แยกตามประเภท */}
+          <div style={{ display: 'flex', height: 26, borderRadius: 8, overflow: 'hidden', background: C.soft, marginBottom: 10 }}>
+            {byType.map(t => <div key={t.key} onClick={() => openDrill(t.key)} title={t.icon + ' ' + t.label + ' · ' + cfpFmtB(t.amount) + ' (กดดูที่มา)'} style={{ width: (total > 0 ? t.amount / total * 100 : 0) + '%', background: t.color, minWidth: 2, cursor: 'pointer' }} />)}
+          </div>
+          {/* ชิปประเภท (กดดูบัญชีในแต่ละประเภท) = "เงินก้อนนี้เป็นเงินอะไรบ้าง" */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {byType.map(t => (
+              <button key={t.key} onClick={() => openDrill(t.key)} title="กดดูว่ามาจากบัญชีไหน + เพิ่ม-ลดรายเดือน" style={{ display: 'flex', alignItems: 'center', gap: 7, border: '1px solid ' + C.line, background: '#fff', borderRadius: 20, padding: '5px 12px', cursor: 'pointer', fontSize: 12 }}>
+                <span style={{ width: 9, height: 9, borderRadius: 3, background: t.color, flex: '0 0 auto' }} />
+                <b style={{ color: C.ink }}>{t.icon} {t.label}</b>
+                <span style={{ color: C.mut, fontVariantNumeric: 'tabular-nums' }}>{cfpFmtM(t.amount)} · {pct(t.amount)}% · {t.count} บัญชี</span>
+              </button>
+            ))}
+          </div>
+          <div style={{ fontSize: 11, color: C.faint, marginTop: 8 }}>กดที่ยอด หรือชิปประเภท เพื่อดูว่ามาจากบัญชีไหน + เพิ่ม-ลดรายเดือน · ทั้งหมด {accts.length} บัญชี</div>
+          {unclassified && canEdit && <div className="no-print no-present" style={{ fontSize: 12, color: '#a8620a', background: '#fff7e6', borderRadius: 9, padding: '7px 12px', marginTop: 8 }}>ยังไม่ได้จัดประเภทบัญชี — กด ✏️ จัดประเภทบัญชี เพื่อระบุ ค้ำประกัน/นักลงทุน/บัญชีร่วม/OD (ตอนนี้นับเป็นใช้ได้ทั้งหมด)</div>}
+        </div>
+
+        {/* โมดัล: ที่มาของยอด (ราย​บัญชี + เพิ่ม-ลดรายเดือน) / โหมดจัดประเภท */}
+        {modalOpen && (
+          <div className="no-print no-present" onClick={closeModal} style={{ position: 'fixed', inset: 0, background: 'rgba(15,25,45,.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '40px 16px', zIndex: 1300, overflowY: 'auto' }}>
+            <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, boxShadow: '0 20px 60px rgba(0,0,0,.3)', width: 'min(940px,100%)', padding: '18px 20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: C.ink }}>{modalTitle}</div>
+                  <div style={{ fontSize: 12, color: C.mut, marginTop: 2 }}>{shown.length} บัญชี · รวม {cfpFmtM(shownTotal)}{(!editing && dMeta) ? ' (' + pct(shownTotal) + '% ของเงินสดทั้งหมด)' : ''}</div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  {editing
+                    ? <React.Fragment>
+                        <button onClick={closeModal} style={{ border: '1px solid ' + C.line, background: '#fff', color: C.mut, borderRadius: 9, padding: '7px 14px', fontSize: 13, cursor: 'pointer' }}>ยกเลิก</button>
+                        <button onClick={commit} style={{ border: 0, background: C.primary, color: '#fff', borderRadius: 9, padding: '7px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>บันทึก</button>
+                      </React.Fragment>
+                    : <React.Fragment>
+                        {canEdit && <button onClick={startEdit} style={{ border: '1px solid ' + C.line, background: '#fff', color: C.primaryD, borderRadius: 9, padding: '7px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>✏️ จัดประเภท</button>}
+                        <button onClick={closeModal} title="ปิด" style={{ border: '1px solid ' + C.line, background: '#fff', color: C.mut, borderRadius: 9, width: 32, height: 32, fontSize: 16, cursor: 'pointer' }}>✕</button>
+                      </React.Fragment>}
+                </div>
+              </div>
+              {editing && <div style={{ fontSize: 12, color: C.primaryD, background: C.soft, borderRadius: 9, padding: '7px 12px', marginBottom: 10 }}>เลือกประเภทของแต่ละบัญชีจากเมนู (สามารถใช้ได้ / ค้ำประกัน / นักลงทุน / บัญชีร่วม / OD) แล้วกดบันทึก</div>}
+
+              <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '64vh', border: '1px solid ' + C.line, borderRadius: 12 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, minWidth: 540 + months.length * 80 }}>
+                  <thead><tr>
+                    <th style={{ ...th, textAlign: 'left' }}>บัญชี</th>
+                    <th style={{ ...th, textAlign: 'center' }}>ประเภท</th>
+                    <th style={th}>ต้นงวด</th>
+                    {months.map(m => <th key={m} style={th}>{CFP_MONTHS[m] || m}</th>)}
+                    <th style={{ ...th, color: C.primaryD }}>ปลายงวด</th>
+                  </tr></thead>
+                  <tbody>
+                    {shown.map(a => {
+                      const k = typeOf(a); const m = cfpTypeMeta(k);
+                      return (
+                        <tr key={a.name} style={{ borderTop: '1px solid ' + C.line, background: k === 'usable' ? 'transparent' : (m.color + '12') }}>
+                          <td style={{ ...cell, textAlign: 'left' }}><CfpBankPill acct={a.name} /> <span style={{ color: C.mut, fontSize: 11 }}>···{a.last4 || '—'}</span></td>
+                          <td style={{ ...cell, textAlign: 'center' }}>{editing
+                            ? <select value={k} onChange={e => setType(a.name, e.target.value)} style={selSty}>{CFP_ACCT_TYPES.map(t => <option key={t.key} value={t.key}>{t.icon + ' ' + t.label}</option>)}</select>
+                            : <TypeBadge k={k} />}</td>
+                          <td style={{ ...cell, textAlign: 'right', color: C.mut }}>{cfpFmtM(a.opening)}</td>
+                          {months.map(mn => { const v = a.byMonth[mn] || 0; return <td key={mn} style={{ ...cell, textAlign: 'right', color: v > 0 ? C.pos : (v < 0 ? C.neg : C.faint) }}>{cfpDeltaM(v)}</td>; })}
+                          <td style={{ ...cell, textAlign: 'right', fontWeight: 800, color: a.ending < 0 ? C.neg : C.ink }}>{cfpFmtM(a.ending)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot><tr style={{ borderTop: '2px solid ' + C.line, fontWeight: 800, background: C.soft }}>
+                    <td style={{ ...cell, textAlign: 'left', position: 'sticky', bottom: 0, background: C.soft }}>รวม</td>
+                    <td style={{ position: 'sticky', bottom: 0, background: C.soft }} />
+                    <td style={{ ...cell, textAlign: 'right', color: C.mut, position: 'sticky', bottom: 0, background: C.soft }}>{cfpFmtM(shown.reduce((s, a) => s + a.opening, 0))}</td>
+                    {months.map(m => { const v = shown.reduce((s, a) => s + (a.byMonth[m] || 0), 0); return <td key={m} style={{ ...cell, textAlign: 'right', color: v > 0 ? C.pos : (v < 0 ? C.neg : C.faint), position: 'sticky', bottom: 0, background: C.soft }}>{cfpDeltaM(v)}</td>; })}
+                    <td style={{ ...cell, textAlign: 'right', color: C.primaryD, position: 'sticky', bottom: 0, background: C.soft }}>{cfpFmtM(shownTotal)}</td>
+                  </tr></tfoot>
+                </table>
+              </div>
+              <div style={{ fontSize: 11, color: C.faint, marginTop: 8 }}>ต้นงวด = ยอดยกมารายบัญชี · ตัวเลขรายเดือน = เพิ่ม/ลดสุทธิของบัญชีนั้นในเดือนนั้น (รวมเงินโอนระหว่างบัญชี) · ปลายงวด = ยอดคงเหลือล่าสุด</div>
+            </div>
+          </div>
+        )}
+      </React.Fragment>
     );
   }
 
@@ -962,8 +1174,12 @@
     const model = useMemo(() => { if (!stored || !stored.stm) return null; try { return cfpBuildModel(stored.stm, stored.catGroups, stored.codeGroups); } catch (e) { console.error('[cfp] build', e); return null; } }, [stored]); useEffect(() => { try { localStorage.setItem('wtp-cfp-era', era); } catch (e) {} }, [era]);
     // บันทึกการจัดกลุ่มหมวด (catGroups) — เก็บลง stored + push ส่วนกลาง (เหมือน BIO saveCatMap)
     function saveGroups(newGroups) {
-      persist({ stm: stored.stm, catGroups: newGroups, codeGroups: (stored && stored.codeGroups) || null }).then(r => { toast && toast('บันทึกการจัดกลุ่มแล้ว' + cfpShareSuffix(r), r.reason === 'error' ? 'error' : undefined); });
+      persist({ stm: stored.stm, catGroups: newGroups, codeGroups: (stored && stored.codeGroups) || null, acctTypes: (stored && stored.acctTypes) || null }).then(r => { toast && toast('บันทึกการจัดกลุ่มแล้ว' + cfpShareSuffix(r), r.reason === 'error' ? 'error' : undefined); });
       setGroupsOpen(false);
+    }
+    // บันทึกการจัดประเภทบัญชี (ใช้ได้/ผูกพัน) → เก็บใน acctTypes + push ส่วนกลาง
+    function saveAcctTypes(at) {
+      persist({ stm: stored.stm, catGroups: (stored && stored.catGroups) || null, codeGroups: (stored && stored.codeGroups) || null, acctTypes: at }).then(r => { toast && toast('บันทึกการจัดประเภทบัญชีแล้ว' + cfpShareSuffix(r), r.reason === 'error' ? 'error' : undefined); });
     }
 
     // โหลดข้อมูล "ส่วนกลาง" จาก Supabase ตอนเข้าหน้า → ทุกคน/ผู้บริหารเห็นชุดเดียวกัน
@@ -1039,13 +1255,15 @@
             if (dn) dataAoa = aoaOf(dn);
             if (!dataAoa) { for (const n of names) { const a = aoaOf(n); if (a && cfpFindHeaderRow(a) >= 0) { dataAoa = a; break; } } }
             // 2) เงินสดต้นงวด = Σ "ต้นงวด" ชีตเดือนแรกสุดที่มีตาราง (Jan./Feb./… ตามลำดับปฏิทิน)
+            //    + openingAccts = ยอดต้นงวด "รายบัญชี" (ใช้แยก ใช้ได้/ผูกพัน ตามบัญชี)
             const MON = ['Jan.', 'Feb.', 'Mar.', 'Apr.', 'May.', 'Jun.', 'Jul.', 'Aug.', 'Sep.', 'Oct.', 'Nov.', 'Dec.', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-            let opening = 0;
-            for (const mn of MON) { const a = aoaOf(mn); if (a) { const o = cfpOpeningFromAoa(a); if (o) { opening = o; break; } } }
+            // ยอดรายบัญชี ต้น/ปลายงวด + Δ รายเดือน จากชีตเดือนทุกเดือน (ปลายงวด=ยอดจริงจากไฟล์ ไม่คำนวณจาก flow)
+            const balRes = cfpBuildAcctBalances(aoaOf, MON);
+            const opening = balRes.opening || 0, acctBalances = balRes.acctBalances, balMonths = balRes.balMonths;
             // 3) chart of accounts จากชีต "ค่าใช้จ่าย" (รหัส 5 หลัก → ชื่อกลุ่ม) — แก้ในไฟล์แล้ว re-upload ได้
             const cn = names.find(n => /ค่าใช้จ่าย/.test(n));
             const codeGroups = cn ? cfpParseCodeGroups(aoaOf(cn)) : {};
-            resolve({ dataAoa, opening, codeGroups });
+            resolve({ dataAoa, opening, acctBalances, balMonths, codeGroups });
           } catch (err) { reject(err); }
         };
         r.onerror = () => reject(new Error('อ่านไฟล์ไม่สำเร็จ')); r.readAsArrayBuffer(file);
@@ -1054,13 +1272,15 @@
     async function onUpload(files) { cfpEraHint = era;
       setUploading(true);
       try {
-        const { dataAoa, opening, codeGroups } = await readWorkbook(files[0]);
+        const { dataAoa, opening, acctBalances, balMonths, codeGroups } = await readWorkbook(files[0]);
         if (!dataAoa) { toast && toast('ไม่พบชีต "DATA" — ตรวจว่าเป็นไฟล์ WTP-Cash Flow', 'error'); setUploading(false); return; }
         const stm = cfpParseStm(dataAoa);
         if (!stm.txns.length) { toast && toast('อ่านชีต DATA ไม่พบรายการ — ตรวจหัวคอลัมน์ (BANK / Amount / ประเภทกิจกรรม)', 'error'); setUploading(false); return; }
         stm.opening = opening || 0;
+        stm.acctBalances = acctBalances || [];   // ยอดรายบัญชี (ต้น/ปลายงวด+Δรายเดือน) จากไฟล์ → แยก ใช้ได้/ผูกพัน ตามบัญชี
+        stm.balMonths = balMonths || [];
         const nCg = codeGroups ? Object.keys(codeGroups).length : 0;
-        const r = await persist({ stm, catGroups: (stored && stored.catGroups) || null, codeGroups: codeGroups || null });
+        const r = await persist({ stm, catGroups: (stored && stored.catGroups) || null, codeGroups: codeGroups || null, acctTypes: (stored && stored.acctTypes) || null });
         toast && toast('อ่านข้อมูลสำเร็จ · ' + stm.txns.length + ' รายการ' + (opening ? ' · ต้นงวด ' + cfpFmtM(opening) : '') + (nCg ? ' · ' + nCg + ' กลุ่มรหัส' : '') + cfpShareSuffix(r), r.reason === 'error' ? 'error' : undefined);
       } catch (e) { console.error(e); toast && toast('อ่านไฟล์ไม่สำเร็จ: ' + (e.message || e), 'error'); }
       setUploading(false);
@@ -1154,6 +1374,7 @@
               <CfpKpiHero label="กระแสเงินสดสุทธิ" value={cfpFmtSigned(model.net)} color={model.net < 0 ? C.neg : C.pos} sub={model.net >= 0 ? 'เงินสดเพิ่มขึ้น' : 'เงินสดลดลง'} />
               <CfpKpiHero label="เงินสดปลายงวด" value={cfpFmtM(model.ending)} color={C.primaryD} sub={(model.net >= 0 ? '▲ ' : '▼ ') + cfpFmtSigned(model.net) + ' จากต้นงวด'} />
             </div>
+            <CfpCashUsable model={model} acctTypes={stored && stored.acctTypes} canEdit={canEdit} onSave={saveAcctTypes} />
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', gap: 14, marginBottom: 16 }}>
               <CfpKpiAct k="op" value={model.acts.op.net} onClick={() => openAct('op')} sub={watchSub('op')} />
               <CfpKpiAct k="inv" value={model.acts.inv.net} onClick={() => openAct('inv')} sub={watchSub('inv')} />
