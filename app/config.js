@@ -29,6 +29,9 @@ window.WTP_CONFIG = {
   //   ★ ค่านี้ต้องตรงกันระหว่าง tools/supabase-auth-setup.html (สร้าง user) กับ login (app.jsx)
   AUTH_EMAIL_DOMAIN: 'waterpog.app',
 
+  // รหัสแบรนด์ (prefix ชื่อไฟล์ตอนเซฟ PDF ฯลฯ) — Water POG = 'WTP' (BIOAXEL = 'BIO')
+  BRAND_CODE: 'WTP',
+
   // เปิด login ผ่าน Supabase Auth (Phase 4) — false = ใช้ login เดิม (ตรวจกับ USERS/ชีต)
   //   ★ เปิดเป็น true เฉพาะหลังทำ docs/supabase-phase4-auth-guide.md ขั้น A–B เสร็จ
   //     (สร้าง Supabase Auth users + รหัสใหม่แล้ว) ไม่งั้นทุกคน login ไม่ได้

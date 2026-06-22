@@ -466,6 +466,14 @@ function WarRoomPage2({ data, setData, toast }) {
             const cleanup = () => { document.body.classList.remove('wr-print-mode'); if (s.parentNode) s.parentNode.removeChild(s); window.removeEventListener('afterprint', cleanup); };
             window.addEventListener('afterprint', cleanup);
             setTimeout(cleanup, 60000);
+            // ชื่อไฟล์ PDF = "<BRAND> - ประมาณการรับเงินจากโครงการ DD.MM.YYYY" (วันที่กดบันทึก)
+            const _d = new Date(); const _p2 = (n) => String(n).padStart(2, '0');
+            const _brand = (window.WTP_CONFIG && window.WTP_CONFIG.BRAND_CODE) || 'WTP';
+            const _prevTitle = document.title;
+            document.title = `${_brand} - ประมาณการรับเงินจากโครงการ ${_p2(_d.getDate())}.${_p2(_d.getMonth() + 1)}.${_d.getFullYear()}`;
+            const _restoreTitle = () => { document.title = _prevTitle; window.removeEventListener('afterprint', _restoreTitle); };
+            window.addEventListener('afterprint', _restoreTitle);
+            setTimeout(_restoreTitle, 60000);
             setTimeout(() => window.print(), 50);
           }} title="พิมพ์ A4 แนวตั้ง"><Icon name="print" size={14} /> พิมพ์ / PDF</button>
           <button className="btn btn-ghost no-present" onClick={() => { if (confirm('โหลด JS ใหม่ทั้งหมด (clear cache) ?')) { location.href = location.pathname + '?t=' + Date.now() + '#warroom2'; } }}

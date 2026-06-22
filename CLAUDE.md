@@ -486,5 +486,12 @@ Live at **https://patima-fin.github.io/waterpog-fin/** — GitHub Pages serves t
 - **verify (preview, เทียบ helper ตัวจริง):** `lineHasPv` — เคสคุณกฤตวัฒน์(ยอด+บัญชี+วันตรง)=`true` (ข้าม resurrect) · ยอดคนละก้อน=`false` · ยอดตรงคนละบัญชี=`false` · ยอด+บัญชีตรงห่าง5เดือน=`false` (กันจ่ายซ้ำรายเดือน) · manual ไม่มี PV=`false` (ยัง resurrect). ไม่มี console error, `BankReconPage` defined (compile ผ่าน). *(RLS บล็อกข้อมูลจริงตอนไม่ล็อกอิน → verify logic ด้วย eval แทน E2E)*
 - **วิธีใช้หลัง deploy:** เปิดหน้า #bank_recon แล้วกด **"🔗 จับคู่ PV แทน"** รายการนี้ **อีกครั้งเดียว** → F ถูกลบ + decision=`matched` ติดทน + self-heal จะไม่ปั๊มกลับ (มี PV รองรับ) → ออกจากถัง recorded ไป "แมตช์แล้ว" ถาวร. (แท็บเก่าที่ยังเปิดค้างต้อง hard-refresh ก่อน ไม่งั้นโค้ดเก่ายังปั๊มได้.)
 
+## 2026-06-23 — ชื่อไฟล์ตอนเซฟ PDF: `BRAND_CODE` + ตั้งชื่อตามหน้า (Forecast/War Room 1/2) — ทำคู่กับ BIO (build `config/page_cashflow/page_warroom_p1/page_warroom_p2 20260623a`)
+- **คำขอผู้ใช้:** เซฟ PDF แล้วชื่อไฟล์สื่อความ + วันที่ = วันกดบันทึก (ค.ศ.). POG ใช้ prefix `WTP` (BIO ใช้ `BIO`). ทำคู่กับ BIO (ฝั่ง BIO ตั้ง `BRAND_CODE:'BIO'` + ปุ่ม War Room 1/2).
+- **`BRAND_CODE: 'WTP'` ใน `config.js` (ใหม่):** อ่านผ่าน `(window.WTP_CONFIG && WTP_CONFIG.BRAND_CODE) || 'WTP'` ในปุ่มพิมพ์ → ไฟล์ jsx เหมือน BIO ต่างแค่ค่า config (แยกต่อ repo).
+- **กลไก:** เบราเซอร์ใช้ `document.title` เป็นชื่อไฟล์ default ตอน Save as PDF → ปุ่มพิมพ์ (Forecast/WR1/WR2 ที่มี+ทำงานอยู่แล้ว) **เพิ่มแค่ logic ตั้ง `document.title` ชั่วคราว** ก่อน `window.print()` + afterprint listener `_restoreTitle` คืนค่าเดิม (แยกจาก `cleanup` เดิม ไม่ยุ่ง present-mode/wr-print-mode). **ไม่แตะโครงสร้างปุ่ม/print CSS เดิม** (WR1/WR2 ของ POG ใช้ `wr-print-mode` ซ่อน chrome อยู่แล้ว).
+- **ชื่อไฟล์ (วันที่ = `new Date()` DD.MM.YYYY):** Forecast → `WTP-FORECAST <วันที่>` · War Room 1 → `WTP - รายรับสะสมประจำปี <วันที่>` · War Room 2 → `WTP - ประมาณการรับเงินจากโครงการ <วันที่>`.
+- **verify (preview 8011, login manager, stub `window.print` + กดปุ่มจริงทุกหน้า):** ทั้ง 3 หน้า `match:true` — `WTP-FORECAST 23.06.2026` / `WTP - รายรับสะสมประจำปี 23.06.2026` / `WTP - ประมาณการรับเงินจากโครงการ 23.06.2026`. `BRAND_CODE='WTP'` โหลด, ไม่มี console error. (หน้า War Room render หนัก → ต้องรอ `.page-title` สลับเป็นหน้าที่ถูกก่อนกดปุ่ม ไม่งั้นไปเจอปุ่ม Forecast ของหน้าเดิม.)
+
 ## Repo rule: keep CLAUDE.md current
 **Every time you `git push`, update this `CLAUDE.md`** to reflect anything that changed (architecture, conventions, new pages, gotchas). Treat it as part of the push, like the `?v=` bump.
