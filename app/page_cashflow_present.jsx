@@ -345,9 +345,11 @@
     monthBals.sort((a, b) => a.m - b.m);
     const balMonths = monthBals.map(x => x.m);
     const agg = {};
-    monthBals.forEach(mb => mb.accts.forEach(e => { if (!agg[e.name]) { agg[e.name] = { name: e.name, last4: e.last4, opening: null, ending: 0, byMonth: {} }; balMonths.forEach(m => { agg[e.name].byMonth[m] = 0; }); } }));
-    monthBals.forEach(mb => mb.accts.forEach(e => { const ag = agg[e.name]; if (ag.opening == null) ag.opening = e.open; ag.ending = e.close; if (e.last4) ag.last4 = e.last4; ag.byMonth[mb.m] = e.close - e.open; }));
-    const acctBalances = Object.keys(agg).map(n => { const a = agg[n]; return { name: a.name, last4: a.last4, opening: a.opening || 0, ending: a.ending, byMonth: a.byMonth }; });
+    monthBals.forEach(mb => mb.accts.forEach(e => { if (!agg[e.name]) { agg[e.name] = { name: e.name, last4: e.last4, opening: null, ending: 0, byMonth: {}, byClose: {} }; balMonths.forEach(m => { agg[e.name].byMonth[m] = 0; }); } }));
+    //   byClose[m] = ยอด "ปลายงวด" ของเดือน m (ยอดจริงจากไฟล์) → ใช้หยิบปลายงวดของเดือนสุดท้ายในงวดได้ตรงๆ
+    //   (สำคัญเพราะชีตรายเดือนไม่ใช่ running balance ต่อเนื่อง — reconstruct จาก Δ ไม่แม่น)
+    monthBals.forEach(mb => mb.accts.forEach(e => { const ag = agg[e.name]; if (ag.opening == null) ag.opening = e.open; ag.ending = e.close; if (e.last4) ag.last4 = e.last4; ag.byMonth[mb.m] = e.close - e.open; ag.byClose[mb.m] = e.close; }));
+    const acctBalances = Object.keys(agg).map(n => { const a = agg[n]; return { name: a.name, last4: a.last4, opening: a.opening || 0, ending: a.ending, byMonth: a.byMonth, byClose: a.byClose }; });
     return { acctBalances, balMonths, opening: acctBalances.reduce((s, a) => s + a.opening, 0) };
   }
 
@@ -503,11 +505,31 @@
 
     // ── ยอดรายบัญชี (per-account) = ยอดจริงจากไฟล์ (stm.acctBalances): ต้นงวด·ปลายงวด·Δรายเดือน
     //    ★ อ่านปลายงวดจากไฟล์ตรงๆ (ไม่คำนวณจาก flow — บัญชีดำเนินงาน/เงินโอนทำให้ยอดสะสมเพี้ยน).
+    //    ★★ ไฟล์อาจมีชีตยอดเดือน "นอกงวด" ปนมา (เช่น มิ.ย.–ธ.ค. ที่เป็นข้อมูลคนละงวด/ปีก่อน) ทั้งที่
+    //    รายการจริง (DATA/txns) มีถึงแค่เดือนล่าสุด → จำกัดเฉพาะเดือน ≤ เดือนสุดท้ายที่มี txns, และ
+    //    ปลายงวด = ต้นงวด + Σ Δ เฉพาะเดือนในงวด (ไม่ใช่ ending ถึง ธ.ค. ที่ parser เก็บไว้).
     //    ต้องอัปไฟล์ใหม่ 1 ครั้งให้ stm มี acctBalances; ไม่มี = การ์ดโชว์ป้ายให้อัปใหม่. ──
     const last4of = name => (String(name).match(/(\d{3,4})\s*$/) || [])[1] || '';
+    const txnMonthMax = txns.reduce((mx, t) => (t.month && t.month > mx) ? t.month : mx, 0);
+    const balMonthsRaw = Array.isArray(stm.balMonths) ? stm.balMonths.slice().sort((a, b) => a - b) : [];
+    const monthsAll = txnMonthMax > 0 ? balMonthsRaw.filter(m => m <= txnMonthMax) : balMonthsRaw;
     const fileAccts = Array.isArray(stm.acctBalances) ? stm.acctBalances : [];
-    const accountInfo = fileAccts.map(a => ({ name: a.name, last4: a.last4 || last4of(a.name), opening: cfpNum(a.opening), byMonth: a.byMonth || {}, ending: cfpNum(a.ending) })).sort((a, b) => b.ending - a.ending);
-    const monthsAll = Array.isArray(stm.balMonths) ? stm.balMonths.slice().sort((a, b) => a - b) : [];
+    const accountInfo = fileAccts.map(a => {
+      const opening = cfpNum(a.opening), bc = a.byClose, bm = a.byMonth || {}, out = {};
+      let ending;
+      if (bc && typeof bc === 'object') {
+        // ★ มี byClose (ยอดปลายงวดรายเดือน) → Δ แบบ running (close−prevClose) ต่อเนื่อง, ปลายงวด = close เดือนสุดท้ายในงวด
+        //   foots: opening + Σ Δ = close เดือนสุดท้าย; ตัดเดือนนอกงวดออกอัตโนมัติ (monthsAll)
+        let prev = opening;
+        monthsAll.forEach(m => { const c = (bc[m] != null ? cfpNum(bc[m]) : prev); out[m] = c - prev; prev = c; });
+        ending = prev;
+      } else {
+        // ข้อมูลเก่า (ไม่มี byClose) — Δ within-month + ปลายงวดประมาณจาก opening+ΣΔ (อัปไฟล์ใหม่เพื่อให้แม่น)
+        monthsAll.forEach(m => { out[m] = cfpNum(bm[m]); });
+        ending = (monthsAll.length < balMonthsRaw.length) ? monthsAll.reduce((s, m) => s + cfpNum(bm[m]), opening) : cfpNum(a.ending);
+      }
+      return { name: a.name, last4: a.last4 || last4of(a.name), opening: opening, byMonth: out, ending: ending };
+    }).sort((a, b) => b.ending - a.ending);
     const hasAcctBalances = accountInfo.length > 0;
 
     return {
