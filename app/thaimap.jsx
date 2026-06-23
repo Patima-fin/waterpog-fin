@@ -129,9 +129,43 @@
     var cache = geoCache();
 
     var hs = R.useState(null); var hov = hs[0], setHov = hs[1];
-    var ps = R.useState({ x: 0, y: 0 }); var pos = ps[0], setPos = ps[1];
+    var ps = R.useState({ x: 0, y: 0, full: false }); var pos = ps[0], setPos = ps[1];
     var rs = R.useState(null); var actReg = rs[0], setActReg = rs[1];
-    var wrapRef = R.useRef(null);
+    var fst = R.useState(false); var full = fst[0], setFull = fst[1];
+    var vst = R.useState({ s: 1, cx: cache.W / 2, cy: cache.H / 2 }); var view = vst[0], setView = vst[1];
+    var wrapRef = R.useRef(null), fullRef = R.useRef(null), dragRef = R.useRef({ on: false });
+    var viewRef = R.useRef(view); viewRef.current = view;
+
+    // ── zoom / pan / fullscreen helpers (viewBox-based, keeps SVG crisp) ─────────
+    function clampN(v, a, b) { return v < a ? a : (v > b ? b : v); }
+    function r1(n) { return Math.round(n * 10) / 10; }
+    function vbox() { var w = cache.W / view.s, h = cache.H / view.s; var x = clampN(view.cx - w / 2, 0, Math.max(0, cache.W - w)), y = clampN(view.cy - h / 2, 0, Math.max(0, cache.H - h)); return { x: x, y: y, w: w, h: h, s: r1(x) + ' ' + r1(y) + ' ' + r1(w) + ' ' + r1(h) }; }
+    function zoomStep(f) { setView(function (v) { return { s: clampN(v.s * f, 1, 8), cx: v.cx, cy: v.cy }; }); }
+    function resetView() { setView({ s: 1, cx: cache.W / 2, cy: cache.H / 2 }); }
+    function doWheel(e, node) {
+      var v = viewRef.current, rect = node.getBoundingClientRect();
+      var vw = cache.W / v.s, vh = cache.H / v.s;
+      var vx = clampN(v.cx - vw / 2, 0, Math.max(0, cache.W - vw)), vy = clampN(v.cy - vh / 2, 0, Math.max(0, cache.H - vh));
+      var rx = (e.clientX - rect.left) / rect.width, ry = (e.clientY - rect.top) / rect.height;
+      var ax = vx + rx * vw, ay = vy + ry * vh;
+      var ns = clampN(v.s * (e.deltaY < 0 ? 1.2 : 1 / 1.2), 1, 8);
+      var nw = cache.W / ns, nh = cache.H / ns;
+      setView({ s: ns, cx: ax - rx * nw + nw / 2, cy: ay - ry * nh + nh / 2 });
+    }
+    function onDown(e, ref) { if (view.s <= 1) return; dragRef.current = { on: true, x0: e.clientX, y0: e.clientY, cx0: view.cx, cy0: view.cy }; }
+    function onMove(e, ref) {
+      var node = ref.current; if (!node) return;
+      var rect = node.getBoundingClientRect();
+      setPos({ x: e.clientX - rect.left, y: e.clientY - rect.top, full: ref === fullRef });
+      var d = dragRef.current;
+      if (d.on) { var vb = vbox(); setView({ s: view.s, cx: d.cx0 - (e.clientX - d.x0) * (vb.w / rect.width), cy: d.cy0 - (e.clientY - d.y0) * (vb.h / rect.height) }); }
+    }
+    R.useEffect(function () {
+      function attach(node) { if (!node) return null; var fn = function (e) { e.preventDefault(); doWheel(e, node); }; node.addEventListener('wheel', fn, { passive: false }); return function () { node.removeEventListener('wheel', fn); }; }
+      var d1 = attach(wrapRef.current), d2 = full ? attach(fullRef.current) : null;
+      return function () { if (d1) d1(); if (d2) d2(); };
+    }, [full]);
+    R.useEffect(function () { if (!full) return; function onKey(e) { if (e.key === 'Escape') { setFull(false); resetView(); } } window.addEventListener('keydown', onKey); return function () { window.removeEventListener('keydown', onKey); }; }, [full]);
 
     // normalize byProvince keys -> canonical Thai
     var bp = {}; var bpIn = props.byProvince || {};
@@ -175,46 +209,78 @@
       );
     });
 
-    var svg = el('svg', { viewBox: '0 0 ' + cache.W + ' ' + cache.H, style: { width: '100%', height: 'auto', display: 'block', overflow: 'visible' } }, paths, badges);
-
-    var legend = el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 7, justifyContent: 'center', marginTop: 10 } },
-      REG_ORDER.map(function (rk) {
-        var m = REG_META[rk]; var tot = regTot[rk] || 0;
-        return el('div', {
-          key: rk, onMouseEnter: function () { setActReg(rk); }, onMouseLeave: function () { setActReg(null); },
-          style: { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 9px', borderRadius: 99, background: actReg === rk ? mix(m.color, card, 0.78) : card2, border: '1px solid ' + (actReg === rk ? m.color : line), cursor: 'default', fontSize: 11.5, transition: 'background .15s' }
-        },
-          el('span', { style: { width: 10, height: 10, borderRadius: 3, background: m.color, flex: '0 0 auto' } }),
-          el('span', { style: { color: ink, fontWeight: 600 } }, lang === 'th' ? m.th : m.en),
-          el('span', { style: { color: sub, fontVariantNumeric: 'tabular-nums' } }, tot)
-        );
-      })
-    );
-
-    var tipW = 160;
-    var clampX = wrapRef.current ? Math.max(4, Math.min(pos.x + 14, wrapRef.current.clientWidth - tipW)) : pos.x + 14;
-    var tip = hov ? el('div', {
-      style: { position: 'absolute', left: clampX, top: pos.y + 14, background: '#10233f', color: '#fff', padding: '6px 10px', borderRadius: 8, fontSize: 12, pointerEvents: 'none', zIndex: 6, whiteSpace: 'nowrap', boxShadow: '0 6px 18px rgba(0,0,0,.28)' }
-    },
-      el('div', { style: { fontWeight: 800 } }, lang === 'th' ? hov.th : hov.en),
-      el('div', { style: { opacity: 0.85, fontSize: 11, marginTop: 2 } },
-        (REG_META[hov.region] ? (lang === 'th' ? REG_META[hov.region].th : REG_META[hov.region].en) : '—') + ' · ' + (bp[hov.th] || 0) + (lang === 'th' ? ' โครงการ' : ' projects'))
-    ) : null;
-
     if (!cache.feats.length) {
       return el('div', { style: { color: sub, fontSize: 12.5, padding: 20, textAlign: 'center' } }, lang === 'th' ? 'ไม่พบข้อมูลแผนที่ (TH_GEO)' : 'Map data unavailable (TH_GEO)');
     }
 
-    return el('div', {
-      ref: wrapRef,
-      onMouseMove: function (e) { if (!wrapRef.current) return; var r = wrapRef.current.getBoundingClientRect(); setPos({ x: e.clientX - r.left, y: e.clientY - r.top }); },
-      onMouseLeave: function () { setHov(null); setActReg(null); },
-      style: { position: 'relative', width: '100%', maxWidth: props.maxWidth || 380, margin: '0 auto' }
-    },
-      svg, tip, legend,
-      el('div', { style: { textAlign: 'center', fontSize: 11, color: sub, marginTop: 8 } },
-        (lang === 'th' ? 'รวม ' : 'Total ') + grand + (lang === 'th' ? ' โครงการ · ' + activeProvinces + ' จังหวัด' : ' projects · ' + activeProvinces + ' provinces'))
-    );
+    function legendEl() {
+      return el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 7, justifyContent: 'center', marginTop: 10 } },
+        REG_ORDER.map(function (rk) {
+          var m = REG_META[rk]; var tot = regTot[rk] || 0;
+          return el('div', {
+            key: rk, onMouseEnter: function () { setActReg(rk); }, onMouseLeave: function () { setActReg(null); },
+            style: { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 9px', borderRadius: 99, background: actReg === rk ? mix(m.color, card, 0.78) : card2, border: '1px solid ' + (actReg === rk ? m.color : line), cursor: 'default', fontSize: 11.5, transition: 'background .15s' }
+          },
+            el('span', { style: { width: 10, height: 10, borderRadius: 3, background: m.color, flex: '0 0 auto' } }),
+            el('span', { style: { color: ink, fontWeight: 600 } }, lang === 'th' ? m.th : m.en),
+            el('span', { style: { color: sub, fontVariantNumeric: 'tabular-nums' } }, tot)
+          );
+        })
+      );
+    }
+    var footer = el('div', { style: { textAlign: 'center', fontSize: 11, color: sub, marginTop: 8 } },
+      (lang === 'th' ? 'รวม ' : 'Total ') + grand + (lang === 'th' ? ' โครงการ · ' + activeProvinces + ' จังหวัด' : ' projects · ' + activeProvinces + ' provinces'));
+
+    function ctlBtn(label, onClick, title) {
+      return el('button', { onClick: onClick, title: title, style: { width: 30, height: 30, borderRadius: 8, border: '1px solid ' + line, background: card, color: ink, fontSize: 16, fontWeight: 700, cursor: 'pointer', display: 'grid', placeItems: 'center', boxShadow: '0 2px 6px rgba(0,0,0,.15)', lineHeight: 1, padding: 0 } }, label);
+    }
+    function controls(isFull) {
+      return el('div', { style: { position: 'absolute', top: 8, right: 8, zIndex: 7, display: 'flex', flexDirection: 'column', gap: 6 } },
+        ctlBtn('+', function () { zoomStep(1.4); }, lang === 'th' ? 'ซูมเข้า' : 'Zoom in'),
+        ctlBtn('−', function () { zoomStep(1 / 1.4); }, lang === 'th' ? 'ซูมออก' : 'Zoom out'),
+        ctlBtn('↺', resetView, lang === 'th' ? 'รีเซ็ตมุมมอง' : 'Reset view'),
+        ctlBtn(isFull ? '✕' : '⛶', function () { if (isFull) { setFull(false); resetView(); } else { setFull(true); } }, isFull ? (lang === 'th' ? 'ปิดเต็มจอ (Esc)' : 'Close (Esc)') : (lang === 'th' ? 'ขยายเต็มจอ' : 'Fullscreen'))
+      );
+    }
+    function tipFor(isFull) {
+      if (!hov || dragRef.current.on || (!!pos.full !== isFull)) return null;
+      var node = isFull ? fullRef.current : wrapRef.current;
+      var cw = node ? node.clientWidth : 360;
+      var left = Math.max(4, Math.min(pos.x + 14, cw - 168));
+      return el('div', { style: { position: 'absolute', left: left, top: pos.y + 14, background: '#10233f', color: '#fff', padding: '6px 10px', borderRadius: 8, fontSize: 12, pointerEvents: 'none', zIndex: 8, whiteSpace: 'nowrap', boxShadow: '0 6px 18px rgba(0,0,0,.28)' } },
+        el('div', { style: { fontWeight: 800 } }, lang === 'th' ? hov.th : hov.en),
+        el('div', { style: { opacity: 0.85, fontSize: 11, marginTop: 2 } },
+          (REG_META[hov.region] ? (lang === 'th' ? REG_META[hov.region].th : REG_META[hov.region].en) : '—') + ' · ' + (bp[hov.th] || 0) + (lang === 'th' ? ' โครงการ' : ' projects')));
+    }
+    function mapArea(isFull) {
+      var ref = isFull ? fullRef : wrapRef;
+      var grabbing = dragRef.current.on;
+      var cur = view.s > 1 ? (grabbing ? 'grabbing' : 'grab') : 'default';
+      return el('div', {
+        ref: ref,
+        onMouseMove: function (e) { onMove(e, ref); },
+        onMouseLeave: function () { setHov(null); setActReg(null); dragRef.current.on = false; },
+        onMouseDown: function (e) { onDown(e, ref); },
+        onMouseUp: function () { if (dragRef.current.on) { dragRef.current.on = false; setPos(function (q) { return { x: q.x, y: q.y, full: q.full }; }); } },
+        style: isFull
+          ? { position: 'relative', display: 'inline-block', cursor: cur }
+          : { position: 'relative', width: '100%', maxWidth: props.maxWidth || 380, margin: '0 auto', cursor: cur }
+      },
+        controls(isFull),
+        el('svg', { viewBox: vbox().s, style: isFull ? { height: '82vh', width: 'auto', maxWidth: '94vw', display: 'block' } : { width: '100%', height: 'auto', display: 'block', overflow: 'visible' } }, paths, badges),
+        tipFor(isFull)
+      );
+    }
+
+    var overlay = full ? el('div', { style: { position: 'fixed', inset: 0, zIndex: 1200, background: card, display: 'flex', flexDirection: 'column', padding: '14px 18px' } },
+      el('div', { style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 } },
+        el('div', { style: { fontSize: 16, fontWeight: 800, color: ink } }, lang === 'th' ? 'แผนที่จังหวัด — โครงการแยกตามภูมิภาค' : 'Provincial Map — Projects by Region'),
+        el('div', { style: { marginLeft: 'auto', fontSize: 11.5, color: sub } }, lang === 'th' ? 'ลากเพื่อเลื่อน · ลูกกลิ้งเมาส์ซูม · Esc ปิด' : 'Drag to pan · scroll to zoom · Esc to close')),
+      el('div', { style: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 0 } }, mapArea(true)),
+      legendEl()
+    ) : null;
+
+    return el('div', null, mapArea(false), legendEl(), footer, overlay);
   }
 
   window.ThaiMap = ThaiMap;
