@@ -141,14 +141,18 @@
     var regTot = {}, grand = 0, activeProvinces = 0;
     cache.feats.forEach(function (f) { var v = bp[f.th] || 0; if (v) { regTot[f.region] = (regTot[f.region] || 0) + v; grand += v; activeProvinces++; } });
 
+    // Anchor tints to a FIXED light neutral (not the theme `card`) so every province stays
+    // clearly region-colored on BOTH light and dark themes. Fading toward `card` made no-data
+    // provinces collapse to white (light theme) or near-black (dark theme) — the "ดำปี๋" bug.
+    var TINT = '#eef2f7';
     function fillFor(f) {
-      var base = (REG_META[f.region] || {}).color || sub;
+      var base = (REG_META[f.region] || {}).color || '#9aa7bd';
       var v = bp[f.th] || 0;
-      if (mode === 'region') return mix(base, card, 0.6);
-      if (mode === 'value') { if (v <= 0) return mix(brand, card, 0.9); return mix(mix(brand, card, 0.55), brand, Math.sqrt(v / maxV)); }
-      // regionValue (default): faint region tint when no data, deepen toward full hue with value
-      if (v <= 0) return mix(base, card, 0.87);
-      return mix(mix(base, card, 0.5), base, Math.sqrt(v / maxV));
+      if (mode === 'region') return mix(TINT, base, 0.62);
+      if (mode === 'value') { var tb = v <= 0 ? 0.16 : (0.55 + 0.45 * Math.sqrt(v / maxV)); return mix(TINT, brand, Math.min(1, tb)); }
+      // regionValue (default): clearly region-tinted even with no data; data deepens toward full hue
+      var t = v <= 0 ? 0.40 : (0.55 + 0.45 * Math.sqrt(v / maxV));
+      return mix(TINT, base, Math.min(1, t));
     }
     var dimOf = function (f) { return actReg && f.region !== actReg ? 0.22 : 1; };
 
@@ -167,7 +171,7 @@
     var badges = cache.feats.filter(function (f) { return (bp[f.th] || 0) > 0; }).map(function (f, i) {
       return el('g', { key: 'b' + i, opacity: dimOf(f), style: { pointerEvents: 'none' } },
         el('circle', { cx: f.cx, cy: f.cy, r: 12, fill: '#ffffff', opacity: 0.92, stroke: (REG_META[f.region] || {}).color || sub, strokeWidth: 1.4 }),
-        el('text', { x: f.cx, y: f.cy + 4, textAnchor: 'middle', fontSize: 13, fontWeight: 800, fill: ink, style: { fontVariantNumeric: 'tabular-nums' } }, bp[f.th])
+        el('text', { x: f.cx, y: f.cy + 4, textAnchor: 'middle', fontSize: 13, fontWeight: 800, fill: '#10233f', style: { fontVariantNumeric: 'tabular-nums' } }, bp[f.th])
       );
     });
 
@@ -190,7 +194,7 @@
     var tipW = 160;
     var clampX = wrapRef.current ? Math.max(4, Math.min(pos.x + 14, wrapRef.current.clientWidth - tipW)) : pos.x + 14;
     var tip = hov ? el('div', {
-      style: { position: 'absolute', left: clampX, top: pos.y + 14, background: ink, color: '#fff', padding: '6px 10px', borderRadius: 8, fontSize: 12, pointerEvents: 'none', zIndex: 6, whiteSpace: 'nowrap', boxShadow: '0 6px 18px rgba(0,0,0,.28)' }
+      style: { position: 'absolute', left: clampX, top: pos.y + 14, background: '#10233f', color: '#fff', padding: '6px 10px', borderRadius: 8, fontSize: 12, pointerEvents: 'none', zIndex: 6, whiteSpace: 'nowrap', boxShadow: '0 6px 18px rgba(0,0,0,.28)' }
     },
       el('div', { style: { fontWeight: 800 } }, lang === 'th' ? hov.th : hov.en),
       el('div', { style: { opacity: 0.85, fontSize: 11, marginTop: 2 } },
