@@ -884,7 +884,12 @@
   }
 
   // ── Thailand region map (stylized choropleth + bubbles) ─────────────────────
-  function InvThaiMap({ p, byRegion, lang }) {
+  function InvThaiMap({ p, byRegion, byProvince, lang }) {
+    // Real 77-province choropleth (vendored MIT geometry via window.TH_GEO + global ThaiMap).
+    // Falls back to the stylized region-bubble map below if the geometry/component is unavailable.
+    if (window.ThaiMap && window.TH_GEO) {
+      return R.createElement(window.ThaiMap, { palette: p, byProvince: byProvince || {}, byRegion: byRegion || {}, lang: lang, mode: 'regionValue', maxWidth: 380 });
+    }
     const REG = [
       { en: 'North', th: 'ภาคเหนือ', x: 96, y: 80 },
       { en: 'Northeast', th: 'ภาคอีสาน', x: 165, y: 122 },
@@ -923,7 +928,7 @@
     };
     return R.createElement('div', null,
       R.createElement('div', { style: Object.assign(gridR(2), { marginBottom: 16 }) },
-        R.createElement(InvCard, { p, title: tt.byRegion }, R.createElement(InvThaiMap, { p, byRegion: m.byRegion, lang })),
+        R.createElement(InvCard, { p, title: tt.byRegion }, R.createElement(InvThaiMap, { p, byRegion: m.byRegion, byProvince: m.byProv, lang })),
         R.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 14 } },
           R.createElement(InvCard, { p, title: tt.topProv }, R.createElement(InvBars, { p, items: prov.length ? prov : [{ label: '—', value: 0 }], color: p.brand2 })),
           R.createElement(InvCard, { p, title: tt.statusFunnel },

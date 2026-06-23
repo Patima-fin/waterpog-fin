@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ThaiMap · ตัวอย่างแผนที่จังหวัดไทย</title>
+  <!-- Throwaway preview for the ThaiMap component. Not wired into the app — safe to delete.
+       Open via the local dev server:  http://localhost:8000/docs/thaimap-preview.html  -->
+  <style>
+    body { font-family: "IBM Plex Sans Thai", system-ui, sans-serif; background: #f4f7fb; margin: 0; padding: 24px; color: #0f244d; }
+    .wrap { max-width: 980px; margin: 0 auto; }
+    .card { background: #fff; border: 1px solid #e3e9f2; border-radius: 16px; padding: 20px 22px; box-shadow: 0 10px 34px rgba(20,40,80,.07); }
+    h1 { font-size: 18px; margin: 0 0 4px; }
+    .sub { color: #5b6b86; font-size: 13px; margin-bottom: 18px; }
+    .row { display: flex; gap: 22px; flex-wrap: wrap; }
+    .col { flex: 1 1 300px; }
+    .tag { font-size: 12px; font-weight: 700; color: #5b6b86; margin-bottom: 8px; }
+    .darkpane { background: #0e1b30; border-radius: 14px; padding: 14px; }
+    .darkpane .tag { color: #9fb2cc; }
+  </style>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
+  <script src="../app/thaimap_data.js"></script>
+  <script type="text/babel" src="../app/thaimap.jsx"></script>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>แผนที่จังหวัดไทย (ThaiMap) — ตัวอย่าง</h1>
+      <div class="sub">เรนเดอร์จริงจาก <code>app/thaimap.jsx</code> + <code>app/thaimap_data.js</code> · ลงสีตามภาค + เข้มตามจำนวนโครงการ (ใช้ข้อมูลตัวอย่าง) · ชี้เมาส์ที่จังหวัดเพื่อดูชื่อ/จำนวน</div>
+      <div class="row">
+        <div class="col">
+          <div class="tag">ธีมสว่าง (Light)</div>
+          <div id="mapLight"></div>
+        </div>
+        <div class="col darkpane">
+          <div class="tag">ธีมเข้ม (Dark)</div>
+          <div id="mapDark"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="text/babel">
+    const sample = {
+      'เชียงใหม่': 5, 'เชียงราย': 2, 'กรุงเทพมหานคร': 13, 'ขอนแก่น': 3, 'นครราชสีมา': 6,
+      'ภูเก็ต': 2, 'สงขลา': 4, 'ชลบุรี': 7, 'กาญจนบุรี': 3, 'อุบลราชธานี': 4,
+      'สุราษฎร์ธานี': 3, 'ระยอง': 5, 'นนทบุรี': 2, 'พิษณุโลก': 3
+    };
+    const light = { card: '#ffffff', card2: '#f3f6fc', ink: '#0f244d', sub: '#5b6b86', line: '#e3e9f2', brand: '#2a6fdb' };
+    const dark  = { card: '#0e1b30', card2: '#16263f', ink: '#eaf1fb', sub: '#9fb2cc', line: '#24364f', brand: '#5b8def' };
+    function mount(id, pal) {
+      ReactDOM.createRoot(document.getElementById(id)).render(
+        React.createElement(window.ThaiMap, { palette: pal, byProvince: sample, lang: 'th', mode: 'regionValue', maxWidth: 380 })
+      );
+    }
+    mount('mapLight', light);
+    mount('mapDark', dark);
+  </script>
+</body>
+</html>
