@@ -535,16 +535,10 @@ function PaymentReconPage({ data, setData, toast }) {
         </div>
       )}
 
-      {/* Project table */}
-      <div style={{ background: '#fff', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '104px minmax(0,1fr) 130px 150px 132px 38px', gap: 14, alignItems: 'center', padding: '11px 18px', background: 'var(--ink-50)', borderBottom: '1px solid var(--line-soft)', fontSize: 11, fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--ink-400)' }}>
-          <span>รหัสโครงการ</span><span>โครงการ / ผู้รับเหมา</span>
-          <span style={{ textAlign: 'right' }}>มูลค่าสัญญา</span><span style={{ textAlign: 'center' }}>งวด AP</span>
-          <span style={{ textAlign: 'right' }}>พร้อมจ่าย</span><span />
-        </div>
-
+      {/* Project cards */}
+      <div>
         {projects.length === 0 && (
-          <div style={{ padding: '40px 18px', textAlign: 'center', color: 'var(--ink-500)', fontSize: 14, lineHeight: 1.7 }}>
+          <div style={{ background: '#fff', border: '1px solid var(--line)', borderRadius: 14, padding: '40px 18px', textAlign: 'center', color: 'var(--ink-500)', fontSize: 14, lineHeight: 1.7 }}>
             {diag.signed === 0 ? (
               <span>ยังไม่มีข้อมูลโครงการที่เซ็นสัญญา<br /><span style={{ fontSize: 12.5, color: 'var(--ink-400)' }}>ตรวจว่าล็อกอินแล้ว และตาราง <b>projects / invoices</b> โหลดครบ</span></span>
             ) : fyProjects.length === 0 ? (
@@ -558,27 +552,30 @@ function PaymentReconPage({ data, setData, toast }) {
         {projects.map(p => {
           const expanded = !!state.expanded[p.code];
           const minis = p.apGroups.slice(0, 6);
+          const om = PR_META[p.overall] || PR_META.none;
+          const overallLabel = p.overall === 'done' ? 'จ่ายครบ' : (om.label + (p.readyCount > 0 ? ' ' + p.readyCount + ' งวด' : ''));
           return (
-            <div key={p.code} style={{ borderBottom: '1px solid var(--line-soft)' }}>
-              <div onClick={() => toggle(p.code)} style={{ cursor: 'pointer', background: expanded ? 'var(--ink-50)' : '#fff' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '104px minmax(0,1fr) 130px 150px 132px 38px', gap: 14, alignItems: 'center', padding: '12px 18px' }}>
-                  <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 12.5, fontWeight: 600, color: 'var(--ink-900)' }}>{p.code}</span>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--ink-900)' }}>{p.name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--ink-400)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.contractor}</div>
-                  </div>
-                  <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 13, fontWeight: 600, textAlign: 'right', color: 'var(--ink-800)' }}>{prMoney(p.contractValue)}</span>
-                  <div style={{ display: 'flex', gap: 5, justifyContent: 'center', flexWrap: 'wrap' }}>
-                    {minis.map((g, i) => { const m = PR_META[g.status] || PR_META.none; return <span key={i} title={g.key + ' · ' + m.label} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 30, height: 21, padding: '0 6px', borderRadius: 6, fontSize: 10.5, fontWeight: 600, fontFamily: "'IBM Plex Mono',monospace", background: m.bg, color: m.color }}>{g.key === 'ADV' ? 'Adv' : g.key.replace('งวด ', 'ง')}</span>; })}
-                    {p.apGroups.length > 6 && <span style={{ fontSize: 11, color: 'var(--ink-400)', alignSelf: 'center' }}>+{p.apGroups.length - 6}</span>}
-                    {p.apGroups.length === 0 && <span style={{ fontSize: 11, color: 'var(--ink-300)' }}>— ไม่มี AP</span>}
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 13, fontWeight: 600, color: p.readySum > 0 ? (p._keys.includes('overdue') ? '#b91c1c' : '#15803d') : 'var(--ink-300)' }}>{p.readySum > 0 ? prMoney(p.readySum) : '—'}</div>
-                    {p.readyCount > 0 && <div style={{ fontSize: 11, color: 'var(--ink-400)' }}>{p.readyCount} งวด</div>}
-                  </div>
-                  <span style={{ textAlign: 'center', color: 'var(--ink-400)', fontSize: 11 }}>{expanded ? '▲' : '▼'}</span>
+            <div key={p.code} style={{ background: '#fff', border: '1px solid var(--line)', borderLeft: '4px solid ' + om.dot, borderRadius: 14, marginBottom: 12, boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
+              <div onClick={() => toggle(p.code)} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 14, padding: '13px 18px', flexWrap: 'wrap', background: expanded ? 'var(--ink-50)' : '#fff' }}>
+                <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 12, fontWeight: 700, color: 'var(--ink-700)', background: 'var(--ink-100)', padding: '3px 9px', borderRadius: 7, whiteSpace: 'nowrap' }}>{p.code}</span>
+                <div style={{ minWidth: 150, flex: 1 }}>
+                  <div style={{ fontSize: 14.5, fontWeight: 600, lineHeight: 1.3, color: 'var(--ink-900)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+                  <div style={{ fontSize: 12, color: 'var(--ink-400)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.contractor}</div>
                 </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 14, fontWeight: 700, color: 'var(--ink-900)' }}>{prMoney(p.contractValue)}</div>
+                  <div style={{ fontSize: 10.5, color: 'var(--ink-400)' }}>มูลค่าสัญญา</div>
+                </div>
+                <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', maxWidth: 130, justifyContent: 'flex-end' }}>
+                  {minis.map((g, i) => { const m = PR_META[g.status] || PR_META.none; return <span key={i} title={g.key + ' · ' + m.label} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 30, height: 21, padding: '0 6px', borderRadius: 6, fontSize: 10.5, fontWeight: 600, fontFamily: "'IBM Plex Mono',monospace", background: m.bg, color: m.color }}>{g.key === 'ADV' ? 'Adv' : g.key.replace('งวด ', 'ง')}</span>; })}
+                  {p.apGroups.length > 6 && <span style={{ fontSize: 11, color: 'var(--ink-400)', alignSelf: 'center' }}>+{p.apGroups.length - 6}</span>}
+                  {p.apGroups.length === 0 && <span style={{ fontSize: 11, color: 'var(--ink-300)' }}>— ไม่มี AP</span>}
+                </div>
+                <div style={{ textAlign: 'right', minWidth: 116 }}>
+                  <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 14, fontWeight: 700, color: p.readySum > 0 ? (p._keys.includes('overdue') ? '#b91c1c' : '#15803d') : 'var(--ink-300)' }}>{p.readySum > 0 ? prMoney(p.readySum) : '—'}</div>
+                  <div style={{ marginTop: 3 }}><span style={prPill(om)}><span style={prDot(om)} />{overallLabel}</span></div>
+                </div>
+                <span style={{ color: 'var(--ink-400)', fontSize: 12, alignSelf: 'flex-start', paddingTop: 4 }}>{expanded ? '▲' : '▼'}</span>
               </div>
 
               {expanded && (
