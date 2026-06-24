@@ -55,6 +55,20 @@ function prInstOrder(key) {
   if (m) return +m[1];
   return 99;
 }
+// ── data: จำนวน "งวด" ที่คาดหวังต่อประเภทผลิตภัณฑ์ (ไม่รวม ADV) ──────────────
+// แก้ได้ตามสัญญากับผู้รับเหมา (อนาคตเปลี่ยนได้). PD/PDP/PDH = 1 งวด (ADV + งวด 1
+// เท่านั้น) · ประเภทอื่นๆ default = 2 งวด (ADV + งวด 1 + งวด 2).
+const PR_PRODUCT_NGUAD = { PD: 1, PDP: 1, PDH: 1 };
+const PR_DEFAULT_NGUAD = 2;
+// ประเภทผลิตภัณฑ์ = suffix ท้ายรหัสโครงการ (ENC165-PL → PL · TTI043-PDH → PDH)
+function prProductType(text) {
+  const m = String(text == null ? '' : text).match(/[A-Za-z]{2,5}\d{2,4}-([A-Za-z]{2,6})\b/);
+  return m ? m[1].toUpperCase() : '';
+}
+function prExpectedNguad(prod) {
+  const p = String(prod || '').toUpperCase();
+  return PR_PRODUCT_NGUAD[p] != null ? PR_PRODUCT_NGUAD[p] : PR_DEFAULT_NGUAD;
+}
 function prIsApsPV(v) {
   return String(v.Type || '').trim().toUpperCase() === 'APS'
     || String(v.AP_No || '').trim().toUpperCase().startsWith('APS');
@@ -96,6 +110,7 @@ const PR_META = {
   planned: { label: 'วางแผนแล้ว', color: 'var(--brand-700)', bg: 'var(--brand-100)', dot: 'var(--brand-500)' },
   paid:    { label: 'จ่ายแล้ว', color: '#475569', bg: '#eef2f6', dot: '#94a3b8' },
   done:    { label: 'จ่ายครบ', color: '#0f766e', bg: '#ccfbf1', dot: '#14b8a6' },
+  pending: { label: 'รอตั้งเบิก', color: '#64748b', bg: '#f1f5f9', dot: '#94a3b8' },
   none:    { label: '—', color: '#94a3b8', bg: '#f1f5f9', dot: '#cbd5e1' },
 };
 function prPill(m) {
@@ -128,6 +143,13 @@ function prBuildAll(data) {
     const nm = iv.customerName || iv.customer || iv.cust_name || '';
     if (c && nm && !custByCode[c]) custByCode[c] = nm;
   });
+
+  // ประเภทผลิตภัณฑ์ต่อโครงการ (suffix) → ใช้กำหนดจำนวนงวดที่คาดหวัง
+  const prodByCode = {};
+  const prSetProd = (code, prod) => { if (code && prod && !prodByCode[code]) prodByCode[code] = prod; };
+  invoices.forEach(iv => prSetProd(prNormCode(iv.jobNo || iv.contractRef || iv.projectCode || ''), prProductType(iv.jobNo || iv.projectCode || '')));
+  pvs.forEach(v => prSetProd(prCodeFromText(v.Project_Dpt), prProductType(v.Project_Dpt)));
+  payables.forEach(p => prSetProd(prCodeFromText(p.pre_des), prProductType(p.pre_des)));
 
   // AP PAID: pvVouchers (APS) → group by project code (Project_Dpt)
   const paidByCode = {};
@@ -208,29 +230,38 @@ function prBuildAll(data) {
         g.outAmt += r.amount; g.outRows.push(r);
       });
 
-      const groups = Object.values(gmap)
-        .filter(g => g.key !== 'อื่นๆ' && g.key !== 'คืนประกัน')
-        .map(g => {
-          let condLabel = '—', unlocked = true, unlockDate = signedDate;
-          if (g.key === 'ADV') { condLabel = 'เซ็นสัญญา'; unlocked = true; unlockDate = signedDate; }
-          else {
-            const mm = g.key.match(/งวด\s*(\d+)/);
-            if (mm) {
-              const n = +mm[1], byNo = !!recvByNo[n];
-              unlocked = byNo || arFull;
-              unlockDate = recvByNo[n] || arRecvMax || signedDate;
-              condLabel = byNo ? ('รับ AR งวด ' + n) : (arFull ? 'รับเงินครบแล้ว' : ('รับ AR งวด ' + n));
-            }
+      // raw groups (ตัด อื่นๆ/คืนประกัน) + เติม "งวดที่คาดหวัง" ตามประเภทผลิตภัณฑ์
+      const productType = prodByCode[ncode] || '';
+      const expectedNguad = prExpectedNguad(productType);
+      const rawGroups = Object.values(gmap).filter(g => g.key !== 'อื่นๆ' && g.key !== 'คืนประกัน');
+      // เติม scaffold เฉพาะเมื่อมี AP จริงอยู่บ้างแล้ว (โครงการที่ยังไม่มี AP เลย = ไม่รก)
+      if (rawGroups.length > 0) {
+        const have = new Set(rawGroups.map(g => g.key));
+        const expected = ['ADV']; for (let k = 1; k <= expectedNguad; k++) expected.push('งวด ' + k);
+        expected.forEach(key => { if (!have.has(key)) rawGroups.push({ key, paidAmt: 0, paidRows: [], outAmt: 0, outRows: [], _scaffold: true }); });
+      }
+      const groups = rawGroups.map(g => {
+        let condLabel = '—', unlocked = true, unlockDate = signedDate;
+        if (g.key === 'ADV') { condLabel = 'เซ็นสัญญา'; unlocked = true; unlockDate = signedDate; }
+        else {
+          const mm = g.key.match(/งวด\s*(\d+)/);
+          if (mm) {
+            const n = +mm[1], byNo = !!recvByNo[n];
+            unlocked = byNo || arFull;
+            unlockDate = recvByNo[n] || arRecvMax || signedDate;
+            condLabel = byNo ? ('รับ AR งวด ' + n) : (arFull ? 'รับเงินครบแล้ว' : ('รับ AR งวด ' + n));
           }
-          let status, planned = g.outRows.length > 0 && g.outRows.every(r => r.planned);
-          if (g.outAmt > 0) {
-            if (planned) status = 'planned';
-            else if (!unlocked) status = 'waiting';
-            else { const aged = unlockDate ? prDaysFrom(unlockDate, todayISO) : 0; status = aged > 60 ? 'overdue' : 'ready'; }
-          } else if (g.paidAmt > 0) status = 'paid';
-          else status = 'none';
-          return { ...g, condLabel, unlocked, unlockDate, status, planned, order: prInstOrder(g.key) };
-        }).sort((a, b) => a.order - b.order);
+        }
+        let status, planned = g.outRows.length > 0 && g.outRows.every(r => r.planned);
+        if (g._scaffold) status = 'pending';                       // คาดว่าจะมีงวดนี้ แต่ยังไม่มีเอกสาร AP/PV
+        else if (g.outAmt > 0) {
+          if (planned) status = 'planned';
+          else if (!unlocked) status = 'waiting';
+          else { const aged = unlockDate ? prDaysFrom(unlockDate, todayISO) : 0; status = aged > 60 ? 'overdue' : 'ready'; }
+        } else if (g.paidAmt > 0) status = 'paid';
+        else status = 'none';
+        return { ...g, condLabel, unlocked, unlockDate, status, planned, order: prInstOrder(g.key) };
+      }).sort((a, b) => a.order - b.order);
 
       let paidSum = 0, outSum = 0, readySum = 0, readyCount = 0;
       groups.forEach(g => {
@@ -245,6 +276,7 @@ function prBuildAll(data) {
         else if (apKeys.includes('ready')) okey = 'ready';
         else if (apKeys.includes('waiting')) okey = 'waiting';
         else if (apKeys.includes('planned')) okey = 'planned';
+        else if (apKeys.includes('pending')) okey = 'pending';   // ยังมีงวดที่คาดหวังแต่ไม่ได้ตั้งเบิก → ไม่ใช่ "จ่ายครบ"
         else if (apKeys.every(k => k === 'paid')) okey = 'done';
         else okey = 'paid';
       }
@@ -261,6 +293,7 @@ function prBuildAll(data) {
         code, ncode, name: d.site || d.name || code, customer: custByCode[ncode] || d.customer || '—',
         contractor: contractorLabel, vendorCount: vendorNames.length,
         contractValue: d.contractAmt || 0, fy: d.fy, arFull,
+        productType, expectedNguad,
         arItems, apGroups: groups,
         receivedARTotal, paidSum, outSum, apTotal, readySum, readyCount, progressPct: pct,
         overall: okey, _keys: apKeys,
@@ -552,6 +585,7 @@ function PaymentReconPage({ data, setData, toast }) {
                 <div style={{ padding: '6px 18px 22px', background: 'var(--ink-50)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '10px 0 16px', fontSize: 12, color: 'var(--ink-500)', flexWrap: 'wrap' }}>
                     <span>ลูกหนี้: <b style={{ color: 'var(--ink-700)' }}>{p.customer}</b></span><span style={{ color: 'var(--ink-300)' }}>·</span>
+                    {p.productType && <><span style={{ fontSize: 11, fontWeight: 600, color: 'var(--brand-700)', background: 'var(--brand-50)', border: '1px solid var(--brand-100)', padding: '1px 8px', borderRadius: 999 }}>{p.productType} · {p.expectedNguad + 1} งวด</span><span style={{ color: 'var(--ink-300)' }}>·</span></>}
                     <span>รับเงินแล้ว <b style={{ fontFamily: "'IBM Plex Mono',monospace", color: '#15803d' }}>{prMoney(p.receivedARTotal)}</b>{p.arFull && <span style={{ marginLeft: 5, fontSize: 10.5, fontWeight: 700, color: '#15803d', background: '#dcfce7', padding: '1px 7px', borderRadius: 999 }}>รับครบแล้ว</span>}</span><span style={{ color: 'var(--ink-300)' }}>·</span>
                     <span>จ่ายผู้รับเหมาแล้ว <b style={{ fontFamily: "'IBM Plex Mono',monospace", color: 'var(--ink-900)' }}>{prMoney(p.paidSum)}</b>{p.outSum > 0 && <> · ค้าง <b style={{ fontFamily: "'IBM Plex Mono',monospace", color: '#b45309' }}>{prMoney(p.outSum)}</b></>} ({p.progressPct}%)</span>
                     <div style={{ flex: 1, maxWidth: 180, height: 6, borderRadius: 999, background: 'var(--ink-200)', overflow: 'hidden' }}><div style={{ width: p.progressPct + '%', height: '100%', background: p.overall === 'overdue' ? '#ef4444' : 'var(--brand-700)', borderRadius: 999, transition: 'width .3s' }} /></div>
@@ -610,7 +644,7 @@ function PaymentReconPage({ data, setData, toast }) {
                                     <span style={{ marginLeft: 'auto', fontFamily: "'IBM Plex Mono',monospace", fontWeight: 600, color: r._paid ? 'var(--ink-700)' : '#b45309' }}>{prMoney(r.amount)}</span>
                                   </div>
                                 ))}
-                                {detail.length === 0 && <span style={{ fontSize: 11, color: 'var(--ink-300)' }}>—</span>}
+                                {detail.length === 0 && <span style={{ fontSize: 11, color: 'var(--ink-400)' }}>{g._scaffold ? ('ยังไม่มีเอกสาร AP/PV — ' + (g.unlocked ? 'รับเงินลูกหนี้แล้ว · รอผู้รับเหมาวางบิล' : 'รอรับเงินลูกหนี้ก่อน')) : '—'}</span>}
                               </div>
                             </div>
                           );
