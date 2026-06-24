@@ -556,9 +556,9 @@ function PaymentReconPage({ data, setData, toast }) {
           const overallLabel = p.overall === 'done' ? 'จ่ายครบ' : (om.label + (p.readyCount > 0 ? ' ' + p.readyCount + ' งวด' : ''));
           return (
             <div key={p.code} style={{ background: '#fff', border: '1px solid var(--line)', borderLeft: '4px solid ' + om.dot, borderRadius: 14, marginBottom: 12, boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
-              <div onClick={() => toggle(p.code)} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 14, padding: '13px 18px', flexWrap: 'wrap', background: expanded ? 'var(--ink-50)' : '#fff' }}>
-                <span style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 12, fontWeight: 700, color: 'var(--ink-700)', background: 'var(--ink-100)', padding: '3px 9px', borderRadius: 7, whiteSpace: 'nowrap' }}>{p.code}</span>
-                <div style={{ minWidth: 150, flex: 1 }}>
+              <div onClick={() => toggle(p.code)} style={{ cursor: 'pointer', display: 'grid', gridTemplateColumns: '92px minmax(0,1fr) 132px 120px 158px 28px', gap: 14, alignItems: 'center', padding: '13px 18px', background: expanded ? 'var(--ink-50)' : '#fff' }}>
+                <span style={{ justifySelf: 'start', fontFamily: "'IBM Plex Mono',monospace", fontSize: 12, fontWeight: 700, color: 'var(--ink-700)', background: 'var(--ink-100)', padding: '3px 9px', borderRadius: 7, whiteSpace: 'nowrap' }}>{p.code}</span>
+                <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 14.5, fontWeight: 600, lineHeight: 1.3, color: 'var(--ink-900)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
                   <div style={{ fontSize: 12, color: 'var(--ink-400)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.contractor}</div>
                 </div>
@@ -566,16 +566,16 @@ function PaymentReconPage({ data, setData, toast }) {
                   <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 14, fontWeight: 700, color: 'var(--ink-900)' }}>{prMoney(p.contractValue)}</div>
                   <div style={{ fontSize: 10.5, color: 'var(--ink-400)' }}>มูลค่าสัญญา</div>
                 </div>
-                <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', maxWidth: 130, justifyContent: 'flex-end' }}>
+                <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center' }}>
                   {minis.map((g, i) => { const m = PR_META[g.status] || PR_META.none; return <span key={i} title={g.key + ' · ' + m.label} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 30, height: 21, padding: '0 6px', borderRadius: 6, fontSize: 10.5, fontWeight: 600, fontFamily: "'IBM Plex Mono',monospace", background: m.bg, color: m.color }}>{g.key === 'ADV' ? 'Adv' : g.key.replace('งวด ', 'ง')}</span>; })}
                   {p.apGroups.length > 6 && <span style={{ fontSize: 11, color: 'var(--ink-400)', alignSelf: 'center' }}>+{p.apGroups.length - 6}</span>}
                   {p.apGroups.length === 0 && <span style={{ fontSize: 11, color: 'var(--ink-300)' }}>— ไม่มี AP</span>}
                 </div>
-                <div style={{ textAlign: 'right', minWidth: 116 }}>
+                <div style={{ textAlign: 'right' }}>
                   <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 14, fontWeight: 700, color: p.readySum > 0 ? (p._keys.includes('overdue') ? '#b91c1c' : '#15803d') : 'var(--ink-300)' }}>{p.readySum > 0 ? prMoney(p.readySum) : '—'}</div>
                   <div style={{ marginTop: 3 }}><span style={prPill(om)}><span style={prDot(om)} />{overallLabel}</span></div>
                 </div>
-                <span style={{ color: 'var(--ink-400)', fontSize: 12, alignSelf: 'flex-start', paddingTop: 4 }}>{expanded ? '▲' : '▼'}</span>
+                <span style={{ textAlign: 'center', color: 'var(--ink-400)', fontSize: 12 }}>{expanded ? '▲' : '▼'}</span>
               </div>
 
               {expanded && (
