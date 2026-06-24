@@ -168,6 +168,17 @@ function CashFlowDashboard({ data, setData, toast }) {
         />
       </div>
 
+      {/* ───── Reconciliation — "ตรวจสอบยอดดิบ" (เหมือนที่เคยทำใน Excel) ───── */}
+      <ForecastReconciliation
+        cf={cf}
+        actualOutflow={actualOutflow}
+        totalBankBal={totalBankBal}
+        totalAvailable={totalAvailable}
+        hasBank={bankAccounts.length > 0}
+        weekLabels={weekLabels}
+        asOf={data.meta.asOf}
+      />
+
       {/* ───── SECTION 2 — Weekly forecast (current + future only) ───── */}
       <SectionTitle num="02"
         title="ประมาณการรายสัปดาห์ที่ยังเหลือ"
@@ -373,6 +384,179 @@ function BalanceCard({ tone, label, value, hint, icon }) {
           {hint && <div style={{ fontSize: 12, opacity: 0.85, marginTop: 4 }}>{hint}</div>}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Reconciliation ("ตรวจสอบยอดดิบ") ───────────────────────────────────
+// สูตรเดียวกับที่เตยตรวจมือใน Excel:
+//   เงินสดยกมา (B/F) + รับเงินโครงการ + เงินกู้ที่ได้รับ − ค่าใช้จ่ายจ่ายจริง
+//     = ยอดเงินสดสุทธิที่ "ควรมี" วันนี้
+//   ยอดนี้ต้องตรงกับยอดเงินในธนาคารจริง (DATA BANK) — ถ้าไม่ตรง = มีรายการตกหล่น
+const RECON_TOL = 1; // ผ่อนปรนเศษสตางค์ ±1 บาท
+
+function ForecastReconciliation({ cf, actualOutflow, totalBankBal, totalAvailable, hasBank, weekLabels, asOf }) {
+  const bf        = cf.bf || 0;
+  const inProject = cf.revInflow || 0;
+  const inLoan    = cf.loanReceived || 0;
+
+  // ── เช็ค 1: build-up → ยอดสุทธิที่ควรมี เทียบยอดธนาคารจริง ──────────────
+  const computed = bf + inProject + inLoan - actualOutflow;
+  const variance = computed - totalBankBal;             // คำนวณ − จริง
+  const balanced = hasBank && Math.abs(variance) <= RECON_TOL;
+
+  const steps = [
+    { label: 'เงินสดคงเหลือยกมา (B/F)', value: bf,            sign: '+' },
+    { label: 'รับเงินโครงการ (รับจริง)', value: inProject,     sign: '+' },
+    { label: 'เงินกู้/สินเชื่อที่ได้รับจริง', value: inLoan,       sign: '+' },
+    { label: 'ค่าใช้จ่ายที่จ่ายจริง',    value: -actualOutflow, sign: '−' },
+  ];
+
+  // ── เช็ค 2: ความต่อเนื่องของยอดยกไปแต่ละสัปดาห์ ──────────────────────────
+  // ยอดปลายงวดของสัปดาห์ที่แล้ว ต้องเท่ากับยอดยกมาของสัปดาห์ถัดไปเสมอ
+  // ใช้ Actual สำหรับสัปดาห์ที่ผ่าน/ปัจจุบัน, ใช้ Plan สำหรับสัปดาห์อนาคต
+  const nowWeek = cf.nowWeek || 0;
+  const pick = (row, i) => (i <= nowWeek ? (row.actual?.[i] || 0) : (row.plan?.[i] || 0));
+  const inflowRows = (cf.inflow || []).filter(r => r.key !== 'bf'); // B/F คือยอดตั้งต้น ไม่นับเป็นเงินเข้ารายสัปดาห์
+  let running = bf;
+  const weekRows = weekLabels.map((label, i) => {
+    const opening = running;
+    const wIn  = inflowRows.reduce((s, r) => s + pick(r, i), 0);
+    const wOut = (cf.outflow || []).reduce((s, r) => s + pick(r, i), 0);
+    const calcClose  = opening + wIn - wOut;
+    const sheetClose = (cf.closing || [])[i] ?? null;
+    running = sheetClose != null ? sheetClose : calcClose; // เดินตามยอดในชีตจริง เพื่อจับจุดที่ขาดตอน
+    const diff = sheetClose == null ? 0 : sheetClose - calcClose;
+    return { label, opening, wIn, wOut, calcClose, sheetClose, diff, ok: Math.abs(diff) <= RECON_TOL, isNow: i === nowWeek, isPast: i < nowWeek };
+  });
+  const chainBroken = weekRows.filter(w => w.sheetClose != null && !w.ok);
+
+  const good = 'var(--good)', bad = 'var(--bad)';
+  const fmt = (v) => fmtNum(v, 2);
+
+  return (
+    <div className="card anim-in" style={{ marginBottom: 22, padding: 0, overflow: 'hidden' }}>
+      {/* Header + verdict banner */}
+      <div style={{
+        padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
+        background: !hasBank ? 'var(--ink-50)' : balanced ? 'color-mix(in oklch, var(--good) 10%, transparent)' : 'color-mix(in oklch, var(--bad) 10%, transparent)',
+        borderBottom: '1px solid var(--line)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 9, background: 'var(--brand-100)', color: 'var(--brand-700)', display: 'grid', placeItems: 'center' }}>
+            <Icon name="check" size={18} />
+          </div>
+          <div>
+            <div className="card-title">ตรวจสอบยอดดิบ (Reconciliation)</div>
+            <div className="card-sub">ยอดยกมา + รับโครงการ + เงินกู้ − ค่าใช้จ่าย ต้องเท่ากับยอดเงินในธนาคารจริง</div>
+          </div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          {!hasBank ? (
+            <span className="badge b-gray">ยังไม่มียอดธนาคาร (DATA BANK)</span>
+          ) : balanced ? (
+            <span className="badge b-green" style={{ fontSize: 13 }}>✓ ยอดตรงกัน</span>
+          ) : (
+            <>
+              <span className="badge b-red" style={{ fontSize: 13 }}>⚠ ยอดไม่ตรง</span>
+              <div style={{ fontSize: 12, color: bad, fontWeight: 700, marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>
+                ส่วนต่าง {variance > 0 ? '+' : ''}{fmt(variance)} ฿
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Build-up waterfall */}
+      <div style={{ padding: 18, display: 'grid', gap: 16 }}>
+        <div>
+          <div style={{ display: 'grid', gap: 0, border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
+            {steps.map((s, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 14px', borderBottom: '1px solid var(--line)', fontSize: 13 }}>
+                <span style={{ color: 'var(--ink-700)' }}>
+                  <span style={{ display: 'inline-block', width: 16, fontWeight: 700, color: s.value < 0 ? bad : good }}>{s.sign}</span>
+                  {s.label}
+                </span>
+                <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: s.value < 0 ? bad : 'var(--ink-900)' }}>{fmt(s.value)}</span>
+              </div>
+            ))}
+            {/* Computed result */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '11px 14px', background: 'var(--brand-50)', fontSize: 13.5 }}>
+              <span style={{ fontWeight: 700, color: 'var(--brand-800)' }}>= ยอดเงินสดสุทธิที่ควรมี (คำนวณ)</span>
+              <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 800, color: computed < 0 ? bad : 'var(--brand-800)' }}>{fmt(computed)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Compare vs actual bank */}
+        {hasBank && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+            <ReconStat label="ยอดสุทธิที่ควรมี (คำนวณ)" value={computed} />
+            <ReconStat label={`ยอดเงินในธนาคารจริง${asOf ? ' · ณ ' + fmtDate(asOf) : ''}`} value={totalBankBal} />
+            <ReconStat label="ส่วนต่าง (คำนวณ − จริง)" value={variance} tone={balanced ? 'good' : 'bad'}
+              hint={balanced ? 'อยู่ในเกณฑ์ ±1 บาท' : 'ตรวจรายการรับ/จ่ายที่อาจตกหล่น'} />
+          </div>
+        )}
+        {hasBank && totalAvailable > 0 && Math.abs(totalAvailable - totalBankBal) > RECON_TOL && (
+          <div style={{ fontSize: 12, color: 'var(--ink-500)' }}>
+            หมายเหตุ: ยอด AVAILABLE รวม (รวมวงเงิน OD) = <strong style={{ color: 'var(--ink-700)' }}>{fmt(totalAvailable)} ฿</strong> — ใช้ดูสภาพคล่องที่กดใช้ได้จริง
+          </div>
+        )}
+
+        {/* Weekly continuity check */}
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-800)' }}>ความต่อเนื่องของยอดยกไปรายสัปดาห์</div>
+            {chainBroken.length === 0
+              ? <span className="badge b-green">✓ ยอดยกไปต่อเนื่อง</span>
+              : <span className="badge b-red">⚠ ขาดตอน {chainBroken.length} สัปดาห์</span>}
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--ink-500)', marginBottom: 8 }}>
+            ยอดปลายงวด = ยอดยกมา + เงินเข้า − เงินออก ของสัปดาห์นั้น (Actual สำหรับสัปดาห์ที่ผ่าน/ปัจจุบัน · Plan สำหรับอนาคต)
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table className="tbl" style={{ minWidth: 640 }}>
+              <thead>
+                <tr>
+                  <th>สัปดาห์</th>
+                  <th style={{ textAlign: 'right' }}>ยอดยกมา</th>
+                  <th style={{ textAlign: 'right' }}>+ เงินเข้า</th>
+                  <th style={{ textAlign: 'right' }}>− เงินออก</th>
+                  <th style={{ textAlign: 'right' }}>= คงเหลือ (คำนวณ)</th>
+                  <th style={{ textAlign: 'right' }}>ยอดในตาราง</th>
+                  <th style={{ textAlign: 'right' }}>ส่วนต่าง</th>
+                </tr>
+              </thead>
+              <tbody>
+                {weekRows.map((w, i) => (
+                  <tr key={i} style={w.isNow ? { background: 'var(--brand-50)' } : w.isPast ? { opacity: 0.9 } : {}}>
+                    <td style={{ fontWeight: 700 }}>{w.label}{w.isNow && <span className="muted" style={{ fontWeight: 400, fontSize: 11 }}> · ปัจจุบัน</span>}</td>
+                    <td className="num">{fmtNum(w.opening, 0)}</td>
+                    <td className="num" style={{ color: good }}>{fmtNum(w.wIn, 0)}</td>
+                    <td className="num" style={{ color: bad }}>{fmtNum(w.wOut, 0)}</td>
+                    <td className="num strong" style={{ color: w.calcClose < 0 ? bad : 'var(--ink-900)' }}>{fmtNum(w.calcClose, 0)}</td>
+                    <td className="num">{w.sheetClose == null ? <span className="muted">—</span> : fmtNum(w.sheetClose, 0)}</td>
+                    <td className="num" style={{ fontWeight: 700, color: w.sheetClose == null ? 'var(--ink-400)' : w.ok ? good : bad }}>
+                      {w.sheetClose == null ? '—' : w.ok ? '✓' : (w.diff > 0 ? '+' : '') + fmtNum(w.diff, 0)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ReconStat({ label, value, tone, hint }) {
+  const color = tone === 'good' ? 'var(--good)' : tone === 'bad' ? 'var(--bad)' : value < 0 ? 'var(--bad)' : 'var(--ink-900)';
+  return (
+    <div style={{ border: '1px solid var(--line)', borderRadius: 10, padding: '12px 14px' }}>
+      <div style={{ fontSize: 11.5, color: 'var(--ink-500)', marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 19, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color }}>{fmtNum(value, 2)}</div>
+      {hint && <div style={{ fontSize: 11, color: 'var(--ink-500)', marginTop: 3 }}>{hint}</div>}
     </div>
   );
 }
