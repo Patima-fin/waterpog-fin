@@ -89,6 +89,33 @@ function brBrandKey(acct) {
   return up || 'BANK';
 }
 
+// เดาว่าไฟล์นี้เป็นของบัญชีไหน จากชื่อไฟล์ (เลขบัญชี/ชื่อแบงค์) — ไว้นำเข้าหลายไฟล์พร้อมกัน
+// คืน account ที่เดาได้ (ผู้ใช้เปลี่ยนเองได้ใน modal) · ไม่เจอ → fallback (บัญชีที่เลือกอยู่)
+function brDetectAccountForFile(fileName, accounts, fallback) {
+  const list = accounts || [];
+  const name = String(fileName || '');
+  // 1) เลขบัญชีในชื่อไฟล์ (เลขติดกัน ≥4 ตัว เช่น "Mango-4863" / "...1362684863...")
+  const runs = name.match(/\d{4,}/g) || [];
+  for (let i = 0; i < runs.length; i++) {
+    const run = runs[i];
+    const hit = list.find(a => {
+      const ad = bdDigits(a.accountNo); if (ad.length < 4) return false;
+      return ad.indexOf(run) >= 0 || run.indexOf(ad) >= 0 || ad.slice(-4) === run.slice(-4);
+    });
+    if (hit) return hit;
+  }
+  // 2) คำว่าแบงค์ในชื่อไฟล์ — ใช้ได้เฉพาะเมื่อมีบัญชีแบงค์นั้นแค่ตัวเดียว (ไม่งั้นเดาไม่ออกว่าบัญชีไหน)
+  const BR = { SCB: /SCB|ไทยพาณิช|SIAM/i, KTB: /KTB|กรุงไทย|KRUNG ?THAI/i, BBL: /BBL|กรุงเทพ|BANGKOK/i,
+    KBANK: /KBANK|KBNK|กสิกร|KASIKORN/i, BAY: /BAY|กรุงศรี|AYUDHYA/i, TTB: /TTB|ทหารไทย|ธนชาต/i, GSB: /GSB|ออมสิน/i };
+  for (const key in BR) {
+    if (BR[key].test(name)) {
+      const same = list.filter(a => brBrandKey(a) === key);
+      if (same.length === 1) return same[0];
+    }
+  }
+  return fallback || list[0] || null;
+}
+
 // number parse (เผื่อ Date object จาก XLSX → 0, comma → ตัด)
 function brNum(v) {
   if (v == null || v === '') return 0;
@@ -550,52 +577,80 @@ function BankReconPage({ data, setData, toast }) {
   // เดือนที่มีข้อมูล statement ของบัญชีนี้ (ไว้สลับเร็ว)
   const monthsWithData = brMemo(() => Object.keys(linesAll[accountNo] || {}).sort().reverse(), [linesAll, accountNo]);
 
-  // ── Import flow ── (รองรับไฟล์มีรหัส เช่น KTB: เด้ง modal ใส่รหัส → ถอด → นำเข้า)
-  const parseAndPreview = (file, password) => {
+  // ── Import flow ── (นำเข้าได้ทีละหลายไฟล์: คิวอยู่ใน preview._rest, ถามทีละไฟล์ว่าเข้าบัญชีไหน)
+  //   ไฟล์มีรหัส (KTB) ถอดไม่ได้ → ข้าม + สรุปท้ายคิว · เดาบัญชีจากชื่อไฟล์ (เปลี่ยนใน modal ได้)
+  const buildMappingFor = (aoa, targetAcct) => {
+    const brand = brBrandKey(targetAcct);
+    const saved = mapAll[brand];
+    const guessed = brGuessHeaderRow(aoa);   // หา header เองเสมอ (กัน index เพี้ยนจาก blank-row)
+    let mapping;
+    if (saved) mapping = { ...saved };                                            // ที่เคยตั้งไว้ (จำ header row ด้วย)
+    else if (BR_PRESETS[brand]) mapping = { ...BR_PRESETS[brand], headerRow: guessed };  // preset (คอลัมน์) + header ที่ตรวจเจอจริง
+    else mapping = { ...brAutoMapping(aoa[guessed] || []), headerRow: guessed };
+    if (mapping.headerRow == null) mapping.headerRow = guessed;
+    return { brand, mapping };
+  };
+  // อ่านไฟล์ 1 ไฟล์ → เปิด preview/mapping · rest/skipped/total/index = สถานะคิว
+  const parseFileForPreview = (file, password, targetAcct, rest, skipped, total, index) => {
     brParseFile(file, password).then(({ sheetNames, sheets }) => {
-      const sheetIdx = 0;
       const aoa = sheets[sheetNames[0]] || [];
-      const brand = brBrandKey(acct);
-      const saved = mapAll[brand];
-      const guessed = brGuessHeaderRow(aoa);   // หา header เองเสมอ (กัน index เพี้ยนจาก blank-row)
-      let mapping;
-      if (saved) mapping = { ...saved };                                            // ที่เคยตั้งไว้ (จำ header row ด้วย)
-      else if (BR_PRESETS[brand]) mapping = { ...BR_PRESETS[brand], headerRow: guessed };  // preset (คอลัมน์) + header ที่ตรวจเจอจริง
-      else mapping = { ...brAutoMapping(aoa[guessed] || []), headerRow: guessed };
-      if (mapping.headerRow == null) mapping.headerRow = guessed;
-      setPwdPrompt(null);   // ถอด/อ่านสำเร็จ → ปิด modal รหัส (ถ้าเปิดอยู่)
-      setPreview({ fileName: file.name, sheetNames, sheets, sheetIdx, aoa, headerRow: mapping.headerRow, mapping, brand, accountNo: acct.accountNo });
+      const a = targetAcct || acct || accounts[0];
+      const { brand, mapping } = buildMappingFor(aoa, a);
+      setPwdPrompt(null);   // อ่านสำเร็จ → ปิด modal รหัส (ถ้าเปิดอยู่)
+      setPreview({ fileName: file.name, sheetNames, sheets, sheetIdx: 0, aoa, headerRow: mapping.headerRow, mapping, brand,
+        accountNo: a.accountNo, _rest: rest || [], _skipped: skipped || [], _total: total || 1, _index: index || 1 });
     }).catch(err => {
       const msg = String((err && err.message) || err).toLowerCase();
       const needsPwd = /password|encrypt|protect/.test(msg);
-      if (needsPwd) {
+      if ((total || 1) > 1) {
+        // โหมดหลายไฟล์ — ไฟล์นี้อ่านไม่ได้ → ข้าม ไปไฟล์ถัดไป (สรุปท้ายคิว)
+        if (!needsPwd && toast) toast('ข้ามไฟล์ที่อ่านไม่ได้: ' + file.name);
+        advanceQueue(rest || [], needsPwd ? [...(skipped || []), file.name] : (skipped || []), total);
+      } else if (needsPwd) {
         // เบราว์เซอร์ถอดรหัสไฟล์ Excel ที่เข้ารหัสไม่ได้ (SheetJS รองรับแค่ RC4 เก่า, KTB ใช้ CryptoAPI/Agile)
-        // → แสดงคำแนะนำ Save As ทันที ไม่ถามรหัส
-        setPwdPrompt({ file, error: '', unsupported: true });
+        setPwdPrompt({ files: [file.name], unsupported: true });
       } else if (toast) { toast('อ่านไฟล์ไม่สำเร็จ: ' + msg); }
     });
   };
+  // เริ่มอ่านไฟล์ถัดไปในคิว (เดาบัญชีจากชื่อไฟล์)
+  const beginFile = (file, rest, skipped, total, index) => {
+    parseFileForPreview(file, null, brDetectAccountForFile(file.name, accounts, acct), rest, skipped, total, index);
+  };
+  // ไปไฟล์ถัดไป / จบคิว (ถ้ามีไฟล์ที่ข้ามเพราะมีรหัส → โชว์คำแนะนำ)
+  const advanceQueue = (rest, skipped, total) => {
+    if (!rest || !rest.length) {
+      setPreview(null);
+      if (skipped && skipped.length) setPwdPrompt({ files: skipped, unsupported: true });
+      return;
+    }
+    const next = rest[0], more = rest.slice(1);
+    beginFile(next, more, skipped, total || 1, (total || 1) - more.length);
+  };
   const onPickFile = (e) => {
-    const file = e.target.files && e.target.files[0];
+    const files = Array.prototype.slice.call(e.target.files || []);
     e.target.value = '';
-    if (!file || !acct) return;
-    parseAndPreview(file, null);
+    if (!files.length || !acct) return;
+    beginFile(files[0], files.slice(1), [], files.length, 1);
   };
   const applyImport = (mapping) => {
-    if (!preview || !acct) return;
-    const newLines = brNormalizeLines(preview.aoa, mapping, acct.accountNo);
-    if (!newLines.length) { if (toast) toast('ไม่พบรายการที่อ่านได้ — ลองปรับ map คอลัมน์/แถว header'); return; }
+    if (!preview || !accounts.length) return;
+    const targetNo = preview.accountNo;
+    const newLines = brNormalizeLines(preview.aoa, mapping, targetNo);
+    if (!newLines.length) { if (toast) toast('ไม่พบรายการที่อ่านได้ — ลองปรับ map คอลัมน์/แถว header / เลือกบัญชีให้ตรง'); return; }
     // เก็บ mapping ต่อแบรนด์ + bucket รายเดือนตามวันที่จริงในไฟล์
     const nm = { ...mapAll, [preview.brand]: mapping }; setMapAll(nm); BankReconStore.setMapping(nm);
-    const acctBucket = { ...(linesAll[acct.accountNo] || {}) };
+    const acctBucket = { ...(linesAll[targetNo] || {}) };
     const byMonth = {};
     newLines.forEach(l => { (byMonth[brMonthOf(l.date)] = byMonth[brMonthOf(l.date)] || []).push(l); });
     Object.keys(byMonth).forEach(m => { acctBucket[m] = byMonth[m]; });   // ทับเฉพาะเดือนที่อยู่ในไฟล์
-    const nl = { ...linesAll, [acct.accountNo]: acctBucket }; setLinesAll(nl); BankReconStore.setLines(nl); pushReconLines(nl);
+    const nl = { ...linesAll, [targetNo]: acctBucket }; setLinesAll(nl); BankReconStore.setLines(nl); pushReconLines(nl);
     const months = Object.keys(byMonth).sort();
+    setAccountNo(targetNo);                                  // สลับไปดูบัญชีที่เพิ่งนำเข้า
     if (months.length) setMonth(months[months.length - 1]);
-    setPreview(null);
-    if (toast) toast(`นำเข้า ${newLines.length} รายการ (${months.map(brFmtMonth).join(', ')})`);
+    const tgt = accounts.find(a => a.accountNo === targetNo);
+    const lbl = tgt ? (bdBrand(brBrandKey(tgt)).label + ' ···' + bdLast4(targetNo)) : '';
+    if (toast) toast(`นำเข้า ${newLines.length} รายการ → ${lbl} (${months.map(brFmtMonth).join(', ')})`);
+    advanceQueue(preview._rest, preview._skipped, preview._total);   // ไฟล์ถัดไปในคิว (ถ้ามี)
   };
   const clearMonth = () => {
     if (!acct || !window.confirm(`ลบ statement ของ ${brFmtMonth(month)} บัญชีนี้?`)) return;
@@ -731,7 +786,7 @@ function BankReconPage({ data, setData, toast }) {
 
   return (
     <div className="page bg-pattern">
-      <input ref={fileRef} type="file" accept=".csv,.xls,.xlsx,.txt" style={{ display: 'none' }} onChange={onPickFile} />
+      <input ref={fileRef} type="file" multiple accept=".csv,.xls,.xlsx,.txt" style={{ display: 'none' }} onChange={onPickFile} />
 
       {/* Header */}
       <div className="page-head anim-in">
@@ -745,7 +800,7 @@ function BankReconPage({ data, setData, toast }) {
           <button className="btn btn-ghost" onClick={() => goMonth(1)} title="เดือนถัดไป">›</button>
           <button className="btn btn-ghost" onClick={exportBackup} title="ดาวน์โหลดไฟล์สำรองข้อมูลกระทบยอด (กันข้อมูลหาย / ย้ายเครื่อง)">💾 สำรอง</button>
           {!readOnly && <button className="btn btn-ghost" onClick={() => backupRef.current && backupRef.current.click()} title="กู้คืนจากไฟล์สำรอง">↩️ กู้คืน</button>}
-          {!readOnly && <button className="btn btn-primary" onClick={() => fileRef.current && fileRef.current.click()} title="นำเข้าไฟล์รายการเดินบัญชี (CSV/Excel)">📥 นำเข้า statement</button>}
+          {!readOnly && <button className="btn btn-primary" onClick={() => fileRef.current && fileRef.current.click()} title="นำเข้าไฟล์รายการเดินบัญชี (CSV/Excel) — เลือกได้หลายไฟล์พร้อมกัน">📥 นำเข้า statement</button>}
         </div>
       </div>
       <input ref={backupRef} type="file" accept="application/json,.json" style={{ display: 'none' }}
@@ -789,6 +844,9 @@ function BankReconPage({ data, setData, toast }) {
         )}
       </div>
 
+      {/* โน้ตไฟล์ที่ใช้นำเข้า + นำเข้าหลายไฟล์พร้อมกัน (พับเก็บได้) */}
+      {!readOnly && <BRImportHelp />}
+
       {/* KPI — ยกมา / เข้า / ออก / คงเหลือ + cross-check */}
       <div className="grid anim-in" style={{ gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 12, marginBottom: 8 }}>
         <KpiTile label="ยอดยกมา (ต้นเดือน)" value={monthly.opening != null ? monthly.opening : 0} digits={0} accent="var(--brand-500)" icon="coin" />
@@ -810,7 +868,7 @@ function BankReconPage({ data, setData, toast }) {
         <div className="card" style={{ padding: 32, textAlign: 'center', color: 'var(--ink-500)', marginBottom: 16 }}>
           <div style={{ fontSize: 40, marginBottom: 8 }}>🏦</div>
           <div style={{ fontWeight: 600, color: 'var(--ink-700)', marginBottom: 4 }}>ยังไม่มีรายการเดินบัญชีของ {brFmtMonth(month)}</div>
-          <div style={{ fontSize: 12.5, marginBottom: 14 }}>นำเข้าไฟล์ statement (CSV/Excel) จากธนาคาร แล้วระบบจะกระทบกับ PV ในระบบให้</div>
+          <div style={{ fontSize: 12.5, marginBottom: 14 }}>นำเข้าไฟล์ statement (CSV/Excel) จากธนาคาร แล้วระบบจะกระทบกับ PV ในระบบให้ · เลือกได้หลายไฟล์/หลายบัญชีพร้อมกัน</div>
           {!readOnly && <button className="btn btn-primary" onClick={() => fileRef.current && fileRef.current.click()}>📥 นำเข้า statement</button>}
           {pvForAcct.length > 0 && <div style={{ fontSize: 12, marginTop: 14, color: 'var(--ink-600)' }}>เดือนนี้มี PV ในระบบ <b>{pvForAcct.length}</b> รายการ (รวม {fmtNum(recon.stats.unmatchedPvAmt, 0)}) รอกระทบ</div>}
         </div>
@@ -825,7 +883,13 @@ function BankReconPage({ data, setData, toast }) {
 
       {/* Mapping modal */}
       {preview && (
-        <BRMappingModal preview={preview} onApply={applyImport} onClose={() => setPreview(null)}
+        <BRMappingModal preview={preview} accounts={accounts} onApply={applyImport} onClose={() => setPreview(null)}
+          onSkip={() => advanceQueue(preview._rest, preview._skipped, preview._total)}
+          onChangeAccount={(accNo) => {
+            const a = accounts.find(x => x.accountNo === accNo) || acct;
+            const { brand, mapping } = buildMappingFor(preview.aoa, a);
+            setPreview({ ...preview, accountNo: a.accountNo, brand, mapping, headerRow: mapping.headerRow });
+          }}
           onChangeSheet={(idx) => {
             const name = preview.sheetNames[idx]; const aoa = preview.sheets[name] || [];
             const headerRow = brGuessHeaderRow(aoa);
@@ -1096,9 +1160,9 @@ function BRStatementTable({ monthly }) {
 }
 
 // ─── Mapping modal — preview + เลือกคอลัมน์ ────────────────────────────────────
-function BRMappingModal({ preview, onApply, onClose, onChangeSheet }) {
+function BRMappingModal({ preview, accounts, onApply, onClose, onChangeSheet, onChangeAccount, onSkip }) {
   const [m, setM] = brState(preview.mapping);
-  brEffect(() => { setM(preview.mapping); }, [preview.headerRow, preview.sheetIdx]);
+  brEffect(() => { setM(preview.mapping); }, [preview.headerRow, preview.sheetIdx, preview.accountNo]);
   const headers = (preview.aoa[m.headerRow] || []);
   const colOpts = headers.map((h, i) => ({ i, label: `${i + 1}. ${String(h || '').slice(0, 28) || '(ว่าง)'}` }));
   const sample = preview.aoa.slice(m.headerRow + 1, m.headerRow + 9);
@@ -1111,15 +1175,29 @@ function BRMappingModal({ preview, onApply, onClose, onChangeSheet }) {
     </select>
   );
   const previewLines = brNormalizeLines(preview.aoa, m, preview.accountNo || '_preview');
+  const total = preview._total || 1, idx = preview._index || 1, hasRest = (preview._rest || []).length > 0;
   return (
-    <Modal open title={'ตั้งค่าคอลัมน์ statement · ' + preview.fileName} maxWidth={920} onClose={onClose}
+    <Modal open maxWidth={920} onClose={onClose}
+      title={(total > 1 ? `ไฟล์ ${idx}/${total} · ` : '') + 'ตั้งค่าคอลัมน์ statement · ' + preview.fileName}
       footer={<>
         <span style={{ marginRight: 'auto', fontSize: 12, color: previewLines.length ? 'var(--good)' : 'var(--bad)' }}>
           {previewLines.length ? `อ่านได้ ${previewLines.length} รายการ` : 'ยังอ่านไม่ได้ — ปรับคอลัมน์/แถว header'}
         </span>
-        <button className="btn btn-ghost" onClick={onClose}>ยกเลิก</button>
-        <button className="btn btn-primary" disabled={!previewLines.length} onClick={() => onApply(m)}>นำเข้า {previewLines.length || ''}</button>
+        <button className="btn btn-ghost" onClick={onClose}>{total > 1 ? 'ยกเลิกทั้งหมด' : 'ยกเลิก'}</button>
+        {hasRest && <button className="btn btn-ghost" onClick={onSkip} title="ไม่นำเข้าไฟล์นี้ ไปไฟล์ถัดไป">ข้ามไฟล์นี้ →</button>}
+        <button className="btn btn-primary" disabled={!previewLines.length} onClick={() => onApply(m)}>นำเข้า {previewLines.length || ''}{hasRest ? ' → ถัดไป' : ''}</button>
       </>}>
+      {/* นำเข้าเข้าบัญชีไหน — เดาจากชื่อไฟล์ เปลี่ยนได้ (สำคัญตอนนำเข้าหลายไฟล์) */}
+      <div style={{ marginBottom: 12, padding: '9px 12px', background: 'color-mix(in oklch, var(--brand-500) 7%, #fff)', border: '1px solid color-mix(in oklch, var(--brand-500) 22%, var(--line))', borderRadius: 9, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--brand-700)' }}>🏦 นำเข้าเข้าบัญชี:</span>
+        <select className="select input" value={preview.accountNo} onChange={e => onChangeAccount(e.target.value)}
+          style={{ fontSize: 12.5, padding: '5px 10px', fontWeight: 600, minWidth: 220 }}>
+          {(accounts || []).map(a => (
+            <option key={a.accountNo} value={a.accountNo}>{bdBrand(brBrandKey(a)).label} ···{bdLast4(a.accountNo)}{a.accountName ? ' · ' + a.accountName : ''}</option>
+          ))}
+        </select>
+        <span style={{ fontSize: 11, color: 'var(--ink-500)' }}>(เดาจากชื่อไฟล์ — ถ้าไม่ตรง เลือกใหม่ได้)</span>
+      </div>
       {preview.sheetNames.length > 1 && (
         <div style={{ marginBottom: 10, fontSize: 12.5 }}>ชีต:{' '}
           <select className="select input" value={preview.sheetIdx} onChange={e => onChangeSheet(Number(e.target.value))} style={{ fontSize: 12, padding: '4px 8px' }}>
@@ -1275,11 +1353,13 @@ function BRMatchModal({ line, candidates, allPvs, onMatch, onClose }) {
 
 // ── Modal ใส่รหัสไฟล์ statement ที่เข้ารหัส (เช่น KTB .xls) ──
 function BRPasswordModal({ prompt, onClose }) {
+  const names = prompt.files || (prompt.file ? [prompt.file.name] : []);   // รองรับทั้งไฟล์เดียว/หลายไฟล์ที่ข้ามจากคิว
   return (
-    <Modal open title="🔒 ไฟล์นี้มีรหัสผ่าน — เปิดในเบราว์เซอร์ไม่ได้" maxWidth={440} onClose={onClose}
+    <Modal open title="🔒 ไฟล์มีรหัสผ่าน — เปิดในเบราว์เซอร์ไม่ได้" maxWidth={440} onClose={onClose}
       footer={<button className="btn btn-ghost" onClick={onClose}>ปิด</button>}>
       <div style={{ fontSize: 12.5, color: 'var(--ink-600)', marginBottom: 12 }}>
-        ไฟล์ <b style={{ color: 'var(--ink-800)' }}>{prompt.file && prompt.file.name}</b> ถูกเข้ารหัสแบบที่เบราว์เซอร์ถอดไม่ได้
+        {names.length > 1 ? `${names.length} ไฟล์ถูกข้าม เพราะถูกเข้ารหัสแบบที่เบราว์เซอร์ถอดไม่ได้:` : 'ไฟล์ถูกเข้ารหัสแบบที่เบราว์เซอร์ถอดไม่ได้:'}
+        <div style={{ marginTop: 6 }}>{names.map((n, i) => <div key={i}><b style={{ color: 'var(--ink-800)' }}>{n}</b></div>)}</div>
       </div>
       <div style={{ fontSize: 12.5, color: 'var(--ink-700)', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '12px 14px', lineHeight: 2 }}>
         <b>วิธีแก้ (3 ขั้นตอน):</b><br/>
@@ -1288,6 +1368,49 @@ function BRPasswordModal({ prompt, onClose }) {
         3. อัปโหลดไฟล์ใหม่นั้นแทน
       </div>
     </Modal>
+  );
+}
+
+// ── โน้ต: แต่ละธนาคารใช้ไฟล์อะไรนำเข้า (พับเก็บได้) ──
+const BR_FILE_GUIDE = [
+  { bank: 'SCB (ไทยพาณิชย์)', file: '.csv', note: 'ไฟล์รวมหลายบัญชี ระบบกรองให้เอง · มีเลขที่ PV ในไฟล์ → กระทบแม่น' },
+  { bank: 'KBANK (กสิกร) · BBL (กรุงเทพ)', file: '.csv', note: 'ภาษาไทย (TIS-620) ระบบอ่านให้อัตโนมัติ' },
+  { bank: 'KTB (กรุงไทย)', file: '.xls มีรหัส', note: 'เบราว์เซอร์ถอดรหัสไม่ได้ → เปิดใน Excel แล้ว Save As .xlsx/.csv (ไม่ใส่รหัส) ก่อนนำเข้า' },
+  { bank: 'ธนาคารอื่น ๆ', file: '.csv / .xlsx / .xls', note: 'เลือกคอลัมน์เอง (วันที่ / เดบิต-เครดิต / รายละเอียด) ตอนนำเข้า ระบบจำไว้ให้ครั้งต่อไป' },
+];
+function BRImportHelp() {
+  const [open, setOpen] = brState(false);
+  return (
+    <div className="card no-print anim-in" style={{ marginBottom: 16, padding: '10px 14px' }}>
+      <button onClick={() => setOpen(o => !o)} style={{ border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit',
+        display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, color: 'var(--ink-700)', padding: 0 }}>
+        📄 ไฟล์ที่ใช้นำเข้า (แต่ละธนาคารใช้นามสกุลอะไร) <span style={{ color: 'var(--ink-400)' }}>{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div style={{ marginTop: 10 }}>
+          <table className="tbl" style={{ width: '100%', fontSize: 12 }}>
+            <thead><tr>
+              <th style={{ textAlign: 'left' }}>ธนาคาร</th>
+              <th style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>นามสกุลไฟล์</th>
+              <th style={{ textAlign: 'left' }}>หมายเหตุ</th>
+            </tr></thead>
+            <tbody>
+              {BR_FILE_GUIDE.map((r, i) => (
+                <tr key={i}>
+                  <td style={{ fontWeight: 600 }}>{r.bank}</td>
+                  <td style={{ whiteSpace: 'nowrap' }}><code style={{ background: 'var(--ink-100)', padding: '1px 6px', borderRadius: 4 }}>{r.file}</code></td>
+                  <td style={{ color: 'var(--ink-600)' }}>{r.note}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ marginTop: 10, fontSize: 12, color: 'var(--ink-700)', background: 'color-mix(in oklch, var(--brand-500) 6%, #fff)', border: '1px solid color-mix(in oklch, var(--brand-500) 20%, var(--line))', borderRadius: 8, padding: '9px 12px', lineHeight: 1.7 }}>
+            💡 <b>นำเข้าหลายไฟล์พร้อมกันได้</b> — ตอนกด “📥 นำเข้า statement” เลือกได้หลายไฟล์รวด ระบบจะ <b>เดาบัญชีจากชื่อไฟล์</b> แล้วถามทีละไฟล์ (เปลี่ยนบัญชี/ข้ามไฟล์ได้) ·
+            <b>ไม่จำเป็นต้องครบทุกธนาคาร</b> จะใส่แค่ไฟล์เดียวหรือกี่ไฟล์ก็ได้
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
