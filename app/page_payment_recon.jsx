@@ -125,11 +125,11 @@ function prDot(m) {
 }
 // พื้น+กรอบการ์ด AP ตามสถานะ (โทนตามดีไซน์ Back to Black)
 const PR_TINT = {
-  ready:   { bg: '#f3fbf6', border: '#bbf7d0' },
-  waiting: { bg: '#fffcf2', border: '#fde68a' },
-  planned: { bg: 'var(--brand-50)', border: 'var(--brand-200)' },
-  paid:    { bg: '#f6f8fb', border: '#e2e8f0' },
-  pending: { bg: '#f8fafc', border: '#e5e9f0' },
+  ready:   { bg: '#e6f9ee', border: '#86e0a6' },
+  waiting: { bg: '#fdf4dc', border: '#f4cd5c' },
+  planned: { bg: '#e8f1ff', border: '#90bdf9' },
+  paid:    { bg: '#e9f0f8', border: '#bcd0e8' },
+  pending: { bg: '#eef2f8', border: '#cfdaea' },
   none:    { bg: '#fff', border: 'var(--line-soft)' },
 };
 
@@ -598,7 +598,7 @@ function PaymentReconPage({ data, setData, toast }) {
               </div>
 
               {expanded && (
-                <div style={{ padding: '6px 18px 22px', background: 'var(--ink-50)' }}>
+                <div style={{ padding: '6px 18px 22px', background: '#fff' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '10px 0 16px', fontSize: 12, color: 'var(--ink-500)', flexWrap: 'wrap' }}>
                     <span>ลูกหนี้: <b style={{ color: 'var(--ink-700)' }}>{p.customer}</b></span><span style={{ color: 'var(--ink-300)' }}>·</span>
                     {p.productType && <><span style={{ fontSize: 11, fontWeight: 600, color: 'var(--brand-700)', background: 'var(--brand-50)', border: '1px solid var(--brand-100)', padding: '1px 8px', borderRadius: 999 }}>{p.productType} · {p.expectedNguad + 1} งวด</span><span style={{ color: 'var(--ink-300)' }}>·</span></>}
@@ -617,7 +617,7 @@ function PaymentReconPage({ data, setData, toast }) {
                         </div>
                         {p.arItems.length === 0 && <div style={{ padding: '10px 12px', fontSize: 12, color: 'var(--ink-400)' }}>ยังไม่มีใบแจ้งหนี้</div>}
                         {p.arItems.map((ar, i) => { const m = ar.received ? PR_META.ready : PR_META.waiting; return (
-                          <div key={i} style={{ display: 'grid', gridTemplateColumns: '0.8fr 1.1fr 0.9fr 0.9fr', padding: '9px 12px', gap: 8, fontSize: 12, borderTop: '1px solid var(--line-soft)', alignItems: 'center', background: ar.received ? '#f7fdf9' : '#fff' }}>
+                          <div key={i} style={{ display: 'grid', gridTemplateColumns: '0.8fr 1.1fr 0.9fr 0.9fr', padding: '9px 12px', gap: 8, fontSize: 12, borderTop: '1px solid var(--line-soft)', alignItems: 'center', background: ar.received ? '#e6f9ee' : '#fff' }}>
                             <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={prDot(m)} /><b>{ar.label}</b></span>
                             <span style={{ fontFamily: "'IBM Plex Mono',monospace", color: 'var(--ink-600)' }}>{ar.invoiceNo}</span>
                             <span style={{ fontFamily: "'IBM Plex Mono',monospace", textAlign: 'right' }}>{prMoney(ar.amount)}</span>
@@ -653,7 +653,7 @@ function PaymentReconPage({ data, setData, toast }) {
                               <div style={{ borderTop: '1px solid var(--line-soft)', background: 'rgba(255,255,255,.6)', padding: '6px 12px', display: 'flex', flexDirection: 'column', gap: 3 }}>
                                 {detail.map((r, j) => (
                                   <div key={j} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, flexWrap: 'wrap' }}>
-                                    <span style={{ fontSize: 10, color: r._paid ? '#15803d' : '#b45309' }}>{r._paid ? '✓ จ่ายแล้ว' : '○ ค้างจ่าย'}</span>
+                                    <span style={{ fontSize: 9.5, fontWeight: 600, padding: '1px 7px', borderRadius: 999, background: r._paid ? '#dcfce7' : '#fef3c7', color: r._paid ? '#15803d' : '#b45309' }}>{r._paid ? '✓ จ่ายแล้ว' : '○ ค้างจ่าย'}</span>
                                     <span style={{ color: 'var(--ink-700)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.vendor}>{r.vendor}</span>
                                     <span style={{ fontFamily: "'IBM Plex Mono',monospace", color: 'var(--ink-500)' }}>{r._paid ? ('PV ' + (r.pvNo || '—')) : ('AP ' + (r.vchno || '—'))}</span>
                                     <span style={{ color: 'var(--ink-400)' }}>{r._paid ? (r.date ? '· จ่าย ' + fmtDate(r.date) : '') : (r.due ? '· ครบ ' + fmtDate(r.due) : '')}{!r._paid && r.planned && r.plannedDate ? ' · 📅 ' + fmtDate(r.plannedDate) : ''}</span>
