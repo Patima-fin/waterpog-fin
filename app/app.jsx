@@ -55,7 +55,7 @@ const ROLE_PERMS = {
   },
   // เจ้าของ — ดูได้ทุกหน้า แต่แก้/ลบไม่ได้ + ไม่เห็น audit + users + บันทึก/บัญชีธนาคาร
   owner: {
-    pages: '*', excludePages: new Set(['users', 'audit_log', 'daily_balance', 'data_bank', 'bank_diary', 'bank_recon']),
+    pages: '*', excludePages: new Set(['users', 'audit_log', 'daily_balance', 'data_bank', 'bank_diary', 'bank_recon', 'payment_recon']),
     canEdit: false, canDelete: false, canApprove: false, canManageUsers: false,
   },
 };
@@ -509,6 +509,7 @@ function App() {
     receipts:    { label: 'ประวัติรับเงิน',           title: 'Receipts History', icon: 'receivables' },
     bank_diary:    { label: 'Bank Daily',               title: 'Bank Daily',      icon: 'bank' },
     bank_recon:    { label: 'กระทบยอดธนาคาร',          title: 'Bank Reconciliation', icon: 'bank' },
+    payment_recon: { label: 'กระทบยอดการจ่าย',         title: 'ระบบกระทบยอดการจ่ายเงิน · AR ↔ AP', icon: 'money' },
     interest_calc: { label: 'คำนวณดอกเบี้ย',          title: 'Interest Schedule Calculator', icon: 'money' },
     sts_calc:      { label: 'STS Calculator',          title: 'STS Encompass Fee Calculator', icon: 'money' },
     sts_workflow:  { label: 'STS Workflow',             title: 'STS Workflow · review queue',  icon: 'invoice' },
@@ -543,6 +544,7 @@ function App() {
     case 'receipts':       page = <ReceiptsPage data={data} />; break;
     case 'bank_diary':     page = <BankDiaryPage data={data} setData={setData} toast={pushToast} />; break;
     case 'bank_recon':     page = <BankReconPage data={data} setData={setData} toast={pushToast} />; break;
+    case 'payment_recon':  page = <PaymentReconPage data={data} setData={setData} toast={pushToast} />; break;
     case 'interest_calc':  page = <InterestCalcPage data={data} />; break;
     case 'sts_calc':       page = <StsCalcPage data={data} />; break;
     case 'sts_workflow':   page = <StsWorkflowPage data={data} setData={setData} toast={pushToast} />; break;
@@ -795,6 +797,7 @@ function Sidebar({ route, go, routes, data, sidebarStyle, syncInfo = {}, current
             ['receipts',      'ประวัติรับเงิน',         'receivables'],
             ['bank_diary',    'Bank Daily',             'bank'],
             ['bank_recon',    'กระทบยอดธนาคาร',         'bank'],
+            ['payment_recon', 'กระทบยอดการจ่าย',        'money'],
             ['interest_calc', 'คำนวณดอกเบี้ย',         'money'],
             ['sts_calc',      'STS Calculator',         'money'],
             ['sts_workflow',  'STS Workflow',           'invoice'],
