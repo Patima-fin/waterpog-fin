@@ -194,7 +194,7 @@ function prBuildAll(data) {
   const fySet = {};
 
   const projects = derived
-    .filter(d => d.status !== 'ยกเลิก' && d.status !== 'ยังไม่ลงนาม')
+    .filter(d => d.status === 'Work in progress' || d.status === 'Finish')   // ลงนามแล้วเท่านั้น
     .map(d => {
       const code = d.contractNo;
       const ncode = prNormCode(code);
@@ -257,7 +257,7 @@ function prBuildAll(data) {
         else if (g.outAmt > 0) {
           if (planned) status = 'planned';
           else if (!unlocked) status = 'waiting';
-          else { const aged = unlockDate ? prDaysFrom(unlockDate, todayISO) : 0; status = aged > 60 ? 'overdue' : 'ready'; }
+          else status = 'ready';
         } else if (g.paidAmt > 0) status = 'paid';
         else status = 'none';
         return { ...g, condLabel, unlocked, unlockDate, status, planned, order: prInstOrder(g.key) };
@@ -266,14 +266,13 @@ function prBuildAll(data) {
       let paidSum = 0, outSum = 0, readySum = 0, readyCount = 0;
       groups.forEach(g => {
         paidSum += g.paidAmt; outSum += g.outAmt;
-        if (g.status === 'ready' || g.status === 'overdue') { readySum += g.outAmt; readyCount++; }
+        if (g.status === 'ready') { readySum += g.outAmt; readyCount++; }
       });
       const apKeys = groups.map(g => g.status);
 
       let okey = 'none';
       if (groups.length) {
-        if (apKeys.includes('overdue')) okey = 'overdue';
-        else if (apKeys.includes('ready')) okey = 'ready';
+        if (apKeys.includes('ready')) okey = 'ready';
         else if (apKeys.includes('waiting')) okey = 'waiting';
         else if (apKeys.includes('planned')) okey = 'planned';
         else if (apKeys.includes('pending')) okey = 'pending';   // ยังมีงวดที่คาดหวังแต่ไม่ได้ตั้งเบิก → ไม่ใช่ "จ่ายครบ"
@@ -307,7 +306,7 @@ function prBuildAll(data) {
 // ════════════════════════════════════════════════════════════════════════════
 function PaymentReconPage({ data, setData, toast }) {
   const canEdit = window.WTPAuth ? (window.WTPAuth.can('canEdit') || window.WTPAuth.can('canApprove')) : true;
-  const [state, setState] = React.useState({ filters: [], expanded: {}, sort: 'code', searchDate: '', fy: null });
+  const [state, setState] = React.useState({ filters: [], expanded: {}, sort: 'code', searchDate: '', search: '', fy: null });
   const [planTarget, setPlanTarget] = React.useState(null);
   const [planForm, setPlanForm] = React.useState({ payDate: '', bankAc: '' });
 
@@ -321,12 +320,12 @@ function PaymentReconPage({ data, setData, toast }) {
     withAp: all.projects.filter(p => p.apGroups.length > 0).length,
   }), [all]);
   const agg = React.useMemo(() => {
-    const totals = { ready: 0, overdue: 0, waiting: 0, planned: 0, paid: 0 };
+    const totals = { ready: 0, waiting: 0, planned: 0, paid: 0 };
     fyProjects.forEach(p => p.apGroups.forEach(g => {
       totals.paid += g.paidAmt;
       if (g.outAmt > 0 && totals[g.status] != null) totals[g.status] += g.outAmt;
     }));
-    return { totals, outstanding: totals.ready + totals.overdue + totals.waiting + totals.planned };
+    return { totals, outstanding: totals.ready + totals.waiting + totals.planned };
   }, [fyProjects]);
 
   const bankOptions = React.useMemo(() => (data.bankAccounts || []).map(a => {
@@ -380,7 +379,9 @@ function PaymentReconPage({ data, setData, toast }) {
   const sd = state.searchDate;
   let projects = fyProjects.slice();
   if (fset.length) projects = projects.filter(p => fset.some(f => f === 'done' ? p.overall === 'done' : p._keys.includes(f)));
-  if (sd) projects = projects.filter(p => p.apGroups.some(g => (g.status === 'ready' || g.status === 'overdue') && (g.unlockDate || '') <= sd));
+  const q = (state.search || '').trim().toLowerCase();
+  if (q) projects = projects.filter(p => (p.code + ' ' + p.name + ' ' + p.contractor + ' ' + p.customer).toLowerCase().includes(q));
+  if (sd) projects = projects.filter(p => p.apGroups.some(g => (g.status === 'ready') && (g.unlockDate || '') <= sd));
   projects = projects.slice().sort((a, b) => {
     if (state.sort === 'contractor') return a.contractor.localeCompare(b.contractor, 'th');
     if (state.sort === 'ready') return b.readySum - a.readySum;
@@ -388,7 +389,7 @@ function PaymentReconPage({ data, setData, toast }) {
     return a.code.localeCompare(b.code, 'th');
   });
   let planSum = 0, planCnt = 0;
-  if (sd) projects.forEach(p => p.apGroups.forEach(g => { if ((g.status === 'ready' || g.status === 'overdue') && (g.unlockDate || '') <= sd) { planSum += g.outAmt; planCnt++; } }));
+  if (sd) projects.forEach(p => p.apGroups.forEach(g => { if ((g.status === 'ready') && (g.unlockDate || '') <= sd) { planSum += g.outAmt; planCnt++; } }));
 
   const toggle = (code) => setState(s => ({ ...s, expanded: { ...s.expanded, [code]: !s.expanded[code] } }));
   const toggleFilter = (key) => setState(s => {
@@ -400,7 +401,6 @@ function PaymentReconPage({ data, setData, toast }) {
   const tabDefs = [
     { key: 'all', label: 'ทุกโครงการ', count: fyProjects.length },
     { key: 'ready', label: 'พร้อมจ่าย', count: projCount('ready') },
-    { key: 'overdue', label: 'เกินกำหนด', count: projCount('overdue') },
     { key: 'waiting', label: 'รอเงื่อนไข', count: projCount('waiting') },
     { key: 'planned', label: 'วางแผนแล้ว', count: projCount('planned') },
     { key: 'paid', label: 'จ่ายบางส่วน', count: projCount('paid') },
@@ -408,7 +408,6 @@ function PaymentReconPage({ data, setData, toast }) {
   ];
   const kpiCards = [
     { key: 'ready', desc: 'เงื่อนไขครบ พร้อมเบิก', accent: '#22c55e', val: agg.totals.ready, color: '#15803d' },
-    { key: 'overdue', desc: 'พร้อมจ่ายแต่ค้างนาน', accent: '#ef4444', val: agg.totals.overdue, color: '#b91c1c' },
     { key: 'waiting', desc: 'ยังไม่รับ AR งวดนั้น', accent: '#f59e0b', val: agg.totals.waiting, color: '#b45309' },
     { key: 'planned', desc: 'วางแผนจ่ายแล้ว', accent: 'var(--brand-500)', val: agg.totals.planned, color: 'var(--brand-700)' },
     { key: 'paid', desc: 'จ่ายผู้รับเหมาแล้ว (PV)', accent: '#94a3b8', val: agg.totals.paid, color: '#475569' },
@@ -504,8 +503,14 @@ function PaymentReconPage({ data, setData, toast }) {
         </div>
       </div>
 
-      {/* Sort + date search + export */}
+      {/* Search + Sort + date search + export */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: '1px solid var(--line)', borderRadius: 10, padding: '6px 12px', minWidth: 270, flex: '1 1 270px', maxWidth: 360 }}>
+          <span style={{ fontSize: 13, color: 'var(--ink-400)' }}>🔍</span>
+          <input value={state.search} onChange={e => setState(s => ({ ...s, search: e.target.value }))} placeholder="ค้นหาชื่อโครงการ / ผู้รับเหมา / รหัส"
+            style={{ border: 'none', background: 'transparent', font: 'inherit', fontSize: 13, color: 'var(--ink-900)', outline: 'none', flex: 1, minWidth: 100 }} />
+          {state.search && <button onClick={() => setState(s => ({ ...s, search: '' }))} style={{ border: 'none', background: 'var(--ink-100)', color: 'var(--ink-500)', borderRadius: 6, padding: '4px 9px', fontSize: 12, cursor: 'pointer' }}>ล้าง</button>}
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: '1px solid var(--line)', borderRadius: 10, padding: '6px 12px' }}>
           <span style={{ fontSize: 12, color: 'var(--ink-400)' }}>เรียงตาม</span>
           <select value={state.sort} onChange={e => setState(s => ({ ...s, sort: e.target.value }))}
@@ -572,7 +577,7 @@ function PaymentReconPage({ data, setData, toast }) {
                   {p.apGroups.length === 0 && <span style={{ fontSize: 11, color: 'var(--ink-300)' }}>— ไม่มี AP</span>}
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 14, fontWeight: 700, color: p.readySum > 0 ? (p._keys.includes('overdue') ? '#b91c1c' : '#15803d') : 'var(--ink-300)' }}>{p.readySum > 0 ? prMoney(p.readySum) : '—'}</div>
+                  <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 14, fontWeight: 700, color: p.readySum > 0 ? '#15803d' : 'var(--ink-300)' }}>{p.readySum > 0 ? prMoney(p.readySum) : '—'}</div>
                   <div style={{ marginTop: 3 }}><span style={prPill(om)}><span style={prDot(om)} />{overallLabel}</span></div>
                 </div>
                 <span style={{ textAlign: 'center', color: 'var(--ink-400)', fontSize: 12 }}>{expanded ? '▲' : '▼'}</span>
@@ -624,7 +629,7 @@ function PaymentReconPage({ data, setData, toast }) {
                                   {g.paidAmt > 0 && <span style={{ fontSize: 11.5, color: 'var(--ink-500)' }}>จ่ายแล้ว <b style={{ fontFamily: "'IBM Plex Mono',monospace", color: 'var(--ink-800)' }}>{prMoney(g.paidAmt)}</b></span>}
                                   {g.outAmt > 0 && <span style={{ fontSize: 11.5, color: 'var(--ink-500)' }}>ค้าง <b style={{ fontFamily: "'IBM Plex Mono',monospace", color: '#b45309' }}>{prMoney(g.outAmt)}</b></span>}
                                   <span style={prPill(m)}><span style={prDot(m)} />{m.label}</span>
-                                  {canEdit && (g.status === 'ready' || g.status === 'overdue') && g.outRows.some(r => r.vchno) && (
+                                  {canEdit && (g.status === 'ready') && g.outRows.some(r => r.vchno) && (
                                     <button onClick={() => openPlan(p, g)} style={{ padding: '5px 11px', borderRadius: 7, border: 'none', background: 'var(--brand-700)', color: '#fff', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>วางแผนจ่าย</button>
                                   )}
                                   {canEdit && g.status === 'planned' && <button onClick={() => doUnplan(g)} style={{ padding: '5px 10px', borderRadius: 7, border: '1px solid var(--line)', background: '#fff', color: 'var(--ink-500)', fontSize: 11, cursor: 'pointer' }}>ยกเลิกแผน</button>}
