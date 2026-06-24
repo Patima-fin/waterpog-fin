@@ -169,14 +169,14 @@ function prBuildAll(data) {
   const paidVchno = new Set();
   pvs.forEach(v => {
     if (!prIsApsPV(v)) return;
-    const code = prCodeFromText(v.Project_Dpt || v.jobname || v.Remark);
+    const code = prCodeFromText(v.Project_Dpt) || prCodeFromText(v.jobname);   // JOB จากช่อง A (รายบรรทัด) เท่านั้น — ไม่ใช้ Remark รวม (PV เดียวหลาย JOB จะ mis-attribute)
     if (!code) return;
     const apno = String(v.AP_No || '').trim();
     if (apno) paidVchno.add(apno);
     (paidByCode[code] = paidByCode[code] || []).push({
       vendor: v.Payee || v.cust_name || '—', pvNo: v.PL_PV_No || '', apNo: apno,
-      amount: prToNum(v.Net_Amount), date: prISO(v.Pmt_Date), inst: prInst(v.Remark || v.cc_remark),
-      remark: String(v.Remark || v.cc_remark || '').trim(),
+      amount: prToNum(v.Net_Amount), date: prISO(v.Pmt_Date), inst: prInst(v.cc_remark || v.Remark),
+      remark: String(v.cc_remark || v.Remark || '').trim(),
     });
   });
 
@@ -184,7 +184,7 @@ function prBuildAll(data) {
   const outByCode = {};
   payables.forEach(p => {
     if (!prIsApsPayable(p)) return;
-    const code = prCodeFromText(p.pre_des || p.jobname || p.remark);
+    const code = prCodeFromText(p.pre_des) || prCodeFromText(p.jobname);   // JOB จากช่อง AF (pre_des) รายบรรทัด — ไม่ใช้ remark
     if (!code) return;
     const vchno = String(p.vchno || p.docno || '').trim();
     if (vchno && paidVchno.has(vchno)) return;
