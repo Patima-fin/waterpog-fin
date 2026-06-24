@@ -557,5 +557,14 @@ Live at **https://patima-fin.github.io/waterpog-fin/** — GitHub Pages serves t
 - **`byProvProjects` ใน `invMetrics` (`page_investor.jsx`):** helper `invNormProv` (inline) normalize ชื่อจังหวัดจาก `r.province` → key ตรงกับ `selProv` ของ ThaiMap. build ไปพร้อม `byProv` loop. `r.site` = ชื่อโครงการ, `r.contractNo` = เลขสัญญา. return ใหม่รวม `byProvProjects`.
 - **Pass through `InvThaiMap` → `ThaiMap`:** `InvThaiMap` รับ `provProjects` prop ใหม่ + forward ไป `window.ThaiMap`. call site ใน `InvCustomers` ส่ง `provProjects: m.byProvProjects`.
 
+## 2026-06-25 — แผนที่จังหวัด: panel โครงการลอยบนแผนที่ + จัดกลุ่มตามประเภทสินค้า (build `thaimap 20260625b`)
+- **คำขอผู้ใช้ 3 ข้อ:** (1) panel ลอยอยู่บนแผนที่แทนเป็น sidebar ข้าง (2) จัดกลุ่มตามประเภทสินค้าก่อน คลิกกางดูโครงการ (3) ขยายกว้างขึ้น.
+- **FIX 1 — floating panel (`position:absolute`):** `provPanel(isFull)` เปลี่ยน `outerStyle` จาก column flex layout ข้าง → `position:'absolute', top:8, right:8, bottom:8, width:380, zIndex:10` เฉพาะ `isFull===true`. Inline mode (แผนที่เล็กใน §7) ยังแสดงด้านล่างแผนที่ตามเดิม (`position` ปกติ). ต้อง wrap `mapArea` ใน `position:relative` อยู่แล้ว → panel ลอยได้เลย.
+- **FIX 2 — กลุ่มประเภทสินค้า + expand/collapse:** state ใหม่ `grpExp` (`{}`) หลัง `selProv`. reset effect (`setGrpExp({})`) เมื่อเปลี่ยนจังหวัด. `provPanel` group projects ด้วย `prj.type` → เรียง count desc → แต่ละกลุ่มมีหัว (▸/▾ + ชื่อ + badge จำนวน + ยอดรวม) + กดกาง → list รายโครงการ (code/site/status/amount) ใน div padding. ยุบทั้งหมดเป็น default (expand เฉพาะที่กด). `setGrpExp(prev => {...prev, [t]: !prev[t]})`.
+- **FIX 3 — กว้าง 380px** (จาก 290px) เฉพาะ fullscreen floating panel.
+- **Controls ย้ายซ้าย:** เดิม controls อยู่ขวาบน → ชนกับ panel (ขวาบน). fullscreen: `ctrlStyle.left=8` แทน `right=8`, zIndex=11 > panel 10.
+- **Overlay simplify:** เดิม overlay = flex row (mapArea + sidebar column). ตอนนี้ panel อยู่ใน `mapArea` แล้ว → overlay middle = `el('div', {style:{flex:1, minHeight:0, overflow:'hidden'}}, mapArea(true))` เท่านั้น (ลบ flex-row wrapper + `selProv ? sidebar : null`).
+- **`mapArea` ส่ง `provPanel(true)` ข้างใน** หลัง `tipFor(isFull)` (เฉพาะ `isFull`).
+
 ## Repo rule: keep CLAUDE.md current
 **Every time you `git push`, update this `CLAUDE.md`** to reflect anything that changed (architecture, conventions, new pages, gotchas). Treat it as part of the push, like the `?v=` bump.

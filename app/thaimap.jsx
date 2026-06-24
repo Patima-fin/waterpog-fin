@@ -134,6 +134,7 @@
     var fst = R.useState(false); var full = fst[0], setFull = fst[1];
     var vst = R.useState({ s: 1, cx: cache.W / 2, cy: cache.H / 2 }); var view = vst[0], setView = vst[1];
     var sps = R.useState(null); var selProv = sps[0], setSelProv = sps[1];
+    var ges = R.useState({}); var grpExp = ges[0], setGrpExp = ges[1];
     var wrapRef = R.useRef(null), fullRef = R.useRef(null), dragRef = R.useRef({ on: false });
     var viewRef = R.useRef(view); viewRef.current = view;
 
@@ -167,6 +168,7 @@
       return function () { if (d1) d1(); if (d2) d2(); };
     }, [full]);
     R.useEffect(function () { if (!full) return; function onKey(e) { if (e.key === 'Escape') { setFull(false); resetView(); } } window.addEventListener('keydown', onKey); return function () { window.removeEventListener('keydown', onKey); }; }, [full]);
+    R.useEffect(function () { setGrpExp({}); }, [selProv]);
 
     // normalize byProvince keys -> canonical Thai
     var bp = {}; var bpIn = props.byProvince || {};
@@ -241,42 +243,64 @@
       var regColor = rm.color || sub;
       var regLabel = lang === 'th' ? (rm.th || '') : (rm.en || '');
       var v = bp[selProv] || 0;
+      // group by product type
+      var groups = {};
+      projs.forEach(function (prj) { var t = prj.type || (lang === 'th' ? 'อื่นๆ' : 'Other'); if (!groups[t]) groups[t] = []; groups[t].push(prj); });
+      var typeKeys = Object.keys(groups).sort(function (a, b) { return groups[b].length - groups[a].length; });
       var outerStyle = isFull
-        ? { background: card2, borderRadius: 12, padding: '12px 14px', borderLeft: '4px solid ' + regColor, flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }
-        : { background: card2, borderRadius: 12, padding: '12px 14px', borderLeft: '4px solid ' + regColor };
-      var listStyle = isFull
-        ? { flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }
-        : { display: 'flex', flexDirection: 'column', gap: 6 };
+        ? { position: 'absolute', top: 8, right: 8, bottom: 8, width: 380, zIndex: 10, display: 'flex', flexDirection: 'column', background: card, borderRadius: 12, borderLeft: '4px solid ' + regColor, boxShadow: '0 6px 24px rgba(0,0,0,.22)', overflow: 'hidden' }
+        : { background: card2, borderRadius: 12, borderLeft: '4px solid ' + regColor, overflow: 'hidden' };
       return el('div', { style: outerStyle },
-        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8, flexShrink: 0 } },
-          el('div', null,
-            el('div', { style: { fontSize: 14.5, fontWeight: 800, color: ink } }, selProv),
-            el('div', { style: { fontSize: 11.5, color: sub, marginTop: 2 } }, regLabel + ' · ' + v + (lang === 'th' ? ' โครงการ' : ' projects'))
-          ),
-          el('button', { onClick: function () { setSelProv(null); }, style: { border: 'none', background: 'none', cursor: 'pointer', color: sub, fontSize: 18, lineHeight: 1, padding: '0 0 0 10px' } }, '✕')
+        el('div', { style: { padding: '12px 14px', flexShrink: 0, borderBottom: '1px solid ' + line } },
+          el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' } },
+            el('div', null,
+              el('div', { style: { fontSize: 15, fontWeight: 800, color: ink } }, selProv),
+              el('div', { style: { fontSize: 11.5, color: sub, marginTop: 2 } }, regLabel + ' · ' + v + (lang === 'th' ? ' โครงการ' : ' projects'))
+            ),
+            el('button', { onClick: function () { setSelProv(null); }, style: { border: 'none', background: 'none', cursor: 'pointer', color: sub, fontSize: 18, lineHeight: 1, padding: '0 0 0 10px' } }, '✕')
+          )
         ),
-        projs.length === 0
-          ? el('div', { style: { fontSize: 12.5, color: sub, textAlign: 'center', padding: '10px 0' } }, lang === 'th' ? 'ไม่มีรายละเอียดโครงการ' : 'No project details')
-          : el('div', { style: listStyle },
-              projs.map(function (prj, i) {
-                return el('div', { key: i, style: { fontSize: 12, padding: '7px 10px', background: card, borderRadius: 8, borderLeft: '3px solid ' + regColor, flexShrink: 0 } },
-                  el('div', { style: { fontWeight: 700, color: ink, fontSize: 13, marginBottom: 2 } }, prj.code || '—'),
-                  prj.site ? el('div', { style: { color: sub, marginBottom: 2, fontSize: 12 } }, prj.site) : null,
-                  el('div', { style: { fontSize: 11, color: sub, display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 2 } },
-                    prj.status ? el('span', null, prj.status) : null,
-                    prj.type ? el('span', null, prj.type) : null,
-                    prj.amount > 0 ? el('span', null, prj.amount.toLocaleString('th-TH', { maximumFractionDigits: 0 })) : null
-                  )
+        el('div', { style: { flex: 1, overflowY: 'auto', padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 6 } },
+          projs.length === 0
+            ? el('div', { style: { fontSize: 12.5, color: sub, textAlign: 'center', padding: '12px 0' } }, lang === 'th' ? 'ไม่มีรายละเอียดโครงการ' : 'No project details')
+            : typeKeys.map(function (t, gi) {
+                var items = groups[t];
+                var exp = !!grpExp[t];
+                var totalAmt = items.reduce(function (s, prj) { return s + (Number(prj.amount) || 0); }, 0);
+                return el('div', { key: t },
+                  el('div', {
+                    onClick: function () { setGrpExp(function (prev) { var n = Object.assign({}, prev); n[t] = !n[t]; return n; }); },
+                    style: { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: card2, borderRadius: 8, cursor: 'pointer', border: '1px solid ' + line, userSelect: 'none' }
+                  },
+                    el('span', { style: { color: regColor, fontSize: 13, fontWeight: 700, flexShrink: 0 } }, exp ? '▾' : '▸'),
+                    el('span', { style: { fontWeight: 700, color: ink, fontSize: 13, flex: 1 } }, t),
+                    el('span', { style: { fontSize: 11, color: sub, background: card, borderRadius: 99, padding: '2px 7px', border: '1px solid ' + line, flexShrink: 0 } }, items.length + (lang === 'th' ? ' งาน' : '')),
+                    totalAmt > 0 ? el('span', { style: { fontSize: 11, color: regColor, fontWeight: 600, flexShrink: 0, marginLeft: 2 } }, totalAmt.toLocaleString('th-TH', { maximumFractionDigits: 0 })) : null
+                  ),
+                  exp ? el('div', { style: { marginTop: 4, display: 'flex', flexDirection: 'column', gap: 4, paddingLeft: 8 } },
+                    items.map(function (prj, pi) {
+                      return el('div', { key: pi, style: { fontSize: 12, padding: '6px 10px', background: card, borderRadius: 8, borderLeft: '3px solid ' + regColor } },
+                        el('div', { style: { fontWeight: 700, color: ink, fontSize: 12.5, marginBottom: 2 } }, prj.code || '—'),
+                        prj.site ? el('div', { style: { color: sub, fontSize: 11.5, marginBottom: 2 } }, prj.site) : null,
+                        el('div', { style: { fontSize: 11, color: sub, display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 2 } },
+                          prj.status ? el('span', null, prj.status) : null,
+                          prj.amount > 0 ? el('span', null, Number(prj.amount).toLocaleString('th-TH', { maximumFractionDigits: 0 })) : null
+                        )
+                      );
+                    })
+                  ) : null
                 );
               })
-            )
+        )
       );
     }
     function ctlBtn(label, onClick, title) {
       return el('button', { onClick: onClick, title: title, style: { width: 30, height: 30, borderRadius: 8, border: '1px solid ' + line, background: card, color: ink, fontSize: 16, fontWeight: 700, cursor: 'pointer', display: 'grid', placeItems: 'center', boxShadow: '0 2px 6px rgba(0,0,0,.15)', lineHeight: 1, padding: 0 } }, label);
     }
     function controls(isFull) {
-      return el('div', { style: { position: 'absolute', top: 8, right: 8, zIndex: 7, display: 'flex', flexDirection: 'column', gap: 6 } },
+      var ctrlStyle = { position: 'absolute', top: 8, zIndex: 11, display: 'flex', flexDirection: 'column', gap: 6 };
+      if (isFull) { ctrlStyle.left = 8; } else { ctrlStyle.right = 8; }
+      return el('div', { style: ctrlStyle },
         ctlBtn('+', function () { zoomStep(1.4); }, lang === 'th' ? 'ซูมเข้า' : 'Zoom in'),
         ctlBtn('−', function () { zoomStep(1 / 1.4); }, lang === 'th' ? 'ซูมออก' : 'Zoom out'),
         ctlBtn('↺', resetView, lang === 'th' ? 'รีเซ็ตมุมมอง' : 'Reset view'),
@@ -309,7 +333,8 @@
       },
         controls(isFull),
         el('svg', { viewBox: vbox().s, style: isFull ? { width: '100%', height: '100%', display: 'block' } : { width: '100%', height: 'auto', display: 'block' } }, paths, badges),
-        tipFor(isFull)
+        tipFor(isFull),
+        isFull ? provPanel(true) : null
       );
     }
 
@@ -317,10 +342,7 @@
       el('div', { style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 } },
         el('div', { style: { fontSize: 16, fontWeight: 800, color: ink } }, lang === 'th' ? 'แผนที่จังหวัด — โครงการแยกตามภูมิภาค' : 'Provincial Map — Projects by Region'),
         el('div', { style: { marginLeft: 'auto', fontSize: 11.5, color: sub } }, lang === 'th' ? 'ลากเพื่อเลื่อน · ลูกกลิ้งเมาส์ซูม · Esc ปิด' : 'Drag to pan · scroll to zoom · Esc to close')),
-      el('div', { style: { flex: 1, display: 'flex', minHeight: 0, gap: 12, overflow: 'hidden' } },
-        el('div', { style: { flex: 1, minWidth: 0, display: 'flex', overflow: 'hidden' } }, mapArea(true)),
-        selProv ? el('div', { style: { width: 290, flexShrink: 0, display: 'flex', flexDirection: 'column', padding: '4px 0' } }, provPanel(true)) : null
-      ),
+      el('div', { style: { flex: 1, minHeight: 0, overflow: 'hidden' } }, mapArea(true)),
       legendEl()
     ) : null;
 
