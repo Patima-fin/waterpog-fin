@@ -43,10 +43,14 @@ function prCodeFromText(text) {
 // งวดจาก remark → 'ADV' | 'งวด N' | 'คืนประกัน' | 'อื่นๆ'
 function prInst(remark) {
   const t = String(remark == null ? '' : remark);
-  if (/\badv|advance|มัดจำ|ล่วงหน้า|เริ่มงาน/i.test(t)) return 'ADV';
-  const m = t.match(/งวด(?:ที่)?\s*(\d+)/);
+  // "งวดที่ N" — สำคัญสุด (remark ที่ระบุงวด แม้จะมี Advance/หักประกัน ก็ถือเป็นงวดนั้น)
+  const m = t.match(/งวด\s*(?:ที่\s*)?(\d+)/);
   if (m) return 'งวด ' + m[1];
-  if (/คืน.*ประกัน|ประกันผลงาน|retention/i.test(t)) return 'คืนประกัน';
+  // คืนเงินประกันผลงาน (ไม่มีงวด) → คืนประกัน (ตัดออก ไม่ใช่งวดจ่าย)
+  if (/คืน.*ประกัน|ขอคืนเงิน|retention/i.test(t)) return 'คืนประกัน';
+  // "ตัดมัดจำ / เคลีย advance" = ไม่ใช่ ADV ของโครงการ → อื่นๆ (ตัดออก)
+  if (/ตัดมัดจำ|เคลีย/i.test(t)) return 'อื่นๆ';
+  if (/advance|adv\b|มัดจำ|เงินล่วงหน้า|จ่ายล่วงหน้า|เริ่มงาน/i.test(t)) return 'ADV';
   return 'อื่นๆ';
 }
 function prInstOrder(key) {
@@ -119,6 +123,15 @@ function prPill(m) {
 function prDot(m) {
   return { width: 7, height: 7, borderRadius: 999, background: m.dot, flex: '0 0 auto', display: 'inline-block' };
 }
+// พื้น+กรอบการ์ด AP ตามสถานะ (โทนตามดีไซน์ Back to Black)
+const PR_TINT = {
+  ready:   { bg: '#f3fbf6', border: '#bbf7d0' },
+  waiting: { bg: '#fffcf2', border: '#fde68a' },
+  planned: { bg: 'var(--brand-50)', border: 'var(--brand-200)' },
+  paid:    { bg: '#f6f8fb', border: '#e2e8f0' },
+  pending: { bg: '#f8fafc', border: '#e5e9f0' },
+  none:    { bg: '#fff', border: 'var(--line-soft)' },
+};
 
 // ── สร้างข้อมูลทั้งหน้า ────────────────────────────────────────────────────────
 function prBuildAll(data) {
@@ -163,6 +176,7 @@ function prBuildAll(data) {
     (paidByCode[code] = paidByCode[code] || []).push({
       vendor: v.Payee || v.cust_name || '—', pvNo: v.PL_PV_No || '', apNo: apno,
       amount: prToNum(v.Net_Amount), date: prISO(v.Pmt_Date), inst: prInst(v.Remark || v.cc_remark),
+      remark: String(v.Remark || v.cc_remark || '').trim(),
     });
   });
 
@@ -179,7 +193,7 @@ function prBuildAll(data) {
       amount: prToNum(p.netpayment != null ? p.netpayment : (p.Amount != null ? p.Amount : p.net_new)),
       due: prISO(p.due2 || p.due || p.dueDate),
       cfCategory: p.cf_category != null ? String(p.cf_category) : '',
-      inst: prInst(p.remark),
+      inst: prInst(p.remark), remark: String(p.remark || '').trim(),
     });
   });
 
@@ -621,7 +635,7 @@ function PaymentReconPage({ data, setData, toast }) {
                           const m = PR_META[g.status] || PR_META.none;
                           const detail = [...g.paidRows.map(r => ({ ...r, _paid: true })), ...g.outRows.map(r => ({ ...r, _paid: false }))];
                           return (
-                            <div key={i} style={{ border: '1px solid var(--line-soft)', borderLeft: '3px solid ' + m.dot, borderRadius: 10, background: '#fff', overflow: 'hidden' }}>
+                            <div key={i} style={{ border: '1px solid ' + (PR_TINT[g.status] || PR_TINT.none).border, borderLeft: '3px solid ' + m.dot, borderRadius: 10, background: (PR_TINT[g.status] || PR_TINT.none).bg, overflow: 'hidden' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', flexWrap: 'wrap' }}>
                                 <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 54, padding: '3px 10px', borderRadius: 7, fontSize: 12.5, fontWeight: 700, background: m.bg, color: m.color }}>{g.key}</span>
                                 <span style={{ fontSize: 11.5, color: g.unlocked ? '#15803d' : 'var(--ink-400)' }}>{g.condLabel === '—' ? '' : ((g.unlocked ? '✓ ' : '✗ ') + g.condLabel)}</span>
@@ -636,13 +650,14 @@ function PaymentReconPage({ data, setData, toast }) {
                                 </div>
                               </div>
                               {/* รายละเอียดราย PV/AP */}
-                              <div style={{ borderTop: '1px solid var(--line-soft)', background: 'var(--ink-50)', padding: '6px 12px', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                              <div style={{ borderTop: '1px solid var(--line-soft)', background: 'rgba(255,255,255,.6)', padding: '6px 12px', display: 'flex', flexDirection: 'column', gap: 3 }}>
                                 {detail.map((r, j) => (
                                   <div key={j} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, flexWrap: 'wrap' }}>
                                     <span style={{ fontSize: 10, color: r._paid ? '#15803d' : '#b45309' }}>{r._paid ? '✓ จ่ายแล้ว' : '○ ค้างจ่าย'}</span>
                                     <span style={{ color: 'var(--ink-700)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.vendor}>{r.vendor}</span>
                                     <span style={{ fontFamily: "'IBM Plex Mono',monospace", color: 'var(--ink-500)' }}>{r._paid ? ('PV ' + (r.pvNo || '—')) : ('AP ' + (r.vchno || '—'))}</span>
                                     <span style={{ color: 'var(--ink-400)' }}>{r._paid ? (r.date ? '· จ่าย ' + fmtDate(r.date) : '') : (r.due ? '· ครบ ' + fmtDate(r.due) : '')}{!r._paid && r.planned && r.plannedDate ? ' · 📅 ' + fmtDate(r.plannedDate) : ''}</span>
+                                    {r.remark && <span style={{ color: 'var(--ink-400)', fontStyle: 'italic', maxWidth: 230, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.remark}>· “{r.remark}”</span>}
                                     <span style={{ marginLeft: 'auto', fontFamily: "'IBM Plex Mono',monospace", fontWeight: 600, color: r._paid ? 'var(--ink-700)' : '#b45309' }}>{prMoney(r.amount)}</span>
                                   </div>
                                 ))}
