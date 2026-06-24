@@ -197,13 +197,15 @@
     const contractTotal = active.reduce((s, r) => s + (r.contractAmt || 0), 0);
     const received = active.reduce((s, r) => s + (r.received || 0), 0);
     const backlog = active.reduce((s, r) => s + (r.outstandingAR || 0), 0);
-    const byRegion = {}, byType = {}, byFy = {}, byProv = {}, byStatus = {};
+    const byRegion = {}, byType = {}, byFy = {}, byProv = {}, byStatus = {}, byProvProjects = {};
+    const invNormProv = s => { s = String(s == null ? '' : s).replace(/^จ\.?\s*/, '').replace(/^จังหวัด\s*/, '').trim(); const AL = {'กรุงเทพ':'กรุงเทพมหานคร','กทม':'กรุงเทพมหานคร','กทม.':'กรุงเทพมหานคร','อยุธยา':'พระนครศรีอยุธยา','ศรีษะเกษ':'ศรีสะเกษ','บุรีรัมย':'บุรีรัมย์'}; return AL[s] || s; };
     active.forEach(r => {
       const rg = r.regionEn || r.region || 'อื่นๆ'; byRegion[rg] = (byRegion[rg] || 0) + 1;
       const tp = r.type || '—'; byType[tp] = (byType[tp] || 0) + (r.contractAmt || 0);
       const fy = r.fy ? 'FY' + r.fy : '—'; byFy[fy] = (byFy[fy] || 0) + (r.contractAmt || 0);
       if (r.province) byProv[r.province] = (byProv[r.province] || 0) + 1;
       byStatus[r.status] = (byStatus[r.status] || 0) + 1;
+      if (r.province) { const pn = invNormProv(r.province); if (!byProvProjects[pn]) byProvProjects[pn] = []; byProvProjects[pn].push({ code: r.contractNo || '', site: r.site || r.name || '', type: r.type || '', status: r.status || '', amount: r.contractAmt || 0 }); }
     });
     let cashflow = [];
     try {
@@ -211,7 +213,7 @@
       cashflow = PCU.cashflowByMonth(active, y).map(m => ({ label: m.month, value: m.gross }));
     } catch (_) {}
     const prodCount = {}; active.forEach(r => { const c = (r.type || '').trim(); if (c) prodCount[c] = (prodCount[c] || 0) + 1; });
-    return { rows, active, contractTotal, received, backlog, byRegion, byType, byFy, byProv, byStatus, cashflow, prodCount, count: active.length };
+    return { rows, active, contractTotal, received, backlog, byRegion, byType, byFy, byProv, byStatus, cashflow, prodCount, count: active.length, byProvProjects };
   }
 
   // ── small UI atoms ────────────────────────────────────────────────────────────
@@ -884,11 +886,11 @@
   }
 
   // ── Thailand region map (stylized choropleth + bubbles) ─────────────────────
-  function InvThaiMap({ p, byRegion, byProvince, lang }) {
+  function InvThaiMap({ p, byRegion, byProvince, provProjects, lang }) {
     // Real 77-province choropleth (vendored MIT geometry via window.TH_GEO + global ThaiMap).
     // Falls back to the stylized region-bubble map below if the geometry/component is unavailable.
     if (window.ThaiMap && window.TH_GEO) {
-      return R.createElement(window.ThaiMap, { palette: p, byProvince: byProvince || {}, byRegion: byRegion || {}, lang: lang, mode: 'regionValue', maxWidth: 380 });
+      return R.createElement(window.ThaiMap, { palette: p, byProvince: byProvince || {}, byRegion: byRegion || {}, provProjects: provProjects || {}, lang: lang, mode: 'regionValue', maxWidth: 380 });
     }
     const REG = [
       { en: 'North', th: 'ภาคเหนือ', x: 96, y: 80 },
@@ -928,7 +930,7 @@
     };
     return R.createElement('div', null,
       R.createElement('div', { style: Object.assign(gridR(2), { marginBottom: 16 }) },
-        R.createElement(InvCard, { p, title: tt.byRegion }, R.createElement(InvThaiMap, { p, byRegion: m.byRegion, byProvince: m.byProv, lang })),
+        R.createElement(InvCard, { p, title: tt.byRegion }, R.createElement(InvThaiMap, { p, byRegion: m.byRegion, byProvince: m.byProv, provProjects: m.byProvProjects, lang })),
         R.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: 14 } },
           R.createElement(InvCard, { p, title: tt.topProv }, R.createElement(InvBars, { p, items: prov.length ? prov : [{ label: '—', value: 0 }], color: p.brand2 })),
           R.createElement(InvCard, { p, title: tt.statusFunnel },

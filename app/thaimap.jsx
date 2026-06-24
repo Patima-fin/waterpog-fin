@@ -133,6 +133,7 @@
     var rs = R.useState(null); var actReg = rs[0], setActReg = rs[1];
     var fst = R.useState(false); var full = fst[0], setFull = fst[1];
     var vst = R.useState({ s: 1, cx: cache.W / 2, cy: cache.H / 2 }); var view = vst[0], setView = vst[1];
+    var sps = R.useState(null); var selProv = sps[0], setSelProv = sps[1];
     var wrapRef = R.useRef(null), fullRef = R.useRef(null), dragRef = R.useRef({ on: false });
     var viewRef = R.useRef(view); viewRef.current = view;
 
@@ -197,7 +198,7 @@
         stroke: isHov ? ink : card, strokeWidth: isHov ? 1.7 : 0.6,
         opacity: dimOf(f), style: { cursor: 'pointer', transition: 'opacity .15s ease' },
         onMouseEnter: function () { setHov(f); },
-        onClick: function () { if (props.onSelect) props.onSelect({ en: f.en, th: f.th, region: f.region, value: bp[f.th] || 0 }); }
+        onClick: function () { setSelProv(function (p) { return p === f.th ? null : f.th; }); if (props.onSelect) props.onSelect({ en: f.en, th: f.th, region: f.region, value: bp[f.th] || 0 }); }
       });
     });
 
@@ -231,6 +232,40 @@
     var footer = el('div', { style: { textAlign: 'center', fontSize: 11, color: sub, marginTop: 8 } },
       (lang === 'th' ? 'รวม ' : 'Total ') + grand + (lang === 'th' ? ' โครงการ · ' + activeProvinces + ' จังหวัด' : ' projects · ' + activeProvinces + ' provinces'));
 
+    function provPanel() {
+      if (!selProv) return null;
+      var projs = (props.provProjects || {})[selProv] || [];
+      var feat = null;
+      for (var fi = 0; fi < cache.feats.length; fi++) { if (cache.feats[fi].th === selProv) { feat = cache.feats[fi]; break; } }
+      var rm = feat ? (REG_META[feat.region] || {}) : {};
+      var regColor = rm.color || sub;
+      var regLabel = lang === 'th' ? (rm.th || '') : (rm.en || '');
+      var v = bp[selProv] || 0;
+      return el('div', { style: { background: card2, borderRadius: 12, padding: '12px 14px', borderLeft: '4px solid ' + regColor } },
+        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 } },
+          el('div', null,
+            el('div', { style: { fontSize: 14.5, fontWeight: 800, color: ink } }, selProv),
+            el('div', { style: { fontSize: 11.5, color: sub, marginTop: 2 } }, regLabel + ' · ' + v + (lang === 'th' ? ' โครงการ' : ' projects'))
+          ),
+          el('button', { onClick: function () { setSelProv(null); }, style: { border: 'none', background: 'none', cursor: 'pointer', color: sub, fontSize: 18, lineHeight: 1, padding: '0 0 0 10px' } }, '✕')
+        ),
+        projs.length === 0
+          ? el('div', { style: { fontSize: 12.5, color: sub, textAlign: 'center', padding: '10px 0' } }, lang === 'th' ? 'ไม่มีรายละเอียดโครงการ' : 'No project details')
+          : el('div', { style: { display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto' } },
+              projs.map(function (prj, i) {
+                return el('div', { key: i, style: { fontSize: 12, padding: '7px 10px', background: card, borderRadius: 8, borderLeft: '3px solid ' + regColor } },
+                  el('div', { style: { fontWeight: 700, color: ink, fontSize: 13, marginBottom: 2 } }, prj.code || '—'),
+                  prj.site ? el('div', { style: { color: sub, marginBottom: 2, fontSize: 12 } }, prj.site) : null,
+                  el('div', { style: { fontSize: 11, color: sub, display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 2 } },
+                    prj.status ? el('span', null, prj.status) : null,
+                    prj.type ? el('span', null, prj.type) : null,
+                    prj.amount > 0 ? el('span', null, prj.amount.toLocaleString('th-TH', { maximumFractionDigits: 0 })) : null
+                  )
+                );
+              })
+            )
+      );
+    }
     function ctlBtn(label, onClick, title) {
       return el('button', { onClick: onClick, title: title, style: { width: 30, height: 30, borderRadius: 8, border: '1px solid ' + line, background: card, color: ink, fontSize: 16, fontWeight: 700, cursor: 'pointer', display: 'grid', placeItems: 'center', boxShadow: '0 2px 6px rgba(0,0,0,.15)', lineHeight: 1, padding: 0 } }, label);
     }
@@ -263,11 +298,11 @@
         onMouseDown: function (e) { onDown(e, ref); },
         onMouseUp: function () { if (dragRef.current.on) { dragRef.current.on = false; setPos(function (q) { return { x: q.x, y: q.y, full: q.full }; }); } },
         style: isFull
-          ? { position: 'relative', display: 'inline-block', cursor: cur }
-          : { position: 'relative', width: '100%', maxWidth: props.maxWidth || 380, margin: '0 auto', cursor: cur }
+          ? { position: 'relative', height: '100%', cursor: cur }
+          : { position: 'relative', width: '100%', maxWidth: props.maxWidth || 380, margin: '0 auto', cursor: cur, overflow: 'hidden' }
       },
         controls(isFull),
-        el('svg', { viewBox: vbox().s, style: isFull ? { height: '82vh', width: 'auto', maxWidth: '94vw', display: 'block' } : { width: '100%', height: 'auto', display: 'block', overflow: 'visible' } }, paths, badges),
+        el('svg', { viewBox: vbox().s, style: isFull ? { height: '100%', width: 'auto', maxWidth: '92vw', display: 'block' } : { width: '100%', height: 'auto', display: 'block' } }, paths, badges),
         tipFor(isFull)
       );
     }
@@ -276,11 +311,14 @@
       el('div', { style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 } },
         el('div', { style: { fontSize: 16, fontWeight: 800, color: ink } }, lang === 'th' ? 'แผนที่จังหวัด — โครงการแยกตามภูมิภาค' : 'Provincial Map — Projects by Region'),
         el('div', { style: { marginLeft: 'auto', fontSize: 11.5, color: sub } }, lang === 'th' ? 'ลากเพื่อเลื่อน · ลูกกลิ้งเมาส์ซูม · Esc ปิด' : 'Drag to pan · scroll to zoom · Esc to close')),
-      el('div', { style: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 0 } }, mapArea(true)),
+      el('div', { style: { flex: 1, display: 'flex', minHeight: 0, gap: 12, overflow: 'hidden' } },
+        el('div', { style: { flex: 1, minWidth: 0, display: 'flex', justifyContent: 'center', overflow: 'hidden' } }, mapArea(true)),
+        selProv ? el('div', { style: { width: 290, flexShrink: 0, overflowY: 'auto', padding: '4px 0' } }, provPanel()) : null
+      ),
       legendEl()
     ) : null;
 
-    return el('div', null, mapArea(false), legendEl(), footer, overlay);
+    return el('div', null, mapArea(false), selProv && !full ? el('div', { style: { marginTop: 10 } }, provPanel()) : null, legendEl(), footer, overlay);
   }
 
   window.ThaiMap = ThaiMap;
