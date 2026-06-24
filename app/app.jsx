@@ -55,7 +55,7 @@ const ROLE_PERMS = {
   },
   // เจ้าของ — ดูได้ทุกหน้า แต่แก้/ลบไม่ได้ + ไม่เห็น audit + users + บันทึก/บัญชีธนาคาร
   owner: {
-    pages: '*', excludePages: new Set(['users', 'audit_log', 'daily_balance', 'data_bank', 'bank_diary', 'bank_recon', 'payment_recon']),
+    pages: '*', excludePages: new Set(['users', 'audit_log', 'daily_balance', 'data_bank', 'bank_diary', 'bank_recon']),
     canEdit: false, canDelete: false, canApprove: false, canManageUsers: false,
   },
 };

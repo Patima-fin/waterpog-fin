@@ -270,10 +270,18 @@ function PaymentReconPage({ data, setData, toast }) {
   const [planForm, setPlanForm] = React.useState({ payDate: '', bankAc: '' });
 
   const all = React.useMemo(() => prBuildAll(data), [data.projects, data.invoices, data.receipts, data.payables, data.pvVouchers, data.forecastEntries, data.manualOverrides]);
-  const fy = state.fy != null ? state.fy : (all.fys[0] || 0);
+  const fy = state.fy != null ? state.fy : (all.fys.length ? all.fys[0] : 'all');
 
-  // KPI/แท็บ/outstanding ผูกกับ "ปีที่เลือก" (ตารางกรองตามปี → ตัวเลขบนต้องตรงกัน)
-  const fyProjects = React.useMemo(() => all.projects.filter(p => p.fy === fy), [all, fy]);
+  // diagnostic — ให้หน้าบอกได้เองว่าขาดข้อมูลตรงไหน (ตอนข้อมูลจริงว่าง)
+  const diag = React.useMemo(() => ({
+    signed: all.projects.length,
+    withAp: all.projects.filter(p => p.apItems.length > 0).length,
+    withAr: all.projects.filter(p => p.arItems.length > 0).length,
+  }), [all]);
+
+  // KPI/แท็บ/outstanding ผูกกับ "ปีที่เลือก" (ตารางกรองตามปี → ตัวเลขบนต้องตรงกัน) · 'all' = ทุกปี
+  const fyProjects = React.useMemo(() => all.projects.filter(p => fy === 'all' || p.fy === fy), [all, fy]);
+  const fyHasAp = fyProjects.some(p => p.apItems.length > 0);
   const agg = React.useMemo(() => {
     const totals = { ready: 0, overdue: 0, waiting: 0, planned: 0, paid: 0 };
     const counts = { ready: 0, overdue: 0, waiting: 0, planned: 0, paid: 0 };
@@ -372,7 +380,7 @@ function PaymentReconPage({ data, setData, toast }) {
       { key: 'vendor', label: 'ผู้รับเหมา/เจ้าหนี้' }, { key: 'vchno', label: 'เลขที่ AP' }, { key: 'pvNo', label: 'เลขที่ PV' },
       { key: 'amount', label: 'ยอด', type: 'number' }, { key: 'status', label: 'สถานะ' },
       { key: 'due', label: 'ครบกำหนด' }, { key: 'paidDate', label: 'จ่ายจริง' }, { key: 'plannedDate', label: 'วางแผนจ่าย' },
-    ], { filename: 'รายการจ่าย_AP_FY' + fy, sheetName: 'AP', title: 'กระทบยอดการจ่าย · ปีสัญญา ' + fy });
+    ], { filename: 'รายการจ่าย_AP_' + (fy === 'all' ? 'ทุกปี' : 'FY' + fy), sheetName: 'AP', title: 'กระทบยอดการจ่าย · ปีสัญญา ' + (fy === 'all' ? 'ทุกปี' : '25' + fy) });
   };
 
   return (
@@ -393,7 +401,7 @@ function PaymentReconPage({ data, setData, toast }) {
           </p>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: 12, color: 'var(--ink-400)', marginBottom: 6 }}>ยอด AP ค้างชำระทั้งหมด (ปีสัญญา {fy})</div>
+          <div style={{ fontSize: 12, color: 'var(--ink-400)', marginBottom: 6 }}>ยอด AP ค้างชำระทั้งหมด (ปีสัญญา {fy === 'all' ? 'ทุกปี' : '25' + fy})</div>
           <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 26, fontWeight: 700, letterSpacing: -0.5, color: 'var(--ink-900)' }}>{prMoney(agg.outstanding)}</div>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 8, padding: '4px 10px', borderRadius: 999, background: '#fff', border: '1px solid var(--line)', fontSize: 12, color: 'var(--ink-500)' }}>
             <span style={{ width: 6, height: 6, borderRadius: 999, background: '#22c55e' }} />
@@ -445,13 +453,13 @@ function PaymentReconPage({ data, setData, toast }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: '1px solid var(--line)', borderRadius: 10, padding: '6px 12px' }}>
             <span style={{ fontSize: 12, color: 'var(--ink-400)' }}>ปีสัญญา</span>
-            <select value={fy} onChange={e => setState(s => ({ ...s, fy: Number(e.target.value), expanded: {} }))}
+            <select value={String(fy)} onChange={e => { const v = e.target.value; setState(s => ({ ...s, fy: v === 'all' ? 'all' : Number(v), expanded: {} })); }}
               style={{ border: 'none', background: 'transparent', font: 'inherit', fontSize: 13, fontWeight: 700, color: 'var(--ink-900)', outline: 'none', cursor: 'pointer' }}>
-              {all.fys.length === 0 && <option value={0}>—</option>}
+              <option value="all">ทุกปี</option>
               {all.fys.map(y => <option key={y} value={y}>25{y} (FY{y})</option>)}
             </select>
           </div>
-          <span style={{ fontSize: 13, color: 'var(--ink-500)' }}>แสดง <b style={{ color: 'var(--ink-900)' }}>{projects.length}</b> โครงการ</span>
+          <span style={{ fontSize: 13, color: 'var(--ink-500)' }}>แสดง <b style={{ color: 'var(--ink-900)' }}>{projects.length}</b> โครงการ · เซ็นแล้วรวม <b style={{ color: 'var(--ink-700)' }}>{diag.signed}</b> · มี AP <b style={{ color: 'var(--ink-700)' }}>{diag.withAp}</b></span>
         </div>
       </div>
 
@@ -481,6 +489,14 @@ function PaymentReconPage({ data, setData, toast }) {
         <button onClick={doExport} style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px solid var(--line)', borderRadius: 10, padding: '7px 14px', fontSize: 13, fontWeight: 600, color: 'var(--ink-700)', cursor: 'pointer' }}>📥 Export Excel</button>
       </div>
 
+      {/* info banner: มีโครงการแต่ AP ว่างหมด → jobcode ไม่ตรง */}
+      {fyProjects.length > 0 && !fyHasAp && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--warn-bg)', border: '1px solid #fde68a', borderRadius: 12, padding: '12px 16px', marginBottom: 14, fontSize: 13, color: '#92660b', lineHeight: 1.5 }}>
+          <span style={{ fontSize: 16 }}>⚠️</span>
+          <span>มีโครงการเซ็นแล้ว แต่ยังไม่มีรายการ <b>AP</b> ผูกกับโครงการเลย — ตาราง <b>เจ้าหนี้คงค้าง (payables)</b> / <b>PV</b> ต้องมีช่อง <b>JOB NO. (jobcode)</b> = รหัสโครงการ ระบบถึงจะจับเข้าโครงการได้ (เติม jobcode/PV ให้โครงการแล้วจะเด้งขึ้นเอง)</span>
+        </div>
+      )}
+
       {/* ===== Project table ===== */}
       <div style={{ background: '#fff', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '104px minmax(0,1fr) 130px 140px 132px 38px', gap: 14, alignItems: 'center', padding: '11px 18px', background: 'var(--ink-50)', borderBottom: '1px solid var(--line-soft)', fontSize: 11, fontWeight: 600, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--ink-400)' }}>
@@ -493,8 +509,14 @@ function PaymentReconPage({ data, setData, toast }) {
         </div>
 
         {projects.length === 0 && (
-          <div style={{ padding: '48px 18px', textAlign: 'center', color: 'var(--ink-400)', fontSize: 14 }}>
-            ไม่พบโครงการที่เซ็นสัญญาในปี <b>25{fy}</b> ตามเงื่อนไขที่กรอง
+          <div style={{ padding: '40px 18px', textAlign: 'center', color: 'var(--ink-500)', fontSize: 14, lineHeight: 1.7 }}>
+            {diag.signed === 0 ? (
+              <span>ยังไม่มีข้อมูลโครงการที่เซ็นสัญญา<br /><span style={{ fontSize: 12.5, color: 'var(--ink-400)' }}>ตรวจว่าล็อกอินแล้ว และตาราง <b>projects / invoices</b> โหลดครบ (ถ้าเพิ่งเปิดหน้า รอ sync สักครู่แล้วรีเฟรช)</span></span>
+            ) : fyProjects.length === 0 ? (
+              <span>{fy === 'all' ? 'ไม่พบโครงการ' : <>ปี <b>25{fy}</b> ไม่มีโครงการที่เซ็นสัญญา</>} · ลองเลือก <b>"ทุกปี"</b> ด้านบน<br /><span style={{ fontSize: 12.5, color: 'var(--ink-400)' }}>เซ็นสัญญาแล้วรวมทุกปี <b>{diag.signed}</b> โครงการ</span></span>
+            ) : (
+              <span>ไม่มีโครงการตรงตัวกรองที่เลือก · ลองกดแท็บ <b>"ทุกโครงการ"</b> {sd ? 'หรือล้างวันที่' : ''}</span>
+            )}
           </div>
         )}
 
