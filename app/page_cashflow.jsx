@@ -363,6 +363,7 @@ function CfReconCard({
   ivWeekActual, loanWeekActual, outflowGrid,
   weeks, nowWeek, snapshots, monthNames, month,
 }) {
+  const [collapsed, setCollapsed] = cfState(true);  // ย่อไว้ default — ไม่โชว์รายการจนกว่าจะกดเปิด
   const EPS = 1;  // ±1 บาท = ถือว่าตรง (กัน rounding เศษสตางค์)
   const calculated = bf + ivActual + loanActual - outflowActual;
   const grandDiff  = calculated - bankActual;
@@ -400,12 +401,20 @@ function CfReconCard({
   );
 
   return (
-    <div className="cf-section-03" style={{ marginTop: 26 }}>
-      <SectionTitle num="03"
-        title="ตรวจสอบยอดดิบ"
-        subtitle="Cash Reconciliation · ยกมา + รับโครงการ + เงินกู้ − ค่าใช้จ่าย = เงินในธนาคารจริง · 🔒 เฉพาะผู้จัดการ"
-      />
+    <div className="cf-section-03 no-present" style={{ marginTop: 26 }}>
+      <div onClick={() => setCollapsed(c => !c)} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: cfScale(14), padding: `${cfScale(8)} 0 ${cfScale(14)}` }}>
+        <div style={{ width: cfScale(38), height: cfScale(38), borderRadius: cfScale(10), background: 'linear-gradient(135deg, var(--brand-500), var(--brand-700))', color: 'white', display: 'grid', placeItems: 'center', fontWeight: 700, fontSize: cfScale(14), flex: 'none' }}>03</div>
+        <div style={{ flex: 1 }}>
+          <h2 style={{ margin: 0, fontSize: cfScale(17), fontWeight: 700, color: 'var(--ink-900)' }}>ตรวจสอบยอดดิบ</h2>
+          <div style={{ fontSize: cfScale(12), color: 'var(--ink-500)', marginTop: 2 }}>Cash Reconciliation · ยกมา + รับโครงการ + เงินกู้ − ค่าใช้จ่าย = เงินในธนาคารจริง · 🔒 เฉพาะผู้จัดการ</div>
+        </div>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: cfScale(6), flex: 'none', fontSize: cfScale(12.5), fontWeight: 700, color: 'var(--brand-600)' }}>
+          {collapsed ? 'กดเพื่อดู' : 'ย่อ'}
+          <span style={{ display: 'inline-block', transform: collapsed ? 'rotate(0deg)' : 'rotate(90deg)', transition: 'transform .15s' }}>▶</span>
+        </span>
+      </div>
 
+      {!collapsed && (<React.Fragment>
       <div className="card anim-in" style={{ padding: cfScale(18), marginBottom: 16 }}>
         {/* ── แถบสถานะ เขียว/แดง ── */}
         <div style={{
@@ -554,6 +563,7 @@ function CfReconCard({
           </div>
         )}
       </div>
+      </React.Fragment>)}
     </div>
   );
 }

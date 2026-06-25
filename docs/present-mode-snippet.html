@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>โหมดนำเสนอ — snippet พร้อมก็อป (vanilla HTML/CSS/JS)</title>
+<style>
+  /* ════════════════════════════════════════════════════════════════════
+     ส่วนนี้คือ "ของจริง" ที่ต้องก็อปไปเว็บอื่น — มี 2 ก้อน:
+       (A) สไตล์โหมดนำเสนอ  (มองหา  @@ PRESENT MODE @@)
+       (B) ปุ่ม toggle       (.present-toggle)
+     ที่เหลือ (--brand, .app, .sb, .card ฯลฯ) เป็น "เว็บตัวอย่าง" ให้เห็นภาพ —
+     เว็บคุณมี layout/สีของตัวเองอยู่แล้ว แค่ map ชื่อ class ให้ตรง
+     ════════════════════════════════════════════════════════════════════ */
+
+  :root {
+    --brand-300:#7fb3ff; --brand-500:#2f6df0; --brand-700:#1c44a8;
+    --line:#e3e7ee; --panel:#fff; --ink-300:#9aa3b2; --ink-600:#3a4252;
+    --ease:cubic-bezier(.22,.61,.36,1); --t-fast:.15s ease;
+    --bg:#f4f6fa;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,"Segoe UI",sans-serif; background:var(--bg); color:#1c2330; }
+
+  /* ── layout เว็บตัวอย่าง (เว็บคุณใช้ของตัวเอง) ───────────────────────── */
+  .app { display:grid; grid-template-columns:240px 1fr; min-height:100vh; }
+  .sb { background:#0f1b33; color:#cdd6e8; padding:18px 16px; }
+  .sb h3 { color:#fff; font-size:15px; }
+  .sb a { display:block; color:#9fb0d0; text-decoration:none; padding:8px 10px; border-radius:8px; font-size:13px; }
+  .sb a:hover { background:rgba(255,255,255,.06); color:#fff; }
+  .main { display:flex; flex-direction:column; }
+  .topbar { display:flex; align-items:center; justify-content:space-between;
+            padding:12px 24px; background:#fff; border-bottom:1px solid var(--line); }
+  .crumbs { font-size:13px; color:var(--ink-300); }
+  .crumbs .now { color:var(--ink-600); font-weight:600; }
+  .tb-actions { display:flex; align-items:center; gap:10px; }
+  .btn { padding:7px 14px; border:1.5px solid var(--line); background:#fff; border-radius:8px;
+         font-size:12.5px; font-weight:600; cursor:pointer; color:var(--ink-600); }
+  .page { max-width:1100px; margin:0 auto; width:100%; padding:24px 32px 56px; }
+  .page-title { font-size:20px; margin:0 0 4px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:16px; margin:18px 0; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px; }
+  .card .big { font-size:26px; font-weight:800; }
+  .card .lbl { font-size:12px; color:var(--ink-300); }
+  table { width:100%; border-collapse:collapse; background:#fff; border:1px solid var(--line);
+          border-radius:12px; overflow:hidden; }
+  th,td { padding:10px 14px; text-align:left; font-size:13px; border-bottom:1px solid var(--line); }
+  th { background:#f7f9fc; color:var(--ink-600); }
+
+  /* ╔══════════════════════════════════════════════════════════════════╗
+     ║  @@ PRESENT MODE @@  — ก็อปก้อนนี้ทั้งก้อนไปเว็บอื่น               ║
+     ║  ทุกกฎ scope ใต้ `body.present-mode .present-page` → ปิดโหมด =     ║
+     ║  หน้าตาปกติ 100%. ใส่ class `present-page` ที่ root ของหน้าที่จะ   ║
+     ║  นำเสนอ; ใส่ class `no-present` กับปุ่มที่อยากซ่อนตอนนำเสนอ.       ║
+     ╚══════════════════════════════════════════════════════════════════╝ */
+
+  /* (1) เต็มจอ: ซ่อน sidebar + แถบรก, เนื้อหาเต็มกว้าง, title ใหญ่ขึ้น */
+  body.present-mode .app { grid-template-columns:1fr; }
+  body.present-mode .sb { display:none !important; }
+  body.present-mode .topbar { padding:10px 32px; }
+  body.present-mode .page { max-width:none; padding:26px 40px 56px; }
+  body.present-mode .page-title { font-size:26px; }
+  body.present-mode .no-present { display:none !important; }  /* ซ่อนปุ่มเครื่องมือ */
+
+  /* (2) การ์ดมุมมน + เตรียม transition (เฉพาะตอนเปิดโหมด) */
+  body.present-mode .present-page .card {
+    border-radius:20px;
+    transition:transform .28s var(--ease), box-shadow .28s var(--ease),
+               opacity .28s var(--ease), filter .28s var(--ease);
+  }
+  /* (3) SPOTLIGHT การ์ด: ชี้อันไหน → ยกตัว + ring เรืองแสงสีแบรนด์ */
+  body.present-mode .present-page .card:hover {
+    transform:translateY(-4px);
+    box-shadow:
+      0 22px 55px -16px color-mix(in oklch, var(--brand-500) 60%, transparent),
+      0 0 0 2.5px color-mix(in oklch, var(--brand-500) 55%, transparent);
+    position:relative; z-index:6;
+  }
+  /* (4) SPOTLIGHT ตาราง: ชี้แถว → ไฮไลต์ทั้งแถว + แถบสีซ้าย */
+  body.present-mode .present-page table tbody tr {
+    transition:background .2s var(--ease), box-shadow .2s var(--ease);
+  }
+  body.present-mode .present-page table tbody tr:hover {
+    background:color-mix(in oklch, var(--brand-500) 13%, white) !important;
+    box-shadow:inset 4px 0 0 0 var(--brand-500);
+  }
+  /* (5) SPOTLIGHT เซลล์: ชี้เซลล์ → เข้มกว่าแถว + กรอบในเซลล์ */
+  body.present-mode .present-page table tbody td {
+    transition:background .15s var(--ease), box-shadow .15s var(--ease);
+  }
+  body.present-mode .present-page table tbody td:hover {
+    background:color-mix(in oklch, var(--brand-500) 30%, white) !important;
+    box-shadow:inset 0 0 0 2px var(--brand-500);
+    position:relative; z-index:1;
+  }
+  /* (6) ขยายตัวอักษรบนจอใหญ่ (option) — ใช้ zoom กับหน้าที่ font เป็น px ตายตัว
+     แปะ class `present-zoom` เพิ่มที่ root หน้าที่อยากให้ขยาย */
+  body.present-mode .present-zoom { zoom:1.15; }
+  @media (min-width:1450px){ body.present-mode .present-zoom { zoom:1.3; } }
+  @media (min-width:1900px){ body.present-mode .present-zoom { zoom:1.5; } }
+  /* เคารพ reduced-motion */
+  @media (prefers-reduced-motion:reduce){
+    body.present-mode .present-page .card:hover { transform:none; }
+  }
+
+  /* (B) ปุ่ม toggle บน topbar */
+  .present-toggle {
+    display:inline-flex; align-items:center; gap:7px;
+    padding:7px 13px; border-radius:999px; cursor:pointer;
+    font-size:12.5px; font-weight:600; white-space:nowrap;
+    border:1.5px solid var(--line); background:var(--panel); color:var(--ink-600);
+    transition:all var(--t-fast);
+  }
+  .present-toggle:hover { border-color:var(--brand-300); color:var(--brand-700); }
+  .present-toggle .dot { width:7px; height:7px; border-radius:50%; background:var(--ink-300); }
+  .present-toggle.is-on {
+    background:linear-gradient(135deg, var(--brand-500), var(--brand-700));
+    border-color:transparent; color:#fff;
+    box-shadow:0 4px 14px -4px color-mix(in oklch, var(--brand-500) 70%, transparent);
+  }
+  .present-toggle.is-on .dot { background:#7dffb0; box-shadow:0 0 0 3px rgba(125,255,176,.3);
+    animation:pulse-dot 1.6s ease-in-out infinite; }
+  @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:.45} }
+</style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sb">
+      <h3>Water POG</h3>
+      <a href="#">หน้าหลัก</a>
+      <a href="#">กระแสเงินสด</a>
+      <a href="#">งบกำไรขาดทุน</a>
+    </aside>
+
+    <div class="main">
+      <div class="topbar">
+        <div class="crumbs">นำเสนอ / <span class="now">ตัวอย่างหน้า Dashboard</span></div>
+        <div class="tb-actions">
+          <!-- ปุ่มที่อยากซ่อนตอนนำเสนอ → ใส่ class no-present -->
+          <button class="btn no-present">ส่งออก Excel</button>
+          <button class="btn no-present">พิมพ์</button>
+          <!-- ปุ่ม toggle (สร้าง/ผูก event ใน JS ด้านล่าง) -->
+          <button id="presentToggle" class="present-toggle" type="button">
+            <span class="dot"></span><span class="lbl">โหมดนำเสนอ</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ★ root ของหน้าที่จะนำเสนอ ต้องมี class present-page (+ present-zoom ถ้าอยากให้ขยาย) -->
+      <div class="page present-page">
+        <h1 class="page-title">ภาพรวมการเงิน</h1>
+        <div style="font-size:13px;color:var(--ink-300)">
+          เปิดโหมดนำเสนอแล้วลอง <b>ชี้</b> ที่การ์ด / แถว / เซลล์ ดู
+        </div>
+
+        <div class="grid">
+          <div class="card"><div class="lbl">รายได้รวม</div><div class="big">฿958.3M</div></div>
+          <div class="card"><div class="lbl">EBITDA</div><div class="big">฿88.5M</div></div>
+          <div class="card"><div class="lbl">เงินสดคงเหลือ</div><div class="big">฿14.9M</div></div>
+          <div class="card"><div class="lbl">ลูกหนี้คงค้าง</div><div class="big">฿42.1M</div></div>
+        </div>
+
+        <table>
+          <thead><tr><th>โครงการ</th><th>มูลค่าสัญญา</th><th>รับแล้ว</th><th>คงค้าง</th></tr></thead>
+          <tbody>
+            <tr><td>บ้านทองหลาง</td><td>฿3.2M</td><td>฿1.3M</td><td>฿1.9M</td></tr>
+            <tr><td>หอถังประปา A</td><td>฿5.6M</td><td>฿4.4M</td><td>฿1.2M</td></tr>
+            <tr><td>ระบบกรองน้ำ B</td><td>฿2.1M</td><td>฿2.1M</td><td>฿0</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* ════════════════════════════════════════════════════════════════════════
+   (A) ลอจิกโหมดนำเสนอ — vanilla, ก็อปไปวางได้เลย
+   หลักการ: toggle class `present-mode` บน <body> + จำใน localStorage +
+            ขอ Fullscreen API + sync ตอนผู้ใช้กด Esc ออกเอง
+   ════════════════════════════════════════════════════════════════════════ */
+(function () {
+  var KEY = 'present-mode';
+  var btn = document.getElementById('presentToggle');
+
+  function apply(on) {
+    document.body.classList.toggle('present-mode', on);
+    btn.classList.toggle('is-on', on);
+    btn.querySelector('.lbl').textContent = on ? 'ออกจากโหมดนำเสนอ' : 'โหมดนำเสนอ';
+    try { localStorage.setItem(KEY, on ? '1' : '0'); } catch (e) {}
+  }
+
+  function isOn() { return document.body.classList.contains('present-mode'); }
+
+  async function toggle() {
+    var next = !isOn();
+    apply(next);
+    // Fullscreen API (เผื่อ browser/iframe บล็อก → สไตล์ยังทำงานปกติ)
+    try {
+      var el = document.documentElement;
+      var fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+      if (next && !fsEl) {
+        await (el.requestFullscreen ? el.requestFullscreen() : el.webkitRequestFullscreen && el.webkitRequestFullscreen());
+      } else if (!next && fsEl) {
+        await (document.exitFullscreen ? document.exitFullscreen() : document.webkitExitFullscreen && document.webkitExitFullscreen());
+      }
+    } catch (e) {}
+  }
+
+  // ผู้ใช้กด Esc / ออกจาก fullscreen เอง → ปิดโหมดให้ตรงกัน
+  function syncFs() {
+    var fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+    if (!fsEl && isOn()) apply(false);
+  }
+  document.addEventListener('fullscreenchange', syncFs);
+  document.addEventListener('webkitfullscreenchange', syncFs);
+
+  btn.addEventListener('click', toggle);
+
+  // restore สถานะตอนโหลด (เปิดค้างข้ามหน้า) — แต่ fullscreen ขอใหม่ไม่ได้ถ้าไม่ใช่ user gesture
+  try { if (localStorage.getItem(KEY) === '1') apply(true); } catch (e) {}
+})();
+</script>
+</body>
+</html>
