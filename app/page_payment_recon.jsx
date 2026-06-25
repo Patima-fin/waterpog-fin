@@ -463,7 +463,7 @@ function PaymentReconPage({ data, setData, toast }) {
   };
 
   return (
-    <div className="pr-page" style={{ maxWidth: 1240, margin: '0 auto', padding: '4px 2px 60px' }}>
+    <div className="pr-page" style={{ maxWidth: 1480, margin: '0 auto', padding: '4px 2px 60px' }}>
 
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 24, flexWrap: 'wrap', marginBottom: 22 }}>
