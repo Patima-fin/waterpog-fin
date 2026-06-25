@@ -731,7 +731,7 @@
     if (!window.supabase || !window.supabase.createClient) {
       throw new Error('supabase-js ยังไม่โหลด');
     }
-    adminSb = window.supabase.createClient(SUPABASE_URL, key, {
+    adminSb = window.supabase.createClient(SUPA_URL, key, {
       auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
     });
     return true;
