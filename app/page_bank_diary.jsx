@@ -856,7 +856,9 @@ function BDDayGroup({ day, today, onItemEdit }) {
               map[key].total += it.signed;
             });
             return order.map((g, gi) => (
-              g.items.length > 1
+              // รายการที่จับชื่อเจ้าหนี้ได้ → แถวยุบกะทัดรัดเสมอ (แม้ใบเดียว) ให้หน้าตาเสมอกันทั้งลิสต์;
+              // กางดูเห็นรายละเอียด+แหล่งที่มา. เฉพาะรายการที่ไม่มีเจ้าหนี้ (โอน ฯลฯ) → แถวเดี่ยวตามเดิม
+              (g.items.length > 1 || g.items[0].creditor)
                 ? <BDDayItemGroup key={g.key} group={g} top={gi > 0} onItemEdit={onItemEdit} />
                 : <BDItemRow key={g.key} it={g.items[0]} top={gi > 0} onItemEdit={onItemEdit} />
             ));
