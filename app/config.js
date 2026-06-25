@@ -28,21 +28,6 @@ window.WTP_CONFIG = {
   //     และควรลบ password ออกจาก USERS ด้านล่าง (ไม่ใช้แล้ว + ไม่ให้รั่วใน repo)
   USE_SUPABASE_AUTH: true,
 
-  // ผู้ใช้ระบบ — ★ Phase 4: รหัสผ่านย้ายไป Supabase Auth แล้ว (hash ฝั่ง server)
-  //   จึง "ลบ password ออกจากไฟล์นี้" (เป็น public repo) — login ตรวจกับ Supabase Auth แทน
-  //   รายการนี้เหลือไว้เป็น directory (username/displayName/role) + ให้ tool สร้าง user อ่าน
-  //   เพิ่ม/แก้คน/รหัส → แก้ที่นี่ (username/role/displayName) แล้วรัน tools/supabase-auth-setup.html
-  // Roles: viewer (ดู dashboard) · staff (แก้ได้ ลบไม่ได้) · manager (ทุกอย่าง+users) · owner (ดูอย่างเดียว)
-  USERS: [
-    { username: 'admin',       displayName: 'ผู้ดูแลระบบ',     role: 'manager' },
-    { username: 'viewer',      displayName: 'ผู้บริหาร (ดู)',  role: 'viewer'  },
-    { username: 'owner',       displayName: 'เจ้าของบริษัท',   role: 'owner'   },
-    { username: 'acc.manager', displayName: 'บัญชี',           role: 'staff'   },
-    { username: 'nantawan',    displayName: 'Nantawan',        role: 'manager' },
-    { username: 'patima',      displayName: 'Patima',          role: 'manager' },
-    { username: 'itd',         displayName: 'ITD',             role: 'manager' },
-  ],
-
   // อายุ session (มิลลิวินาที) — 0 = ไม่หมดอายุ
   SESSION_TTL_MS: 8 * 60 * 60 * 1000,  // 8 ชั่วโมง
 

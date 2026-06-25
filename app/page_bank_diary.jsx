@@ -194,6 +194,7 @@ function bdBuildAccountView(acct, matchedChecks, matchedForecasts, matchedTransf
       items.push({
         date: c.checkDate, signed: -bdNum(c.amount), kind: 'check',
         title: c.payee || '—', sub: 'เช็ค #' + (c.checkNo || '—'), status: c._st, raw: c,
+        creditor: bdVendorCanon(c.payee),
       });
     });
   // AP ที่จ่ายจริงผ่าน PV แล้ว → ตัด forecast (ประมาณการ) ทิ้ง ให้รายการ PV จริงเป็นตัวแทน
@@ -211,6 +212,7 @@ function bdBuildAccountView(acct, matchedChecks, matchedForecasts, matchedTransf
         date: f.date, signed: f.amount, kind: 'forecast',
         title: f.desc, sub: (f.isActual ? '✓ ' + (f.amount >= 0 ? 'รับจริงแล้ว' : 'จ่ายจริงแล้ว') + (f.refDoc ? ' • ' + f.refDoc : '') : (f.refDoc || '')),
         status: f.isActual ? 'actual' : 'planned', raw: f, group: vendorName, refDoc: f.refDoc || '', remark: f.remark || '',
+        creditor: bdVendorCanon(f.desc),
       });
     });
   // โอนระหว่างบัญชี: นับเฉพาะที่ "ยังไม่กลืนยอด" = ยังไม่ยืนยัน และลงวันที่ตั้งแต่วัน BALANCE เป็นต้นไป
@@ -267,6 +269,7 @@ function bdBuildAccountView(acct, matchedChecks, matchedForecasts, matchedTransf
       title: g.payee || 'จ่ายตาม PV',
       sub,
       status: 'pv', raw: g.raws.length === 1 ? g.raws[0] : { _pvGroup: true, pvNo: g.pvNo, date: g.date, amount: g.amount, items: g.raws },
+      creditor: bdVendorCanon(g.payee),
     });
   });
   items.sort((a, b) => (a.date || '') < (b.date || '') ? -1 : 1);
@@ -719,6 +722,22 @@ function bdItemTag(kind) {
        : { t:'เช็ค', bg:'#e0f2fe', c:'#075985' };
 }
 
+/* ชื่อเจ้าหนี้มาตรฐาน — ดึง "ชื่อนิติบุคคล" ออกจาก description/payee ที่อาจมีคำนำหน้า
+ * ("จ่าย"/"ชำระ") หรือเลขที่ AP/อ้างอิงต่อท้าย เพื่อจับกลุ่มรายการของเจ้าหนี้เดียวกัน
+ * แม้มาจากคนละหน้า (รูปแบบ desc ต่างกัน). คืน '' ถ้าจับชื่อไม่ได้ → ไม่จับกลุ่ม. */
+function bdVendorCanon(name) {
+  var s = String(name == null ? '' : name).replace(/\s+/g, ' ').trim();
+  if (!s) return '';
+  // ดึงช่วง "บริษัท … จำกัด (มหาชน)" / "บมจ./บจก. … จำกัด" (พบบ่อยสุด, ทนต่อคำนำ-ท้าย)
+  var m = s.match(/(?:บริษัท|บมจ\.?|บจก\.?)\s*[\s\S]*?\s*จำกัด(?:\s*\(\s*มหาชน\s*\))?/);
+  if (m) return m[0].replace(/\s+/g, ' ').trim();
+  // ไม่ใช่รูปแบบ "บริษัท…จำกัด" → ตัดคำกริยานำหน้า + วงเล็บ/หางอ้างอิงท้าย
+  s = s.replace(/^(?:จ่าย|ชำระเงิน|ชำระ|รับเงิน|รับ)\s+/, '');
+  s = s.replace(/\s*\([^)]*\)\s*$/, '');
+  s = s.replace(/\s*[•|]\s+\S[\s\S]*$/, '');   // ตัดหาง " • อ้างอิง" / " | …"
+  return s.trim();
+}
+
 /* แถวรายการเดี่ยวในการ์ดบัญชี (ใช้ทั้งแบบเดี่ยวและรายย่อยในกลุ่มผู้ขาย) */
 function BDItemRow({ it, top, onItemEdit, label, sub, hideTag }) {
   const inflow   = it.signed >= 0;
@@ -744,11 +763,14 @@ function BDItemRow({ it, top, onItemEdit, label, sub, hideTag }) {
   );
 }
 
-/* กลุ่มรายการผู้ขายเดียวกันในวันเดียว (ย่อ=ชื่อ+ยอดรวม, กาง=รายย่อยเป็นเลขที่ AP + ยอด) */
+/* กลุ่มรายการ "เจ้าหนี้เดียวกัน" ในวันเดียว — รวมหลายรายการ (อาจมาจากคนละหน้า/คนละชนิด)
+ * ย่อ = ชื่อเจ้าหนี้ + ยอดรวม + จำนวนรายการ; กาง = แต่ละรายการพร้อมป้ายชนิด (มาจากแหล่งไหน) + เลขที่อ้างอิง + ยอด */
 function BDDayItemGroup({ group, top, onItemEdit }) {
   const [open, setOpen] = React.useState(false);
-  const tag    = bdItemTag(group.kind);
   const inflow = group.total >= 0;
+  // ชนิดที่ปนอยู่ในกลุ่ม — ชนิดเดียว → ใช้ป้ายของชนิดนั้น; หลายชนิด → ป้าย "รวม" กลางๆ (เห็นรายชนิดตอนกาง)
+  const kinds  = group.items.reduce((a, it) => (a.indexOf(it.kind) < 0 ? a.concat(it.kind) : a), []);
+  const tag    = kinds.length === 1 ? bdItemTag(kinds[0]) : { t:'รวม', bg:'#eef2ff', c:'#4338ca' };
   return (
     <div style={{ borderTop: top ? '1px dashed #e9e9f3' : 'none' }}>
       {/* group header */}
@@ -758,19 +780,17 @@ function BDDayItemGroup({ group, top, onItemEdit }) {
           <span style={{ fontSize:9, color:'#94a3b8', transform: open ? 'rotate(90deg)' : 'none', transition:'transform .15s' }}>▶</span>
           <span style={{ display:'inline-block', fontSize:9, fontWeight:700, borderRadius:4, padding:'0 5px', background:tag.bg, color:tag.c, whiteSpace:'nowrap' }}>{tag.t}</span>
           <span style={{ fontSize:12, fontWeight:600, color:'#1e293b', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{group.name}</span>
-          <span style={{ fontSize:10, color:'#94a3b8', whiteSpace:'nowrap' }}>· {group.items.length} ใบ</span>
+          <span style={{ fontSize:10, color:'#94a3b8', whiteSpace:'nowrap' }}>· {group.items.length} รายการ</span>
         </div>
         <div style={{ textAlign:'right', fontWeight:700, fontSize:12, color: inflow ? '#276749' : '#c53030', fontVariantNumeric:'tabular-nums', whiteSpace:'nowrap' }}>
           {inflow ? '+' : '−'}{fmtMoney(Math.abs(group.total))}
         </div>
       </div>
-      {/* details — เลขที่ AP + ยอด ของแต่ละใบ */}
+      {/* details — แต่ละรายการ: ป้ายชนิด (มาจากไหน) + เลขที่อ้างอิง/รายละเอียด + ยอด */}
       {open && (
         <div style={{ paddingLeft:20 }}>
           {group.items.map((it, i) => (
-            <BDItemRow key={i} it={it} top={i > 0} onItemEdit={onItemEdit} hideTag
-              label={it.refDoc || it.title}
-              sub={it.status === 'actual' ? '✓ จ่าย/รับจริงแล้ว' : ''} />
+            <BDItemRow key={i} it={it} top={i > 0} onItemEdit={onItemEdit} />
           ))}
         </div>
       )}
@@ -820,21 +840,23 @@ function BDDayGroup({ day, today, onItemEdit }) {
         </div>
       </div>
 
-      {/* Items — shown when open: จับกลุ่ม forecast ผู้ขายเดียวกันในวันเดียว → ย่อเป็น 1 บรรทัด (ชื่อ+ยอดรวม), ชนิดอื่นแสดงเดี่ยวเหมือนเดิม */}
+      {/* Items — shown when open: จับกลุ่มตาม "เจ้าหนี้เดียวกัน" (ชื่อนิติบุคคล) แม้มาจากคนละหน้า/คนละชนิด
+          → ย่อเป็น 1 บรรทัด (ชื่อ + ยอดรวม + จำนวนรายการ); กางดูเห็นแต่ละรายการ + มาจากแหล่งไหน (ป้ายชนิด).
+          แยกทิศ รับ/จ่าย (o/i) ไม่ให้ปนกัน. รายการที่จับชื่อเจ้าหนี้ไม่ได้ (โอน ฯลฯ) แสดงเดี่ยวตามเดิม. */}
       {open && (
         <div style={{ background:'#fafbff', padding:'2px 14px 8px 34px' }}>
           {(() => {
             const order = [];
             const map = {};
             day.items.forEach((it, i) => {
-              const key = it.group ? ('g:' + it.kind + ':' + it.group) : ('i:' + i);
-              if (!map[key]) { map[key] = { key, name: it.group || it.title, kind: it.kind, items: [], total: 0 }; order.push(map[key]); }
+              const ck  = it.creditor;
+              const key = ck ? ('c:' + (it.signed < 0 ? 'o' : 'i') + ':' + ck.toLowerCase()) : ('i:' + i);
+              if (!map[key]) { map[key] = { key, name: ck || it.title, items: [], total: 0 }; order.push(map[key]); }
               map[key].items.push(it);
               map[key].total += it.signed;
             });
             return order.map((g, gi) => (
-              // forecast (รวม 1 ใบ) → ย่อเป็นกลุ่มเหมือนกันให้สวยงาม · เช็ค/PV/โอน เดี่ยว → แถวเดียวตามเดิม
-              (g.items.length > 1 || g.kind === 'forecast')
+              g.items.length > 1
                 ? <BDDayItemGroup key={g.key} group={g} top={gi > 0} onItemEdit={onItemEdit} />
                 : <BDItemRow key={g.key} it={g.items[0]} top={gi > 0} onItemEdit={onItemEdit} />
             ));
