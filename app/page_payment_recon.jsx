@@ -326,7 +326,7 @@ function prBuildAll(data) {
 // ════════════════════════════════════════════════════════════════════════════
 function PaymentReconPage({ data, setData, toast }) {
   const canEdit = window.WTPAuth ? (window.WTPAuth.can('canEdit') || window.WTPAuth.can('canApprove')) : true;
-  const [state, setState] = React.useState({ filters: [], expanded: {}, sort: 'code', searchDate: '', search: '', fy: null });
+  const [state, setState] = React.useState({ filters: [], expanded: {}, sort: 'code', searchDate: '', search: '', fy: null, exportFrom: '', exportTo: '' });
   const [planTarget, setPlanTarget] = React.useState(null);
   const [planForm, setPlanForm] = React.useState({ payDate: '', bankAc: '' });
 
@@ -434,17 +434,32 @@ function PaymentReconPage({ data, setData, toast }) {
   ];
 
   const doExport = () => {
+    const ef = state.exportFrom, et = state.exportTo;
+    const inRange = (iso) => {
+      if (!ef && !et) return true;
+      if (!iso) return false;
+      if (ef && iso < ef) return false;
+      if (et && iso > et) return false;
+      return true;
+    };
     const rows = [];
     projects.forEach(p => p.apGroups.forEach(g => {
-      g.paidRows.forEach(r => rows.push({ code: p.code, name: p.name, customer: p.customer, งวด: g.key, สถานะ: 'จ่ายแล้ว', vendor: r.vendor, ref: r.pvNo, amount: r.amount, paidDate: r.date ? fmtDate(r.date) : '', dueDate: '', planDate: '' }));
-      g.outRows.forEach(r => rows.push({ code: p.code, name: p.name, customer: p.customer, งวด: g.key, สถานะ: (PR_META[g.status] || {}).label || g.status, vendor: r.vendor, ref: r.vchno, amount: r.amount, paidDate: '', dueDate: r.due ? fmtDate(r.due) : '', planDate: r.planned && r.plannedDate ? fmtDate(r.plannedDate) : '' }));
+      g.paidRows.forEach(r => {
+        if (!inRange(r.date)) return;
+        rows.push({ code: p.code, name: p.name, customer: p.customer, งวด: g.key, สถานะ: 'จ่ายแล้ว', vendor: r.vendor, ref: r.pvNo, amount: r.amount, paidDate: r.date ? fmtDate(r.date) : '', dueDate: '', planDate: '' });
+      });
+      g.outRows.forEach(r => {
+        if (!inRange(r.due)) return;
+        rows.push({ code: p.code, name: p.name, customer: p.customer, งวด: g.key, สถานะ: (PR_META[g.status] || {}).label || g.status, vendor: r.vendor, ref: r.vchno, amount: r.amount, paidDate: '', dueDate: r.due ? fmtDate(r.due) : '', planDate: r.planned && r.plannedDate ? fmtDate(r.plannedDate) : '' });
+      });
     }));
+    const rangeLabel = (ef || et) ? (' (' + (ef ? fmtDate(ef) : '—') + ' ถึง ' + (et ? fmtDate(et) : '—') + ')') : '';
     exportRowsToExcel(rows, [
       { key: 'code', label: 'รหัสโครงการ' }, { key: 'name', label: 'โครงการ' }, { key: 'customer', label: 'ลูกหนี้' },
       { key: 'งวด', label: 'งวด' }, { key: 'สถานะ', label: 'สถานะ' }, { key: 'vendor', label: 'ผู้รับเหมา' },
       { key: 'ref', label: 'เลขที่ PV/AP' }, { key: 'amount', label: 'ยอด', type: 'number' },
       { key: 'paidDate', label: 'วันที่จ่าย' }, { key: 'dueDate', label: 'ครบกำหนด' }, { key: 'planDate', label: 'วันที่วางแผนจ่าย' },
-    ], { filename: 'รายการจ่าย_AP_' + (fy === 'all' ? 'ทุกปี' : 'FY' + fy), sheetName: 'AP', title: 'กระทบยอดการจ่าย · ปีสัญญา ' + (fy === 'all' ? 'ทุกปี' : '25' + fy) });
+    ], { filename: 'รายการจ่าย_AP_' + (fy === 'all' ? 'ทุกปี' : 'FY' + fy), sheetName: 'AP', title: 'กระทบยอดการจ่าย · ปีสัญญา ' + (fy === 'all' ? 'ทุกปี' : '25' + fy) + rangeLabel });
   };
 
   return (
@@ -551,7 +566,16 @@ function PaymentReconPage({ data, setData, toast }) {
             วางแผนจ่ายได้ <b style={{ fontFamily: "'IBM Plex Mono',monospace" }}>{planCnt}</b> งวด · รวม <b style={{ fontFamily: "'IBM Plex Mono',monospace" }}>{prMoney(planSum)}</b>
           </div>
         )}
-        <button onClick={doExport} style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px solid var(--line)', borderRadius: 10, padding: '7px 14px', fontSize: 13, fontWeight: 600, color: 'var(--ink-700)', cursor: 'pointer' }}>📥 Export Excel</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px solid var(--line)', borderRadius: 10, padding: '6px 10px', marginLeft: 'auto' }}>
+          <span style={{ fontSize: 12, color: 'var(--ink-400)', whiteSpace: 'nowrap' }}>Export ช่วงวันที่</span>
+          <input type="date" value={state.exportFrom} onChange={e => setState(s => ({ ...s, exportFrom: e.target.value }))}
+            style={{ border: 'none', background: 'transparent', font: 'inherit', fontSize: 13, fontWeight: 600, color: 'var(--ink-900)', outline: 'none' }} />
+          <span style={{ color: 'var(--ink-400)', fontSize: 12 }}>—</span>
+          <input type="date" value={state.exportTo} onChange={e => setState(s => ({ ...s, exportTo: e.target.value }))}
+            style={{ border: 'none', background: 'transparent', font: 'inherit', fontSize: 13, fontWeight: 600, color: 'var(--ink-900)', outline: 'none' }} />
+          {(state.exportFrom || state.exportTo) && <button onClick={() => setState(s => ({ ...s, exportFrom: '', exportTo: '' }))} style={{ border: 'none', background: 'var(--ink-100)', color: 'var(--ink-500)', borderRadius: 6, padding: '4px 9px', fontSize: 12, cursor: 'pointer' }}>ล้าง</button>}
+        </div>
+        <button onClick={doExport} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#fff', border: '1px solid var(--line)', borderRadius: 10, padding: '7px 14px', fontSize: 13, fontWeight: 600, color: 'var(--ink-700)', cursor: 'pointer' }}>📥 Export Excel</button>
       </div>
 
       {fyProjects.length > 0 && !fyHasAp && (
