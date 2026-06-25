@@ -683,10 +683,13 @@
       if (res.error) throw res.error;
       var u = (res.data && res.data.user) || {};
       var meta = u.app_metadata || {};
+      // pages = null → ใช้ role default (ตาม ROLE_PERMS) · array → list หน้าที่อนุญาตเป๊ะๆ (override)
+      var pages = Array.isArray(meta.pages) ? meta.pages : null;
       return {
         username:    meta.username || username,
         displayName: meta.displayName || meta.display_name || username,
         role:        meta.role || 'viewer',
+        pages:       pages,
       };
     });
   };
@@ -710,4 +713,139 @@
     });
   } catch (_) {}
   setTimeout(function () { if (!loadKicked) loadFromServer(); }, 2500);
+
+  /* ── Admin: จัดการบัญชี Supabase Auth จากในแอป (manager-only) ────────────────
+   *   ต้องเรียก WTPData.adminInit(serviceRoleKey) ก่อน — สร้าง client แยกอีก 1 ตัว
+   *   ที่ถือ service_role key (bypass RLS + admin scope) เก็บใน module scope
+   *   เท่านั้น (ไม่ persist). service_role key เก็บใน sessionStorage โดยหน้า Users
+   *   (หาย เมื่อปิดแท็บ) — ผู้ใช้ต้องวางใหม่แต่ละ session.
+   *
+   *   ทุกเมธอด admin.* คืน Promise — โยน error ถ้ายังไม่ adminInit หรือ Supabase error.
+   *   user object ที่คืน: {id, username, displayName, role, pages, email, lastSignIn, createdAt, banned}
+   *
+   *   pages convention: null = ใช้ role default · array = list หน้าที่อนุญาต (override) */
+  var adminSb = null;
+  WTPData.adminInit = function (serviceRoleKey) {
+    var key = String(serviceRoleKey == null ? '' : serviceRoleKey).trim();
+    if (!key) { adminSb = null; return false; }
+    if (!window.supabase || !window.supabase.createClient) {
+      throw new Error('supabase-js ยังไม่โหลด');
+    }
+    adminSb = window.supabase.createClient(SUPABASE_URL, key, {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    });
+    return true;
+  };
+  WTPData.adminReady = function () { return !!adminSb; };
+
+  function _requireAdmin() {
+    if (!adminSb) throw new Error('ยังไม่ได้ตั้ง service_role key');
+    return adminSb;
+  }
+
+  function _mapAuthUser(u) {
+    if (!u) return null;
+    var meta = u.app_metadata || {};
+    var um   = u.user_metadata || {};
+    return {
+      id:          u.id,
+      email:       u.email || '',
+      username:    meta.username || (u.email || '').split('@')[0] || '',
+      displayName: meta.displayName || meta.display_name || um.displayName || um.display_name || '',
+      role:        meta.role || 'viewer',
+      pages:       Array.isArray(meta.pages) ? meta.pages : null,
+      createdAt:   u.created_at || null,
+      lastSignIn:  u.last_sign_in_at || null,
+      banned:      !!(u.banned_until && new Date(u.banned_until).getTime() > Date.now()),
+    };
+  }
+
+  WTPData.admin = {
+    /** Page through admin.listUsers (Supabase returns ≤50/page by default). */
+    listUsers: function () {
+      var sba = _requireAdmin();
+      var out = [];
+      function pageAt(page) {
+        return sba.auth.admin.listUsers({ page: page, perPage: 200 }).then(function (res) {
+          if (res.error) throw res.error;
+          var users = (res.data && res.data.users) || [];
+          users.forEach(function (u) { out.push(_mapAuthUser(u)); });
+          // ถ้าหน้านี้เต็ม 200 พอดี ลองหน้าถัดไป (ทีมไม่น่าเกิน 200 — เผื่อ)
+          if (users.length === 200) return pageAt(page + 1);
+          return out;
+        });
+      }
+      return pageAt(1);
+    },
+
+    /** สร้างบัญชีใหม่. opts={username,password,displayName,role,pages?} */
+    createUser: function (opts) {
+      var sba = _requireAdmin();
+      var username = String(opts.username || '').trim().toLowerCase();
+      if (!username) return Promise.reject(new Error('ต้องมี username'));
+      if (!opts.password || String(opts.password).length < 6) {
+        return Promise.reject(new Error('รหัสผ่านต้องอย่างน้อย 6 ตัวอักษร'));
+      }
+      var email = username + '@' + AUTH_DOMAIN;
+      var meta  = {
+        username:    username,
+        displayName: opts.displayName || username,
+        role:        opts.role || 'viewer',
+      };
+      if (Array.isArray(opts.pages)) meta.pages = opts.pages.slice();
+      return sba.auth.admin.createUser({
+        email:         email,
+        password:      String(opts.password),
+        email_confirm: true,                  // ข้ามขั้นยืนยันอีเมล (อีเมลปลอม)
+        app_metadata:  meta,
+      }).then(function (res) {
+        if (res.error) throw res.error;
+        return _mapAuthUser(res.data && res.data.user);
+      });
+    },
+
+    /** อัปเดต meta + ban + password (รวมในรอบเดียวก็ได้). opts={displayName?,role?,pages?,banned?,password?} */
+    updateUser: function (userId, opts) {
+      var sba = _requireAdmin();
+      if (!userId) return Promise.reject(new Error('ต้องระบุ userId'));
+      var patch = {};
+      // build app_metadata patch: ส่งเฉพาะ field ที่ใส่มา (Supabase merge ให้)
+      var hasMeta = false;
+      var meta = {};
+      if (opts.displayName != null) { meta.displayName = opts.displayName; hasMeta = true; }
+      if (opts.role        != null) { meta.role        = opts.role;        hasMeta = true; }
+      if (opts.pages !== undefined) {
+        meta.pages = Array.isArray(opts.pages) ? opts.pages.slice() : null;
+        hasMeta = true;
+      }
+      if (opts.username != null)   { meta.username = String(opts.username).trim().toLowerCase(); hasMeta = true; }
+      if (hasMeta) patch.app_metadata = meta;
+      if (opts.password) {
+        if (String(opts.password).length < 6) return Promise.reject(new Error('รหัสผ่านต้องอย่างน้อย 6 ตัวอักษร'));
+        patch.password = String(opts.password);
+      }
+      if (opts.banned != null) {
+        // 100 ปี = banned ถาวร / 'none' = ปลดแบน
+        patch.ban_duration = opts.banned ? '876000h' : 'none';
+      }
+      return sba.auth.admin.updateUserById(userId, patch).then(function (res) {
+        if (res.error) throw res.error;
+        return _mapAuthUser(res.data && res.data.user);
+      });
+    },
+
+    /** ตั้งรหัสผ่านใหม่ (รีเซ็ต) */
+    setPassword: function (userId, password) {
+      return WTPData.admin.updateUser(userId, { password: password });
+    },
+
+    deleteUser: function (userId) {
+      var sba = _requireAdmin();
+      if (!userId) return Promise.reject(new Error('ต้องระบุ userId'));
+      return sba.auth.admin.deleteUser(userId).then(function (res) {
+        if (res.error) throw res.error;
+        return true;
+      });
+    },
+  };
 })();

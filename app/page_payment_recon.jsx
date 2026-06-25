@@ -312,7 +312,7 @@ function prBuildAll(data) {
         code, ncode, name: d.site || d.name || code, customer: custByCode[ncode] || d.customer || '—',
         contractor: contractorLabel, vendorCount: vendorNames.length,
         contractValue: d.contractAmt || 0, fy: d.fy, arFull,
-        productType, expectedNguad,
+        productType, expectedNguad, signedDate,
         arItems, apGroups: groups,
         receivedARTotal, paidSum, outSum, apTotal, readySum, readyCount, progressPct: pct,
         overall: okey, _keys: apKeys,
@@ -446,19 +446,33 @@ function PaymentReconPage({ data, setData, toast }) {
     projects.forEach(p => p.apGroups.forEach(g => {
       g.paidRows.forEach(r => {
         if (!inRange(r.date)) return;
-        rows.push({ code: p.code, name: p.name, customer: p.customer, งวด: g.key, สถานะ: 'จ่ายแล้ว', vendor: r.vendor, ref: r.pvNo, amount: r.amount, paidDate: r.date ? fmtDate(r.date) : '', dueDate: '', planDate: '' });
+        rows.push({ code: p.code, name: p.name, productType: p.productType || '', signedDate: p.signedDate ? fmtDate(p.signedDate) : '',
+          งวด: g.key, apNo: r.apNo || '', pvNo: r.pvNo || '', vendor: r.vendor,
+          amount: r.amount, paidDate: r.date ? fmtDate(r.date) : '', dueDate: '', planDate: '', สถานะ: 'จ่ายแล้ว', customer: p.customer });
       });
       g.outRows.forEach(r => {
         if (!inRange(r.due)) return;
-        rows.push({ code: p.code, name: p.name, customer: p.customer, งวด: g.key, สถานะ: (PR_META[g.status] || {}).label || g.status, vendor: r.vendor, ref: r.vchno, amount: r.amount, paidDate: '', dueDate: r.due ? fmtDate(r.due) : '', planDate: r.planned && r.plannedDate ? fmtDate(r.plannedDate) : '' });
+        rows.push({ code: p.code, name: p.name, productType: p.productType || '', signedDate: p.signedDate ? fmtDate(p.signedDate) : '',
+          งวด: g.key, apNo: r.vchno || '', pvNo: '', vendor: r.vendor,
+          amount: r.amount, paidDate: '', dueDate: r.due ? fmtDate(r.due) : '', planDate: r.planned && r.plannedDate ? fmtDate(r.plannedDate) : '', สถานะ: (PR_META[g.status] || {}).label || g.status, customer: p.customer });
       });
     }));
     const rangeLabel = (ef || et) ? (' (' + (ef ? fmtDate(ef) : '—') + ' ถึง ' + (et ? fmtDate(et) : '—') + ')') : '';
     exportRowsToExcel(rows, [
-      { key: 'code', label: 'รหัสโครงการ' }, { key: 'name', label: 'โครงการ' }, { key: 'customer', label: 'ลูกหนี้' },
-      { key: 'งวด', label: 'งวด' }, { key: 'สถานะ', label: 'สถานะ' }, { key: 'vendor', label: 'ผู้รับเหมา' },
-      { key: 'ref', label: 'เลขที่ PV/AP' }, { key: 'amount', label: 'ยอด', type: 'number' },
-      { key: 'paidDate', label: 'วันที่จ่าย' }, { key: 'dueDate', label: 'ครบกำหนด' }, { key: 'planDate', label: 'วันที่วางแผนจ่าย' },
+      { key: 'code', label: 'รหัสโครงการ' },
+      { key: 'name', label: 'โครงการ' },
+      { key: 'productType', label: 'ผลิตภัณฑ์' },
+      { key: 'signedDate', label: 'วันที่ลงนามสัญญา' },
+      { key: 'งวด', label: 'งวด' },
+      { key: 'apNo', label: 'เลขที่ AP' },
+      { key: 'pvNo', label: 'เลขที่ PV' },
+      { key: 'vendor', label: 'ผู้รับเหมา' },
+      { key: 'amount', label: 'ยอด', type: 'number' },
+      { key: 'paidDate', label: 'วันที่จ่าย' },
+      { key: 'dueDate', label: 'ครบกำหนด' },
+      { key: 'planDate', label: 'วันที่วางแผนจ่าย' },
+      { key: 'สถานะ', label: 'สถานะ' },
+      { key: 'customer', label: 'ลูกหนี้' },
     ], { filename: 'รายการจ่าย_AP_' + (fy === 'all' ? 'ทุกปี' : 'FY' + fy), sheetName: 'AP', title: 'กระทบยอดการจ่าย · ปีสัญญา ' + (fy === 'all' ? 'ทุกปี' : '25' + fy) + rangeLabel });
   };
 

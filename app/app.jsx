@@ -59,24 +59,41 @@ const ROLE_PERMS = {
     canEdit: false, canDelete: false, canApprove: false, canManageUsers: false,
   },
 };
+function _getSession() {
+  try { return JSON.parse(localStorage.getItem('wtp-session') || 'null'); }
+  catch { return null; }
+}
 function _getRole() {
-  try {
-    const s = JSON.parse(localStorage.getItem('wtp-session') || 'null');
-    return (s && s.role) || 'viewer';
-  } catch { return 'viewer'; }
+  const s = _getSession();
+  return (s && s.role) || 'viewer';
 }
 function _getPerms(role) { return ROLE_PERMS[role] || ROLE_PERMS.viewer; }
 window.WTPAuth = {
   role() { return _getRole(); },
   can(action) { return _getPerms(_getRole())[action] === true; },
+  // ★ Per-user pages override: session.pages = null → ใช้ role default · array → list หน้าที่อนุญาตเป๊ะๆ
+  //   ตั้งจากหน้า Users (เขียน app_metadata.pages ใน Supabase Auth) → ส่งกลับมาตอน login → session.pages
   canViewPage(route) {
+    const s = _getSession();
+    if (s && Array.isArray(s.pages)) {
+      return s.pages.indexOf(route) >= 0;
+    }
     const p = _getPerms(_getRole());
     if (p.pages === '*') return !p.excludePages || !p.excludePages.has(route);
     return p.pages.has(route);
   },
-  // First page this role is allowed to see — used for redirecting after login
+  // First page this role/user is allowed to see — used for redirecting after login
   firstAllowedPage(allRoutes) {
     return allRoutes.find(r => this.canViewPage(r)) || 'daily';
+  },
+  // เปิดให้หน้า Users คำนวณ "default pages ของ role X" สำหรับ pre-fill checkbox grid
+  defaultPagesFor(role, allRoutes) {
+    const p = _getPerms(role);
+    if (p.pages === '*') {
+      const excl = p.excludePages || new Set();
+      return allRoutes.filter(r => !excl.has(r));
+    }
+    return allRoutes.filter(r => p.pages.has(r));
   },
 };
 
