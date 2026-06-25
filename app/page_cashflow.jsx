@@ -731,6 +731,10 @@ function CashFlowDashboard({ data, setData, toast }) {
       grid[wIdx][cat] += amt;
     });
     // Also include forecastEntries with STATUS in {ACTUAL, BOOKED} as actuals
+    // BANK_RECON (จ่ายจริงจากกระทบยอด) ซ้ำได้ถ้า statement ถูก record 2 ครั้ง (re-import / 2 แท็บ /
+    //   re-record → orphan id เก่าค้าง) หรือ import line ซ้ำ → forecastEntries 2 แถว content เดียวกัน =
+    //   นับเบิ้ลหน้า Cashflow. dedup ด้วย natural key (บัญชี|วัน|ยอด|รายการ) — เก็บแถวแรก ข้ามที่ซ้ำ.
+    const seenRecon = new Set();
     forecastEntries.forEach(fe => {
       const status = String(fe.STATUS || fe.status || '').toUpperCase();
       if (status !== 'ACTUAL' && status !== 'BOOKED') return;
@@ -742,6 +746,11 @@ function CashFlowDashboard({ data, setData, toast }) {
       if (!inMonth(date, year, month)) return;
       const wIdx = findWeekIdx(date, weeks);
       if (wIdx < 0) return;
+      if (String(fe.EXPENSE_TYPE || '').toUpperCase() === 'BANK_RECON') {
+        const rk = String(fe.Bank_AC || '').trim() + '|' + date + '|' + amt + '|' + String(fe.DESCRIPTION || '').trim();
+        if (seenRecon.has(rk)) return;      // STM content ซ้ำ → นับครั้งเดียว
+        seenRecon.add(rk);
+      }
       const cat = categorizeForecastEntry(fe);
       grid[wIdx][cat] += Math.abs(amt);
     });
@@ -1386,6 +1395,7 @@ function CashFlowDashboard({ data, setData, toast }) {
       });
     });
     // 2) forecastEntries STATUS=ACTUAL/BOOKED — ประมาณการที่เกิดจริงแล้ว
+    const seenRecon = new Set();   // dedup STM content ซ้ำ — ตรงกับ pvActualByWeekCat (กันนับเบิ้ล)
     forecastEntries.forEach(fe => {
       const status = String(fe.STATUS || fe.status || '').toUpperCase();
       if (status !== 'ACTUAL' && status !== 'BOOKED') return;
@@ -1400,6 +1410,11 @@ function CashFlowDashboard({ data, setData, toast }) {
       if (!wantCat(c)) return;
       // รายการที่บันทึกจ่ายจริงผ่านหน้ากระทบยอด (BANK_RECON) → ป้าย "STM" ไม่ใช่ "Forecast" (มันคือจ่ายจริง ไม่ใช่ประมาณการ)
       const isRecon = String(fe.EXPENSE_TYPE || '').toUpperCase() === 'BANK_RECON';
+      if (isRecon) {
+        const rk = String(fe.Bank_AC || '').trim() + '|' + date + '|' + amt + '|' + String(fe.DESCRIPTION || '').trim();
+        if (seenRecon.has(rk)) return;      // STM content ซ้ำ → แสดงครั้งเดียว
+        seenRecon.add(rk);
+      }
       items.push({
         source: isRecon ? 'STM' : 'Forecast', date,
         feId: fe.id || '', cat: c,
