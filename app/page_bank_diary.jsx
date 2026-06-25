@@ -850,7 +850,7 @@ function BDDayGroup({ day, today, onItemEdit }) {
             const map = {};
             day.items.forEach((it, i) => {
               const ck  = it.creditor;
-              const key = ck ? ('c:' + (it.signed < 0 ? 'o' : 'i') + ':' + ck.toLowerCase()) : ('i:' + i);
+              const key = ck ? ('c:' + (it.signed < 0 ? 'o' : 'i') + ':' + ck.toLowerCase().replace(/\s/g, '')) : ('i:' + i);
               if (!map[key]) { map[key] = { key, name: ck || it.title, items: [], total: 0 }; order.push(map[key]); }
               map[key].items.push(it);
               map[key].total += it.signed;
