@@ -436,13 +436,14 @@ function PaymentReconPage({ data, setData, toast }) {
   const doExport = () => {
     const rows = [];
     projects.forEach(p => p.apGroups.forEach(g => {
-      g.paidRows.forEach(r => rows.push({ code: p.code, name: p.name, customer: p.customer, งวด: g.key, สถานะ: 'จ่ายแล้ว', vendor: r.vendor, ref: r.pvNo, amount: r.amount, date: r.date ? fmtDate(r.date) : '' }));
-      g.outRows.forEach(r => rows.push({ code: p.code, name: p.name, customer: p.customer, งวด: g.key, สถานะ: (PR_META[g.status] || {}).label || g.status, vendor: r.vendor, ref: r.vchno, amount: r.amount, date: r.due ? fmtDate(r.due) : '' }));
+      g.paidRows.forEach(r => rows.push({ code: p.code, name: p.name, customer: p.customer, งวด: g.key, สถานะ: 'จ่ายแล้ว', vendor: r.vendor, ref: r.pvNo, amount: r.amount, paidDate: r.date ? fmtDate(r.date) : '', dueDate: '', planDate: '' }));
+      g.outRows.forEach(r => rows.push({ code: p.code, name: p.name, customer: p.customer, งวด: g.key, สถานะ: (PR_META[g.status] || {}).label || g.status, vendor: r.vendor, ref: r.vchno, amount: r.amount, paidDate: '', dueDate: r.due ? fmtDate(r.due) : '', planDate: r.planned && r.plannedDate ? fmtDate(r.plannedDate) : '' }));
     }));
     exportRowsToExcel(rows, [
       { key: 'code', label: 'รหัสโครงการ' }, { key: 'name', label: 'โครงการ' }, { key: 'customer', label: 'ลูกหนี้' },
       { key: 'งวด', label: 'งวด' }, { key: 'สถานะ', label: 'สถานะ' }, { key: 'vendor', label: 'ผู้รับเหมา' },
-      { key: 'ref', label: 'เลขที่ PV/AP' }, { key: 'amount', label: 'ยอด', type: 'number' }, { key: 'date', label: 'วันที่' },
+      { key: 'ref', label: 'เลขที่ PV/AP' }, { key: 'amount', label: 'ยอด', type: 'number' },
+      { key: 'paidDate', label: 'วันที่จ่าย' }, { key: 'dueDate', label: 'ครบกำหนด' }, { key: 'planDate', label: 'วันที่วางแผนจ่าย' },
     ], { filename: 'รายการจ่าย_AP_' + (fy === 'all' ? 'ทุกปี' : 'FY' + fy), sheetName: 'AP', title: 'กระทบยอดการจ่าย · ปีสัญญา ' + (fy === 'all' ? 'ทุกปี' : '25' + fy) });
   };
 
