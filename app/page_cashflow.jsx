@@ -725,7 +725,9 @@ function CashFlowDashboard({ data, setData, toast }) {
       // จัดหมวด: override ราย PV (cf.pvCat) > AP ที่ผูก > vendor/keyword — ต้องตรงกับ drill-down (openActualDrill)
       const ap = pv.AP_No ? (payables.find(p => p.vchno === pv.AP_No) || null) : null;
       const cat = resolvePvCategory(pv, ap);
-      const amt = Number(pv.Net_Amount || pv.Amount || 0);
+      // ★ ห้ามใช้ ||: Net_Amount=0 (ตัดมัดจำ/เคลียร์เงินทดรอง = ไม่มีเงินออก) เป็น falsy ใน JS
+      //   → fallback ไป Amount (ก่อนหัก) → นับซ้ำเป็นเงินออกเต็มก้อน. ต้องเช็ค null/'' แทน.
+      const amt = Number(pv.Net_Amount != null && pv.Net_Amount !== '' ? pv.Net_Amount : (pv.Amount || 0));
       grid[wIdx][cat] += amt;
     });
     // Also include forecastEntries with STATUS in {ACTUAL, BOOKED} as actuals
@@ -1359,7 +1361,8 @@ function CashFlowDashboard({ data, setData, toast }) {
       const ap = pv.AP_No ? (payables.find(p => p.vchno === pv.AP_No) || null) : null;
       const c = resolvePvCategory(pv, ap);
       if (!wantCat(c)) return;
-      const amt = Number(pv.Net_Amount || pv.Amount || 0);
+      // ★ ห้ามใช้ ||: Net_Amount=0 (ตัดมัดจำ) เป็น falsy → fallback ไป Amount → drill โชว์ยอดก่อนหัก
+      const amt = Number(pv.Net_Amount != null && pv.Net_Amount !== '' ? pv.Net_Amount : (pv.Amount || 0));
       items.push({
         source: 'PV', date, pvNo: pv.PL_PV_No || '', cat: c,
         name: pv.Payee || (ap && (ap.cust_name || ap.vendor)) || '—',
