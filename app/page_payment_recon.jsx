@@ -218,12 +218,18 @@ function prBuildAll(data) {
       const arRaw = (d.installments || []).filter(it => it.invoice || it.amount > 0);
       const singleAr = arRaw.length === 1;
       const recvByNo = {};
-      const arItems = arRaw.map(it => {
+      let arItems = arRaw.map(it => {
         const inv = it.invoice || {};
         const recDate = inv.receivedDate || null;
         if (recDate) recvByNo[it.no] = recDate;
         return { no: it.no, label: singleAr ? 'ครั้งเดียว' : ('งวด ' + it.no), invoiceNo: inv.ivNo || '—', amount: it.amount || prToNum(inv.balance), receivedDate: recDate, received: !!recDate };
       });
+      // ★ invoice ใดครอบคลุมมูลค่าสัญญา ≥99% → ยุบ AR เหลือ 1 บรรทัด "รับครั้งเดียว" (ซ่อนงวดแผนที่ไม่มี invoice)
+      const cAmt = d.contractAmt || 0;
+      const fullCoverIdx = cAmt > 0 ? arItems.findIndex(a => a.invoiceNo !== '—' && a.amount >= cAmt * 0.99) : -1;
+      if (fullCoverIdx >= 0 && arItems.length > 1) {
+        arItems = [{ ...arItems[fullCoverIdx], label: 'ครั้งเดียว' }];
+      }
       const receivedARTotal = arItems.filter(a => a.received).reduce((s, a) => s + a.amount, 0);
       const signedDate = d.start || null;
       // ★ รับเงินครบโครงการ (รับครั้งเดียว หรือ ยอดรับ ≥ มูลค่าสัญญา) → ปลดล็อกทุกงวด
