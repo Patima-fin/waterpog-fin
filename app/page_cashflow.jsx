@@ -1820,43 +1820,40 @@ function CashFlowDashboard({ data, setData, toast }) {
 
             {/* ── OUTFLOW section ─────────────────────────────────────── */}
             <tr style={{ background: 'color-mix(in oklch, var(--bad) 8%, transparent)' }}>
-              <td colSpan={4} style={{ fontWeight: 700, color: 'var(--bad)', fontSize: cfScale(16), padding: `${cfScale(8)} ${cfScale(14)}` }}>
-                2: กระแสเงินสดออก (Outflow Details) · 4 หมวด
-                <span className="no-present" style={{ fontWeight: 400, fontSize: cfScale(11), color: 'var(--ink-500)', marginLeft: cfScale(8) }}>
-                  {s01OutMode === 'apPlan'
-                    ? '· 📋 แผนจ่ายจริง (AP ที่เลือก + ตั้งมือที่ติ๊ก)' + (s01ApScope === 'week' ? ' · เฉพาะสัปดาห์นี้' : '')
-                    : '· ยอดคงเหลือต้องจ่าย (หักที่จ่ายจริงแล้ว)'}
-                </span>
-                {/* ปุ่มสลับโหมด/ขอบเขต — ซ่อนในโหมดนำเสนอ (no-present) + ไม่ติดใน PNG capture (data-no-capture) */}
-                <span data-no-capture="1" className="no-present" style={{ marginLeft: cfScale(12), display: 'inline-flex', gap: cfScale(8), verticalAlign: 'middle', alignItems: 'center' }}>
-                  {s01OutMode === 'apPlan' && (
-                    <span style={{ display: 'inline-flex', gap: cfScale(4) }}>
-                      {[['month','ทั้งเดือน'],['week','เฉพาะสัปดาห์นี้']].map(([s, lbl]) => (
-                        <button key={s} onClick={() => setS01ApScopePersist(s)}
-                          title={s === 'week' ? 'แสดงแผนจ่ายเฉพาะสัปดาห์ปัจจุบัน' : 'แสดงตั้งแต่สัปดาห์ปัจจุบันถึงสิ้นเดือน'}
-                          style={{ fontSize: cfScale(10), padding: `1px ${cfScale(7)}px`, borderRadius: 99,
-                            border: `1px solid ${s01ApScope===s ? 'var(--ink-600)' : 'var(--ink-300)'}`,
-                            background: s01ApScope===s ? 'var(--ink-600)' : 'transparent',
-                            color: s01ApScope===s ? '#fff' : 'var(--ink-600)',
-                            cursor: 'pointer', fontWeight: s01ApScope===s ? 600 : 400 }}>
-                          {lbl}
-                        </button>
-                      ))}
+              <td colSpan={4} style={{ padding: `${cfScale(8)} ${cfScale(14)}` }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: cfScale(8), flexWrap: 'wrap' }}>
+                  <div style={{ fontWeight: 700, color: 'var(--bad)', fontSize: cfScale(16) }}>
+                    2: กระแสเงินสดออก (Outflow Details) · 4 หมวด
+                    <span className="no-present" style={{ fontWeight: 500, fontSize: cfScale(11.5), color: 'var(--ink-500)', marginLeft: cfScale(8) }}>
+                      {s01OutMode === 'apPlan'
+                        ? <span>· <strong>แผนจ่ายจริง</strong> = รายการ AP ที่เลือกจ่าย (CARD BANK) + ตั้งมือที่ติ๊กรวม{s01ApScope === 'week' ? <span> · <strong>เฉพาะสัปดาห์นี้</strong></span> : ''}</span>
+                        : <span>· ยอด<strong>คงเหลือต้องจ่าย</strong> (หักที่จ่ายจริงแล้ว)</span>}
                     </span>
-                  )}
-                  <span style={{ display: 'inline-flex', gap: cfScale(4) }}>
-                    {[['remaining','ประมาณการคงเหลือ'],['apPlan','แผนจ่ายจริง (AP)']].map(([m, lbl]) => (
-                      <button key={m} onClick={() => setS01OutModePersist(m)}
-                        style={{ fontSize: cfScale(10), padding: `1px ${cfScale(7)}px`, borderRadius: 99,
-                          border: `1px solid ${s01OutMode===m ? 'var(--brand-500)' : 'var(--ink-300)'}`,
-                          background: s01OutMode===m ? 'var(--brand-500)' : 'transparent',
-                          color: s01OutMode===m ? '#fff' : 'var(--ink-600)',
-                          cursor: 'pointer', fontWeight: s01OutMode===m ? 600 : 400 }}>
-                        {lbl}
-                      </button>
-                    ))}
-                  </span>
-                </span>
+                  </div>
+                  {/* ปุ่มสลับโหมด/ขอบเขต — ซ่อนในโหมดนำเสนอ (no-present) + ไม่ติดใน PNG capture (data-no-capture) */}
+                  <div data-no-capture="1" className="no-present" style={{ display: 'inline-flex', alignItems: 'center', gap: cfScale(8), flexShrink: 0, flexWrap: 'wrap' }}>
+                    {s01OutMode === 'apPlan' && (
+                      <div style={{ display: 'inline-flex', borderRadius: cfScale(8), overflow: 'hidden', border: '1px solid var(--ink-400)', fontSize: cfScale(11), fontWeight: 700 }}>
+                        {[['month', 'ทั้งเดือน'], ['week', 'เฉพาะสัปดาห์นี้']].map(([s, lbl]) => (
+                          <button key={s} type="button" onClick={() => setS01ApScopePersist(s)}
+                            title={s === 'week' ? 'แสดงแผนจ่ายเฉพาะสัปดาห์ปัจจุบัน' : 'แสดงตั้งแต่สัปดาห์ปัจจุบันถึงสิ้นเดือน'}
+                            style={{ padding: `${cfScale(4)} ${cfScale(9)}`, border: 'none', cursor: 'pointer',
+                              background: s01ApScope === s ? 'var(--ink-600)' : 'transparent',
+                              color: s01ApScope === s ? '#fff' : 'var(--ink-600)' }}>{lbl}</button>
+                        ))}
+                      </div>
+                    )}
+                    <div style={{ display: 'inline-flex', borderRadius: cfScale(8), overflow: 'hidden', border: '1px solid var(--bad)', fontSize: cfScale(11.5), fontWeight: 700 }}>
+                      {[['remaining', 'ประมาณการคงเหลือ'], ['apPlan', 'แผนจ่ายจริง (AP)']].map(([m, lbl]) => (
+                        <button key={m} type="button" onClick={() => setS01OutModePersist(m)}
+                          title={m === 'apPlan' ? 'รายการ AP ที่เลือกจ่ายไว้แล้ว (ขึ้น CARD BANK หน้า Bank Diary) + รายการตั้งมือที่ติ๊กรวมเอง' : 'ประมาณการตั้งมือ − จ่ายจริงแล้ว = ยอดคงเหลือต้องจ่าย'}
+                          style={{ padding: `${cfScale(4)} ${cfScale(10)}`, border: 'none', cursor: 'pointer',
+                            background: s01OutMode === m ? 'var(--bad)' : 'transparent',
+                            color: s01OutMode === m ? '#fff' : 'var(--bad)' }}>{lbl}</button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               </td>
             </tr>
             {[1, 2, 3, 4].map(cat => {
