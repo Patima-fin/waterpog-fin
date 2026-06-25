@@ -892,6 +892,39 @@ function BankReconPage({ data, setData, toast }) {
     if (toast) toast('ทำเครื่องหมาย "โอนระหว่างบัญชี" — ไม่นับเป็นรายจ่าย');
   };
 
+  // ── "แถวผี" = forecastEntries BANK_RECON ที่ไม่มี reconState entry ไหนชี้หา (id ไม่ใช่ forecastId
+  //    ปัจจุบันของใคร) + มี "ตัวจริง" (live twin) content เดียวกันอยู่ → ตกค้างจากการ record ซ้ำ/นำเข้าทับ
+  //    → Cashflow นับเบิ้ล. ★ ไม่จับ LG จ่ายซ้ำจริง (คนละบรรทัด statement → คนละ reconState entry → live
+  //    ทั้งคู่). ★ ไม่จับ orphan โดดเดี่ยว (ไม่มี twin) เผื่อ reconState หาย — กันลบรายการจริง.
+  const brOrphanRows = brMemo(() => {
+    const fes = (data.forecastEntries || []).filter(fe => String(fe.EXPENSE_TYPE || '').toUpperCase() === 'BANK_RECON');
+    if (!fes.length) return [];
+    const validIds = new Set();
+    (data.bankReconState || []).forEach(r => { if (r && String(r.decision || '') === 'recorded' && r.forecastId) validIds.add(String(r.forecastId)); });
+    if (!validIds.size) return [];
+    const keyOf = fe => {
+      const d = fe.ACTUAL_DATE || fe.PAYMENT_DATE || fe.DATE;
+      const a = Number(fe.ACTUAL_AMOUNT || fe.AMOUNT || fe.amount || 0);
+      return String(fe.Bank_AC || '').trim() + '|' + d + '|' + a + '|' + String(fe.DESCRIPTION || '').trim();
+    };
+    const liveKeys = new Set();
+    fes.forEach(fe => { if (validIds.has(String(fe.id))) liveKeys.add(keyOf(fe)); });
+    return fes.filter(fe => !validIds.has(String(fe.id)) && liveKeys.has(keyOf(fe)));
+  }, [data.forecastEntries, data.bankReconState]);
+  const brOrphanTotal = brOrphanRows.reduce((s, r) => s + Math.abs(Number(r.ACTUAL_AMOUNT || r.AMOUNT || 0)), 0);
+  const purgeReconOrphans = () => {
+    if (readOnly || !brOrphanRows.length) return;
+    if (!confirm(`ลบ "แถวผี" (รายการจ่ายจริงที่ระบบสร้างซ้ำ) ${brOrphanRows.length} รายการ รวม ${fmtNum(brOrphanTotal, 2)} ออกถาวร?\n\n• ตัวจริงยังอยู่ครบ — ยอดจ่ายจริงไม่หาย\n• ไม่แตะ LG/ค่าธรรมเนียมที่จ่ายซ้ำจริง (คนละบรรทัด statement)`)) return;
+    const ids = brOrphanRows.map(r => r.id);
+    if (window.WTPData && typeof WTPData.forceDeleteRows === 'function') {
+      WTPData.forceDeleteRows('forecastEntries', ids);   // ข้ามเกราะ protect-ACTUAL (ลบตามเจตนา)
+    } else if (setData) {
+      const del = new Set(ids.map(String));
+      setData(d => ({ ...d, forecastEntries: (d.forecastEntries || []).filter(e => !del.has(String(e.id))) }));
+    }
+    if (toast) toast(`ลบแถวผี ${ids.length} รายการแล้ว — Cashflow ไม่นับเบิ้ลอีก`);
+  };
+
   // เดาว่าเป็นโอนระหว่างบัญชีตัวเอง: desc มีคำว่าโอน + (ชื่อบริษัทตัวเอง หรือเลขท้ายบัญชีตัวเองในระบบ)
   const ownLast4 = brMemo(() => new Set((data.bankAccounts || []).map(a => bdLast4(bdAcct(a).accountNo)).filter(Boolean)), [data.bankAccounts]);
   const companyKey = (data.meta && (data.meta.shortName || data.meta.companyName)) || '';
@@ -1016,6 +1049,24 @@ function BankReconPage({ data, setData, toast }) {
           </button>
         ))}
       </div>
+
+      {/* 🧹 แถวผี (BANK_RECON ที่ระบบสร้างซ้ำ) → Cashflow นับเบิ้ล — ลบออกจริง (ตัวจริง+LG จ่ายซ้ำไม่โดน) */}
+      {!readOnly && brOrphanRows.length > 0 && (
+        <div className="card no-print" style={{ padding: '12px 16px', marginBottom: 16, borderLeft: '4px solid var(--bad)',
+          background: 'color-mix(in oklch, var(--bad) 5%, var(--surface))', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink-800)' }}>
+              🧹 พบรายการจ่ายจริง "ซ้ำ" (แถวผี) {brOrphanRows.length} รายการ — ทำให้ Cashflow นับเบิ้ล
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--ink-500)', marginTop: 2 }}>
+              เกิดจากบันทึกจ่ายจริงซ้ำ/นำเข้าทับ · ตัวจริงยังอยู่ครบ ยอดไม่หาย · ไม่กระทบ LG/ค่าธรรมเนียมที่จ่ายซ้ำจริง · รวม {fmtNum(brOrphanTotal, 2)}
+            </div>
+          </div>
+          <button className="btn" style={{ background: 'var(--bad)', color: '#fff', border: 'none' }} onClick={purgeReconOrphans}>
+            <Icon name="trash" size={14} /> ลบแถวผี ({brOrphanRows.length})
+          </button>
+        </div>
+      )}
 
       {mainTab === 'forecast' && (<React.Fragment>
       {/* โน้ตไฟล์ที่ใช้นำเข้า + นำเข้าหลายไฟล์พร้อมกัน (พับเก็บได้) */}
