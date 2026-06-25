@@ -1781,12 +1781,191 @@ function DataBankPage({ data, setData, toast }) {
   );
 }
 
+// ── ปรับ "ยอดจ่ายจริง" ของ PV จากรายงาน e13 (v_ap_rpte13) ───────────────────
+//   รายงาน 4.3 (ต้นทาง import PV) ไม่มีช่อง "จ่ายจริง" → Net_Amount = ยอดก่อนหัก
+//   → Cash Flow Actual โป่งเกินจริง. e13 มี payamt (จ่ายจริง — หัก WHT/ประกัน/
+//   มัดจำ+เคลียร์เงินทดรอง ครบแล้ว). อัป e13 ที่นี่ → จับคู่ด้วย (PL_PV_No + AP_No)
+//   = (payh_vchno + vchno) → แก้เฉพาะ Net_Amount ของ PV ที่มีอยู่แล้ว
+//   (ไม่เพิ่ม/ไม่ลบแถว · ไม่แตะฟิลด์อื่น · ข้อมูลจาก 4.3 ครบเหมือนเดิม).
+function pvFixNum(v) {
+  if (v == null || v === '') return 0;
+  let s = String(v).trim().replace(/,/g, '').replace(/[฿$\s]/g, '');
+  if (/^\(.*\)$/.test(s)) s = '-' + s.slice(1, -1);
+  const n = Number(s);
+  return isNaN(n) ? 0 : n;
+}
+
+function PvActualPaidFixer({ data, setData, toast }) {
+  const canEdit = window.WTPAuth ? window.WTPAuth.can('canEdit') : true;
+  const [preview, setPreview] = React.useState(null);
+  const [busy, setBusy] = React.useState(false);
+  const fileRef = React.useRef(null);
+  if (!canEdit) return null;
+
+  const onFile = (file) => {
+    if (!file) return;
+    if (!window.XLSX) { toast && toast('ไม่พบไลบรารี SheetJS — อัปไม่ได้'); return; }
+    setBusy(true);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const wb = window.XLSX.read(e.target.result, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const aoa = window.XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, blankrows: false });
+        if (!aoa.length) { toast && toast('ไฟล์ว่าง'); setBusy(false); return; }
+        const hdr = (aoa[0] || []).map(h => String(h == null ? '' : h).trim().toLowerCase());
+        const find = (...names) => { for (const n of names) { const i = hdr.indexOf(n); if (i >= 0) return i; } return -1; };
+        const cPV = find('payh_vchno', 'plno', 'pl_pv_no');
+        const cAP = find('vchno', 'ap_no');
+        const cPay = find('payamt');
+        const cCf = find('cf_net');
+        const cNet = find('netamount');
+        const cName = find('cust_name', 'payee');
+        if (cPV < 0 || cPay < 0) {
+          toast && toast('ไฟล์นี้ไม่มีคอลัมน์ payh_vchno / payamt — ตรวจว่าเป็นรายงาน e13 (v_ap_rpte13) หรือไม่');
+          setBusy(false); return;
+        }
+        const map = {};
+        for (let i = 1; i < aoa.length; i++) {
+          const r = aoa[i]; if (!r) continue;
+          const pv = String(r[cPV] == null ? '' : r[cPV]).trim();
+          if (!pv) continue;                       // เอาเฉพาะแถวที่มี PV (จ่ายแล้ว)
+          const ap = cAP >= 0 ? String(r[cAP] == null ? '' : r[cAP]).trim() : '';
+          const payRaw = r[cPay];
+          const pay = (payRaw == null || String(payRaw).trim() === '')
+            ? (cCf >= 0 ? pvFixNum(r[cCf]) : 0) : pvFixNum(payRaw);
+          const key = pv + '||' + ap;
+          if (map[key]) map[key].pay += pay;       // PV+AP ซ้ำ (แบ่งงวด) → รวมยอด
+          else map[key] = { pay, net: cNet >= 0 ? pvFixNum(r[cNet]) : 0, name: cName >= 0 ? String(r[cName] || '').trim() : '' };
+        }
+        const corrections = []; let matched = 0, unchanged = 0; const mk = new Set();
+        let sumOld = 0, sumNew = 0;
+        (data.pvVouchers || []).forEach(pv => {
+          const key = String(pv.PL_PV_No || '').trim() + '||' + String(pv.AP_No || '').trim();
+          const ent = map[key]; if (!ent) return;
+          matched++; mk.add(key);
+          const oldNet = pvFixNum(pv.Net_Amount), newNet = ent.pay;
+          if (Math.abs(newNet - oldNet) > 0.01) {
+            corrections.push({ id: pv.id, pv: pv.PL_PV_No, ap: pv.AP_No, name: pv.Payee || ent.name, oldNet, newNet });
+            sumOld += oldNet; sumNew += newNet;
+          } else unchanged++;
+        });
+        setPreview({
+          fileName: file.name, corrections, matched, unchanged,
+          e13Total: Object.keys(map).length, e13Only: Object.keys(map).length - mk.size,
+          sumOld, sumNew,
+        });
+        setBusy(false);
+      } catch (err) { toast && toast('อ่านไฟล์ไม่สำเร็จ: ' + err.message); setBusy(false); }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const apply = () => {
+    const cs = preview ? preview.corrections : [];
+    if (!cs.length) { setPreview(null); return; }
+    const byId = new Map(cs.map(c => [c.id, c.newNet]));
+    let updated;
+    setData(d => {
+      updated = { ...d, pvVouchers: (d.pvVouchers || []).map(r => byId.has(r.id) ? { ...r, Net_Amount: byId.get(r.id) } : r) };
+      return updated;
+    });
+    if (updated && window.WTPData && window.WTPData.forceSyncNow) setTimeout(() => window.WTPData.forceSyncNow(updated), 0);
+    toast && toast(`ปรับยอดจ่ายจริง ${cs.length} รายการแล้ว — Cash Flow จะอัปเดตตาม`);
+    setPreview(null);
+  };
+
+  const p = preview;
+  const Stat = ({ label, value, accent }) => (
+    <div style={{ padding: '8px 10px', background: 'var(--surface)', border: '1px solid var(--ink-100)', borderRadius: 8 }}>
+      <div style={{ fontSize: 18, fontWeight: 800, color: accent }}>{fmtNum(value, 0)}</div>
+      <div style={{ fontSize: 10.5, color: 'var(--ink-500)' }}>{label}</div>
+    </div>
+  );
+
+  return (
+    <div className="card" style={{ padding: '12px 16px', marginBottom: 14, borderLeft: '4px solid oklch(60% 0.13 215)',
+      background: 'color-mix(in oklch, oklch(60% 0.13 215) 5%, var(--surface))', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+      <div style={{ flex: 1, minWidth: 220 }}>
+        <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink-800)' }}>
+          🔧 ปรับ "ยอดจ่ายจริง" จากรายงาน e13
+        </div>
+        <div style={{ fontSize: 11.5, color: 'var(--ink-500)', marginTop: 2 }}>
+          รายงาน 4.3 ไม่มีช่องจ่ายจริง → Cash Flow โชว์ยอดก่อนหัก · อัปไฟล์ e13 (มี payamt) เพื่อแก้เฉพาะยอดสุทธิ จับคู่ด้วยเลข PV+AP — ไม่เพิ่ม/ไม่ลบแถว
+        </div>
+      </div>
+      <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }}
+        onChange={(e) => { onFile(e.target.files && e.target.files[0]); e.target.value = ''; }} />
+      <button className="btn" style={{ background: 'oklch(52% 0.13 215)', color: '#fff', border: 'none' }}
+        disabled={busy} onClick={() => fileRef.current && fileRef.current.click()}>
+        <Icon name="upload" size={14} /> {busy ? 'กำลังอ่าน…' : 'อัปไฟล์ e13 ปรับยอด'}
+      </button>
+
+      {p && (
+        <Modal open={!!p} title="ตรวจสอบก่อนปรับยอดจ่ายจริง" maxWidth={760} onClose={() => setPreview(null)} footer={<>
+          <button className="btn btn-ghost" onClick={() => setPreview(null)}>ยกเลิก</button>
+          <button className="btn btn-primary" disabled={!p.corrections.length} onClick={apply}>
+            <Icon name="check" size={14} /> ปรับยอด {p.corrections.length} รายการ
+          </button>
+        </>}>
+          <div style={{ fontSize: 12.5, color: 'var(--ink-600)', marginBottom: 12 }}>
+            ไฟล์: <b>{p.fileName}</b> · มี PV ในไฟล์ {fmtNum(p.e13Total, 0)} รายการ
+          </div>
+          <div className="grid grid-4" style={{ gap: 10, marginBottom: 14 }}>
+            <Stat label="จับคู่ได้กับ PV ในระบบ" value={p.matched} accent="var(--brand-500)" />
+            <Stat label="จะแก้ยอด" value={p.corrections.length} accent="oklch(62% 0.16 45)" />
+            <Stat label="ยอดตรงอยู่แล้ว" value={p.unchanged} accent="var(--good)" />
+            <Stat label="ในไฟล์ แต่ยังไม่มีใน PV" value={p.e13Only} accent="var(--ink-400)" />
+          </div>
+          {p.corrections.length > 0 ? (
+            <>
+              <div style={{ display: 'flex', gap: 16, fontSize: 12.5, marginBottom: 10, padding: '8px 12px', background: 'var(--ink-50)', borderRadius: 8, flexWrap: 'wrap' }}>
+                <span>ยอดเดิม (ก่อนหัก): <b style={{ color: 'var(--ink-500)' }}>{fmtNum(p.sumOld, 2)}</b></span>
+                <span>→ ยอดจ่ายจริง: <b style={{ color: 'var(--brand-700)' }}>{fmtNum(p.sumNew, 2)}</b></span>
+                <span style={{ marginLeft: 'auto' }}>ส่วนต่าง: <b style={{ color: p.sumNew - p.sumOld < 0 ? 'var(--good)' : 'var(--bad)' }}>{fmtNum(p.sumNew - p.sumOld, 2)}</b></span>
+              </div>
+              <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                <table className="tbl" style={{ fontSize: 12 }}>
+                  <thead><tr>
+                    <th>เลขที่ PV</th><th>เลขที่ AP</th><th>ผู้รับเงิน</th>
+                    <th style={{ textAlign: 'right' }}>เดิม (ก่อนหัก)</th>
+                    <th style={{ textAlign: 'right' }}>จ่ายจริง</th>
+                    <th style={{ textAlign: 'right' }}>ส่วนต่าง</th>
+                  </tr></thead>
+                  <tbody>
+                    {p.corrections.slice(0, 200).map((c, i) => (
+                      <tr key={i}>
+                        <td style={{ fontFamily: 'monospace' }}>{c.pv}</td>
+                        <td style={{ fontFamily: 'monospace' }}>{c.ap || '—'}</td>
+                        <td style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.name}>{c.name || '—'}</td>
+                        <td style={{ textAlign: 'right', color: 'var(--ink-400)' }}>{fmtNum(c.oldNet, 2)}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmtNum(c.newNet, 2)}</td>
+                        <td style={{ textAlign: 'right', color: c.newNet - c.oldNet < 0 ? 'var(--good)' : 'var(--bad)' }}>{fmtNum(c.newNet - c.oldNet, 2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {p.corrections.length > 200 && <div style={{ fontSize: 11, color: 'var(--ink-400)', padding: 8 }}>… แสดง 200 จาก {fmtNum(p.corrections.length, 0)} รายการ (กดปรับยอดจะแก้ครบทุกรายการ)</div>}
+              </div>
+            </>
+          ) : (
+            <div style={{ padding: 20, textAlign: 'center', color: 'var(--ink-500)' }}>
+              {p.matched > 0 ? '✓ ทุกยอดตรงกับจ่ายจริงแล้ว ไม่ต้องแก้' : 'ไม่พบ PV ที่ตรงกัน — อาจเป็นไฟล์คนละช่วงเวลา หรือยังไม่ได้อัปรายงาน 4.3 เข้า PV ก่อน'}
+            </div>
+          )}
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 function DataPVPage({ data, setData, toast }) {
   return (
     <DataCrudPage data={data} setData={setData} toast={toast} config={{
       title: 'DATA PV · Payment Voucher',
       sub: 'RAW_PV_PAYMENT · รายการจ่ายเงินจริงทั้งหมด · วาง RAW ได้เลย',
       dataKey: 'pvVouchers',
+      banner: <PvActualPaidFixer data={data} setData={setData} toast={toast} />,
       importSourceNote: 'เอาข้อมูลจาก AP รายงาน 4.3 มาวาง/อัปโหลด',
       // ทะเบียน PV ต้นทางตั้งหัวคอลัมน์บัญชีที่ตัดจ่ายว่า "Account_Code" (ไม่ใช่ Bank_AC) → map เข้าให้ตรง
       headerAliases: { 'Account_Code': 'Bank_AC' },
