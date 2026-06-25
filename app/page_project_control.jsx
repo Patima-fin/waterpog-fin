@@ -1154,42 +1154,30 @@ function ProjectControlPage({ data, setData, toast }) {
     } finally { setBusy(false); if (fileRef.current) fileRef.current.value = ''; }
   };
 
-  // ดันข้อมูลเต็ม (คอลัมน์ครบ) ขึ้น Google Sheet โดยตรงด้วย replaceAll แล้วอ่านชีทกลับ
-  // มานับคอลัมน์เพื่อยืนยัน — ชัวร์กว่า debounce/row-diff sync · ใช้ทั้งตอน upload + ปุ่ม
+  // บันทึกข้อมูลเต็ม (คอลัมน์ครบ) ลง Supabase ด้วย writeTable (upsert all + delete missing)
+  // ใช้ทั้งตอน upload Excel + ปุ่ม forcePushFull
   const pushProjectsToSheet = async (rows, stats) => {
     if (!rows || !rows.length) return;
-    const url = window.WTP_CONFIG && WTP_CONFIG.APPS_SCRIPT_URL;
-    if (!url) { setUploadInfo({ status: 'err', msg: 'ยังไม่ได้ตั้งค่า APPS_SCRIPT_URL' }); return; }
-    setUploadInfo({ status: 'loading', msg: 'กำลังดันข้อมูลขึ้น Google Sheet…' });
+    setUploadInfo({ status: 'loading', msg: 'กำลังบันทึกข้อมูลโครงการลง Supabase…' });
     try {
-      const body = { action: 'replaceAll', entity: 'projects', payload: rows, allowShrink: true, meta: { user: 'push-full-cols' } };
-      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) }).then(x => x.json());
-      if (r && r.error) { setUploadInfo({ status: 'err', msg: 'ดันขึ้นชีทไม่สำเร็จ: ' + r.error }); setTimeout(() => setUploadInfo(null), 12000); return; }
-      let sheetCols = '?';
-      try { const after = await window.WTPData.fetchSheetRows('projects'); if (after && after[0]) sheetCols = Object.keys(after[0]).length; } catch (_) {}
+      await WTPData.writeTable('projects', rows, r => String(r.id || ''));
       const pre = stats ? `อัปเดต ${stats.totalRows} โครงการ · ` : '';
-      if (sheetCols !== '?' && sheetCols < 80) {
-        setUploadInfo({ status: 'err', msg: pre + '⚠ ขึ้นชีทแล้วแต่มีแค่ ' + sheetCols + ' คอลัมน์ — backend (Code.standalone.gs) ที่ deploy ยังเป็นตัวเก่า (คอลัมน์ไม่ครบ) ต้อง re-deploy ตัวล่าสุดก่อน แล้วลองใหม่' });
-        setTimeout(() => setUploadInfo(null), 16000);
-      } else {
-        // ดึงข้อมูลจากชีทกลับมาตั้งเป็น baseline → local ตรงกับ server → กัน sync วน push ซ้ำ
-        try { if (window.WTPData && WTPData.refreshFromServer) WTPData.refreshFromServer(); } catch (_) {}
-        setUploadInfo({ status: 'ok', msg: '✅ ' + pre + 'ขึ้นชีทสำเร็จ · ชีทมี ' + sheetCols + ' คอลัมน์ · รีเฟรช (Ctrl+Shift+R) เพื่อดูงวดงานครบทุกโครง ทุกเครื่อง' });
-        toast && toast('ดันข้อมูลขึ้นชีทสำเร็จ · ' + sheetCols + ' คอลัมน์');
-        setTimeout(() => setUploadInfo(null), 14000);
-      }
+      try { if (window.WTPData && WTPData.refreshFromServer) WTPData.refreshFromServer(); } catch (_) {}
+      setUploadInfo({ status: 'ok', msg: '✅ ' + pre + 'บันทึกลง Supabase สำเร็จ · รีเฟรช (Ctrl+Shift+R) เพื่อให้ทุกเครื่องเห็นงวดงานครบ' });
+      toast && toast('บันทึกโครงการลง Supabase สำเร็จ' + (stats ? ' · ' + stats.totalRows + ' โครงการ' : ''));
+      setTimeout(() => setUploadInfo(null), 14000);
     } catch (e) {
-      setUploadInfo({ status: 'err', msg: 'ดันขึ้นชีทไม่สำเร็จ: ' + (e.message || e) });
+      setUploadInfo({ status: 'err', msg: 'บันทึกไม่สำเร็จ: ' + (e.message || e) });
       setTimeout(() => setUploadInfo(null), 12000);
     }
   };
 
-  // ปุ่ม "ดันคอลัมน์เต็มขึ้นชีท" — ใช้ snapshot ในเครื่อง (กรณี sync ก่อนหน้าไม่ขึ้น)
+  // ปุ่ม "ดันคอลัมน์เต็มลง Supabase" — ใช้ snapshot ในเครื่อง (กรณี sync ก่อนหน้าไม่ขึ้น)
   const forcePushFull = async () => {
     const snap = PCU.loadLocalProjects();
     if (!snap || !snap.length) { toast && toast('เครื่องนี้ยังไม่มีข้อมูลเต็ม — กรุณากด Upload Excel ก่อน'); return; }
     const cols = Object.keys(snap[0] || {}).length;
-    if (!window.confirm('ดันข้อมูลโครงการ ' + snap.length + ' รายการ (' + cols + ' คอลัมน์) ขึ้น Google Sheet?\n\nจะเขียนทับตาราง projects (Finance Master แยกต่างหาก ไม่ถูกแตะ)')) return;
+    if (!window.confirm('บันทึกข้อมูลโครงการ ' + snap.length + ' รายการ (' + cols + ' คอลัมน์) ลง Supabase?\n\nจะเขียนทับตาราง projects (Finance Master แยกต่างหาก ไม่ถูกแตะ)')) return;
     setBusy(true);
     try { await pushProjectsToSheet(snap, null); } finally { setBusy(false); }
   };
@@ -1237,9 +1225,9 @@ function ProjectControlPage({ data, setData, toast }) {
             </div>
             {canEdit && <>
               <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={e => onUpload(e.target.files[0])} />
-              <button disabled={busy} onClick={forcePushFull} title="ดันข้อมูลคอลัมน์เต็มจากเครื่องนี้ขึ้น Google Sheet (ใช้เมื่องวดงานยังไม่ขึ้นให้ทีม) — ต้องเคย Upload Excel บนเครื่องนี้ก่อน"
+              <button disabled={busy} onClick={forcePushFull} title="บันทึกข้อมูลคอลัมน์เต็มจากเครื่องนี้ลง Supabase (ใช้เมื่องวดงานยังไม่ขึ้นให้ทีม) — ต้องเคย Upload Excel บนเครื่องนี้ก่อน"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 36, padding: '0 12px', borderRadius: 9, border: '1px solid rgba(255,255,255,.4)', background: 'rgba(255,255,255,.14)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: busy ? 'wait' : 'pointer', opacity: busy ? .7 : 1 }}>
-                ⬆️ ดันคอลัมน์เต็มขึ้นชีท</button>
+                ⬆️ ดันคอลัมน์เต็มลง Supabase</button>
               <button disabled={busy} onClick={() => fileRef.current.click()} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, height: 36, padding: '0 14px', borderRadius: 9, border: 'none', background: '#0e9f9a', color: '#fff', fontSize: 12.5, fontWeight: 600, cursor: busy ? 'wait' : 'pointer', opacity: busy ? .7 : 1 }}>
                 <PcI.upload size={15} style={busy ? { animation: 'pcspin 1s linear infinite' } : {}} />{busy ? 'กำลังอ่าน…' : 'Upload Excel'}</button>
             </>}

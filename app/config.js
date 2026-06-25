@@ -1,21 +1,10 @@
 /* =====================================================================
  * Water POG Financial Dashboard — Configuration
- * =====================================================================
- * วิธีตั้งค่า:
- *  1) แชร์ Google Sheet เป็น "Anyone with the link can view"
- *  2) วาง Sheet ID (ส่วน "/d/XXXXX/" ใน URL) ลงในช่อง SHEET_ID ด้านล่าง
- *  3) บันทึกไฟล์ → รีเฟรชหน้าเว็บ
- *
- * ถ้า SHEET_ID ว่าง → ระบบใช้ข้อมูล Mock ใน localStorage แทน
+ * Backend: Supabase (PostgreSQL + Realtime + Auth)
  * ===================================================================== */
 
 window.WTP_CONFIG = {
-  // ── เลือก Backend ─────────────────────────────────────────────────
-  //  'sheets'   = Google Sheets เดิม (อ่าน gviz CSV / เขียน Apps Script) — ค่าตั้งต้น
-  //  'supabase' = Postgres + Realtime (อ่านหลังเขียนเห็นทันที, push, เขียนทีละแถว)
-  //  ★ สลับได้ทันที: ตั้ง 'supabase' หลังทำตาม docs/supabase-setup-guide.md ครบ
-  //    (สร้าง project → รัน supabase/schema.sql → กรอก URL/key ด้านล่าง → migrate)
-  //    ถ้ามีปัญหา ตั้งกลับ 'sheets' + push = ถอยกลับทันที
+  // ── Backend ────────────────────────────────────────────────────────
   BACKEND: 'supabase',
 
   // Supabase (ใช้เมื่อ BACKEND === 'supabase') — เอาจาก Project Settings → API
@@ -38,27 +27,6 @@ window.WTP_CONFIG = {
   //   เมื่อ true: login เรียก WTPData.authSignIn (signInWithPassword), role มาจาก app_metadata,
   //     และควรลบ password ออกจาก USERS ด้านล่าง (ไม่ใช้แล้ว + ไม่ให้รั่วใน repo)
   USE_SUPABASE_AUTH: true,
-
-  // Sheet ID — ใช้สำหรับ READ ทาง CSV (เร็ว ไม่ใช้ Apps Script quota)
-  SHEET_ID: '1Q0enboLihOYiYCn7otK9zXBlk6Yy8oHfoAXaFnGujwA',
-
-  // Apps Script URL — ใช้สำหรับ WRITE กลับเข้า Sheet (CRUD)
-  // Deploy จาก standalone script ของ Gmail ส่วนตัว (bypass Workspace policy)
-  APPS_SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbwhTJTHy0jywsICM4W5BFpMkyV26Ha0_mm520W09FwtAybPgzZZd51NVkE14bfg7BH2pQ/exec',
-
-  // ตั้งเวลา auto-refresh จากเซิร์ฟเวอร์ (มิลลิวินาที, 0 = ปิด)
-  // 120 วินาที (ลดจาก 45 วิ · 2026-06-14) — ลดภาระ polling พื้นหลัง ~60%
-  //   (เดิมอ่าน ~24 ชีตทุก 45 วิ = หนักเครื่อง/เน็ต) ข้อมูลทีมยังสดพอ (อัปเดตภายใน 2 นาที)
-  // ถ้าเจอ 429 ติดกัน 2 รอบ data_sync จะ adaptive backoff x2-x4 อัตโนมัติ
-  // และ tab idle (ไม่ได้มอง) จะหยุด sync ผ่าน Page Visibility API
-  AUTO_REFRESH_MS: 120000,  // 2 นาที
-
-  // ── Row-level sync ────────────────────────────────────────────────
-  // true  = แก้เฉพาะแถว/ฟิลด์ที่เปลี่ยน ผ่าน applyDiff (กัน clobber ทั้งตาราง + read-your-writes)
-  // false = กลับไปใช้ replaceAll เดิม (เขียนทั้งตาราง) — ใช้ถอยกลับทันทีถ้าพบปัญหา
-  // ต้อง deploy Apps Script ที่มี serverVersion (>= 20260608c) ก่อน; ถ้าเซิร์ฟเวอร์ยังเก่า
-  // client จะ fallback เป็น replaceAll ให้อัตโนมัติ (ปลอดภัย)
-  ROW_LEVEL_SYNC: true,
 
   // ผู้ใช้ระบบ — ★ Phase 4: รหัสผ่านย้ายไป Supabase Auth แล้ว (hash ฝั่ง server)
   //   จึง "ลบ password ออกจากไฟล์นี้" (เป็น public repo) — login ตรวจกับ Supabase Auth แทน
