@@ -2,8 +2,8 @@
 // Matches "Present War room - 18052026 การเงินด้านรับ" PDF page 2.
 // Globals: React, KpiTile, AnimatedNumber, Badge, Icon, StackedBars, fmtNum, fmtMoney, fmtDate, KpiCallout, SectionCard, BigCallout
 
-const WR2_BUILD = '20260602a';
-console.info('[WTP] War Room p2 build:', WR2_BUILD, '· WIP uses % งวด with %-stripping + fallback');
+const WR2_BUILD = '20260626a';
+console.info('[WTP] War Room p2 build:', WR2_BUILD, '· WIP cascade: งวด N ส่งแล้ว → งวดก่อนหน้าถือว่าส่ง');
 
 const { useMemo: wr2Memo, useState: wr2State } = React;
 
@@ -205,8 +205,11 @@ function WarRoomPage2({ data, setData, toast }) {
         }, 0);
         const pct1 = wr2ToN(p['% งวด 1']);
         const pct2 = wr2ToN(p['% งวด 2']);
-        const delivered1 = wr2HasMnDelivery(p, 1);
-        const delivered2 = wr2HasMnDelivery(p, 2);
+        const d1raw = wr2HasMnDelivery(p, 1);
+        const d2raw = wr2HasMnDelivery(p, 2);
+        // Cascade: ส่งงวด N ได้ = งวดก่อนหน้าต้องส่งไปแล้ว (engineer อาจลืมกรอก Summary Payment 1)
+        const delivered2 = d2raw;
+        const delivered1 = d1raw || d2raw;
         const hasPctData = pct1 > 0 || pct2 > 0;
         let wipPct = 0;
         if (hasPctData) {
