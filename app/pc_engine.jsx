@@ -226,12 +226,16 @@
       const delivered = isDelivered(p, n) || !!deliveryDate;
       // Summary Payment N filled → paid (engineer confirms receipt); also accept Payment Status field
       const paid = hasSum(p, n) || (delivered && /done|paid|รับ/i.test(String(p['Payment ' + n + ' Status'] || '')));
-      // forecast: acceptDate||deliveryDate + creditTerm
+      // forecast: ① manual (การเงินกรอกเอง ใน Finance tab) ทับ ② auto (acceptDate||deliveryDate + creditTerm)
+      const manualFc = (fin && fin.fcDates && fin.fcDates[n - 1]) ? isoOf(fin.fcDates[n - 1]) : null;
       let forecastDate = null;
       if (!paid && amount > 0) {
-        const base = acceptDate || deliveryDate;
-        if (base) forecastDate = addDays(base, creditTerm);
-        else if (delivered) forecastDate = addDays(TODAY, creditTerm);
+        if (manualFc) forecastDate = manualFc;
+        else {
+          const base = acceptDate || deliveryDate;
+          if (base) forecastDate = addDays(base, creditTerm);
+          else if (delivered) forecastDate = addDays(TODAY, creditTerm);
+        }
       }
       insts.push({
         no: n, percent: pct, amount,
@@ -239,7 +243,7 @@
         deliveryDate, acceptDate, delivered, paid,
         paymentAmount: paid ? amount : 0,
         summaryPayment: sumPay || 0,   // ยอดจ่ายจริงของงวดนี้ (Summary Payment N)
-        forecastDate,
+        forecastDate, forecastManual: !!manualFc,   // forecastManual=true เมื่อมาจาก fin.fcDates
       });
     }
     // ── ส่งงวดเดียว 100% (จ่ายรวม): บางโครงสัญญาแบ่งหลายงวด แต่ส่งจริงงวดเดียว ──
@@ -1190,11 +1194,37 @@
     w.document.open(); w.document.write(html); w.document.close();
   }
 
+  // ── debtForProject: หา debtMaster ที่ผูกกับโครงการ (auto-link by projectCode) ─
+  // ใช้ใน Finance tab เพื่อโชว์ "ภาระหนี้ปัจจุบัน" + ผู้รับโอนสิทธิ์อัตโนมัติ
+  //   - filter `projectCode === code` (exact หรือ contains สำหรับโครงการที่ projectCode
+  //     เก็บหลายโครงคั่นด้วย comma/slash)
+  //   - status === 'Active' เท่านั้น
+  // คืน: { total (Σ balance หรือ principalAmount), debts[], assignee (borrowerName แรก),
+  //         contracts (เลขสัญญากู้) }
+  function debtForProject(projectCode, debtMaster) {
+    const code = String(projectCode || '').trim();
+    if (!code) return { total: 0, debts: [], assignee: '', contracts: [] };
+    const list = (debtMaster || []).filter(d => {
+      if (String(d.status || '').trim() !== 'Active') return false;
+      const pc = String(d.projectCode || '').trim();
+      if (!pc) return false;
+      // exact match หรือ token match (รองรับ "ENC100, ENC101" / "ENC100/ENC101")
+      if (pc === code) return true;
+      const tokens = pc.split(/[,;/]\s*/).map(s => s.trim()).filter(Boolean);
+      return tokens.includes(code);
+    });
+    const total = list.reduce((s, d) => s + (toNum(d.balance) || toNum(d.principalAmount) || 0), 0);
+    const assignee = list.length ? (list[0].borrowerName || list[0].debtCategory || '') : '';
+    const contracts = list.map(d => d.contractNo).filter(Boolean);
+    return { total, debts: list, assignee, contracts };
+  }
+
   window.PCU = {
     TH_MONTHS, EN_MONTHS, TODAY, toNum, isoOf, addDays,
     fmtBaht, fmtCompact, fmtDate, daysFromToday,
     STATUS_META, SUB_PIPELINE, SUB_ORDER, REGION_EN, BANK_COLORS, CREDITOR_NAMES,
     deriveProjects, summarize, pipelineCounts, cashflowByMonth, forecastYears, lgByBank, debtByCreditor,
+    debtForProject,
     exportCSV, exportXLSX, openReport, buildExportColumns, PC_EXPORT_DEFAULT, pcColType,
     PC_COL_SPEC, PC_CAT_ORDER, pcColCat,
     loadFinanceMaster, setFinanceField, contractAmtOf,

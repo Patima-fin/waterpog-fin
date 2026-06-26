@@ -1050,6 +1050,242 @@ function PcUploadDiff({ diff, stats, onClose }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// FINANCE TAB — ProjectFinanceGrid
+//   มุมมองโฟกัสการเงิน: 1 แถว/โครงการ · โชว์ ผู้รับโอนสิทธิ์ + ภาระหนี้ (ผูก
+//   debtMaster.projectCode อัตโนมัติ) + ทุกงวด (ส่งมอบ/มูลค่า/ตรวจรับ + คาดการณ์
+//   รับเงิน "การเงินกรอกเอง" → feed cashflow forecast + รายรับสะสมประจำปี ทันที)
+//   คลิกผู้รับโอนสิทธิ์ → DebtFormModal (popup เหมือนหน้าภาระหนี้) → save sync
+//   ไป debtMaster (โผล่หน้า "ภาระหนี้" + ป้ายในหน้า "ใบแจ้งหนี้" อัตโนมัติ)
+// ═══════════════════════════════════════════════════════════════════════════
+function PcAssigneeChip({ assignee, debtTotal, hasLink, onClick, canEdit }) {
+  const empty = !assignee;
+  return (
+    <button onClick={onClick} disabled={!canEdit && empty} title={canEdit ? 'คลิกเพื่อแก้/ผูกข้อมูลภาระหนี้' : (empty ? 'ยังไม่มีข้อมูล' : 'ดูข้อมูลภาระหนี้')}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 9px', borderRadius: 100, border: '1px solid ' + (empty ? '#cbd5e1' : (hasLink ? '#86c5ff' : '#fde68a')), background: empty ? '#f8fafc' : (hasLink ? '#eaf3ff' : '#fef9e7'), color: empty ? '#94a3b8' : (hasLink ? '#1e40af' : '#92400e'), fontSize: 11.5, fontWeight: 600, cursor: canEdit ? 'pointer' : 'default', whiteSpace: 'nowrap' }}>
+      {empty ? '+ ระบุผู้รับโอนสิทธิ์' : (
+        <>
+          <span style={{ width: 6, height: 6, borderRadius: 10, background: hasLink ? '#2563eb' : '#f59e0b' }} />
+          {assignee}
+        </>
+      )}
+      {canEdit && !empty && <span style={{ opacity: .5, fontSize: 10 }}>✎</span>}
+    </button>
+  );
+}
+
+function PcFcDateInput({ value, isManual, canEdit, onChange }) {
+  return (
+    <input type="date" value={value || ''} disabled={!canEdit}
+      onChange={e => onChange(e.target.value || '')}
+      title={isManual ? 'การเงินกรอกเอง · ใช้ในการคำนวณรายรับรายเดือน' : (value ? 'คำนวณอัตโนมัติ · กรอกเองได้' : 'ยังไม่มีข้อมูล · กรอกได้')}
+      style={{ width: 130, height: 28, fontSize: 11.5, border: '1px solid ' + (isManual ? '#86c5ff' : '#e2e8f0'), borderRadius: 7, padding: '0 7px', background: isManual ? '#eaf3ff' : '#fff', color: isManual ? '#1e40af' : '#1e293b', fontWeight: isManual ? 600 : 400, fontVariantNumeric: 'tabular-nums' }} />
+  );
+}
+
+function ProjectFinanceGrid({ rows, data, setData, canEdit, toast }) {
+  const [debtModal, setDebtModal] = pcSt(null);
+  const debtMaster = data.debtMaster || [];
+
+  // นับงวดสูงสุดในชุดข้อมูล → dynamic columns
+  const maxInst = pcMemo(() => {
+    let m = 0;
+    (rows || []).forEach(r => { const n = (r.installments || []).length; if (n > m) m = n; });
+    return Math.max(2, m); // ขั้นต่ำ 2 งวด (ตามคำขอ — รองรับงวดเดียวก็ยังโชว์ 2 คอลัมน์ แต่งวด 2 จะว่าง)
+  }, [rows]);
+
+  // signed only (ตัดยกเลิก/ยังไม่ลงนาม) + มีมูลค่าสัญญา
+  const signedRows = pcMemo(() =>
+    (rows || []).filter(r => r.status !== 'ยกเลิก' && r.status !== 'ยังไม่ลงนาม' && r.contractAmt > 0)
+  , [rows]);
+
+  const finForRow = (r) => PCU.debtForProject(r.contractNo, debtMaster);
+
+  const saveFcDate = (r, instIdx, dateStr) => {
+    const fin = PCU.loadFinanceMaster()[r.contractNo] || {};
+    const next = (fin.fcDates || []).slice();
+    next[instIdx] = dateStr || '';
+    while (next.length > 0 && !next[next.length - 1]) next.pop();
+    PCU.setFinanceField(r.contractNo, { fcDates: next.length ? next : null });
+    toast && toast('บันทึกวันคาดการณ์งวด ' + (instIdx + 1) + ' · ' + (r.contractNo || r.site));
+  };
+
+  const openDebtModal = (r) => {
+    if (!canEdit) return;
+    const info = finForRow(r);
+    const existing = info.debts[0] || null;
+    setDebtModal({
+      project: r,
+      initial: existing || {
+        contractNo: '', borrowerName: '', debtCategory: 'WCI', status: 'Active',
+        receiveDate: new Date().toISOString().slice(0, 10),
+        startDate: new Date().toISOString().slice(0, 10),
+        maturityDate: '', principalAmount: r.outstandingAR || r.contractAmt || 0,
+        interestRate: 0, balance: r.outstandingAR || r.contractAmt || 0,
+        currency: 'THB', bankName: '',
+        projectCode: r.contractNo, projectName: r.site,
+        note: '',
+      },
+      isNew: !existing,
+    });
+  };
+
+  const handleDebtSave = (saved) => {
+    if (!debtModal) return;
+    setData(d => {
+      const list = (d.debtMaster || []).slice();
+      const existingIdx = list.findIndex(x => debtModal.initial.id && x.id === debtModal.initial.id);
+      if (existingIdx >= 0) list[existingIdx] = { ...list[existingIdx], ...saved, updatedAt: new Date().toISOString() };
+      else list.push({ ...saved, id: WTPData.newId(), updatedAt: new Date().toISOString() });
+      return { ...d, debtMaster: list };
+    });
+    // ผูก finance master ของโครงการ (เก็บชื่อ + เลขสัญญากู้ที่ผูกไว้)
+    PCU.setFinanceField(debtModal.project.contractNo, {
+      linkedDebtContract: saved.contractNo,
+      assignee: saved.borrowerName || saved.debtCategory,
+    });
+    setDebtModal(null);
+    toast && toast('บันทึกภาระหนี้ + ผูกกับโครงการแล้ว · sync ไปหน้าภาระหนี้/ใบแจ้งหนี้');
+  };
+
+  if (!signedRows.length) {
+    return (
+      <div style={{ background: '#fff', border: '1px solid #e6ecf4', borderRadius: 12, padding: 24, textAlign: 'center', color: '#64748b', fontSize: 13 }}>
+        ไม่มีโครงการที่ลงนามแล้วในมุมมองนี้ · ลองเปลี่ยน ปีงบ / ล้างตัวกรอง
+      </div>
+    );
+  }
+
+  // header cells per งวด
+  const ngWidths = { d: 102, v: 102, a: 102, f: 138 };
+  const totalWidth = 50 + 290 + 180 + 130 + (ngWidths.d + ngWidths.v + ngWidths.a + ngWidths.f) * maxInst;
+
+  return (
+    <div style={{ background: '#fff', border: '1px solid #e6ecf4', borderRadius: 12, overflow: 'hidden', boxShadow: '0 6px 18px rgba(13,31,58,.05)' }}>
+      <div style={{ padding: '11px 14px', borderBottom: '1px solid #eef2f7', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink-900)' }}>💰 ข้อมูลการเงินรายโครงการ · {signedRows.length} โครงการ</span>
+        <span style={{ fontSize: 11, color: '#64748b' }}>ภาระหนี้ปัจจุบัน <span style={{ background: '#eaf3ff', color: '#1e40af', padding: '1px 6px', borderRadius: 5, fontWeight: 600 }}>ผูกอัตโนมัติ</span> จาก debtMaster.projectCode</span>
+        <span style={{ fontSize: 11, color: '#64748b' }}>วันคาดการณ์รับเงิน <span style={{ background: '#fef9e7', color: '#92400e', padding: '1px 6px', borderRadius: 5, fontWeight: 600 }}>กรอกเอง</span> → feed cashflow forecast + รายรับสะสมประจำปี</span>
+      </div>
+      <div style={{ overflow: 'auto', maxHeight: '70vh' }}>
+        <table style={{ width: totalWidth, borderCollapse: 'separate', borderSpacing: 0, fontSize: 11.5, fontVariantNumeric: 'tabular-nums' }}>
+          <thead style={{ position: 'sticky', top: 0, zIndex: 5, background: '#f8fafc' }}>
+            <tr>
+              <th rowSpan={2} style={pcFinHCell({ width: 50, left: 0, sticky: true, borderBottom: '2px solid #cbd5e1' })}>#</th>
+              <th rowSpan={2} style={pcFinHCell({ width: 290, left: 50, sticky: true, textAlign: 'left', borderBottom: '2px solid #cbd5e1' })}>โครงการ</th>
+              <th rowSpan={2} style={pcFinHCell({ width: 180, borderBottom: '2px solid #cbd5e1' })}>ผู้รับโอนสิทธิ์</th>
+              <th rowSpan={2} style={pcFinHCell({ width: 130, textAlign: 'right', borderBottom: '2px solid #cbd5e1' })}>ภาระหนี้ปัจจุบัน</th>
+              {Array.from({ length: maxInst }).map((_, i) => (
+                <th key={'h' + i} colSpan={4} style={pcFinHCell({ width: ngWidths.d + ngWidths.v + ngWidths.a + ngWidths.f, background: i % 2 === 0 ? '#eef2f7' : '#f1f5f9', color: 'var(--brand-700)', fontWeight: 700, fontSize: 12, padding: '7px 8px', borderBottom: '1px solid #cbd5e1' })}>งวด {i + 1}</th>
+              ))}
+            </tr>
+            <tr>
+              {Array.from({ length: maxInst }).map((_, i) => (
+                <React.Fragment key={'h2' + i}>
+                  <th style={pcFinHCell({ width: ngWidths.d, fontSize: 10.5, color: '#475569', padding: '6px 6px' })}>ส่งมอบ</th>
+                  <th style={pcFinHCell({ width: ngWidths.v, textAlign: 'right', fontSize: 10.5, color: '#475569', padding: '6px 6px' })}>มูลค่า</th>
+                  <th style={pcFinHCell({ width: ngWidths.a, fontSize: 10.5, color: '#475569', padding: '6px 6px' })}>ตรวจรับ</th>
+                  <th style={pcFinHCell({ width: ngWidths.f, fontSize: 10.5, color: 'var(--brand-700)', padding: '6px 6px' })}>📅 คาดการณ์รับเงิน</th>
+                </React.Fragment>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {signedRows.map((r, ri) => {
+              const info = finForRow(r);
+              const finRaw = PCU.loadFinanceMaster()[r.contractNo] || {};
+              const fcManualArr = finRaw.fcDates || [];
+              const insts = r.installments || [];
+              return (
+                <tr key={r.id} style={{ background: ri % 2 === 0 ? '#fff' : '#fafbfd', borderTop: '1px solid #eef2f7' }}>
+                  <td style={pcFinCell({ width: 50, left: 0, sticky: true, color: '#94a3b8', textAlign: 'center' })}>{ri + 1}</td>
+                  <td style={pcFinCell({ width: 290, left: 50, sticky: true, textAlign: 'left' })}>
+                    <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--ink-900)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <span className="num" style={{ color: 'var(--brand-700)', marginRight: 6 }}>{r.contractNo || '—'}</span>
+                      {r.site}
+                    </div>
+                    <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 1 }}>
+                      {r.type || '—'} · {r.province || '—'} · มูลค่า <span className="num">{PCU.fmtBaht(r.contractAmt)}</span>
+                    </div>
+                  </td>
+                  <td style={pcFinCell({ width: 180, textAlign: 'center' })}>
+                    <PcAssigneeChip
+                      assignee={info.assignee || r.assignee}
+                      hasLink={info.debts.length > 0}
+                      onClick={() => openDebtModal(r)}
+                      canEdit={canEdit}
+                    />
+                  </td>
+                  <td style={pcFinCell({ width: 130, textAlign: 'right' })}>
+                    <span className="num" style={{ color: info.total > 0 ? '#b91c1c' : '#94a3b8', fontWeight: info.total > 0 ? 600 : 400 }}>
+                      {info.total > 0 ? PCU.fmtBaht(info.total) : '—'}
+                    </span>
+                    {info.debts.length > 1 && <div style={{ fontSize: 9.5, color: '#94a3b8' }}>{info.debts.length} สัญญา</div>}
+                  </td>
+                  {Array.from({ length: maxInst }).map((_, i) => {
+                    const it = insts[i] || null;
+                    return (
+                      <React.Fragment key={'c' + i}>
+                        <td style={pcFinCell({ width: ngWidths.d, textAlign: 'center', color: '#475569' })}>
+                          {it && it.deliveryDate ? <span className="num">{PCU.fmtDate(it.deliveryDate)}</span> : <span style={{ color: '#cbd5e1' }}>—</span>}
+                        </td>
+                        <td style={pcFinCell({ width: ngWidths.v, textAlign: 'right' })}>
+                          {it && it.amount > 0 ? <span className="num" style={{ color: it.paid ? '#16a34a' : 'var(--ink-900)' }}>{PCU.fmtBaht(it.amount)}</span> : <span style={{ color: '#cbd5e1' }}>—</span>}
+                          {it && it.paid && <div style={{ fontSize: 9, color: '#16a34a' }}>✓ รับแล้ว</div>}
+                        </td>
+                        <td style={pcFinCell({ width: ngWidths.a, textAlign: 'center', color: '#475569' })}>
+                          {it && it.acceptDate ? <span className="num">{PCU.fmtDate(it.acceptDate)}</span> : <span style={{ color: '#cbd5e1' }}>—</span>}
+                        </td>
+                        <td style={pcFinCell({ width: ngWidths.f, textAlign: 'center' })}>
+                          {it && !it.paid && it.amount > 0 ? (
+                            <PcFcDateInput
+                              value={fcManualArr[i] || (it.forecastDate || '')}
+                              isManual={!!fcManualArr[i]}
+                              canEdit={canEdit}
+                              onChange={v => saveFcDate(r, i, v)}
+                            />
+                          ) : it && it.paid ? (
+                            <span style={{ fontSize: 10.5, color: '#16a34a' }}>รับแล้ว</span>
+                          ) : (
+                            <span style={{ color: '#cbd5e1' }}>—</span>
+                          )}
+                        </td>
+                      </React.Fragment>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {debtModal && (
+        <DebtFormModal
+          open={true}
+          initial={debtModal.initial}
+          isNew={debtModal.isNew}
+          onClose={() => setDebtModal(null)}
+          onSave={handleDebtSave}
+        />
+      )}
+    </div>
+  );
+}
+function pcFinHCell(extra) {
+  return Object.assign({
+    background: '#f8fafc', color: '#475569', fontSize: 11, fontWeight: 700,
+    textAlign: 'center', padding: '8px 8px', borderRight: '1px solid #eef2f7',
+    position: extra && extra.sticky ? 'sticky' : 'static', zIndex: extra && extra.sticky ? 3 : 1,
+  }, extra || {});
+}
+function pcFinCell(extra) {
+  return Object.assign({
+    padding: '7px 8px', borderRight: '1px solid #f1f5f9', verticalAlign: 'middle',
+    position: extra && extra.sticky ? 'sticky' : 'static', zIndex: extra && extra.sticky ? 2 : 0,
+    background: extra && extra.sticky ? 'inherit' : undefined,
+  }, extra || {});
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // MAIN PAGE
 // ═══════════════════════════════════════════════════════════════════════════
 const PC_STATE_KEY = 'wtp-pc-gridstate-v3';
@@ -1078,6 +1314,7 @@ function ProjectControlPage({ data, setData, toast }) {
   const [advMode, setAdvMode] = pcSt('AND');
   const [advOpen, setAdvOpen] = pcSt(false);
   const [diffModal, setDiffModal] = pcSt(null); // { diff, stats }
+  const [tab, setTab] = pcSt('overview');         // 'overview' | 'finance' — sub-nav ใต้ topbar
   const fileRef = pcRef();
 
   pcEff(() => { const t = setTimeout(() => setSearch(searchInput), 180); return () => clearTimeout(t); }, [searchInput]);
@@ -1241,21 +1478,52 @@ function ProjectControlPage({ data, setData, toast }) {
         </div>
       </div>
 
-      {/* ===== sections ===== */}
-      <PcBand n="01" en="Executive KPI" th="ตัวชี้วัดผู้บริหาร" />
-      <PcKpiSection summary={summary} filterStatus={statusFilter} onFilterStatus={s => setStatusFilter(p => p === s ? null : s)} />
-
-      <div className="pc-row2" style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: 14, marginTop: 4 }}>
-        <div><PcBand n="02" en="Status Funnel" th="สถานะโครงการ" /><PcFunnel rows={topRows} onPick={(th) => setGridState(s => ({ ...s, colFilters: { ...s.colFilters, projectStatus: { kind: 'set', values: [th] } }, page: 1 }))} /></div>
-        <div><PcBand n="03" en="Cashflow Forecast" th="กระแสเงินสด" /><PcCashflow rows={topRows} /></div>
+      {/* ===== sub-nav: ข้อมูลโครงการ / ข้อมูลการเงิน ===== */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 14, background: '#fff', border: '1px solid #e6ecf4', borderRadius: 10, padding: 4, width: 'fit-content', boxShadow: '0 2px 6px rgba(13,31,58,.04)' }}>
+        {[
+          { id: 'overview', icon: '📋', label: 'ข้อมูลโครงการ', sub: 'ทุกมิติ · KPI · กราฟ · ทะเบียน' },
+          { id: 'finance', icon: '💰', label: 'ข้อมูลการเงิน', sub: 'ผู้รับโอนสิทธิ์ · หนี้ · งวด · คาดการณ์รับเงิน' },
+        ].map(t => {
+          const active = tab === t.id;
+          return (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderRadius: 7, border: 'none',
+                background: active ? 'linear-gradient(135deg,var(--brand-600),var(--brand-500))' : 'transparent',
+                color: active ? '#fff' : 'var(--ink-700)', cursor: 'pointer', fontSize: 12.5, fontWeight: 600,
+                boxShadow: active ? '0 4px 12px rgba(35,72,150,.25)' : 'none', transition: 'all .15s' }}>
+              <span style={{ fontSize: 14 }}>{t.icon}</span>
+              <div style={{ textAlign: 'left', lineHeight: 1.1 }}>
+                <div>{t.label}</div>
+                <div style={{ fontSize: 9.5, opacity: active ? .85 : .5, fontWeight: 500 }}>{t.sub}</div>
+              </div>
+            </button>
+          );
+        })}
       </div>
 
-      <PcBand n="04" en="LG Monitoring" th="หลักประกัน" />
-      <PcLgSection rows={topRows} />
+      {/* ===== sections — เฉพาะแท็บ "ข้อมูลโครงการ" ===== */}
+      {tab === 'overview' && <>
+        <PcBand n="01" en="Executive KPI" th="ตัวชี้วัดผู้บริหาร" />
+        <PcKpiSection summary={summary} filterStatus={statusFilter} onFilterStatus={s => setStatusFilter(p => p === s ? null : s)} />
 
-      <PcBand n="05" en="Project Register" th="ทะเบียนโครงการ — Excel-grade Data Grid" />
-      <div style={{ marginBottom: 8 }}><PcGridToolbar allCols={allCols} state={gridState} setState={setGridState} rows={topRows} visibleColObjs={visibleColObjs} scopeLabel={scopeLabel} onAdvanced={() => setAdvOpen(true)} advCount={advConds.length} /></div>
-      <PcGrid rows={topRows} allCols={allCols} state={gridState} setState={setGridState} onOpenRow={setDrawerRow} />
+        <div className="pc-row2" style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: 14, marginTop: 4 }}>
+          <div><PcBand n="02" en="Status Funnel" th="สถานะโครงการ" /><PcFunnel rows={topRows} onPick={(th) => setGridState(s => ({ ...s, colFilters: { ...s.colFilters, projectStatus: { kind: 'set', values: [th] } }, page: 1 }))} /></div>
+          <div><PcBand n="03" en="Cashflow Forecast" th="กระแสเงินสด" /><PcCashflow rows={topRows} /></div>
+        </div>
+
+        <PcBand n="04" en="LG Monitoring" th="หลักประกัน" />
+        <PcLgSection rows={topRows} />
+
+        <PcBand n="05" en="Project Register" th="ทะเบียนโครงการ — Excel-grade Data Grid" />
+        <div style={{ marginBottom: 8 }}><PcGridToolbar allCols={allCols} state={gridState} setState={setGridState} rows={topRows} visibleColObjs={visibleColObjs} scopeLabel={scopeLabel} onAdvanced={() => setAdvOpen(true)} advCount={advConds.length} /></div>
+        <PcGrid rows={topRows} allCols={allCols} state={gridState} setState={setGridState} onOpenRow={setDrawerRow} />
+      </>}
+
+      {/* ===== Finance tab — ข้อมูลการเงิน ===== */}
+      {tab === 'finance' && <>
+        <PcBand n="F1" en="Project Finance Register" th="ทะเบียนการเงินรายโครงการ" />
+        <ProjectFinanceGrid rows={topRows} data={data} setData={setData} canEdit={canEdit} toast={toast} />
+      </>}
 
       {drawerRow && <PcDrawer row={drawerRow} canEdit={canEdit} onClose={() => setDrawerRow(null)} onSaveFinance={saveFinance} />}
       {advOpen && <PcAdvancedFilter rows={allProjects} conds={advConds} mode={advMode} onApply={(c, m) => { setAdvConds(c); setAdvMode(m); setAdvOpen(false); }} onClose={() => setAdvOpen(false)} />}
