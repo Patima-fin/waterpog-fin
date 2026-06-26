@@ -1098,7 +1098,11 @@ function ProjectFinanceGrid({ rows, data, setData, canEdit, toast }) {
     (rows || []).filter(r => r.status !== 'ยกเลิก' && r.status !== 'ยังไม่ลงนาม' && r.contractAmt > 0)
   , [rows]);
 
-  const finForRow = (r) => PCU.debtForProject(r.contractNo, debtMaster);
+  const finForRow = (r) => {
+    const fin = PCU.loadFinanceMaster()[r.contractNo] || {};
+    const assignee = fin.assignee || r.assignee || '';
+    return PCU.debtForProject(r.contractNo, debtMaster, assignee);
+  };
 
   const saveFcDate = (r, instIdx, dateStr) => {
     const fin = PCU.loadFinanceMaster()[r.contractNo] || {};
@@ -1220,6 +1224,12 @@ function ProjectFinanceGrid({ rows, data, setData, canEdit, toast }) {
                       {info.total > 0 ? PCU.fmtBaht(info.total) : '—'}
                     </span>
                     {info.debts.length > 1 && <div style={{ fontSize: 9.5, color: '#94a3b8' }}>{info.debts.length} สัญญา</div>}
+                    {info.candidates && info.candidates.length > 0 && (
+                      <div title={'สัญญาหนี้ใกล้เคียง (' + info.candidates.length + ') — projectCode ว่าง แต่ตรงกับผู้รับโอนสิทธิ์ — คลิกผู้รับโอนสิทธิ์เพื่อยืนยันผูก'}
+                        style={{ fontSize: 9.5, color: '#92400e', marginTop: 2, fontWeight: 600 }}>
+                        + {info.candidates.length} น่าจะใช่
+                      </div>
+                    )}
                   </td>
                   {Array.from({ length: maxInst }).map((_, i) => {
                     const it = insts[i] || null;

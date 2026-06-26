@@ -1196,27 +1196,62 @@
 
   // ── debtForProject: หา debtMaster ที่ผูกกับโครงการ (auto-link by projectCode) ─
   // ใช้ใน Finance tab เพื่อโชว์ "ภาระหนี้ปัจจุบัน" + ผู้รับโอนสิทธิ์อัตโนมัติ
-  //   - filter `projectCode === code` (exact หรือ contains สำหรับโครงการที่ projectCode
-  //     เก็บหลายโครงคั่นด้วย comma/slash)
-  //   - status === 'Active' เท่านั้น
-  // คืน: { total (Σ balance หรือ principalAmount), debts[], assignee (borrowerName แรก),
-  //         contracts (เลขสัญญากู้) }
-  function debtForProject(projectCode, debtMaster) {
+  // คืน { total, debts[], assignee, contracts[], candidates[] }
+  //   - `debts`     = ผูกชัดเจน (projectCode ตรงกับ contractNo)
+  //   - `candidates` = ใกล้เคียง/น่าจะใช่ (เช่น project assignee=ลีซอิท + debt category=LIT
+  //                    แต่ debt ไม่ระบุ projectCode) → ผู้ใช้กดผูกเองได้
+  // matching ทำหลายชั้นเพื่อทนของจริง:
+  //   1) trim + case-insensitive
+  //   2) strip suffix รุ่น (-PL/-PDH/-PM/-PDP ฯลฯ) ทั้ง 2 ฝั่ง
+  //   3) tokenize ด้วยตัวคั่นหลายแบบ , ; / + และ "และ" "and" space
+  //   4) ถ้า projectCode ว่าง → ลองหา project's contractNo เป็น substring ใน projectName/note
+  //   5) candidates: debt ที่ projectCode ว่าง + category/borrowerName ตรงกับ assignee ของโครงการ
+  function _normProjCode(c) {
+    let s = String(c || '').trim().toUpperCase();
+    // strip suffix รุ่น (เช่น -PL, -PDH, -PM, -PDP, -STIIS) — 2-6 ตัวอักษร
+    const m = s.match(/^(.+?)-[A-Z]{1,6}$/);
+    return m ? m[1] : s;
+  }
+  function _tokenizeProjCodes(text) {
+    return String(text || '').toUpperCase()
+      .split(/[\s,;/+]+|และ|AND/g)
+      .map(t => t.trim()).filter(Boolean);
+  }
+  function debtForProject(projectCode, debtMaster, projectAssignee) {
     const code = String(projectCode || '').trim();
-    if (!code) return { total: 0, debts: [], assignee: '', contracts: [] };
-    const list = (debtMaster || []).filter(d => {
-      if (String(d.status || '').trim() !== 'Active') return false;
+    if (!code) return { total: 0, debts: [], assignee: '', contracts: [], candidates: [] };
+    const codeN = _normProjCode(code);
+    const codeU = code.toUpperCase();
+    const assigneeU = String(projectAssignee || '').toUpperCase().trim();
+    const debts = [];
+    const candidates = [];
+    (debtMaster || []).forEach(d => {
+      if (String(d.status || '').trim() !== 'Active') return;
       const pc = String(d.projectCode || '').trim();
-      if (!pc) return false;
-      // exact match หรือ token match (รองรับ "ENC100, ENC101" / "ENC100/ENC101")
-      if (pc === code) return true;
-      const tokens = pc.split(/[,;/]\s*/).map(s => s.trim()).filter(Boolean);
-      return tokens.includes(code);
+      const pn = String(d.projectName || '').toUpperCase();
+      const note = String(d.note || '').toUpperCase();
+      const borrower = String(d.borrowerName || '').toUpperCase();
+      const cat = String(d.debtCategory || '').toUpperCase();
+      // ── (1) projectCode ว่าง ──
+      if (!pc) {
+        // candidate: assignee/category ของโครงการตรงกับ debt
+        if (assigneeU && (cat === assigneeU || borrower.includes(assigneeU) || cat.includes(assigneeU) || assigneeU.includes(cat))) {
+          candidates.push(d);
+        } else if (pn.includes(codeU) || pn.includes(codeN) || note.includes(codeU) || note.includes(codeN)) {
+          // text mention ใน projectName/note → ผูกได้
+          debts.push(d);
+        }
+        return;
+      }
+      // ── (2) projectCode ไม่ว่าง: tokenize + normalize ──
+      const tokens = _tokenizeProjCodes(pc);
+      const matches = tokens.some(t => t === codeU || _normProjCode(t) === codeN);
+      if (matches) debts.push(d);
     });
-    const total = list.reduce((s, d) => s + (toNum(d.balance) || toNum(d.principalAmount) || 0), 0);
-    const assignee = list.length ? (list[0].borrowerName || list[0].debtCategory || '') : '';
-    const contracts = list.map(d => d.contractNo).filter(Boolean);
-    return { total, debts: list, assignee, contracts };
+    const total = debts.reduce((s, d) => s + (toNum(d.balance) || toNum(d.principalAmount) || 0), 0);
+    const assignee = debts.length ? (debts[0].borrowerName || debts[0].debtCategory || '') : '';
+    const contracts = debts.map(d => d.contractNo).filter(Boolean);
+    return { total, debts, assignee, contracts, candidates };
   }
 
   window.PCU = {
