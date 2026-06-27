@@ -887,7 +887,7 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
         String(r.leasitLoanId || '').includes(q)
       );
     }
-    return rows.slice().sort((a, b) => (a.leasitLoanId || 0) - (b.leasitLoanId || 0));
+    return rows.slice().sort((a, b) => (Number(a.leasitLoanId) || 0) - (Number(b.leasitLoanId) || 0));
   }, [allRows, query, statusFilter]);
 
   // KPIs
@@ -1187,7 +1187,12 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
   );
 
   return (
-    <div>
+    // ★ ขยาย panel ทะลุ .page max-width:1480px → ใช้ viewport-wide ติดลบ
+    //   marginLeft/Right = "ดึงกลับมาให้กว้างเท่า viewport - 60px"
+    <div style={{
+      marginLeft: 'calc((100% - min(100vw - 60px, 1820px)) / 2)',
+      marginRight: 'calc((100% - min(100vw - 60px, 1820px)) / 2)'
+    }}>
       {/* ⏰ Maturity alert banner — Active loans ครบกำหนดใน 30 วัน (ย่อเป็น 1 บรรทัด คลิกขยาย) */}
       {maturityAlerts.length > 0 && (
         <div className="card" style={{
@@ -1354,24 +1359,42 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
         const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
         const curPage = Math.min(page, totalPages);
         const pageRows = filtered.slice((curPage - 1) * PAGE_SIZE, curPage * PAGE_SIZE);
-        const tdStyle = { padding: '4px 6px', fontSize: 12 };
-        const tdRight = { ...tdStyle, textAlign: 'right' };
+        // ★ nowrap base — แถวสูง 1 บรรทัดเสมอ (จะ ellipsis แทน wrap)
+        const tdBase = { padding: '3px 6px', fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
+        const tdRight = { ...tdBase, textAlign: 'right' };
         return (
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
             <div style={{ overflowX: 'auto' }}>
-              <table className="tbl" style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+              <table className="tbl" style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1300 }}>
+                <colgroup>
+                  <col style={{ width: 34 }} />        {/* # */}
+                  <col style={{ width: 48 }} />        {/* ประเภท */}
+                  <col style={{ width: 160 }} />       {/* เลขที่สัญญา */}
+                  <col style={{ width: 110 }} />       {/* JOB */}
+                  <col style={{ minWidth: 200 }} />    {/* โครงการ — flex */}
+                  <col style={{ width: 90 }} />        {/* วงเงิน */}
+                  <col style={{ width: 56 }} />        {/* อัตรา */}
+                  <col style={{ width: 88 }} />        {/* รับเงิน */}
+                  <col style={{ width: 88 }} />        {/* ครบกำหนด */}
+                  <col style={{ width: 50 }} />        {/* สถานะ */}
+                  <col style={{ width: 95 }} />        {/* ดอกล่วงหน้า */}
+                  <col style={{ width: 95 }} />        {/* ดอกเกิดจริง */}
+                  <col style={{ width: 90 }} />        {/* ส่วนต่าง */}
+                  <col style={{ width: 88 }} />        {/* รับคืนแล้ว */}
+                  <col style={{ width: 90 }} />        {/* ค้างรับคืน */}
+                </colgroup>
                 <thead>
                   <tr style={{ background: 'var(--ink-50)' }}>
-                    <th style={{ ...tdStyle, fontWeight: 600 }}>#</th>
-                    <th style={{ ...tdStyle, fontWeight: 600 }}>ประเภท</th>
-                    <th style={{ ...tdStyle, fontWeight: 600 }}>เลขที่สัญญา</th>
-                    <th style={{ ...tdStyle, fontWeight: 600 }}>JOB</th>
-                    <th style={{ ...tdStyle, fontWeight: 600 }}>โครงการ</th>
+                    <th style={{ ...tdBase, fontWeight: 600 }}>#</th>
+                    <th style={{ ...tdBase, fontWeight: 600 }}>ประเภท</th>
+                    <th style={{ ...tdBase, fontWeight: 600 }}>เลขที่สัญญา</th>
+                    <th style={{ ...tdBase, fontWeight: 600 }}>JOB</th>
+                    <th style={{ ...tdBase, fontWeight: 600 }}>โครงการ</th>
                     <th style={{ ...tdRight, fontWeight: 600 }}>วงเงิน</th>
                     <th style={{ ...tdRight, fontWeight: 600 }}>อัตรา</th>
-                    <th style={{ ...tdStyle, fontWeight: 600 }}>รับเงิน</th>
-                    <th style={{ ...tdStyle, fontWeight: 600 }}>ครบกำหนด</th>
-                    <th style={{ ...tdStyle, fontWeight: 600 }}>สถานะ</th>
+                    <th style={{ ...tdBase, fontWeight: 600 }}>รับเงิน</th>
+                    <th style={{ ...tdBase, fontWeight: 600 }}>ครบกำหนด</th>
+                    <th style={{ ...tdBase, fontWeight: 600 }}>สถานะ</th>
                     <th style={{ ...tdRight, fontWeight: 600 }}>ดอกล่วงหน้า</th>
                     <th style={{ ...tdRight, fontWeight: 600 }}>ดอกเกิดจริง</th>
                     <th style={{ ...tdRight, fontWeight: 600 }}>ส่วนต่าง</th>
@@ -1386,18 +1409,18 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
                     const col = label === 'PRE' ? 'oklch(52% 0.16 250)' : label === 'NON' ? 'oklch(48% 0.14 305)' : 'oklch(56% 0.18 25)';
                     return (
                       <tr key={r.id} onClick={() => setViewLoan(r)} style={{ cursor: 'pointer', borderBottom: '1px solid var(--ink-100)' }}>
-                        <td style={tdStyle}>{r.leasitLoanId}</td>
-                        <td style={tdStyle}>
+                        <td style={tdBase}>{r.leasitLoanId}</td>
+                        <td style={tdBase}>
                           <span style={{ padding: '1px 6px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: col, color: '#fff' }}>{label}</span>
                         </td>
-                        <td style={tdStyle}>{r.contractNo}</td>
-                        <td style={tdStyle}>{r.projectCode || '—'}</td>
-                        <td title={r.projectName} style={{ ...tdStyle, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.projectName}</td>
+                        <td style={tdBase} title={r.contractNo}>{r.contractNo}</td>
+                        <td style={tdBase} title={r.projectCode}>{r.projectCode || '—'}</td>
+                        <td title={r.projectName} style={tdBase}>{r.projectName}</td>
                         <td style={tdRight}>{LIT_fmt(r.principalAmount, 0)}</td>
                         <td style={tdRight}>{(r.interestRate * 100).toFixed(2)}%</td>
-                        <td style={tdStyle}>{LIT_fmtDate(r.leasitDateReceived)}</td>
-                        <td style={tdStyle}>{LIT_fmtDate(r.leasitDateDue)}</td>
-                        <td style={tdStyle}>{r.status === 'Active' ? '🟢' : '⚫'}</td>
+                        <td style={tdBase}>{LIT_fmtDate(r.leasitDateReceived)}</td>
+                        <td style={tdBase}>{LIT_fmtDate(r.leasitDateDue)}</td>
+                        <td style={tdBase}>{r.status === 'Active' ? '🟢' : '⚫'}</td>
                         <td style={tdRight}>{LIT_fmt(r.leasitTotalPrepaid, 2)}</td>
                         <td style={tdRight}>{LIT_fmt(r.leasitTotalActual, 2)}</td>
                         <td style={{ ...tdRight, color: 'oklch(52% 0.16 145)' }}>{LIT_fmt(r.leasitVariance, 2)}</td>
@@ -1411,7 +1434,7 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
                 </tbody>
                 <tfoot>
                   <tr style={{ fontWeight: 600, background: 'var(--ink-50)' }}>
-                    <td colSpan={5} style={{ ...tdStyle, textAlign: 'right' }}>รวม {filtered.length} สัญญา</td>
+                    <td colSpan={5} style={{ ...tdBase, textAlign: 'right' }}>รวม {filtered.length} สัญญา</td>
                     <td style={tdRight}>{LIT_fmt(filtered.reduce((s, r) => s + (Number(r.principalAmount) || 0), 0), 0)}</td>
                     <td colSpan={4}></td>
                     <td style={tdRight}>{LIT_fmt(filtered.reduce((s, r) => s + (Number(r.leasitTotalPrepaid) || 0), 0), 2)}</td>
