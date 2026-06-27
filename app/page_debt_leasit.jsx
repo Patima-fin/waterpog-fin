@@ -155,7 +155,7 @@ function LeasitImportModal({ open, onClose, onConfirm }) {
 }
 
 /* ── LeasitLoanDrawer — ดู schedule prepaid/actual/refund ────────────── */
-function LeasitLoanDrawer({ loan, prepaid, actual, refund, onClose, onExportOne, onEdit }) {
+function LeasitLoanDrawer({ loan, prepaid, actual, refund, onClose, onExportOne, onEdit, canEdit, onCalcPrepaid, onCalcActual }) {
   if (!loan) return null;
   const Modal = window.Modal;
 
@@ -306,93 +306,137 @@ function LeasitLoanDrawer({ loan, prepaid, actual, refund, onClose, onExportOne,
           </div>
         </div>
 
-        {/* Prepaid */}
-        <div style={{ fontWeight: 600, marginTop: 12, marginBottom: 6 }}>📋 ดอกเบี้ยจ่ายล่วงหน้า ({pre.length} งวด)</div>
-        <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid var(--ink-200)', borderRadius: 8 }}>
-          <table className="tbl" style={{ width: '100%', fontSize: 12 }}>
-            <thead><tr>
-              <th>#</th><th>เดือน/ปี</th><th>เริ่ม</th><th>สิ้นสุด</th>
-              <th style={{ textAlign: 'right' }}>เงินต้น</th><th style={{ textAlign: 'right' }}>อัตรา</th>
-              <th style={{ textAlign: 'right' }}>วัน</th><th style={{ textAlign: 'right' }}>ดอกเบี้ย</th>
-            </tr></thead>
-            <tbody>
-              {pre.map(p => (
-                <tr key={p.seq}>
-                  <td>{p.seq}</td><td>{p.month} {p.year}</td>
-                  <td>{LIT_fmtDate(p.dateStart)}</td><td>{LIT_fmtDate(p.dateEnd)}</td>
-                  <td style={{ textAlign: 'right' }}>{LIT_fmt(p.principal, 0)}</td>
-                  <td style={{ textAlign: 'right' }}>{(p.intRate * 100).toFixed(2)}%</td>
-                  <td style={{ textAlign: 'right' }}>{p.days}</td>
-                  <td style={{ textAlign: 'right' }}>{LIT_fmt(p.intAmount, 2)}</td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot><tr style={{ fontWeight: 600, background: 'var(--ink-50)' }}>
-              <td colSpan={7} style={{ textAlign: 'right' }}>รวม</td>
-              <td style={{ textAlign: 'right' }}>{LIT_fmt(pre.reduce((s, p) => s + (Number(p.intAmount) || 0), 0), 2)}</td>
-            </tr></tfoot>
-          </table>
-        </div>
+        {/* ── 3-col grid: ดอกล่วงหน้า | ดอกเกิดจริง | รับคืน ── */}
+        {(() => {
+          const tdCell = { padding: '2px 5px', fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
+          const tdR = { ...tdCell, textAlign: 'right' };
+          const thStyle = { ...tdCell, fontWeight: 600, background: 'var(--ink-50)', position: 'sticky', top: 0 };
+          const thR = { ...thStyle, textAlign: 'right' };
+          const sectionCard = { border: '1px solid var(--ink-200)', borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column' };
+          const tableBox = { flex: 1, overflowY: 'auto', maxHeight: 380 };
+          return (
+            <div style={{ display: 'grid', gridTemplateColumns: '5fr 5fr 3fr', gap: 8, marginTop: 8 }}>
 
-        {/* Actual */}
-        <div style={{ fontWeight: 600, marginTop: 12, marginBottom: 6 }}>✅ ดอกเบี้ยที่เกิดขึ้นจริง ({act.length} งวด)</div>
-        <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid var(--ink-200)', borderRadius: 8 }}>
-          <table className="tbl" style={{ width: '100%', fontSize: 12 }}>
-            <thead><tr>
-              <th>#</th><th>เดือน/ปี</th><th>เริ่ม</th><th>สิ้นสุด</th>
-              <th style={{ textAlign: 'right' }}>เงินต้น</th><th style={{ textAlign: 'right' }}>อัตรา</th>
-              <th style={{ textAlign: 'right' }}>วัน</th><th style={{ textAlign: 'right' }}>ดอกเบี้ย</th>
-            </tr></thead>
-            <tbody>
-              {act.map(p => (
-                <tr key={p.seq}>
-                  <td>{p.seq}</td><td>{p.month} {p.year}</td>
-                  <td>{LIT_fmtDate(p.dateStart)}</td><td>{LIT_fmtDate(p.dateEnd)}</td>
-                  <td style={{ textAlign: 'right' }}>{LIT_fmt(p.principal, 0)}</td>
-                  <td style={{ textAlign: 'right' }}>{(p.intRate * 100).toFixed(2)}%</td>
-                  <td style={{ textAlign: 'right' }}>{p.days}</td>
-                  <td style={{ textAlign: 'right' }}>{LIT_fmt(p.intAmount, 2)}</td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot><tr style={{ fontWeight: 600, background: 'var(--ink-50)' }}>
-              <td colSpan={7} style={{ textAlign: 'right' }}>รวม</td>
-              <td style={{ textAlign: 'right' }}>{LIT_fmt(act.reduce((s, p) => s + (Number(p.intAmount) || 0), 0), 2)}</td>
-            </tr></tfoot>
-          </table>
-        </div>
+              {/* ── PREPAID (left) ── */}
+              <div style={sectionCard}>
+                <div style={{ padding: '6px 10px', background: 'oklch(96% 0.05 250)', borderBottom: '1px solid var(--ink-200)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                  <div style={{ fontWeight: 700, fontSize: 12 }}>📋 ดอกล่วงหน้า ({pre.length})</div>
+                  {canEdit && onCalcPrepaid && (
+                    <button
+                      className="btn btn-primary"
+                      style={{ padding: '2px 8px', fontSize: 11 }}
+                      title="คำนวณตารางดอกเบี้ยจ่ายล่วงหน้าใหม่ทั้งหมด (จากวันรับเงิน → วันครบกำหนด)"
+                      onClick={() => {
+                        if (confirm('คำนวณตารางดอกเบี้ยจ่ายล่วงหน้าใหม่? (จะแทนที่ของเดิม)')) onCalcPrepaid(loan);
+                      }}
+                    >⚡ คำนวณ</button>
+                  )}
+                </div>
+                <div style={tableBox}>
+                  <table className="tbl" style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+                    <thead><tr>
+                      <th style={thStyle}>#</th><th style={thStyle}>เริ่ม</th><th style={thStyle}>สิ้นสุด</th>
+                      <th style={thR}>วัน</th><th style={thR}>ดอกเบี้ย</th>
+                    </tr></thead>
+                    <tbody>
+                      {pre.map(p => (
+                        <tr key={p.seq} style={{ borderBottom: '1px solid var(--ink-100)' }}>
+                          <td style={tdCell}>{p.seq}</td>
+                          <td style={tdCell}>{LIT_fmtDate(p.dateStart)}</td>
+                          <td style={tdCell}>{LIT_fmtDate(p.dateEnd)}</td>
+                          <td style={tdR}>{p.days}</td>
+                          <td style={tdR}>{LIT_fmt(p.intAmount, 2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot><tr style={{ fontWeight: 700, background: 'var(--ink-50)' }}>
+                      <td colSpan={4} style={{ ...tdCell, textAlign: 'right' }}>รวม</td>
+                      <td style={tdR}>{LIT_fmt(pre.reduce((s, p) => s + (Number(p.intAmount) || 0), 0), 2)}</td>
+                    </tr></tfoot>
+                  </table>
+                </div>
+              </div>
 
-        {/* Refund */}
-        <div style={{ fontWeight: 600, marginTop: 12, marginBottom: 6 }}>💸 ขารับคืน ({ref.length} รายการ)</div>
-        {ref.length === 0 ? (
-          <div style={{ padding: 12, color: 'var(--ink-500)', textAlign: 'center', border: '1px dashed var(--ink-200)', borderRadius: 8 }}>
-            ยังไม่มีรับคืน
-          </div>
-        ) : (
-          <div style={{ border: '1px solid var(--ink-200)', borderRadius: 8 }}>
-            <table className="tbl" style={{ width: '100%', fontSize: 12 }}>
-              <thead><tr>
-                <th>วันที่</th><th>ประเภท</th><th>เอกสาร</th><th>หมายเหตุ</th>
-                <th style={{ textAlign: 'right' }}>จำนวน</th>
-              </tr></thead>
-              <tbody>
-                {ref.map((r, i) => (
-                  <tr key={i}>
-                    <td>{LIT_fmtDate(r.refundDate)}</td>
-                    <td>{r.refundType === 'RV' ? '🧾 หักตอน RV' : '🏦 โอนคืน'}</td>
-                    <td>{r.refDoc || '—'}</td>
-                    <td title={r.note} style={{ maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.note}</td>
-                    <td style={{ textAlign: 'right' }}>{LIT_fmt(r.amount, 2)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot><tr style={{ fontWeight: 600, background: 'var(--ink-50)' }}>
-                <td colSpan={4} style={{ textAlign: 'right' }}>รวมรับคืน</td>
-                <td style={{ textAlign: 'right' }}>{LIT_fmt(ref.reduce((s, r) => s + (Number(r.amount) || 0), 0), 2)}</td>
-              </tr></tfoot>
-            </table>
-          </div>
-        )}
+              {/* ── ACTUAL (middle) ── */}
+              <div style={sectionCard}>
+                <div style={{ padding: '6px 10px', background: 'oklch(96% 0.05 145)', borderBottom: '1px solid var(--ink-200)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                  <div style={{ fontWeight: 700, fontSize: 12 }}>✅ ดอกเกิดจริง ({act.length})</div>
+                  {canEdit && onCalcActual && (
+                    <button
+                      className="btn btn-primary"
+                      style={{ padding: '2px 8px', fontSize: 11 }}
+                      title="คำนวณดอกที่เกิดจริง: ถ้าปิดสัญญาแล้ว = จากวันรับ → วันคืนเงิน, ถ้ายัง Active = ถึงวันนี้"
+                      onClick={() => {
+                        if (confirm('คำนวณดอกที่เกิดจริงใหม่? (จะแทนที่ของเดิม)')) onCalcActual(loan);
+                      }}
+                    >⚡ คำนวณ</button>
+                  )}
+                </div>
+                <div style={tableBox}>
+                  <table className="tbl" style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+                    <thead><tr>
+                      <th style={thStyle}>#</th><th style={thStyle}>เริ่ม</th><th style={thStyle}>สิ้นสุด</th>
+                      <th style={thR}>วัน</th><th style={thR}>ดอกเบี้ย</th>
+                    </tr></thead>
+                    <tbody>
+                      {act.length === 0 ? (
+                        <tr><td colSpan={5} style={{ ...tdCell, textAlign: 'center', padding: '12px 6px', color: 'var(--ink-500)' }}>
+                          ยังไม่มีข้อมูลดอกเกิดจริง — กด ⚡ คำนวณ
+                        </td></tr>
+                      ) : act.map(p => (
+                        <tr key={p.seq} style={{ borderBottom: '1px solid var(--ink-100)' }}>
+                          <td style={tdCell}>{p.seq}</td>
+                          <td style={tdCell}>{LIT_fmtDate(p.dateStart)}</td>
+                          <td style={tdCell}>{LIT_fmtDate(p.dateEnd)}</td>
+                          <td style={tdR}>{p.days}</td>
+                          <td style={tdR}>{LIT_fmt(p.intAmount, 2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot><tr style={{ fontWeight: 700, background: 'var(--ink-50)' }}>
+                      <td colSpan={4} style={{ ...tdCell, textAlign: 'right' }}>รวม</td>
+                      <td style={tdR}>{LIT_fmt(act.reduce((s, p) => s + (Number(p.intAmount) || 0), 0), 2)}</td>
+                    </tr></tfoot>
+                  </table>
+                </div>
+              </div>
+
+              {/* ── REFUND (right, narrower) ── */}
+              <div style={sectionCard}>
+                <div style={{ padding: '6px 10px', background: 'oklch(96% 0.05 80)', borderBottom: '1px solid var(--ink-200)' }}>
+                  <div style={{ fontWeight: 700, fontSize: 12 }}>💸 รับคืน/จ่ายคืน ({ref.length})</div>
+                </div>
+                <div style={tableBox}>
+                  {ref.length === 0 ? (
+                    <div style={{ padding: 12, color: 'var(--ink-500)', textAlign: 'center', fontSize: 11 }}>
+                      ยังไม่มีรับคืน
+                    </div>
+                  ) : (
+                    <table className="tbl" style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+                      <thead><tr>
+                        <th style={thStyle}>วันที่</th><th style={thStyle}>ประเภท</th><th style={thR}>จำนวน</th>
+                      </tr></thead>
+                      <tbody>
+                        {ref.map((r, i) => (
+                          <tr key={i} style={{ borderBottom: '1px solid var(--ink-100)' }} title={`${r.note || ''}\n${r.refDoc || ''}`}>
+                            <td style={tdCell}>{LIT_fmtDate(r.refundDate)}</td>
+                            <td style={tdCell}>{r.kind === 'principal' ? '💰 เงินต้น' : r.refundType === 'RV' ? '🧾 RV' : '🏦 โอน'}</td>
+                            <td style={tdR}>{LIT_fmt(r.amount, 2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot><tr style={{ fontWeight: 700, background: 'var(--ink-50)' }}>
+                        <td colSpan={2} style={{ ...tdCell, textAlign: 'right' }}>รวม</td>
+                        <td style={tdR}>{LIT_fmt(ref.reduce((s, r) => s + (Number(r.amount) || 0), 0), 2)}</td>
+                      </tr></tfoot>
+                    </table>
+                  )}
+                </div>
+              </div>
+
+            </div>
+          );
+        })()}
 
         <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'space-between' }}>
           <div>
@@ -1102,6 +1146,69 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
   };
 
   // ── Delete loan + child rows ──
+  // ── คำนวณดอกล่วงหน้าอัตโนมัติ (inline จาก drawer) ──
+  const handleCalcPrepaid = (loanRow) => {
+    const E = window.LeasitEngine;
+    if (!E || !E.litGenerateMonthlySchedule) return;
+    const principal = Number(loanRow.principalAmount) || 0;
+    const rate = Number(loanRow.interestRate) || 0;
+    const startISO = loanRow.leasitDateReceived || '';
+    const endISO = loanRow.leasitDateDue || '';
+    if (!principal || !rate || !startISO || !endISO) {
+      if (toast) toast('กรอก เงินต้น/อัตรา/วันรับ/วันครบ ใน "แก้ไข" ก่อน', 'error');
+      return;
+    }
+    const rows = E.litGenerateMonthlySchedule(principal, rate, startISO, endISO);
+    const loanId = loanRow.leasitLoanId;
+    const total = rows.reduce((s, r) => s + (Number(r.intAmount) || 0), 0);
+    setData(d => {
+      const keep = (d.interestSchedulePrepaid || []).filter(r => r.loanId !== loanId);
+      const fresh = rows.map((p, i) => ({ id: litRowId(loanId, 'pre', p.seq || i + 1), loanId, ...p }));
+      // update master totals + variance + outstanding
+      const dm = (d.debtMaster || []).map(r => r.leasitLoanId === loanId ? {
+        ...r,
+        leasitTotalPrepaid: total,
+        leasitVariance: total - (Number(r.leasitTotalActual) || 0),
+        leasitRefundOutstanding: total - (Number(r.leasitTotalActual) || 0) - (Number(r.leasitRefunded) || 0)
+      } : r);
+      return { ...d, interestSchedulePrepaid: keep.concat(fresh), debtMaster: dm };
+    });
+    if (window.WTPData && window.WTPData.forceSyncNow) setTimeout(() => window.WTPData.forceSyncNow(), 200);
+    if (toast) toast(`คำนวณดอกล่วงหน้า ${rows.length} งวด · รวม ${total.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'success');
+  };
+
+  // ── คำนวณดอกเกิดจริงอัตโนมัติ (inline จาก drawer) ──
+  //   ถ้าปิดสัญญาแล้ว = วันรับ → วันคืน · ถ้ายัง Active = วันรับ → วันนี้
+  const handleCalcActual = (loanRow) => {
+    const E = window.LeasitEngine;
+    if (!E || !E.litGenerateMonthlySchedule) return;
+    const principal = Number(loanRow.principalAmount) || 0;
+    const rate = Number(loanRow.interestRate) || 0;
+    const startISO = loanRow.leasitDateReceived || '';
+    const todayISO = new Date().toISOString().slice(0, 10);
+    const endISO = loanRow.leasitDateRepaid || todayISO;
+    if (!principal || !rate || !startISO) {
+      if (toast) toast('กรอก เงินต้น/อัตรา/วันรับ ใน "แก้ไข" ก่อน', 'error');
+      return;
+    }
+    const rows = E.litGenerateMonthlySchedule(principal, rate, startISO, endISO);
+    const loanId = loanRow.leasitLoanId;
+    const total = rows.reduce((s, r) => s + (Number(r.intAmount) || 0), 0);
+    setData(d => {
+      const keep = (d.interestScheduleActual || []).filter(r => r.loanId !== loanId);
+      const fresh = rows.map((p, i) => ({ id: litRowId(loanId, 'act', p.seq || i + 1), loanId, ...p }));
+      const dm = (d.debtMaster || []).map(r => r.leasitLoanId === loanId ? {
+        ...r,
+        leasitTotalActual: total,
+        leasitVariance: (Number(r.leasitTotalPrepaid) || 0) - total,
+        leasitRefundOutstanding: (Number(r.leasitTotalPrepaid) || 0) - total - (Number(r.leasitRefunded) || 0)
+      } : r);
+      return { ...d, interestScheduleActual: keep.concat(fresh), debtMaster: dm };
+    });
+    if (window.WTPData && window.WTPData.forceSyncNow) setTimeout(() => window.WTPData.forceSyncNow(), 200);
+    if (toast) toast(`คำนวณดอกเกิดจริง ${rows.length} งวด · รวม ${total.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'success');
+  };
+
   const handleDeleteForm = (draft) => {
     const loanId = draft.leasitLoanId;
     const rowId = 'lit_' + loanId;
@@ -1471,13 +1578,16 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
         onConfirm={handleImport}
       />
       <LeasitLoanDrawer
-        loan={viewLoan}
+        loan={viewLoan ? (allRows.find(r => r.id === viewLoan.id) || viewLoan) : null}
         prepaid={prepaid}
         actual={actual}
         refund={refund}
         onClose={() => setViewLoan(null)}
         onExportOne={handleExportOne}
         onEdit={canEdit ? (l) => { setFormState({ mode: 'edit', initial: l }); setViewLoan(null); } : null}
+        canEdit={canEdit}
+        onCalcPrepaid={handleCalcPrepaid}
+        onCalcActual={handleCalcActual}
       />
       <LeasitLoanForm
         open={!!formState}

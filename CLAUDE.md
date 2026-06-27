@@ -758,5 +758,17 @@ Live at **https://patima-fin.github.io/waterpog-fin/** — GitHub Pages serves t
 - **FIX 4 — Warning banner ถ้า SQL ยังไม่รัน:** เช็คเงื่อนไข `allRows.length > 0 && 3 child tables ทั้งหมดว่าง` → แสดง card สีเหลือง "⚠️ ตาราง schedule ใน Supabase ยังไม่มี — ดอกเบี้ยรายงวดไม่ถูก persist" + คำแนะนำให้ admin รัน `supabase/leasit-loans.sql` + ระบุชัดว่า debtMaster ยังอยู่ครบ (สัญญาไม่หาย). โผล่ขึ้นมาเฉพาะเมื่อจำเป็น (ไม่รก ถ้ารัน SQL แล้ว) — diagnostic ตรงจุด.
 - **verify (preview):** layout มี header "💰 เงินต้น" + "📈 ดอกเบี้ย" แยกชัด ✓ · 3 PrincipalCard fixed grid ✓ · ปุ่ม "เพิ่มสัญญา" เปิด modal (14 input fields) ✓ · ปุ่ม "↻ ดึงใหม่" + warning banner render ตามเงื่อนไข ✓ · เคส engine ยังไม่โหลด → modal "เปิดฟอร์มไม่ได้" + ปุ่ม refresh (ไม่ crash).
 
+## 2026-06-27 — Leasit drawer: 3-col layout + ปุ่ม ⚡ คำนวณ inline + sync live (build `page_debt_leasit 20260627i`)
+- **อาการ (เตย):** drawer ราย loan stack 3 ตาราง (Prepaid → Actual → Refund) ในแนวตั้ง — ต้อง scroll ดูเดือนถัดไป + อยากกดคำนวณ Prepaid/Actual ตรงจุดไม่ต้องเข้า form แก้.
+- **FIX 1 — 3-col grid (5fr 5fr 3fr):** Prepaid ซ้าย · Actual กลาง · Refund ขวา (แคบกว่า เพราะข้อมูลน้อย). หัวแต่ละ section มีพื้นสี (น้ำเงิน/เขียว/เหลือง) แยกชัด + ตัวเลขนับ. ลบ section header แนวตั้งเดิมทิ้ง.
+- **FIX 2 — Compact rows:** table `borderCollapse: collapse` + `tdCell` `padding: 2px 5px` + `fontSize: 11` + `whiteSpace: nowrap` + `overflow ellipsis` → row height **~22px** (เดิม ~36px). สามารถดูได้ ~18 งวดในกรอบ `maxHeight: 380` โดยไม่ scroll. คอลัมน์ลด: เหลือ **#/เริ่ม/สิ้นสุด/วัน/ดอกเบี้ย** (5 col) — ตัดเดือน/ปี/เงินต้น/อัตรา ที่ซ้ำกับ master ข้างบน. Refund: เหลือ **วันที่/ประเภท/จำนวน** (3 col) + title tooltip = note+refDoc.
+- **FIX 3 — ปุ่ม ⚡ คำนวณ inline:** หัว Prepaid + Actual มีปุ่ม "⚡ คำนวณ" (เฉพาะ canEdit + handler มาถึง) → confirm 1 รอบ → call handler.
+  - `handleCalcPrepaid(loan)`: ใช้ `litGenerateMonthlySchedule(principal, rate, dateReceived, dateDue)` → replace prepaid rows ของ loanId + update master totals (`leasitTotalPrepaid` + `leasitVariance` + `leasitRefundOutstanding`).
+  - `handleCalcActual(loan)`: ใช้ `litGenerateMonthlySchedule(principal, rate, dateReceived, dateRepaid || today)` — **ถ้ายัง Active = วันนี้ ถ้าปิดแล้ว = วันคืนเงิน** → replace actual rows + update master.
+  - validation: ถ้าฟิลด์จำเป็นไม่ครบ → toast error "ไปกรอกใน 'แก้ไข' ก่อน".
+  - `forceSyncNow` หลัง 200ms → push เข้า Supabase.
+- **FIX 4 — Drawer สะท้อน live update:** ใช้ `loan={viewLoan ? (allRows.find(r => r.id === viewLoan.id) || viewLoan) : null}` — หลัง calc setData → allRows มี row ใหม่ → drawer หา id เดิม → re-render ด้วย totals ที่อัปเดต ทันที (ไม่ค้าง state เก่า).
+- **verify (preview, mock loan 30 closed Dec 4 → Mar 18):** drawer 3-col grid ✓ · 2 ปุ่ม ⚡ (เฉพาะ Prepaid + Actual, Refund ไม่มี) ✓ · กดคำนวณ Actual → **7 segments รวม 23,506.85 ตรง source loan 30 actual เป๊ะ** (7 ไม่ใช่ 9 เพราะปิดก่อนวันครบ → ไม่มี Mar 21-31 + Apr 1-3) · toast แสดง · row height ~22px · sticky header.
+
 ## Repo rule: keep CLAUDE.md current
 **Every time you `git push`, update this `CLAUDE.md`** to reflect anything that changed (architecture, conventions, new pages, gotchas). Treat it as part of the push, like the `?v=` bump.
