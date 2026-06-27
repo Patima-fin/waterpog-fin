@@ -21,7 +21,11 @@ create table if not exists "interestSchedulePrepaid" (
 drop trigger if exists set_updated_at on "interestSchedulePrepaid";
 create trigger set_updated_at before update on "interestSchedulePrepaid"
   for each row execute function public.set_updated_at();
-alter publication supabase_realtime add table "interestSchedulePrepaid";
+-- idempotent: ถ้าตารางอยู่ใน publication แล้วก็ข้าม (กัน error 42710 ตอนรันซ้ำ)
+do $$ begin
+  alter publication supabase_realtime add table "interestSchedulePrepaid";
+exception when duplicate_object then null;
+end $$;
 grant all on "interestSchedulePrepaid" to anon, authenticated, service_role;
 
 alter table "interestSchedulePrepaid" enable row level security;
@@ -43,7 +47,10 @@ create table if not exists "interestScheduleActual" (
 drop trigger if exists set_updated_at on "interestScheduleActual";
 create trigger set_updated_at before update on "interestScheduleActual"
   for each row execute function public.set_updated_at();
-alter publication supabase_realtime add table "interestScheduleActual";
+do $$ begin
+  alter publication supabase_realtime add table "interestScheduleActual";
+exception when duplicate_object then null;
+end $$;
 grant all on "interestScheduleActual" to anon, authenticated, service_role;
 
 alter table "interestScheduleActual" enable row level security;
@@ -65,7 +72,10 @@ create table if not exists "interestRefund" (
 drop trigger if exists set_updated_at on "interestRefund";
 create trigger set_updated_at before update on "interestRefund"
   for each row execute function public.set_updated_at();
-alter publication supabase_realtime add table "interestRefund";
+do $$ begin
+  alter publication supabase_realtime add table "interestRefund";
+exception when duplicate_object then null;
+end $$;
 grant all on "interestRefund" to anon, authenticated, service_role;
 
 alter table "interestRefund" enable row level security;
