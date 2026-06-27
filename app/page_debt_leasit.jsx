@@ -482,28 +482,54 @@ function LeasitProjectAutocomplete({ value, name, projects, onPick, onChangeManu
 /* ── LeasitLoanForm — เพิ่ม/แก้ไขสัญญาลีซอิท ─────────────────────────── */
 function LeasitLoanForm({ open, mode, initial, data, onClose, onSave, onDelete, canEdit }) {
   const Modal = window.Modal;
-  const E = window.LeasitEngine;
+  const E = window.LeasitEngine || {};
   const [draft, setDraft] = React.useState(null);
   const [preRows, setPreRows] = React.useState([]);
   const [actRows, setActRows] = React.useState([]);
   const [refRows, setRefRows] = React.useState([]);
   const [tab, setTab] = React.useState('master');
+  const [loadErr, setLoadErr] = React.useState('');
 
-  // โหลด initial เมื่อเปิด
+  // โหลด initial เมื่อเปิด — defensive (กัน window.LeasitEngine ยังไม่โหลด / data ว่าง)
   React.useEffect(() => {
     if (!open) return;
-    if (mode === 'edit' && initial) {
-      setDraft({ ...initial });
-      const loanId = initial.leasitLoanId;
-      setPreRows((data?.interestSchedulePrepaid || []).filter(r => r.loanId === loanId).slice().sort((a, b) => (a.seq || 0) - (b.seq || 0)));
-      setActRows((data?.interestScheduleActual || []).filter(r => r.loanId === loanId).slice().sort((a, b) => (a.seq || 0) - (b.seq || 0)));
-      setRefRows((data?.interestRefund || []).filter(r => r.loanId === loanId).slice());
-    } else {
-      setDraft(E.litBlankLoanDraft(data?.debtMaster || []));
-      setPreRows([]); setActRows([]); setRefRows([]);
+    setLoadErr('');
+    try {
+      const E = window.LeasitEngine;
+      if (!E || typeof E.litBlankLoanDraft !== 'function') {
+        setLoadErr('engine ยังไม่พร้อม — ลอง refresh หน้า');
+        return;
+      }
+      if (mode === 'edit' && initial) {
+        setDraft({ ...initial });
+        const loanId = initial.leasitLoanId;
+        setPreRows((data?.interestSchedulePrepaid || []).filter(r => r.loanId === loanId).slice().sort((a, b) => (a.seq || 0) - (b.seq || 0)));
+        setActRows((data?.interestScheduleActual || []).filter(r => r.loanId === loanId).slice().sort((a, b) => (a.seq || 0) - (b.seq || 0)));
+        setRefRows((data?.interestRefund || []).filter(r => r.loanId === loanId).slice());
+      } else {
+        setDraft(E.litBlankLoanDraft(data?.debtMaster || []));
+        setPreRows([]); setActRows([]); setRefRows([]);
+      }
+      setTab('master');
+    } catch (err) {
+      console.error('[Leasit] form init error:', err);
+      setLoadErr(String(err && err.message || err));
     }
-    setTab('master');
   }, [open, mode, initial]);
+
+  // ถ้า open แต่ engine error → render กล่อง error แทน
+  if (open && loadErr) {
+    return (
+      <Modal open={true} onClose={onClose} title="⚠️ เปิดฟอร์มไม่ได้" maxWidth={500}>
+        <div style={{ padding: 12 }}>
+          <div style={{ color: 'var(--bad)', fontWeight: 600, marginBottom: 8 }}>{loadErr}</div>
+          <div style={{ fontSize: 12, color: 'var(--ink-700)' }}>
+            ลอง <button className="btn btn-ghost" onClick={() => window.location.reload()}>↻ refresh หน้า</button> แล้วลองอีกครั้ง
+          </div>
+        </div>
+      </Modal>
+    );
+  }
 
   if (!open || !draft) return null;
 
@@ -1219,33 +1245,43 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
         </div>
       )}
 
-      {/* 💰 Principal PRE/POS/NON (3 cards) + KPI inline (compact) — wrap ตามจอ */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8, marginBottom: 10 }}>
+      {/* ── 💰 เงินต้น (PRE/POS/NON) — สำคัญสุด แถวบน ── */}
+      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-700)', marginBottom: 4 }}>
+        💰 เงินต้น — รับ / จ่ายคืน / คงเหลือ
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 10 }}>
         <PrincipalCard label="PRE" bkt={principalSummary.PRE} color="oklch(52% 0.16 250)" />
         <PrincipalCard label="POS" bkt={principalSummary.POS} color="oklch(56% 0.18 25)" />
         <PrincipalCard label="NON" bkt={principalSummary.NON} color="oklch(48% 0.14 305)" />
-        {/* KPI สรุปดอก (รวม 4 ตัวเลขใน card เดียว) */}
-        <div className="card" style={{ padding: 8 }}>
-          <div style={{ fontSize: 10, color: 'var(--ink-500)', marginBottom: 4 }}>
-            💰 ดอกเบี้ย · {allRows.length} สัญญา (🟢{activeCnt}·⚫{closedCnt})
+      </div>
+
+      {/* ── 📈 ดอกเบี้ย (รวมทุกสัญญา) — แถวล่าง ── */}
+      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-700)', marginBottom: 4 }}>
+        📈 ดอกเบี้ย — ล่วงหน้า / เกิดจริง / ส่วนต่าง / ค้างรับคืน
+      </div>
+      <div className="card" style={{ padding: 10, marginBottom: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, fontSize: 12 }}>
+          <div>
+            <div style={{ color: 'var(--ink-500)', fontSize: 10 }}>สัญญา</div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>{allRows.length}</div>
+            <div style={{ fontSize: 10, color: 'var(--ink-500)' }}>🟢 {activeCnt} · ⚫ {closedCnt}</div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 4, fontSize: 11 }}>
-            <div>
-              <div style={{ color: 'var(--ink-500)', fontSize: 10 }}>ล่วงหน้า</div>
-              <div style={{ fontSize: 13, fontWeight: 700 }}>{LIT_fmt(totPre, 0)}</div>
-            </div>
-            <div>
-              <div style={{ color: 'var(--ink-500)', fontSize: 10 }}>เกิดจริง</div>
-              <div style={{ fontSize: 13, fontWeight: 700 }}>{LIT_fmt(totAct, 0)}</div>
-            </div>
-            <div>
-              <div style={{ color: 'var(--ink-500)', fontSize: 10 }}>ส่วนต่าง</div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'oklch(52% 0.16 145)' }}>{LIT_fmt(totVar, 0)}</div>
-            </div>
-            <div>
-              <div style={{ color: 'var(--ink-500)', fontSize: 10 }}>ค้างคืน</div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: totOut > 0.01 ? 'var(--bad)' : 'inherit' }}>{LIT_fmt(totOut, 0)}</div>
-            </div>
+          <div>
+            <div style={{ color: 'var(--ink-500)', fontSize: 10 }}>ดอกล่วงหน้ารวม</div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>{LIT_fmt(totPre, 0)}</div>
+          </div>
+          <div>
+            <div style={{ color: 'var(--ink-500)', fontSize: 10 }}>ดอกเกิดจริง</div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>{LIT_fmt(totAct, 0)}</div>
+          </div>
+          <div>
+            <div style={{ color: 'var(--ink-500)', fontSize: 10 }}>ส่วนต่าง (ต้องได้คืน)</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'oklch(52% 0.16 145)' }}>{LIT_fmt(totVar, 0)}</div>
+          </div>
+          <div>
+            <div style={{ color: 'var(--ink-500)', fontSize: 10 }}>ค้างรับคืน</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: totOut > 0.01 ? 'var(--bad)' : 'inherit' }}>{LIT_fmt(totOut, 0)}</div>
+            <div style={{ fontSize: 10, color: 'var(--ink-500)' }}>รับแล้ว {LIT_fmt(totRef, 0)}</div>
           </div>
         </div>
       </div>
@@ -1275,9 +1311,37 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
           </>
         )}
         <button className="btn btn-ghost" onClick={handleExportAll} disabled={!allRows.length}>
-          📤 Export ทั้งหมด (มีสูตร)
+          📤 Export (มีสูตร)
+        </button>
+        <button
+          className="btn btn-ghost"
+          title="ดึงข้อมูลล่าสุดจาก Supabase (เผื่อ data ตกหล่นหลัง import)"
+          onClick={async () => {
+            try {
+              if (window.WTPData && window.WTPData.refreshFromServer) {
+                await window.WTPData.refreshFromServer();
+                if (toast) toast('ดึงข้อมูลจาก Supabase สำเร็จ', 'success');
+              } else {
+                window.location.reload();
+              }
+            } catch (e) {
+              if (toast) toast('ดึงข้อมูลล้มเหลว: ' + (e.message || e), 'error');
+            }
+          }}
+        >
+          ↻ ดึงใหม่
         </button>
       </div>
+
+      {/* Warning: ถ้า debtMaster มี leasit rows แต่ 3 child tables ว่างหมด → SQL ยังไม่รัน */}
+      {allRows.length > 0 && (data?.interestSchedulePrepaid || []).length === 0 && (data?.interestScheduleActual || []).length === 0 && (data?.interestRefund || []).length === 0 && (
+        <div className="card" style={{ padding: 10, marginBottom: 10, background: 'oklch(96% 0.05 80)', borderLeft: '4px solid oklch(70% 0.18 80)', fontSize: 12 }}>
+          ⚠️ <b>ตาราง schedule ใน Supabase ยังไม่มี — ดอกเบี้ยรายงวดไม่ถูก persist</b>
+          <div style={{ marginTop: 4, color: 'var(--ink-700)' }}>
+            ให้ admin รัน <code>supabase/leasit-loans.sql</code> ใน Supabase SQL Editor แล้วลองใหม่ (สัญญา {allRows.length} ตัวที่ใส่ไว้ยังอยู่ใน <code>debtMaster</code> ปกติ ไม่หาย).
+          </div>
+        </div>
+      )}
 
       {/* Table */}
       {filtered.length === 0 ? (
