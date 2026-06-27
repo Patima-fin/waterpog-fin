@@ -255,6 +255,25 @@ function parseLeasitWorkbook(wb) {
     }
   }
 
+  // 1b) ★ สรุปรวม sheet — authoritative ticket type per loanId
+  //     คอลัมน์ col 4 (E) "ประเภท" = PRE / POS / NON (Term Loan)
+  //     ในชีตเดี่ยวบางสัญญา ticketType=0 (ไม่ระบุ) → ดึงจาก summary แทน
+  var summaryTicket = {};   // {loanId: 'PRE'|'POS'|'NON'}
+  if (wb.SheetNames.indexOf('สรุปรวม') >= 0) {
+    var sws = wb.Sheets['สรุปรวม'];
+    var saoa = XLSX.utils.sheet_to_json(sws, { header: 1, raw: true, defval: null });
+    // header อยู่ R4 (idx 3), data จาก R7 (idx 6) เป็นต้นไป
+    for (var si = 6; si < saoa.length; si++) {
+      var srow = saoa[si] || [];
+      var slid = litNum(srow[0]);
+      if (slid <= 0) continue;
+      var stype = litTrim(srow[4]).toUpperCase();
+      if (stype === 'PRE' || stype === 'POS' || stype === 'NON') {
+        summaryTicket[slid] = stype;
+      }
+    }
+  }
+
   // 2) เดินทุกชีตที่ชื่อเป็นเลขล้วน (= per-loan sheet)
   for (var i = 0; i < wb.SheetNames.length; i++) {
     var name = wb.SheetNames[i];
@@ -330,14 +349,21 @@ function parseLeasitWorkbook(wb) {
       // 2g) สถานะ — ปิดหนี้ถ้ามีวันคืนเงิน
       var status = dateRepaid ? 'Close' : 'Active';
 
+      // 2h) ★ ticket type: ใช้ summary เป็นหลัก (authoritative)
+      //     ชีตเดี่ยวเป็น fallback (กรณีไม่มี summary entry)
+      var resolvedTicket = summaryTicket[loanId] || ticketType.toUpperCase();
+      if (resolvedTicket !== 'PRE' && resolvedTicket !== 'POS' && resolvedTicket !== 'NON') {
+        resolvedTicket = 'POS';   // default ถ้าระบุไม่ชัด
+      }
+
       loans.push({
         loanId: loanId,
         contractNo: contractNo,
         jobNo: jobNo,
         projectName: projectName,
-        ticketType: ticketType,
+        ticketType: resolvedTicket,
         productType: reg.productType || '',
-        loanType: ticketType === 'NON' ? 'NON' : 'PRE',
+        loanType: resolvedTicket === 'NON' ? 'NON' : resolvedTicket === 'POS' ? 'POS' : 'PRE',
         interestRate: interestRate,
         principal: principal,
         dateReceived: dateReceived,

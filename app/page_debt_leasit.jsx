@@ -163,10 +163,15 @@ function LeasitLoanDrawer({ loan, prepaid, actual, refund, onClose, onExportOne,
   const act = actual.filter(r => r.loanId === loan.leasitLoanId).sort((a, b) => (a.seq || 0) - (b.seq || 0));
   const ref = refund.filter(r => r.loanId === loan.leasitLoanId).sort((a, b) => (a.refundDate || '').localeCompare(b.refundDate || ''));
 
-  // ── PRE/POS classification + principal summary ──
-  const isPRE = String(loan.leasitTicketType || '').toUpperCase() === 'PRE';
-  const ticketLabel = isPRE ? 'PRE' : 'POS';
-  const ticketColor = isPRE ? 'oklch(52% 0.16 250)' : 'oklch(56% 0.18 25)';
+  // ── PRE/POS/NON classification + principal summary ──
+  const ticketRaw = String(loan.leasitTicketType || '').toUpperCase();
+  const ticketLabel = ticketRaw === 'NON' ? 'NON' : ticketRaw === 'PRE' ? 'PRE' : 'POS';
+  const ticketColor = ticketLabel === 'PRE' ? 'oklch(52% 0.16 250)'
+                    : ticketLabel === 'NON' ? 'oklch(48% 0.14 305)'
+                    : 'oklch(56% 0.18 25)';
+  const ticketDesc = ticketLabel === 'PRE' ? 'Pre-financing'
+                   : ticketLabel === 'NON' ? 'Non-PRE (Term Loan)'
+                   : 'Post-financing';
   const principal = Number(loan.principalAmount) || 0;
   const isActive = loan.status === 'Active';
   const drawn = principal;
@@ -211,7 +216,7 @@ function LeasitLoanDrawer({ loan, prepaid, actual, refund, onClose, onExportOne,
               background: ticketColor, color: '#fff'
             }}>{ticketLabel}</span>
             <span style={{ fontSize: 11, color: 'var(--ink-500)' }}>
-              ({isPRE ? 'Pre-financing' : 'Post-financing'})
+              ({ticketDesc})
             </span>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
@@ -832,6 +837,9 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
   const [viewLoan, setViewLoan] = React.useState(null);
   // formState: null = ปิด, { mode: 'new'|'edit', initial: row }
   const [formState, setFormState] = React.useState(null);
+  const [maturityOpen, setMaturityOpen] = React.useState(false);
+  const [page, setPage] = React.useState(1);
+  const PAGE_SIZE = 15;
   const [query, setQuery] = React.useState('');
   const [statusFilter, setStatusFilter] = React.useState('all');
 
@@ -1086,15 +1094,17 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
     if (toast) toast(`ลบสัญญา ${draft.contractNo} แล้ว`, 'info');
   };
 
-  // ── Principal summary: PRE vs POS (drawn / repaid / outstanding) ──
+  // ── Principal summary: PRE / POS / NON (drawn / repaid / outstanding) ──
+  //   PRE = Pre-financing, POS = Post-financing, NON = Term Loan (เช่น 20M)
   const principalSummary = React.useMemo(() => {
     const acc = {
       PRE: { count: 0, active: 0, drawn: 0, repaid: 0, outstanding: 0 },
-      POS: { count: 0, active: 0, drawn: 0, repaid: 0, outstanding: 0 }
+      POS: { count: 0, active: 0, drawn: 0, repaid: 0, outstanding: 0 },
+      NON: { count: 0, active: 0, drawn: 0, repaid: 0, outstanding: 0 }
     };
     allRows.forEach(r => {
-      const isPRE = String(r.leasitTicketType || '').toUpperCase() === 'PRE';
-      const bkt = isPRE ? acc.PRE : acc.POS;
+      const t = String(r.leasitTicketType || '').toUpperCase();
+      const bkt = t === 'PRE' ? acc.PRE : t === 'NON' ? acc.NON : acc.POS;
       const p = Number(r.principalAmount) || 0;
       bkt.count++;
       bkt.drawn += p;
@@ -1121,28 +1131,28 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
   }, [allRows]);
 
   const PrincipalCard = ({ label, bkt, color }) => (
-    <div className="card" style={{ padding: 14, borderTop: '3px solid ' + color }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+    <div className="card" style={{ padding: 8, borderTop: '2px solid ' + color }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
         <span style={{
-          padding: '2px 10px', borderRadius: 999, fontSize: 11, fontWeight: 700,
+          padding: '1px 7px', borderRadius: 999, fontSize: 10, fontWeight: 700,
           background: color, color: '#fff'
         }}>{label}</span>
-        <span style={{ fontSize: 12, color: 'var(--ink-500)' }}>
-          {bkt.count} สัญญา · Active {bkt.active}
+        <span style={{ fontSize: 11, color: 'var(--ink-500)' }}>
+          {bkt.count} · Active {bkt.active}
         </span>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, fontSize: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4, fontSize: 11 }}>
         <div>
-          <div style={{ color: 'var(--ink-500)' }}>↗ เบิก</div>
-          <div style={{ fontSize: 16, fontWeight: 700 }}>{LIT_fmt(bkt.drawn, 0)}</div>
+          <div style={{ color: 'var(--ink-500)', fontSize: 10 }}>↗ เบิก</div>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>{LIT_fmt(bkt.drawn, 0)}</div>
         </div>
         <div>
-          <div style={{ color: 'var(--ink-500)' }}>↙ คืน</div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: 'oklch(50% 0.14 145)' }}>{LIT_fmt(bkt.repaid, 0)}</div>
+          <div style={{ color: 'var(--ink-500)', fontSize: 10 }}>✓ คืน</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'oklch(50% 0.14 145)' }}>{LIT_fmt(bkt.repaid, 0)}</div>
         </div>
         <div>
-          <div style={{ color: 'var(--ink-500)' }}>● คงเหลือ</div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: bkt.outstanding > 0 ? 'var(--bad)' : 'var(--ink-500)' }}>
+          <div style={{ color: 'var(--ink-500)', fontSize: 10 }}>● คงเหลือ</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: bkt.outstanding > 0 ? 'var(--bad)' : 'var(--ink-500)' }}>
             {LIT_fmt(bkt.outstanding, 0)}
           </div>
         </div>
@@ -1152,94 +1162,90 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
 
   return (
     <div>
-      {/* ⏰ Maturity alert banner — Active loans ครบกำหนดใน 30 วัน */}
+      {/* ⏰ Maturity alert banner — Active loans ครบกำหนดใน 30 วัน (ย่อเป็น 1 บรรทัด คลิกขยาย) */}
       {maturityAlerts.length > 0 && (
         <div className="card" style={{
-          padding: 14, marginBottom: 14,
+          padding: '8px 12px', marginBottom: 10,
           background: 'oklch(96% 0.06 80)',
-          borderLeft: '4px solid oklch(70% 0.18 80)'
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <div style={{ fontWeight: 700, fontSize: 15 }}>
-              ⏰ ครบกำหนดภายใน 30 วัน ({maturityAlerts.length} สัญญา)
+          borderLeft: '4px solid oklch(70% 0.18 80)',
+          cursor: 'pointer'
+        }}
+          onClick={() => setMaturityOpen(o => !o)}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ fontWeight: 700, fontSize: 13 }}>
+              {maturityOpen ? '▾' : '▸'} ⏰ ครบกำหนดภายใน 30 วัน ({maturityAlerts.length} สัญญา · เงินต้น {LIT_fmt(maturityAlerts.reduce((s, a) => s + (Number(a.row.principalAmount) || 0), 0), 0)})
             </div>
-            <div style={{ fontSize: 12, color: 'var(--ink-500)' }}>
-              เงินต้นรวม {LIT_fmt(maturityAlerts.reduce((s, a) => s + (Number(a.row.principalAmount) || 0), 0), 0)}
+            <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>
+              {maturityAlerts.filter(a => a.days < 0).length} เกินกำหนด · {maturityAlerts.filter(a => a.days >= 0 && a.days <= 7).length} ใน 7 วัน
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 8 }}>
-            {maturityAlerts.slice(0, 12).map(({ row: r, dueISO, days }) => (
-              <div
-                key={r.id}
-                onClick={() => setViewLoan(r)}
-                style={{
-                  padding: 10, background: 'var(--panel)', borderRadius: 8, cursor: 'pointer',
-                  border: '1px solid ' + (days < 0 ? 'var(--bad)' : days <= 7 ? 'oklch(70% 0.18 80)' : 'var(--ink-200)')
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ fontWeight: 700, fontSize: 12 }}>#{r.leasitLoanId} · {r.contractNo}</div>
-                  <span style={{
-                    padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700,
-                    background: days < 0 ? 'var(--bad)' : days <= 7 ? 'oklch(70% 0.18 80)' : 'var(--ink-300)',
-                    color: '#fff'
-                  }}>
-                    {days < 0 ? `เกิน ${Math.abs(days)} วัน` : days === 0 ? 'วันนี้' : `อีก ${days} วัน`}
-                  </span>
+          {maturityOpen && (
+            <div onClick={(e) => e.stopPropagation()} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 6, marginTop: 8 }}>
+              {maturityAlerts.slice(0, 12).map(({ row: r, dueISO, days }) => (
+                <div
+                  key={r.id}
+                  onClick={() => setViewLoan(r)}
+                  style={{
+                    padding: 7, background: 'var(--panel)', borderRadius: 6, cursor: 'pointer', fontSize: 11,
+                    border: '1px solid ' + (days < 0 ? 'var(--bad)' : days <= 7 ? 'oklch(70% 0.18 80)' : 'var(--ink-200)')
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ fontWeight: 700 }}>#{r.leasitLoanId} · {r.contractNo}</span>
+                    <span style={{
+                      padding: '0 6px', borderRadius: 999, fontSize: 10, fontWeight: 700,
+                      background: days < 0 ? 'var(--bad)' : days <= 7 ? 'oklch(70% 0.18 80)' : 'var(--ink-300)',
+                      color: '#fff'
+                    }}>
+                      {days < 0 ? `เกิน ${Math.abs(days)}` : days === 0 ? 'วันนี้' : `อีก ${days}`}
+                    </span>
+                  </div>
+                  <div title={r.projectName} style={{ color: 'var(--ink-700)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {r.projectName}
+                  </div>
+                  <div style={{ color: 'var(--ink-500)' }}>
+                    {LIT_fmtDate(dueISO)} · {LIT_fmt(r.principalAmount, 0)}
+                  </div>
                 </div>
-                <div title={r.projectName} style={{ fontSize: 11, color: 'var(--ink-700)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {r.projectName}
+              ))}
+              {maturityAlerts.length > 12 && (
+                <div style={{ fontSize: 11, color: 'var(--ink-500)', alignSelf: 'center' }}>
+                  +{maturityAlerts.length - 12} รายการ
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--ink-500)', marginTop: 2 }}>
-                  ครบกำหนด {LIT_fmtDate(dueISO)} · เงินต้น {LIT_fmt(r.principalAmount, 0)}
-                </div>
-              </div>
-            ))}
-          </div>
-          {maturityAlerts.length > 12 && (
-            <div style={{ fontSize: 11, color: 'var(--ink-500)', marginTop: 6 }}>
-              แสดง 12 รายการแรก จากทั้งหมด {maturityAlerts.length}
+              )}
             </div>
           )}
         </div>
       )}
 
-      {/* 💰 Principal summary by PRE/POS */}
-      <div className="grid grid-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: 14 }}>
+      {/* 💰 Principal PRE/POS/NON (3 cards) + KPI inline (compact) — wrap ตามจอ */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8, marginBottom: 10 }}>
         <PrincipalCard label="PRE" bkt={principalSummary.PRE} color="oklch(52% 0.16 250)" />
         <PrincipalCard label="POS" bkt={principalSummary.POS} color="oklch(56% 0.18 25)" />
-      </div>
-
-      {/* KPI Row */}
-      <div className="grid grid-4 anim-stagger" style={{ marginBottom: 16 }}>
-        <div className="card" style={{ padding: 14 }}>
-          <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>สัญญาทั้งหมด</div>
-          <div style={{ fontSize: 22, fontWeight: 700 }}>{allRows.length}</div>
-          <div style={{ fontSize: 11, color: 'var(--ink-500)', marginTop: 4 }}>
-            🟢 Active {activeCnt} · ⚫ ปิด {closedCnt}
+        <PrincipalCard label="NON" bkt={principalSummary.NON} color="oklch(48% 0.14 305)" />
+        {/* KPI สรุปดอก (รวม 4 ตัวเลขใน card เดียว) */}
+        <div className="card" style={{ padding: 8 }}>
+          <div style={{ fontSize: 10, color: 'var(--ink-500)', marginBottom: 4 }}>
+            💰 ดอกเบี้ย · {allRows.length} สัญญา (🟢{activeCnt}·⚫{closedCnt})
           </div>
-        </div>
-        <div className="card" style={{ padding: 14 }}>
-          <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>ดอกจ่ายล่วงหน้ารวม</div>
-          <div style={{ fontSize: 22, fontWeight: 700 }}>{LIT_fmt(totPre, 0)}</div>
-          <div style={{ fontSize: 11, color: 'var(--ink-500)', marginTop: 4 }}>
-            ดอกเกิดจริง {LIT_fmt(totAct, 0)}
-          </div>
-        </div>
-        <div className="card" style={{ padding: 14 }}>
-          <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>ส่วนต่างรวม</div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: 'oklch(52% 0.16 145)' }}>{LIT_fmt(totVar, 0)}</div>
-          <div style={{ fontSize: 11, color: 'var(--ink-500)', marginTop: 4 }}>
-            (ต้องได้คืน)
-          </div>
-        </div>
-        <div className="card" style={{ padding: 14, background: totOut > 0.01 ? 'oklch(96% 0.05 22)' : 'oklch(96% 0.04 145)' }}>
-          <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>ค้างรับคืน</div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: totOut > 0.01 ? 'var(--bad)' : 'inherit' }}>
-            {LIT_fmt(totOut, 0)}
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-500)', marginTop: 4 }}>
-            รับคืนแล้ว {LIT_fmt(totRef, 0)}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 4, fontSize: 11 }}>
+            <div>
+              <div style={{ color: 'var(--ink-500)', fontSize: 10 }}>ล่วงหน้า</div>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>{LIT_fmt(totPre, 0)}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--ink-500)', fontSize: 10 }}>เกิดจริง</div>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>{LIT_fmt(totAct, 0)}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--ink-500)', fontSize: 10 }}>ส่วนต่าง</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'oklch(52% 0.16 145)' }}>{LIT_fmt(totVar, 0)}</div>
+            </div>
+            <div>
+              <div style={{ color: 'var(--ink-500)', fontSize: 10 }}>ค้างคืน</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: totOut > 0.01 ? 'var(--bad)' : 'inherit' }}>{LIT_fmt(totOut, 0)}</div>
+            </div>
           </div>
         </div>
       </div>
@@ -1280,61 +1286,96 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
             ? '⚠️ ยังไม่มีข้อมูลลีซอิท — กด "📥 นำเข้า Excel" เพื่อ upload ไฟล์ตารางคำนวณดอกเบี้ย'
             : 'ไม่พบสัญญาที่ค้นหา'}
         </div>
-      ) : (
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{ overflowX: 'auto' }}>
-            <table className="tbl" style={{ width: '100%', fontSize: 13 }}>
-              <thead>
-                <tr>
-                  <th>#</th><th>เลขที่สัญญา</th><th>JOB</th><th>โครงการ</th>
-                  <th style={{ textAlign: 'right' }}>วงเงิน</th>
-                  <th style={{ textAlign: 'right' }}>อัตรา</th>
-                  <th>รับเงิน</th><th>ครบกำหนด</th><th>สถานะ</th>
-                  <th style={{ textAlign: 'right' }}>ดอกล่วงหน้า</th>
-                  <th style={{ textAlign: 'right' }}>ดอกเกิดจริง</th>
-                  <th style={{ textAlign: 'right' }}>ส่วนต่าง</th>
-                  <th style={{ textAlign: 'right' }}>รับคืนแล้ว</th>
-                  <th style={{ textAlign: 'right' }}>ค้างรับคืน</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map(r => (
-                  <tr key={r.id} onClick={() => setViewLoan(r)} style={{ cursor: 'pointer' }}>
-                    <td>{r.leasitLoanId}</td>
-                    <td>{r.contractNo}</td>
-                    <td>{r.projectCode || '—'}</td>
-                    <td title={r.projectName} style={{ maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.projectName}</td>
-                    <td style={{ textAlign: 'right' }}>{LIT_fmt(r.principalAmount, 0)}</td>
-                    <td style={{ textAlign: 'right' }}>{(r.interestRate * 100).toFixed(2)}%</td>
-                    <td>{LIT_fmtDate(r.leasitDateReceived)}</td>
-                    <td>{LIT_fmtDate(r.leasitDateDue)}</td>
-                    <td>{r.status === 'Active' ? '🟢' : '⚫'}</td>
-                    <td style={{ textAlign: 'right' }}>{LIT_fmt(r.leasitTotalPrepaid, 2)}</td>
-                    <td style={{ textAlign: 'right' }}>{LIT_fmt(r.leasitTotalActual, 2)}</td>
-                    <td style={{ textAlign: 'right', color: 'oklch(52% 0.16 145)' }}>{LIT_fmt(r.leasitVariance, 2)}</td>
-                    <td style={{ textAlign: 'right' }}>{LIT_fmt(r.leasitRefunded, 2)}</td>
-                    <td style={{ textAlign: 'right', color: r.leasitRefundOutstanding > 0.01 ? 'var(--bad)' : 'var(--ink-500)', fontWeight: r.leasitRefundOutstanding > 0.01 ? 600 : 400 }}>
-                      {LIT_fmt(r.leasitRefundOutstanding, 2)}
-                    </td>
+      ) : (() => {
+        const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+        const curPage = Math.min(page, totalPages);
+        const pageRows = filtered.slice((curPage - 1) * PAGE_SIZE, curPage * PAGE_SIZE);
+        const tdStyle = { padding: '4px 6px', fontSize: 12 };
+        const tdRight = { ...tdStyle, textAlign: 'right' };
+        return (
+          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            <div style={{ overflowX: 'auto' }}>
+              <table className="tbl" style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: 'var(--ink-50)' }}>
+                    <th style={{ ...tdStyle, fontWeight: 600 }}>#</th>
+                    <th style={{ ...tdStyle, fontWeight: 600 }}>ประเภท</th>
+                    <th style={{ ...tdStyle, fontWeight: 600 }}>เลขที่สัญญา</th>
+                    <th style={{ ...tdStyle, fontWeight: 600 }}>JOB</th>
+                    <th style={{ ...tdStyle, fontWeight: 600 }}>โครงการ</th>
+                    <th style={{ ...tdRight, fontWeight: 600 }}>วงเงิน</th>
+                    <th style={{ ...tdRight, fontWeight: 600 }}>อัตรา</th>
+                    <th style={{ ...tdStyle, fontWeight: 600 }}>รับเงิน</th>
+                    <th style={{ ...tdStyle, fontWeight: 600 }}>ครบกำหนด</th>
+                    <th style={{ ...tdStyle, fontWeight: 600 }}>สถานะ</th>
+                    <th style={{ ...tdRight, fontWeight: 600 }}>ดอกล่วงหน้า</th>
+                    <th style={{ ...tdRight, fontWeight: 600 }}>ดอกเกิดจริง</th>
+                    <th style={{ ...tdRight, fontWeight: 600 }}>ส่วนต่าง</th>
+                    <th style={{ ...tdRight, fontWeight: 600 }}>รับคืนแล้ว</th>
+                    <th style={{ ...tdRight, fontWeight: 600 }}>ค้างรับคืน</th>
                   </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr style={{ fontWeight: 600, background: 'var(--ink-50)' }}>
-                  <td colSpan={4} style={{ textAlign: 'right' }}>รวม {filtered.length} สัญญา</td>
-                  <td style={{ textAlign: 'right' }}>{LIT_fmt(filtered.reduce((s, r) => s + (Number(r.principalAmount) || 0), 0), 0)}</td>
-                  <td colSpan={4}></td>
-                  <td style={{ textAlign: 'right' }}>{LIT_fmt(filtered.reduce((s, r) => s + (Number(r.leasitTotalPrepaid) || 0), 0), 2)}</td>
-                  <td style={{ textAlign: 'right' }}>{LIT_fmt(filtered.reduce((s, r) => s + (Number(r.leasitTotalActual) || 0), 0), 2)}</td>
-                  <td style={{ textAlign: 'right' }}>{LIT_fmt(filtered.reduce((s, r) => s + (Number(r.leasitVariance) || 0), 0), 2)}</td>
-                  <td style={{ textAlign: 'right' }}>{LIT_fmt(filtered.reduce((s, r) => s + (Number(r.leasitRefunded) || 0), 0), 2)}</td>
-                  <td style={{ textAlign: 'right' }}>{LIT_fmt(filtered.reduce((s, r) => s + (Number(r.leasitRefundOutstanding) || 0), 0), 2)}</td>
-                </tr>
-              </tfoot>
-            </table>
+                </thead>
+                <tbody>
+                  {pageRows.map(r => {
+                    const t = String(r.leasitTicketType || '').toUpperCase();
+                    const label = t === 'NON' ? 'NON' : t === 'PRE' ? 'PRE' : 'POS';
+                    const col = label === 'PRE' ? 'oklch(52% 0.16 250)' : label === 'NON' ? 'oklch(48% 0.14 305)' : 'oklch(56% 0.18 25)';
+                    return (
+                      <tr key={r.id} onClick={() => setViewLoan(r)} style={{ cursor: 'pointer', borderBottom: '1px solid var(--ink-100)' }}>
+                        <td style={tdStyle}>{r.leasitLoanId}</td>
+                        <td style={tdStyle}>
+                          <span style={{ padding: '1px 6px', borderRadius: 999, fontSize: 10, fontWeight: 700, background: col, color: '#fff' }}>{label}</span>
+                        </td>
+                        <td style={tdStyle}>{r.contractNo}</td>
+                        <td style={tdStyle}>{r.projectCode || '—'}</td>
+                        <td title={r.projectName} style={{ ...tdStyle, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.projectName}</td>
+                        <td style={tdRight}>{LIT_fmt(r.principalAmount, 0)}</td>
+                        <td style={tdRight}>{(r.interestRate * 100).toFixed(2)}%</td>
+                        <td style={tdStyle}>{LIT_fmtDate(r.leasitDateReceived)}</td>
+                        <td style={tdStyle}>{LIT_fmtDate(r.leasitDateDue)}</td>
+                        <td style={tdStyle}>{r.status === 'Active' ? '🟢' : '⚫'}</td>
+                        <td style={tdRight}>{LIT_fmt(r.leasitTotalPrepaid, 2)}</td>
+                        <td style={tdRight}>{LIT_fmt(r.leasitTotalActual, 2)}</td>
+                        <td style={{ ...tdRight, color: 'oklch(52% 0.16 145)' }}>{LIT_fmt(r.leasitVariance, 2)}</td>
+                        <td style={tdRight}>{LIT_fmt(r.leasitRefunded, 2)}</td>
+                        <td style={{ ...tdRight, color: r.leasitRefundOutstanding > 0.01 ? 'var(--bad)' : 'var(--ink-500)', fontWeight: r.leasitRefundOutstanding > 0.01 ? 600 : 400 }}>
+                          {LIT_fmt(r.leasitRefundOutstanding, 2)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr style={{ fontWeight: 600, background: 'var(--ink-50)' }}>
+                    <td colSpan={5} style={{ ...tdStyle, textAlign: 'right' }}>รวม {filtered.length} สัญญา</td>
+                    <td style={tdRight}>{LIT_fmt(filtered.reduce((s, r) => s + (Number(r.principalAmount) || 0), 0), 0)}</td>
+                    <td colSpan={4}></td>
+                    <td style={tdRight}>{LIT_fmt(filtered.reduce((s, r) => s + (Number(r.leasitTotalPrepaid) || 0), 0), 2)}</td>
+                    <td style={tdRight}>{LIT_fmt(filtered.reduce((s, r) => s + (Number(r.leasitTotalActual) || 0), 0), 2)}</td>
+                    <td style={tdRight}>{LIT_fmt(filtered.reduce((s, r) => s + (Number(r.leasitVariance) || 0), 0), 2)}</td>
+                    <td style={tdRight}>{LIT_fmt(filtered.reduce((s, r) => s + (Number(r.leasitRefunded) || 0), 0), 2)}</td>
+                    <td style={tdRight}>{LIT_fmt(filtered.reduce((s, r) => s + (Number(r.leasitRefundOutstanding) || 0), 0), 2)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 12px', borderTop: '1px solid var(--ink-100)', fontSize: 12 }}>
+                <div style={{ color: 'var(--ink-500)' }}>
+                  หน้า {curPage}/{totalPages} · แสดง {(curPage - 1) * PAGE_SIZE + 1}–{Math.min(curPage * PAGE_SIZE, filtered.length)} จาก {filtered.length}
+                </div>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <button className="btn btn-ghost" style={{ padding: '2px 8px', fontSize: 12 }} onClick={() => setPage(1)} disabled={curPage <= 1}>« หน้าแรก</button>
+                  <button className="btn btn-ghost" style={{ padding: '2px 8px', fontSize: 12 }} onClick={() => setPage(p => Math.max(1, p - 1))} disabled={curPage <= 1}>‹ ก่อนหน้า</button>
+                  <button className="btn btn-ghost" style={{ padding: '2px 8px', fontSize: 12 }} onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={curPage >= totalPages}>ถัดไป ›</button>
+                  <button className="btn btn-ghost" style={{ padding: '2px 8px', fontSize: 12 }} onClick={() => setPage(totalPages)} disabled={curPage >= totalPages}>หน้าสุดท้าย »</button>
+                </div>
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Modals */}
       <LeasitImportModal
