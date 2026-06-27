@@ -79,8 +79,10 @@
                        'stsServiceFee', 'stsPendingCalc', 'stsCalcResult',
                        'debtEvents', 'users', 'cashflowSnapshots',
                        'followUpsLog', 'manualOverrides',
-                       'bankReconLines', 'bankReconState'];
-  var ALL_TABLES = CRUD_ENTITIES.concat(['presence']);   // 23 ตาราง อ่านทั้งหมดตอน load
+                       'bankReconLines', 'bankReconState',
+                       'interestSchedulePrepaid', 'interestScheduleActual',
+                       'interestRefund'];
+  var ALL_TABLES = CRUD_ENTITIES.concat(['presence']);   // 26 ตาราง อ่านทั้งหมดตอน load
   var TABLE_SET  = {}; ALL_TABLES.forEach(function (t) { TABLE_SET[t] = true; });
 
   // ตาราง analytics ที่อ่าน/เขียนแบบ on-demand (ไม่ preload, ไม่อยู่ใน realtime/diff loop) —

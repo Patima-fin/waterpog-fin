@@ -1,0 +1,619 @@
+/* leasit_engine.jsx — engine สำหรับแท็บ "ลีซอิท" ในหน้า #debt
+   - parseLeasitWorkbook(workbook) → {loans, prepaid, actual, refund}
+   - litComputeTotals(loanId, prepaid, actual, refund)
+   - litBuildExportWorkbook(loans, prepaid, actual, refund) → XLSX workbook
+     (ชีตสรุปรวม + ชีตต่อสัญญา; ทุก Int.amount เป็นสูตร =Principal*Rate*Days/365
+      เพื่อให้บัญชีตรวจการคำนวณดอกได้)
+
+   ทุก identifier prefix LIT_ / lit*  (กัน global-scope name collision)
+*/
+'use strict';
+
+/* ── Date helpers ────────────────────────────────────────────────────── */
+// Excel serial → ISO YYYY-MM-DD (epoch 1899-12-30; 1900 leap bug แก้แล้ว)
+function litSerialToISO(n) {
+  var num = Number(n);
+  if (!isFinite(num) || num <= 0) return '';
+  // กัน date serial บั๊ก: ค่า > 100000 ก็ไม่ใช่วันที่
+  if (num > 100000) return '';
+  var ms = Math.round((num - 25569) * 86400000);
+  var d = new Date(ms);
+  if (isNaN(d.getTime())) return '';
+  return d.toISOString().slice(0, 10);
+}
+
+// "DD/MM/YYYY" (Thai or CE) → ISO; ปี > 2400 → ลบ 543
+function litDateStrToISO(s) {
+  if (!s) return '';
+  var str = String(s).trim();
+  if (!str) return '';
+  // ISO อยู่แล้ว
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0, 10);
+  var m = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+  if (!m) return '';
+  var d = parseInt(m[1], 10);
+  var mo = parseInt(m[2], 10);
+  var y = parseInt(m[3], 10);
+  if (y < 100) y += 2500; // ฉ้วย: เปลี่ยน 2-digit เป็น พ.ศ.
+  if (y > 2400) y -= 543;
+  if (!d || !mo || !y || mo < 1 || mo > 12 || d < 1 || d > 31) return '';
+  var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
+  return y + '-' + pad(mo) + '-' + pad(d);
+}
+
+// ค่าใดๆ → ISO (Date, number=serial, string)
+function litToISO(v) {
+  if (v == null || v === '' || v === 0) return '';
+  if (v instanceof Date) {
+    if (isNaN(v.getTime())) return '';
+    return v.toISOString().slice(0, 10);
+  }
+  if (typeof v === 'number') return litSerialToISO(v);
+  return litDateStrToISO(v);
+}
+
+// ISO → days between (inclusive +1, ตรงกับสูตร DATEDIF+1 ในต้นฉบับ)
+function litDaysBetween(startISO, endISO) {
+  if (!startISO || !endISO) return 0;
+  var a = new Date(startISO).getTime();
+  var b = new Date(endISO).getTime();
+  if (!isFinite(a) || !isFinite(b)) return 0;
+  return Math.round((b - a) / 86400000) + 1;
+}
+
+function litNum(v) {
+  if (v == null || v === '') return 0;
+  if (typeof v === 'number') return v;
+  var s = String(v).replace(/,/g, '').trim();
+  if (!s) return 0;
+  // วงเล็บ = ติดลบ
+  if (/^\(.*\)$/.test(s)) s = '-' + s.slice(1, -1);
+  var n = parseFloat(s);
+  return isFinite(n) ? n : 0;
+}
+
+function litTrim(v) {
+  if (v == null) return '';
+  return String(v).trim();
+}
+
+/* ── Header parsing (rows 1-9) — label-driven ─────────────────────────── */
+// หาค่าใน "ช่องถัดจาก label" — เดิน row + col ที่ label match แล้วเอาค่าจาก col+offset
+function litFindBesideLabel(aoa, label, opts) {
+  opts = opts || {};
+  var maxRow = opts.maxRow || 12;
+  var offset = opts.offset || 1; // ค่ามักอยู่ช่องถัดไป
+  var rx = label instanceof RegExp ? label : new RegExp(label);
+  for (var r = 0; r < Math.min(maxRow, aoa.length); r++) {
+    var row = aoa[r] || [];
+    for (var c = 0; c < row.length; c++) {
+      var cell = row[c];
+      if (cell != null && rx.test(String(cell))) {
+        // ลองช่องถัดไป (อาจเป็น merged → next non-null in same row)
+        for (var d = c + 1; d <= c + 4 && d < row.length; d++) {
+          var v = row[d];
+          if (v != null && v !== '') return v;
+        }
+        return row[c + offset];
+      }
+    }
+  }
+  return null;
+}
+
+/* ── Schedule block parsing ──────────────────────────────────────────── */
+// หาแถว header ของ schedule block
+//   layout ใหม่: Type | Month | Year | เริ่ม | สิ้นสุด | Principal | …
+//   layout เก่า:        Month | Year | เริ่ม | สิ้นสุด | Principal | …  (ไม่มี Type → ทุกแถว = Prepaid)
+// คืน { row: r, hasType: bool } หรือ null ถ้าหาไม่เจอ
+function litFindScheduleHeader(aoa, startRow) {
+  for (var r = startRow || 0; r < aoa.length; r++) {
+    var row = aoa[r] || [];
+    var c0 = litTrim(row[0]).toLowerCase();
+    var c1 = litTrim(row[1]).toLowerCase();
+    var c2 = litTrim(row[2]).toLowerCase();
+    var c3 = litTrim(row[3]).toLowerCase();
+    // layout ใหม่ (with Type) — col 0 = "Type" / "Prepaid" / "Actual" (variant ในบางชีต)
+    //   หัวคอลัมน์ที่ค้ำคือ col 1=Month + col 2=Year
+    if ((c0 === 'type' || c0 === 'prepaid' || c0 === 'actual')
+        && (c1 === 'month' || c1 === 'เดือน')
+        && (c2 === 'year' || c2 === 'ปี')) {
+      return { row: r, hasType: true };
+    }
+    // layout เก่า (no Type) — col 0 = Month/เดือน, col 1 = Year/ปี
+    if ((c0 === 'month' || c0 === 'เดือน') && (c1 === 'year' || c1 === 'ปี')
+        && (c2 === 'เริ่ม' || c2 === 'start' || c2 === 'beginning')
+        && (c3 === 'สิ้นสุด' || c3 === 'end')) {
+      return { row: r, hasType: false };
+    }
+  }
+  return null;
+}
+
+// อ่านแถว schedule ตั้งแต่ headerRow+1
+//   hasType=true:  col 0 = Type (Prepaid/Actual) — กรองตาม expectType
+//   hasType=false: ไม่มี Type — ทุกแถวที่มีเดือน/ปี/ยอด = ของ expectType (Prepaid implicit)
+function litReadScheduleRows(aoa, headerRow, expectType, hasType) {
+  var rows = [];
+  var seq = 0;
+  var endRow = headerRow + 1;
+  // offset ของแต่ละ field — old layout shift ซ้าย 1 ช่อง
+  var off = hasType ? 0 : -1;
+  var cMonth = 1 + off, cYear = 2 + off, cStart = 3 + off, cEnd = 4 + off;
+  var cPrincipal = 5 + off, cRate = 6 + off, cDays = 7 + off, cInt = 8 + off;
+  var cInst = 9 + off, cPaid = 10 + off, cOut = 11 + off;
+  for (var r = headerRow + 1; r < aoa.length; r++) {
+    var row = aoa[r] || [];
+    if (hasType) {
+      var t = litTrim(row[0]);
+      if (!t) {
+        if (rows.length > 0) { endRow = r; break; }
+        continue;
+      }
+      if (expectType && t !== expectType) {
+        endRow = r;
+        break;
+      }
+    } else {
+      // no-Type layout: หยุดเมื่อ Month + Year ว่างทั้งคู่ (= แถวจบ)
+      var mEmpty = !litTrim(row[cMonth]);
+      var yEmpty = !litNum(row[cYear]);
+      // และยอด Principal ว่าง = ไม่ใช่ data row
+      var pEmpty = !litNum(row[cPrincipal]);
+      if (mEmpty && yEmpty && pEmpty) {
+        if (rows.length > 0) { endRow = r; break; }
+        continue;
+      }
+    }
+    seq++;
+    var dateStart = litToISO(row[cStart]);
+    var dateEnd = litToISO(row[cEnd]);
+    var rawDays = litNum(row[cDays]);
+    var days = (rawDays > 0 && rawDays <= 366) ? Math.round(rawDays) : litDaysBetween(dateStart, dateEnd);
+    rows.push({
+      seq: seq,
+      month: litTrim(row[cMonth]),
+      year: litNum(row[cYear]) || null,
+      dateStart: dateStart,
+      dateEnd: dateEnd,
+      days: days,
+      principal: litNum(row[cPrincipal]),
+      intRate: litNum(row[cRate]),
+      intAmount: litNum(row[cInt]),
+      installment: litNum(row[cInst]),
+      principalPaid: litNum(row[cPaid]),
+      outstanding: litNum(row[cOut])
+    });
+    endRow = r + 1;
+  }
+  return { rows: rows, endRow: endRow };
+}
+
+/* ── Refund block parsing — free-text rows in col 3 + amount in col 5 ── */
+// เริ่มจาก startRow (มัก = หลังแถว "ส่วนต่าง") กวาดทุกแถวจนจบ aoa
+function litReadRefundRows(aoa, startRow) {
+  var rows = [];
+  for (var r = startRow; r < aoa.length; r++) {
+    var row = aoa[r] || [];
+    var text = litTrim(row[2]);
+    var amt = litNum(row[4]);
+    if (!text || amt === 0) continue;
+    // ตัดแถว "รวม" / "ส่วนต่าง" / "ยอดดอกเบี้ย..." / sub-total
+    if (/^(รวม|ส่วนต่าง|Total|ยอดดอกเบี้ย)/i.test(text)) continue;
+    // กำหนดประเภท + วันที่ + ref จากข้อความ
+    var refundType = 'Transfer';
+    if (/RV/i.test(text)) refundType = 'RV';
+    // ดึงวันที่จากข้อความ DD/MM/YYYY
+    var refundDate = '';
+    var dm = text.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+    if (dm) refundDate = litDateStrToISO(dm[0]);
+    // ดึง ref doc (RV20XXXX-XXX)
+    var refDoc = '';
+    var rm = text.match(/RV\s*\d{4}[-\s]*\d{2,4}/i);
+    if (rm) refDoc = rm[0].replace(/\s+/g, '');
+    rows.push({
+      refundDate: refundDate,
+      refundType: refundType,
+      amount: amt,
+      refDoc: refDoc,
+      note: text
+    });
+  }
+  return rows;
+}
+
+/* ── parseLeasitWorkbook — main entry ────────────────────────────────── */
+// คืน {loans, prepaid, actual, refund, registry, errors[]}
+function parseLeasitWorkbook(wb) {
+  if (!wb || !wb.SheetNames) return { loans: [], prepaid: [], actual: [], refund: [], errors: ['ไม่ใช่ workbook'] };
+  var XLSX = window.XLSX;
+  if (!XLSX) return { loans: [], prepaid: [], actual: [], refund: [], errors: ['ไม่พบ XLSX'] };
+
+  var errors = [];
+  var loans = [];
+  var prepaid = [];
+  var actual = [];
+  var refund = [];
+
+  // 1) ทะเบียนโครงการ (เผื่อ enrich)
+  var registry = {};
+  if (wb.SheetNames.indexOf('รายชื่อโครงการ') >= 0) {
+    var rws = wb.Sheets['รายชื่อโครงการ'];
+    var raoa = XLSX.utils.sheet_to_json(rws, { header: 1, raw: true, defval: null });
+    for (var ri = 2; ri < raoa.length; ri++) {
+      var rrow = raoa[ri] || [];
+      var lid = litNum(rrow[1]);
+      if (lid > 0) {
+        registry[lid] = {
+          jobNo: litTrim(rrow[2]).split(/[-\s]/)[0] || litTrim(rrow[2]),
+          siteName: litTrim(rrow[2]),
+          productType: litTrim(rrow[3]),
+          contractStart: litToISO(rrow[9]),
+          contractEnd: litToISO(rrow[10])
+        };
+      }
+    }
+  }
+
+  // 2) เดินทุกชีตที่ชื่อเป็นเลขล้วน (= per-loan sheet)
+  for (var i = 0; i < wb.SheetNames.length; i++) {
+    var name = wb.SheetNames[i];
+    if (!/^\d+$/.test(name)) continue;
+    try {
+      var ws = wb.Sheets[name];
+      var aoa = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
+      if (!aoa.length) continue;
+
+      // 2a) Header block (rows 1-9)
+      var contractNo = litTrim(litFindBesideLabel(aoa, /เลขสัญญาเงินกู้/));
+      var projectName = litTrim(litFindBesideLabel(aoa, /ชื่อโครงการ/));
+      var dateReceived = litToISO(litFindBesideLabel(aoa, /วันที่รับเงิน/));
+      var dateDue = litToISO(litFindBesideLabel(aoa, /^วันที่ครบกำหนด$/));
+      // ครบกำหนด(โรล) — label มีวงเล็บ ใช้ regex หลวมๆ
+      var dateDueRoll = litToISO(litFindBesideLabel(aoa, /วันที่ครบกำหนด.*โรล/));
+      var dateRepaid = litToISO(litFindBesideLabel(aoa, /วันที่คืนเงิน/));
+      var principalChequeNo = litTrim(litFindBesideLabel(aoa, /เลขที่เช็คเงินต้น/));
+      var principal = litNum(litFindBesideLabel(aoa, /จำนวนเงินกู้/));
+      var interestRate = litNum(litFindBesideLabel(aoa, /อัตราดอกเบี้ย/));
+      var termDays = litNum(litFindBesideLabel(aoa, /ระยะเวลากู้/));
+      var ticketType = litTrim(litFindBesideLabel(aoa, /ประเภทตั๋ว/));
+
+      // loanId — หา label "ลำดับที่" ก่อน; fallback = ชื่อชีต
+      var loanId = litNum(litFindBesideLabel(aoa, /ลำดับที่/, { maxRow: 9 })) || litNum(name);
+      if (!loanId) {
+        errors.push('ชีต ' + name + ': หา loanId ไม่ได้');
+        continue;
+      }
+
+      // 2b) Prepaid block
+      var hdr1 = litFindScheduleHeader(aoa, 0);
+      if (!hdr1) {
+        errors.push('ชีต ' + name + ': ไม่พบ header row Type|Month|Year');
+        continue;
+      }
+      var rpre = litReadScheduleRows(aoa, hdr1.row, 'Prepaid', hdr1.hasType);
+
+      // 2c) Actual block — header ถัดไป (เฉพาะ layout ใหม่ที่มี Type → มี Actual block แยก)
+      var racta = { rows: [], endRow: rpre.endRow };
+      if (hdr1.hasType) {
+        var hdr2 = litFindScheduleHeader(aoa, rpre.endRow);
+        if (hdr2) racta = litReadScheduleRows(aoa, hdr2.row, 'Actual', hdr2.hasType);
+      }
+
+      // 2d) Summary block + refund — refund เริ่มหลังแถว "ส่วนต่าง"
+      //   layout ใหม่: สรุป → ยอดล่วงหน้า → ยอดเกิดจริง → ส่วนต่าง → (refunds)
+      //   layout เก่า: ไม่มี Actual/สรุป → refund (ถ้ามี) อยู่ท้ายชีต
+      var refundStart = racta.endRow;
+      for (var r2 = racta.endRow; r2 < aoa.length; r2++) {
+        var row2 = aoa[r2] || [];
+        var lbl = litTrim(row2[2]);
+        if (/^ส่วนต่าง/.test(lbl)) { refundStart = r2 + 1; break; }
+      }
+      var refunds = litReadRefundRows(aoa, refundStart);
+
+      // 2e) project_id link (จาก registry / jobNo)
+      var reg = registry[loanId] || {};
+      var jobNo = reg.jobNo || '';
+      // jobNo อาจอยู่ใน projectName field (เช่น "PP054 ...") — ลองดึง
+      if (!jobNo) {
+        var jm = projectName.match(/^([A-Z]{2,5}\d{2,4})/);
+        if (jm) jobNo = jm[1];
+      }
+
+      // 2f) คำนวณ totals
+      var totPre = 0; for (var ip = 0; ip < rpre.rows.length; ip++) totPre += rpre.rows[ip].intAmount;
+      var totAct = 0; for (var ia = 0; ia < racta.rows.length; ia++) totAct += racta.rows[ia].intAmount;
+      var variance = totPre - totAct;
+      var totRef = 0; for (var ire = 0; ire < refunds.length; ire++) totRef += refunds[ire].amount;
+      var refundOutstanding = variance - totRef;
+
+      // 2g) สถานะ — ปิดหนี้ถ้ามีวันคืนเงิน
+      var status = dateRepaid ? 'Close' : 'Active';
+
+      loans.push({
+        loanId: loanId,
+        contractNo: contractNo,
+        jobNo: jobNo,
+        projectName: projectName,
+        ticketType: ticketType,
+        productType: reg.productType || '',
+        loanType: ticketType === 'NON' ? 'NON' : 'PRE',
+        interestRate: interestRate,
+        principal: principal,
+        dateReceived: dateReceived,
+        dateDue: dateDue,
+        dateDueRoll: dateDueRoll || '',
+        termDays: termDays,
+        principalChequeNo: principalChequeNo,
+        dateRepaid: dateRepaid || '',
+        status: status,
+        totalPrepaidInterest: totPre,
+        totalActualInterest: totAct,
+        variance: variance,
+        totalRefunded: totRef,
+        refundOutstanding: refundOutstanding
+      });
+
+      // child rows — แนบ loanId
+      for (var pj = 0; pj < rpre.rows.length; pj++) {
+        rpre.rows[pj].loanId = loanId;
+        prepaid.push(rpre.rows[pj]);
+      }
+      for (var aj = 0; aj < racta.rows.length; aj++) {
+        racta.rows[aj].loanId = loanId;
+        actual.push(racta.rows[aj]);
+      }
+      for (var rj = 0; rj < refunds.length; rj++) {
+        refunds[rj].loanId = loanId;
+        refund.push(refunds[rj]);
+      }
+    } catch (e) {
+      errors.push('ชีต ' + name + ': ' + (e.message || e));
+    }
+  }
+
+  return { loans: loans, prepaid: prepaid, actual: actual, refund: refund, registry: registry, errors: errors };
+}
+
+/* ── compute totals (recompute หลัง edit) ─────────────────────────────── */
+function litComputeTotals(loanId, prepaid, actual, refund) {
+  var totPre = 0, totAct = 0, totRef = 0;
+  for (var i = 0; i < prepaid.length; i++) if (prepaid[i].loanId === loanId) totPre += litNum(prepaid[i].intAmount);
+  for (var j = 0; j < actual.length; j++) if (actual[j].loanId === loanId) totAct += litNum(actual[j].intAmount);
+  for (var k = 0; k < refund.length; k++) if (refund[k].loanId === loanId) totRef += litNum(refund[k].amount);
+  return {
+    totalPrepaidInterest: totPre,
+    totalActualInterest: totAct,
+    variance: totPre - totAct,
+    totalRefunded: totRef,
+    refundOutstanding: totPre - totAct - totRef
+  };
+}
+
+/* ── debtMaster row ↔ Leasit ─────────────────────────────────────────── */
+// แปลง loan object → debtMaster row (id namespaced 'lit_<loanId>')
+function litLoanToDebtRow(loan, existingId) {
+  return {
+    id: existingId || ('lit_' + loan.loanId),
+    debtCategory: 'LIT',
+    contractNo: loan.contractNo,
+    borrowerName: 'บจก. ลีซอิท',
+    status: loan.status,            // 'Active' / 'Close'
+    facilityType: 'Loan',
+    loanType: loan.loanType,        // 'PRE' / 'NON'
+    principalAmount: loan.principal,
+    interestRate: loan.interestRate,
+    balance: loan.status === 'Active' ? loan.principal : 0,
+    currency: 'THB',
+    projectCode: loan.jobNo,
+    projectName: loan.projectName,
+    // Leasit-specific (เก็บไว้ใน debtMaster row, ไม่กระทบฟิลด์เดิม)
+    leasitSource: true,
+    leasitLoanId: loan.loanId,
+    leasitTicketType: loan.ticketType,
+    leasitProductType: loan.productType,
+    leasitDateReceived: loan.dateReceived,
+    leasitDateDue: loan.dateDue,
+    leasitDateDueRoll: loan.dateDueRoll,
+    leasitDateRepaid: loan.dateRepaid,
+    leasitTermDays: loan.termDays,
+    leasitPrincipalChequeNo: loan.principalChequeNo,
+    leasitTotalPrepaid: loan.totalPrepaidInterest,
+    leasitTotalActual: loan.totalActualInterest,
+    leasitVariance: loan.variance,
+    leasitRefunded: loan.totalRefunded,
+    leasitRefundOutstanding: loan.refundOutstanding,
+    // วันครบกำหนดสำหรับ maturity alert ในหน้า #debt_ledger
+    maturityDate: loan.dateDueRoll || loan.dateDue || ''
+  };
+}
+
+/* ── Export Excel workbook (มีสูตรคำนวณดอกเบี้ย) ──────────────────────── */
+// คืน workbook object (ใช้กับ XLSX.writeFile) — บัญชีตรวจสูตร =F*G*H/365 ได้
+function litBuildExportWorkbook(loans, prepaid, actual, refund) {
+  var XLSX = window.XLSX;
+  if (!XLSX) return null;
+  var wb = XLSX.utils.book_new();
+
+  // ── ชีต "สรุปรวม" — master summary (มีสูตร SUM ข้ามชีต) ─────────────
+  var sumHeader = [
+    'ลำดับที่', 'เลขที่สัญญา', 'JOB NO', 'ชื่อโครงการ', 'ประเภท', 'สถานะ',
+    'อัตราดอกเบี้ย', 'วันที่รับเงิน', 'วันที่ครบกำหนด', 'ระยะเวลา(วัน)',
+    'จำนวนเงินกู้',
+    'รวมดอกจ่ายล่วงหน้า', 'รวมดอกเกิดจริง', 'ส่วนต่าง',
+    'รับคืนแล้ว', 'ค้างรับคืน',
+    'วันที่คืนเงิน'
+  ];
+  var sumRows = [sumHeader];
+  // เรียงตาม loanId
+  var sortedLoans = loans.slice().sort(function (a, b) { return a.loanId - b.loanId; });
+  for (var i = 0; i < sortedLoans.length; i++) {
+    var L = sortedLoans[i];
+    var sheetName = String(L.loanId);
+    var safeRef = "'" + sheetName + "'!";
+    sumRows.push([
+      L.loanId,
+      L.contractNo,
+      L.jobNo,
+      L.projectName,
+      L.loanType,
+      L.status,
+      L.interestRate,
+      L.dateReceived ? new Date(L.dateReceived) : '',
+      L.dateDue ? new Date(L.dateDue) : '',
+      L.termDays,
+      L.principal,
+      // สูตรลิงก์เข้าชีตต่อสัญญา (cells = สรุปบล็อก)
+      { f: safeRef + 'E34' },  // รวมดอกจ่ายล่วงหน้า
+      { f: safeRef + 'E35' },  // รวมดอกเกิดจริง
+      { f: safeRef + 'E36' },  // ส่วนต่าง
+      L.totalRefunded,         // value (refund รวม)
+      { f: safeRef + 'E36-' + L.totalRefunded.toFixed(2) }, // ค้างรับคืน
+      L.dateRepaid ? new Date(L.dateRepaid) : ''
+    ]);
+  }
+  // grand total row
+  var lastRow = sumRows.length;
+  sumRows.push([
+    'รวมทั้งสิ้น', '', '', '', '', '', '', '', '', '',
+    { f: 'SUM(K2:K' + lastRow + ')' },
+    { f: 'SUM(L2:L' + lastRow + ')' },
+    { f: 'SUM(M2:M' + lastRow + ')' },
+    { f: 'SUM(N2:N' + lastRow + ')' },
+    { f: 'SUM(O2:O' + lastRow + ')' },
+    { f: 'SUM(P2:P' + lastRow + ')' },
+    ''
+  ]);
+  var wsSum = XLSX.utils.aoa_to_sheet(sumRows);
+  // column width
+  wsSum['!cols'] = [
+    { wch: 8 }, { wch: 22 }, { wch: 10 }, { wch: 30 }, { wch: 8 }, { wch: 8 },
+    { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 14 },
+    { wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 }
+  ];
+  XLSX.utils.book_append_sheet(wb, wsSum, 'สรุปรวม');
+
+  // ── ชีตต่อสัญญา — มีสูตร =F*G*H/365 ในคอลัมน์ Int.amount ───────────
+  for (var li = 0; li < sortedLoans.length; li++) {
+    var loan = sortedLoans[li];
+    var rows = [];
+
+    // R1-9: header block
+    rows.push(['บริษัท วอเทอร์ป๊อก จำกัด']);
+    rows.push(['ตารางสรุปดอกเบี้ยรายโครงการ']);
+    rows.push(['เลขสัญญาเงินกู้', loan.contractNo, '', '', 'ประเภทตั๋ว', loan.ticketType || '']);
+    rows.push(['ชื่อโครงการ', loan.projectName]);
+    rows.push([
+      'วันที่รับเงิน', loan.dateReceived ? new Date(loan.dateReceived) : '',
+      '', 'วันที่ครบกำหนด', loan.dateDue ? new Date(loan.dateDue) : '',
+      '', 'วันที่ครบกำหนด(โรล)', loan.dateDueRoll ? new Date(loan.dateDueRoll) : '',
+      '', '', 'ลำดับที่', loan.loanId
+    ]);
+    rows.push([
+      'วันที่คืนเงิน', loan.dateRepaid ? new Date(loan.dateRepaid) : '',
+      '', 'เลขที่เช็คเงินต้น', loan.principalChequeNo || ''
+    ]);
+    rows.push(['จำนวนเงินกู้', loan.principal]);
+    rows.push(['อัตราดอกเบี้ย/ปี', loan.interestRate, '', '', '', '', '', '', '', '', 'เลขที่ตั๋ว', loan.contractNo]);
+    rows.push(['ระยะเวลากู้', loan.termDays, '', '', '', '', '', { f: 'SUM(I11:I100)' }, { f: 'SUM(J11:J100)' }]);
+
+    // R10: schedule header
+    rows.push(['Type', 'Month', 'Year', 'เริ่ม', 'สิ้นสุด', 'Principal', 'Int. rate', 'Days', 'Int. amount', 'Installment', 'Principal paid', 'Outstanding']);
+
+    // R11..: Prepaid rows — Int.amount เป็นสูตร =F*G*H/365
+    var preRows = prepaid.filter(function (p) { return p.loanId === loan.loanId; });
+    preRows.sort(function (a, b) { return (a.seq || 0) - (b.seq || 0); });
+    var preStartRow = 11; // 1-indexed
+    for (var pi = 0; pi < preRows.length; pi++) {
+      var p = preRows[pi];
+      var r = preStartRow + pi;
+      rows.push([
+        'Prepaid', p.month, p.year,
+        p.dateStart ? new Date(p.dateStart) : '',
+        p.dateEnd ? new Date(p.dateEnd) : '',
+        p.principal, p.intRate,
+        { f: 'DATEDIF(D' + r + ',E' + r + ',"d")+1' },
+        { f: 'F' + r + '*G' + r + '*H' + r + '/365' },
+        { f: 'I' + r },
+        0,
+        ''  // Outstanding ปล่อยว่าง (สูตร running ไม่ critical ต่อ recon)
+      ]);
+    }
+    // เติมแถวว่างให้ครบช่วง Prepaid block (กัน sub-total chunk shift)
+    var preEndRow = preStartRow + preRows.length - 1;
+    // 2 blank rows ก่อน subtotal
+    rows.push([]); rows.push([]); rows.push([]);
+    var preSubtotalRow = rows.length + 1; // 1-indexed
+    rows.push(['', '', '', '', '', '', '', '', { f: 'SUM(I' + preStartRow + ':I' + preEndRow + ')' }]);
+
+    // marker "ดอกเบี้ยที่เกิดขึ้นจริง"
+    rows.push(['', 'ดอกเบี้ยที่เกิดขึ้นจริง']);
+
+    // Actual header
+    rows.push(['Type', 'Month', 'Year', 'เริ่ม', 'สิ้นสุด', 'Principal', 'Int. rate', 'Days', 'Int. amount', 'Installment', 'Principal paid', 'Outstanding']);
+    var actRows = actual.filter(function (a) { return a.loanId === loan.loanId; });
+    actRows.sort(function (a, b) { return (a.seq || 0) - (b.seq || 0); });
+    var actStartRow = rows.length + 1;
+    for (var ai = 0; ai < actRows.length; ai++) {
+      var a = actRows[ai];
+      var ar = actStartRow + ai;
+      rows.push([
+        'Actual', a.month, a.year,
+        a.dateStart ? new Date(a.dateStart) : '',
+        a.dateEnd ? new Date(a.dateEnd) : '',
+        a.principal, a.intRate,
+        { f: 'DATEDIF(D' + ar + ',E' + ar + ',"d")+1' },
+        { f: 'F' + ar + '*G' + ar + '*H' + ar + '/365' },
+        { f: 'I' + ar },
+        0,
+        ''
+      ]);
+    }
+    var actEndRow = actStartRow + actRows.length - 1;
+    var actSubtotalRow = rows.length + 1;
+    rows.push(['', '', '', '', '', '', '', '', { f: 'SUM(I' + actStartRow + ':I' + actEndRow + ')' }]);
+
+    // สรุป block
+    rows.push([]);
+    var sumStartRow = rows.length + 1;
+    rows.push(['', 'สรุป', 'ยอดดอกเบี้ยจ่ายล่วงหน้า', '', { f: 'I' + preSubtotalRow }]);
+    rows.push(['', '', 'ยอดดอกเบี้ยที่เกิดขึ้นจริง', '', { f: 'I' + actSubtotalRow }]);
+    rows.push(['', '', 'ส่วนต่าง', '', { f: 'E' + sumStartRow + '-E' + (sumStartRow + 1) }]);
+    rows.push([]);
+
+    // refund block — list refund rows
+    var refRows = refund.filter(function (rf) { return rf.loanId === loan.loanId; });
+    refRows.sort(function (a, b) { return (a.refundDate || '').localeCompare(b.refundDate || ''); });
+    var refStart = rows.length + 1;
+    for (var rfi = 0; rfi < refRows.length; rfi++) {
+      var rf = refRows[rfi];
+      var lbl = rf.refundType === 'RV' ? 'คืนมาแล้วตอน RV' : ('โอนคืน วันที่ ' + (rf.refundDate || ''));
+      if (rf.refDoc) lbl += ' (' + rf.refDoc + ')';
+      rows.push(['', '', lbl, '', rf.amount]);
+    }
+    var refEnd = rows.length;
+    rows.push(['', '', 'รวมรับคืนแล้ว', '', refRows.length ? { f: 'SUM(E' + refStart + ':E' + refEnd + ')' } : 0]);
+    rows.push(['', '', 'ค้างรับคืน', '', { f: 'E' + (sumStartRow + 2) + '-E' + (rows.length) }]);
+
+    var ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [
+      { wch: 18 }, { wch: 12 }, { wch: 8 }, { wch: 11 }, { wch: 11 },
+      { wch: 12 }, { wch: 10 }, { wch: 8 }, { wch: 14 }, { wch: 14 },
+      { wch: 14 }, { wch: 14 }
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, String(loan.loanId));
+  }
+
+  return wb;
+}
+
+// expose
+window.LeasitEngine = {
+  parseLeasitWorkbook: parseLeasitWorkbook,
+  litComputeTotals: litComputeTotals,
+  litLoanToDebtRow: litLoanToDebtRow,
+  litBuildExportWorkbook: litBuildExportWorkbook,
+  litToISO: litToISO,
+  litNum: litNum,
+  litDaysBetween: litDaysBetween
+};

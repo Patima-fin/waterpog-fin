@@ -544,6 +544,8 @@ function ImportDebtModal({ open, existing, onClose, onImport }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 function DebtPage({ data, setData, toast }) {
+  // Sub-nav: 'overview' = ภาระหนี้รวม (เดิม) · 'leasit' = ตารางคำนวณดอกเบี้ยลีซอิท
+  const [mainTab, setMainTab] = React.useState('overview');
   const rawRows = (data?.debtMaster || []);
   const [tab,           setTab]           = React.useState('all');   // all | Active | Close
   const [categoryFilter, setCategoryFilter] = React.useState('all');
@@ -725,6 +727,30 @@ function DebtPage({ data, setData, toast }) {
           <PrintButton />
         </div>
       </div>
+
+      {/* ── Sub-nav ──────────────────────────────────────────────────────── */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14, borderBottom: '1px solid var(--ink-200)' }}>
+        <button
+          className={mainTab === 'overview' ? 'btn btn-primary' : 'btn btn-ghost'}
+          onClick={() => setMainTab('overview')}
+          style={{ borderRadius: '8px 8px 0 0', marginBottom: -1 }}
+        >
+          📊 ภาระหนี้รวม
+        </button>
+        <button
+          className={mainTab === 'leasit' ? 'btn btn-primary' : 'btn btn-ghost'}
+          onClick={() => setMainTab('leasit')}
+          style={{ borderRadius: '8px 8px 0 0', marginBottom: -1 }}
+        >
+          📑 ตารางคำนวณดอกเบี้ยลีซอิท
+        </button>
+      </div>
+
+      {mainTab === 'leasit' && typeof LeasitPanel !== 'undefined' && (
+        <LeasitPanel data={data} setData={setData} toast={toast} canEdit={canEdit} />
+      )}
+
+      {mainTab === 'overview' && (<>
 
       {/* ── KPI Row ──────────────────────────────────────────────────────── */}
       <div className="grid grid-4 anim-stagger" style={{ marginBottom: 16 }}>
@@ -1208,6 +1234,8 @@ function DebtPage({ data, setData, toast }) {
           canEdit={canEdit}
         />
       )}
+
+      </>)}
     </div>
   );
 }

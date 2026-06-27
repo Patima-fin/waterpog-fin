@@ -609,7 +609,8 @@
     'payables','debtLedger','receipts','bankEntries','checks','debtMaster','bankTransfers',
     'stsServiceFee','stsPendingCalc','stsCalcResult','debtEvents','users',
     'cashflowSnapshots','followUpsLog','manualOverrides',
-    'bankReconLines','bankReconState','presence'];
+    'bankReconLines','bankReconState','presence',
+    'interestSchedulePrepaid','interestScheduleActual','interestRefund'];
   const isOnline = () => !!(window.WTP_CONFIG && window.WTP_CONFIG.SHEET_ID);
   // ค่าตั้งต้นเมื่อ localStorage ว่าง:
   //   offline → seed mock เต็ม (โหมดสาธิต)
