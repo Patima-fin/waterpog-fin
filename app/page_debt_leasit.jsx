@@ -48,7 +48,7 @@ function LeasitImportModal({ open, onClose, onConfirm }) {
   if (!open) return null;
   const Modal = window.Modal;
   return (
-    <Modal open={open} onClose={onClose} title="📥 นำเข้าตารางคำนวณดอกเบี้ยลีซอิท" size="lg">
+    <Modal open={open} onClose={onClose} title="📥 นำเข้าตารางคำนวณดอกเบี้ยลีซอิท" maxWidth={1100}>
       <div style={{ padding: '8px 4px', fontSize: 14 }}>
         <div style={{
           border: '2px dashed var(--ink-200)', borderRadius: 12, padding: 24,
@@ -163,9 +163,87 @@ function LeasitLoanDrawer({ loan, prepaid, actual, refund, onClose, onExportOne 
   const act = actual.filter(r => r.loanId === loan.leasitLoanId).sort((a, b) => (a.seq || 0) - (b.seq || 0));
   const ref = refund.filter(r => r.loanId === loan.leasitLoanId).sort((a, b) => (a.refundDate || '').localeCompare(b.refundDate || ''));
 
+  // ── PRE/POS classification + principal summary ──
+  const isPRE = String(loan.leasitTicketType || '').toUpperCase() === 'PRE';
+  const ticketLabel = isPRE ? 'PRE' : 'POS';
+  const ticketColor = isPRE ? 'oklch(52% 0.16 250)' : 'oklch(56% 0.18 25)';
+  const principal = Number(loan.principalAmount) || 0;
+  const isActive = loan.status === 'Active';
+  const drawn = principal;
+  const repaidPrincipal = isActive ? 0 : principal;
+  const outstandingPrincipal = isActive ? principal : 0;
+
+  // ── Maturity countdown ──
+  const today = new Date();
+  const todayISO = today.toISOString().slice(0, 10);
+  const dueISO = loan.leasitDateDueRoll || loan.leasitDateDue || '';
+  const daysToMaturity = dueISO ? Math.ceil((new Date(dueISO).getTime() - today.getTime()) / 86400000) : null;
+  const maturityNear = isActive && daysToMaturity != null && daysToMaturity >= 0 && daysToMaturity <= 30;
+  const maturityOverdue = isActive && daysToMaturity != null && daysToMaturity < 0;
+
   return (
-    <Modal open={!!loan} onClose={onClose} title={`📑 ${loan.contractNo} · ลำดับ ${loan.leasitLoanId}`} size="xl">
+    <Modal open={!!loan} onClose={onClose} title={`📑 ${loan.contractNo} · ลำดับ ${loan.leasitLoanId}`} maxWidth={1400}>
       <div style={{ padding: '8px 4px', fontSize: 13 }}>
+        {/* Maturity warning banner */}
+        {(maturityNear || maturityOverdue) && (
+          <div className="card" style={{
+            padding: 12, marginBottom: 12,
+            background: maturityOverdue ? 'oklch(95% 0.06 22)' : 'oklch(95% 0.08 80)',
+            borderLeft: '4px solid ' + (maturityOverdue ? 'var(--bad)' : 'oklch(70% 0.18 80)')
+          }}>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>
+              {maturityOverdue
+                ? `⚠️ เกินกำหนดแล้ว ${Math.abs(daysToMaturity)} วัน`
+                : `⏰ ครบกำหนดในอีก ${daysToMaturity} วัน`}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--ink-700)', marginTop: 4 }}>
+              ครบกำหนด: {LIT_fmtDate(dueISO)} · เงินต้นคงเหลือ {LIT_fmt(outstandingPrincipal, 0)}
+            </div>
+          </div>
+        )}
+
+        {/* Principal summary — เบิก/จ่ายคืน/คงเหลือ + PRE/POS tag */}
+        <div className="card" style={{ padding: 12, marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>💰 สรุปเงินต้น</div>
+            <span style={{
+              padding: '2px 10px', borderRadius: 999, fontSize: 11, fontWeight: 700,
+              background: ticketColor, color: '#fff'
+            }}>{ticketLabel}</span>
+            <span style={{ fontSize: 11, color: 'var(--ink-500)' }}>
+              ({isPRE ? 'Pre-financing' : 'Post-financing'})
+            </span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+            <div style={{ padding: 10, background: 'var(--ink-50)', borderRadius: 8 }}>
+              <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>↗ เบิกมาแล้ว</div>
+              <div style={{ fontSize: 22, fontWeight: 700 }}>{LIT_fmt(drawn, 0)}</div>
+              <div style={{ fontSize: 11, color: 'var(--ink-500)', marginTop: 2 }}>
+                รับเงิน {LIT_fmtDate(loan.leasitDateReceived)}
+              </div>
+            </div>
+            <div style={{ padding: 10, background: 'oklch(96% 0.04 145)', borderRadius: 8 }}>
+              <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>↙ จ่ายคืนเงินต้น</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: 'oklch(50% 0.14 145)' }}>{LIT_fmt(repaidPrincipal, 0)}</div>
+              <div style={{ fontSize: 11, color: 'var(--ink-500)', marginTop: 2 }}>
+                {isActive ? '— (ยังไม่ปิดหนี้)' : 'ปิดหนี้ ' + LIT_fmtDate(loan.leasitDateRepaid)}
+              </div>
+            </div>
+            <div style={{
+              padding: 10, borderRadius: 8,
+              background: isActive ? 'oklch(96% 0.06 22)' : 'var(--ink-50)'
+            }}>
+              <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>● คงเหลือเงินต้น</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: isActive ? 'var(--bad)' : 'var(--ink-500)' }}>
+                {LIT_fmt(outstandingPrincipal, 0)}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--ink-500)', marginTop: 2 }}>
+                {isActive ? 'ครบกำหนด ' + LIT_fmtDate(dueISO) : 'ปิดสัญญาแล้ว'}
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Header card */}
         <div className="card" style={{ padding: 12, marginBottom: 12 }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
@@ -469,8 +547,130 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
     XLSX.writeFile(wb, `WTP-ลีซอิท-${loan.leasitLoanId}-${loan.contractNo.replace(/[\/\\]/g, '_')}.xlsx`);
   };
 
+  // ── Principal summary: PRE vs POS (drawn / repaid / outstanding) ──
+  const principalSummary = React.useMemo(() => {
+    const acc = {
+      PRE: { count: 0, active: 0, drawn: 0, repaid: 0, outstanding: 0 },
+      POS: { count: 0, active: 0, drawn: 0, repaid: 0, outstanding: 0 }
+    };
+    allRows.forEach(r => {
+      const isPRE = String(r.leasitTicketType || '').toUpperCase() === 'PRE';
+      const bkt = isPRE ? acc.PRE : acc.POS;
+      const p = Number(r.principalAmount) || 0;
+      bkt.count++;
+      bkt.drawn += p;
+      if (r.status === 'Active') { bkt.active++; bkt.outstanding += p; }
+      else { bkt.repaid += p; }
+    });
+    return acc;
+  }, [allRows]);
+
+  // ── Maturity alert: Active loans ครบกำหนดใน 30 วัน (รวม overdue) ──
+  const maturityAlerts = React.useMemo(() => {
+    const todayMs = Date.now();
+    const list = [];
+    allRows.forEach(r => {
+      if (r.status !== 'Active') return;
+      const dueISO = r.leasitDateDueRoll || r.leasitDateDue || '';
+      if (!dueISO) return;
+      const dueMs = new Date(dueISO).getTime();
+      if (!isFinite(dueMs)) return;
+      const days = Math.ceil((dueMs - todayMs) / 86400000);
+      if (days <= 30) list.push({ row: r, dueISO, days });
+    });
+    return list.sort((a, b) => a.days - b.days);
+  }, [allRows]);
+
+  const PrincipalCard = ({ label, bkt, color }) => (
+    <div className="card" style={{ padding: 14, borderTop: '3px solid ' + color }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <span style={{
+          padding: '2px 10px', borderRadius: 999, fontSize: 11, fontWeight: 700,
+          background: color, color: '#fff'
+        }}>{label}</span>
+        <span style={{ fontSize: 12, color: 'var(--ink-500)' }}>
+          {bkt.count} สัญญา · Active {bkt.active}
+        </span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, fontSize: 12 }}>
+        <div>
+          <div style={{ color: 'var(--ink-500)' }}>↗ เบิก</div>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>{LIT_fmt(bkt.drawn, 0)}</div>
+        </div>
+        <div>
+          <div style={{ color: 'var(--ink-500)' }}>↙ คืน</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: 'oklch(50% 0.14 145)' }}>{LIT_fmt(bkt.repaid, 0)}</div>
+        </div>
+        <div>
+          <div style={{ color: 'var(--ink-500)' }}>● คงเหลือ</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: bkt.outstanding > 0 ? 'var(--bad)' : 'var(--ink-500)' }}>
+            {LIT_fmt(bkt.outstanding, 0)}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div>
+      {/* ⏰ Maturity alert banner — Active loans ครบกำหนดใน 30 วัน */}
+      {maturityAlerts.length > 0 && (
+        <div className="card" style={{
+          padding: 14, marginBottom: 14,
+          background: 'oklch(96% 0.06 80)',
+          borderLeft: '4px solid oklch(70% 0.18 80)'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <div style={{ fontWeight: 700, fontSize: 15 }}>
+              ⏰ ครบกำหนดภายใน 30 วัน ({maturityAlerts.length} สัญญา)
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--ink-500)' }}>
+              เงินต้นรวม {LIT_fmt(maturityAlerts.reduce((s, a) => s + (Number(a.row.principalAmount) || 0), 0), 0)}
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 8 }}>
+            {maturityAlerts.slice(0, 12).map(({ row: r, dueISO, days }) => (
+              <div
+                key={r.id}
+                onClick={() => setViewLoan(r)}
+                style={{
+                  padding: 10, background: 'var(--panel)', borderRadius: 8, cursor: 'pointer',
+                  border: '1px solid ' + (days < 0 ? 'var(--bad)' : days <= 7 ? 'oklch(70% 0.18 80)' : 'var(--ink-200)')
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ fontWeight: 700, fontSize: 12 }}>#{r.leasitLoanId} · {r.contractNo}</div>
+                  <span style={{
+                    padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700,
+                    background: days < 0 ? 'var(--bad)' : days <= 7 ? 'oklch(70% 0.18 80)' : 'var(--ink-300)',
+                    color: '#fff'
+                  }}>
+                    {days < 0 ? `เกิน ${Math.abs(days)} วัน` : days === 0 ? 'วันนี้' : `อีก ${days} วัน`}
+                  </span>
+                </div>
+                <div title={r.projectName} style={{ fontSize: 11, color: 'var(--ink-700)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {r.projectName}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--ink-500)', marginTop: 2 }}>
+                  ครบกำหนด {LIT_fmtDate(dueISO)} · เงินต้น {LIT_fmt(r.principalAmount, 0)}
+                </div>
+              </div>
+            ))}
+          </div>
+          {maturityAlerts.length > 12 && (
+            <div style={{ fontSize: 11, color: 'var(--ink-500)', marginTop: 6 }}>
+              แสดง 12 รายการแรก จากทั้งหมด {maturityAlerts.length}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 💰 Principal summary by PRE/POS */}
+      <div className="grid grid-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: 14 }}>
+        <PrincipalCard label="PRE" bkt={principalSummary.PRE} color="oklch(52% 0.16 250)" />
+        <PrincipalCard label="POS" bkt={principalSummary.POS} color="oklch(56% 0.18 25)" />
+      </div>
+
       {/* KPI Row */}
       <div className="grid grid-4 anim-stagger" style={{ marginBottom: 16 }}>
         <div className="card" style={{ padding: 14 }}>

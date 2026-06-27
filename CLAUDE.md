@@ -692,5 +692,17 @@ Live at **https://patima-fin.github.io/waterpog-fin/** — GitHub Pages serves t
   3. ทีม hard-refresh (Ctrl+Shift+R) — โค้ดเก่าใน cache ยังไม่รู้จัก 3 entities
   4. เปิด #debt → tab "📑 ตารางคำนวณดอกเบี้ยลีซอิท" → กด "📥 นำเข้า Excel" → upload ไฟล์ต้นทาง (รอบแรกใช้เวลา ~3-5 วินาที สำหรับ 94 ชีต)
 
+## 2026-06-27 — Leasit panel: ขยาย drawer + สรุปเงินต้น PRE/POS + alert ครบกำหนด 30 วัน (build `page_debt_leasit 20260627d`)
+- **อาการ (เตย):** drawer ราย loan แคบเกินไป + อยากเห็น เบิก/จ่ายคืน/คงเหลือเงินต้น แยก PRE vs POS + แจ้งเตือนสัญญา Active ที่ใกล้ครบกำหนดภายใน 30 วัน.
+- **ROOT (drawer แคบ):** `<Modal size="xl">` ที่ใช้ก่อนหน้า — Modal component ([components.jsx:502](app/components.jsx:502)) **ไม่รองรับ `size` prop** (รับเฉพาะ `wide` boolean + `maxWidth` number) → prop ถูก ignore → ตก default 540px. แก้ใช้ `maxWidth={1400}` (drawer) / `{1100}` (import preview) → `width: min(N, calc(100vw - 32px))` ขยายเต็มจอ.
+- **PRE/POS classification:** `isPRE = String(leasitTicketType).toUpperCase() === 'PRE'` → fallback ทุกอย่างที่ไม่ใช่ 'PRE' (NON / 0 / empty / 'POS') = POS. ใน main panel เพิ่ม **2 การ์ดเทียบ** (PrincipalCard, สี oklch 250 ฟ้า PRE / 25 ส้ม POS) บอก **count · Active · เบิก · คืน · คงเหลือ** ราย ticket — คำนวณ:
+  - drawn = Σ principalAmount ของทุก loan
+  - repaid = Σ principalAmount ของ status==='Close' (= ปิดหนี้ ปิดเงินต้นครบ)
+  - outstanding = Σ principalAmount ของ status==='Active'
+- **Drawer ราย loan:** เพิ่ม **💰 สรุปเงินต้น card** (PRE/POS badge + Pre/Post-financing label + 3 ช่อง เบิก/จ่ายคืน/คงเหลือ พร้อม sub-line "รับเงิน {date}" / "ปิดหนี้ {date}" / "ครบกำหนด {date}") เหนือการ์ด header เดิม.
+- **Maturity alert (main panel banner):** `maturityAlerts` memo — Active loans ที่ `leasitDateDueRoll || leasitDateDue` ≤ 30 วันจากวันนี้ (รวม overdue = days < 0). banner ส้มอ่อน + grid auto-fill 280px/col แสดงราย loan (id/contract/projectName/ครบกำหนด/เงินต้น) + **badge สีตามความเร่งด่วน** (days<0 แดง / days≤7 ส้ม / อื่น เทา). **คลิกการ์ดเปิด drawer** (setViewLoan). จำกัด 12 รายการแรก + แจ้ง "อีก N".
+- **Drawer ส่วน maturity:** banner ในตัว drawer แยก 2 สถานะ — `maturityNear` (0-30 วัน สีเหลือง "⏰ ครบกำหนดในอีก N วัน") / `maturityOverdue` (days<0 สีแดง "⚠️ เกินกำหนดแล้ว N วัน") + sub-line "ครบกำหนด {date} · เงินต้นคงเหลือ {amt}". ไม่โชว์ถ้า Close หรือไม่มี dueDate.
+- **verify (preview, isolated render `<LeasitPanel>` ลง overlay + mock 6 rows ครอบทุกเคส — login-gate+RLS → DOM/eval):** maturity banner = **2 สัญญา** (#4 POS overdue 3 วัน + #1 PRE near 5 วัน) ✓ — #2 (90d), #5 (60d), #3/#6 (Closed) ถูกกรองออก. PRE card: 3 สัญญา / Active 2 / เบิก 4.75M / คืน 0.55M / คงเหลือ 4.2M ตรงทุกตัว. POS card: เบิก 5M / คืน 1.2M / คงเหลือ 3.8M ตรง. Drawer (#1 near 5d): "⏰ ครบกำหนดในอีก 5 วัน" + PRE Pre-financing badge + เบิก 2.7M / คืน 0 "— (ยังไม่ปิดหนี้)" / คงเหลือ 2.7M ✓. Drawer (#3 Close): ไม่มี maturity banner + เบิก 0.55M / คืน 0.55M "ปิดหนี้ 15/03/2026" / คงเหลือ 0 ✓. Drawer (#4 overdue): "⚠️ เกินกำหนดแล้ว 3 วัน" สีแดง + POS Post-financing ✓. ไม่มี console error.
+
 ## Repo rule: keep CLAUDE.md current
 **Every time you `git push`, update this `CLAUDE.md`** to reflect anything that changed (architecture, conventions, new pages, gotchas). Treat it as part of the push, like the `?v=` bump.
