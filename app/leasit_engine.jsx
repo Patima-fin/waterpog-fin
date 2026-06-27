@@ -607,6 +607,155 @@ function litBuildExportWorkbook(loans, prepaid, actual, refund) {
   return wb;
 }
 
+/* ── Manual data entry helpers — สำหรับ form CRUD ─────────────────────── */
+// Generate ตารางดอกเบี้ยรายเดือนแบบ split (เริ่ม → สิ้นเดือน → ต้นเดือนถัดไป → สิ้นสุด)
+// ใช้สูตร principal × rate × days / 365 ตรงกับต้นทาง.
+// คืน array {seq, month, year, dateStart, dateEnd, days, principal, intRate, intAmount, ...}
+function litGenerateMonthlySchedule(principal, rate, startISO, endISO) {
+  if (!startISO || !endISO || !principal || !rate) return [];
+  var monthName = ['', 'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+    'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
+  function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+  // คำนวณวันที่จาก {y,m,d} เป็น ISO "YYYY-MM-DD" — เลี่ยง Date.toISOString() ที่จะ shift TZ
+  function ymdToISO(y, m, d) {
+    // normalize: ถ้า m หรือ d เกินขอบเขต ใช้ Date คำนวณแล้วดึง local components
+    if (d < 1 || d > 28) {
+      var t = new Date(y, m - 1, d);
+      return t.getFullYear() + '-' + pad2(t.getMonth() + 1) + '-' + pad2(t.getDate());
+    }
+    return y + '-' + pad2(m) + '-' + pad2(d);
+  }
+  function isoToYMD(iso) {
+    var p = String(iso).slice(0, 10).split('-');
+    return { y: +p[0], m: +p[1], d: +p[2] };
+  }
+  function lastDayOf(y, m) {
+    // last day of month m (1-12) of year y
+    return new Date(y, m, 0).getDate();
+  }
+  function cmpISO(a, b) { return a < b ? -1 : a > b ? 1 : 0; }
+  function addDays(iso, n) {
+    var p = isoToYMD(iso);
+    var dt = new Date(p.y, p.m - 1, p.d + n);
+    return dt.getFullYear() + '-' + pad2(dt.getMonth() + 1) + '-' + pad2(dt.getDate());
+  }
+
+  if (cmpISO(startISO, endISO) >= 0) return [];
+
+  var rows = [];
+  var seq = 0;
+  var cursorISO = startISO.slice(0, 10);
+  while (cmpISO(cursorISO, endISO) < 0) {
+    var cur = isoToYMD(cursorISO);
+    var checkpointISO;
+    if (cur.d <= 20) {
+      checkpointISO = ymdToISO(cur.y, cur.m, 20);
+    } else {
+      checkpointISO = ymdToISO(cur.y, cur.m, lastDayOf(cur.y, cur.m));
+    }
+    var segEndISO = cmpISO(checkpointISO, endISO) < 0 ? checkpointISO : endISO;
+    // mid-segment: inclusive ทั้ง 2 ขอบ → +1 (e.g. Dec 4-20 = 17 days)
+    // last segment (ติด endISO = วันครบกำหนด): exclusive end → ไม่ +1 (วันครบกำหนดไม่นับ)
+    var isLast = segEndISO === endISO;
+    var rawDiff = Math.round((new Date(segEndISO).getTime() - new Date(cursorISO).getTime()) / 86400000);
+    var days = isLast ? rawDiff : rawDiff + 1;
+    if (days <= 0) break;
+    var intAmount = principal * rate * days / 365;
+    seq++;
+    rows.push({
+      seq: seq,
+      month: monthName[cur.m],
+      year: cur.y,
+      dateStart: cursorISO,
+      dateEnd: segEndISO,
+      days: days,
+      principal: principal,
+      intRate: rate,
+      intAmount: intAmount,
+      installment: intAmount,
+      principalPaid: 0,
+      outstanding: principal,
+      chequeNo: '',
+      paymentDate: ''
+    });
+    cursorISO = addDays(segEndISO, 1);
+  }
+  return rows;
+}
+
+// คำนวณ termDays จากวันที่ (= end - start, ไม่ +1; วันครบกำหนดเป็นวันคืนเงิน ไม่นับ)
+function litCalcTermDays(startISO, endISO) {
+  if (!startISO || !endISO) return 0;
+  var a = new Date(startISO).getTime();
+  var b = new Date(endISO).getTime();
+  if (!isFinite(a) || !isFinite(b)) return 0;
+  return Math.max(0, Math.round((b - a) / 86400000));
+}
+
+// สร้าง loanId ถัดไป (สูงสุด + 1) จาก debtMaster rows ที่เป็น leasit
+function litNextLoanId(debtMasterRows) {
+  var maxId = 0;
+  (debtMasterRows || []).forEach(function (r) {
+    if (r.leasitSource && r.leasitLoanId > maxId) maxId = r.leasitLoanId;
+  });
+  return maxId + 1;
+}
+
+// สร้าง row ว่างสำหรับฟอร์มเพิ่มใหม่
+function litBlankLoanDraft(debtMasterRows) {
+  return {
+    leasitLoanId: litNextLoanId(debtMasterRows),
+    contractNo: '',
+    projectCode: '',
+    projectName: '',
+    leasitTicketType: 'PRE',
+    principalAmount: 0,
+    interestRate: 0.15,
+    leasitDateReceived: '',
+    leasitDateDue: '',
+    leasitDateDueRoll: '',
+    leasitDateRepaid: '',
+    leasitTermDays: 0,
+    leasitPrincipalChequeNo: '',
+    leasitInterestChequeNo: '',
+    status: 'Active',
+    note: ''
+  };
+}
+
+// ค้นหาโครงการจาก data.projects — return top N matches
+// match: substring on Contract No. / Site Name / ชื่อโครงการ / code / siteName / jobNo
+function litSearchProjects(projects, query, limit) {
+  limit = limit || 8;
+  if (!Array.isArray(projects)) return [];
+  var q = String(query || '').trim().toLowerCase();
+  if (!q) return projects.slice(0, limit).map(litProjectToOption);
+  var matches = [];
+  for (var i = 0; i < projects.length && matches.length < limit * 3; i++) {
+    var p = projects[i];
+    var code = String(p['Contract No.'] || p.code || p.jobNo || '').toLowerCase();
+    var name = String(p['Site Name'] || p['ชื่อโครงการ'] || p.siteName || p.name || p.projectName || '').toLowerCase();
+    if (code.indexOf(q) >= 0 || name.indexOf(q) >= 0) {
+      matches.push(litProjectToOption(p));
+    }
+  }
+  return matches.slice(0, limit);
+}
+function litProjectToOption(p) {
+  return {
+    code: String(p['Contract No.'] || p.code || p.jobNo || '').trim(),
+    name: String(p['Site Name'] || p['ชื่อโครงการ'] || p.siteName || p.name || p.projectName || '').trim(),
+    _raw: p
+  };
+}
+
+// คำนวณ Actual schedule จากวันรับ → วันคืนเงิน (ใช้ตอนปิดสัญญา)
+// = monthly split เดียวกับ prepaid แต่ตัดที่ dateRepaid
+function litGenerateActualFromClose(principal, rate, startISO, repaidISO) {
+  if (!startISO || !repaidISO) return [];
+  return litGenerateMonthlySchedule(principal, rate, startISO, repaidISO);
+}
+
 // expose
 window.LeasitEngine = {
   parseLeasitWorkbook: parseLeasitWorkbook,
@@ -615,5 +764,11 @@ window.LeasitEngine = {
   litBuildExportWorkbook: litBuildExportWorkbook,
   litToISO: litToISO,
   litNum: litNum,
-  litDaysBetween: litDaysBetween
+  litDaysBetween: litDaysBetween,
+  litGenerateMonthlySchedule: litGenerateMonthlySchedule,
+  litGenerateActualFromClose: litGenerateActualFromClose,
+  litCalcTermDays: litCalcTermDays,
+  litNextLoanId: litNextLoanId,
+  litBlankLoanDraft: litBlankLoanDraft,
+  litSearchProjects: litSearchProjects
 };

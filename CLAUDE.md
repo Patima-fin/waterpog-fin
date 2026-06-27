@@ -704,5 +704,34 @@ Live at **https://patima-fin.github.io/waterpog-fin/** — GitHub Pages serves t
 - **Drawer ส่วน maturity:** banner ในตัว drawer แยก 2 สถานะ — `maturityNear` (0-30 วัน สีเหลือง "⏰ ครบกำหนดในอีก N วัน") / `maturityOverdue` (days<0 สีแดง "⚠️ เกินกำหนดแล้ว N วัน") + sub-line "ครบกำหนด {date} · เงินต้นคงเหลือ {amt}". ไม่โชว์ถ้า Close หรือไม่มี dueDate.
 - **verify (preview, isolated render `<LeasitPanel>` ลง overlay + mock 6 rows ครอบทุกเคส — login-gate+RLS → DOM/eval):** maturity banner = **2 สัญญา** (#4 POS overdue 3 วัน + #1 PRE near 5 วัน) ✓ — #2 (90d), #5 (60d), #3/#6 (Closed) ถูกกรองออก. PRE card: 3 สัญญา / Active 2 / เบิก 4.75M / คืน 0.55M / คงเหลือ 4.2M ตรงทุกตัว. POS card: เบิก 5M / คืน 1.2M / คงเหลือ 3.8M ตรง. Drawer (#1 near 5d): "⏰ ครบกำหนดในอีก 5 วัน" + PRE Pre-financing badge + เบิก 2.7M / คืน 0 "— (ยังไม่ปิดหนี้)" / คงเหลือ 2.7M ✓. Drawer (#3 Close): ไม่มี maturity banner + เบิก 0.55M / คืน 0.55M "ปิดหนี้ 15/03/2026" / คงเหลือ 0 ✓. Drawer (#4 overdue): "⚠️ เกินกำหนดแล้ว 3 วัน" สีแดง + POS Post-financing ✓. ไม่มี console error.
 
+## 2026-06-27 — Leasit: เพิ่ม/แก้ไขสัญญาเอง + autocomplete โครงการ + คำนวณ schedule อัตโนมัติ + จ่ายคืนเงินต้นหลายครั้ง (build `leasit_engine 20260627i` / `page_debt_leasit 20260627e`)
+- **โจทย์ (เตย):** เปลี่ยน Leasit panel จาก "import-only" → **full CRUD tool** — ทำงานต่อจาก Excel ในเว็บได้เลย: เพิ่ม/แก้ไขสัญญา + ค้นหาโครงการเด้ง autocomplete + คำนวณดอกเบี้ยจากเว็บ + จ่ายคืนเงินต้นหลายครั้ง + เลขเช็คทั้งเงินต้น+ดอก รายงวด.
+- **Engine helpers ใหม่ (`leasit_engine.jsx`, exposed บน `window.LeasitEngine`):**
+  - **`litGenerateMonthlySchedule(principal, rate, startISO, endISO)`** — สำคัญสุด: split ตามรูปแบบ **Leasit charge pattern จริง** = แบ่งที่ **วันที่ 20 ของเดือน + วันสิ้นเดือน** (ไม่ใช่แค่สิ้นเดือนอย่างเดียว). คำนวณ days แบบ inclusive ทั้ง 2 ขอบ (+1) สำหรับ mid-segments + **exclusive ขอบสุดท้าย (วันครบกำหนดไม่นับ, เป็นวันคืนเงิน)**. ใช้สูตร `principal × rate × days / 365` ตรงกับต้นทาง. **★ GOTCHA: เลี่ยง `Date.toISOString()`** ใน TZ +07 จะ shift 1 วันก่อน (`new Date(2025,11,20).toISOString().slice(0,10)` = "2025-12-19" ไม่ใช่ "2025-12-20") → ใช้ local components `y + pad2(m) + pad2(d)` ตรงๆ. verify: loan 30 (550K, 0.15, Dec 4 → Apr 3) → **9 rows · 120 วัน · 27,123.29 ตรง source เป๊ะ** + days [17,11,20,11,20,8,20,11,2] ตรงทุก row.
+  - **`litCalcTermDays(s,e)`** — `(end-start)` ไม่ +1 (วันครบกำหนดไม่นับ; loan 30 → 120 วัน)
+  - **`litNextLoanId(debtMasterRows)`** — max(leasitLoanId) + 1
+  - **`litBlankLoanDraft(debtMasterRows)`** — template สำหรับสร้างใหม่ (auto loanId, default rate 0.15, ticketType PRE, status Active)
+  - **`litSearchProjects(projects, query, limit)`** — autocomplete: substring match บน `Contract No.` / `Site Name` / code / projectName (ผูกกับ `data.projects` ที่ sync จาก Supabase)
+  - **`litGenerateActualFromClose(p, r, startISO, repaidISO)`** — delegate ไป `litGenerateMonthlySchedule` (จาก dateReceived → dateRepaid)
+- **`LeasitProjectAutocomplete` (component ใหม่):** input cascade [รหัสโครงการ 120px | ชื่อโครงการ flex] + dropdown absolute เมื่อพิมพ์ (top 10 matches, hover bg, click → fill ทั้งคู่). กรอกเองได้ด้วย (ไม่บังคับเลือกจากลิสต์) — footer "หรือพิมพ์เองได้เลย". close ผ่าน mousedown นอก wrapper.
+- **`LeasitLoanForm` (component ใหม่, modal maxWidth=1300):** 4 tabs:
+  - **📋 ข้อมูลสัญญา** — 12 ฟิลด์ master: contractNo · projectAutocomplete · ticketType (PRE/POS/NON dropdown) · principal · rate · 5 dates (รับ/ครบ/โรล/คืน + termDays auto) · principalChequeNo · interestChequeNo (เผื่อใช้ทั้งสัญญา) · status auto จาก dateRepaid · note
+  - **💰 ดอกล่วงหน้า** — ปุ่ม ⚡ "คำนวณตารางดอกเบี้ยอัตโนมัติ (รายเดือน)" → call generator + ปุ่ม + เพิ่มงวด (manual) + ตารางแก้ inline (date/principal/rate/days/intAmount/**chequeNo รายงวด**/paymentDate) + ปุ่ม ✕ ลบรายแถว + footer "รวม" + hint สูตร
+  - **✅ ดอกเกิดจริง** — ปุ่ม ⚡ "คำนวณจากวันรับ → วันคืนเงิน" (disabled ถ้าไม่มี dateRepaid) + ตารางแก้ inline เหมือนกัน
+  - **💸 รับคืน/จ่ายคืน** — 2 ปุ่มเพิ่ม `+ รับคืนดอก (RV/โอน)` กับ `+ จ่ายคืนเงินต้น` → row ใหม่ใน `interestRefund` แตกต่างกันด้วย field **`kind: 'interest' | 'principal'`** (มีคอลัมน์ select แก้ทีหลังได้) + date · amount · refDoc (RV20XX/PV) · note
+  - **Footer**: ปุ่ม "🗑️ ลบสัญญา" (สีแดง, เฉพาะ edit mode + canEdit + confirm 1 รอบ) ซ้าย / ยกเลิก + 💾 บันทึก ขวา
+- **Wire ใน `LeasitPanel`:**
+  - toolbar เพิ่ม **➕ เพิ่มสัญญา** (สีน้ำเงิน, ก่อน 📥 นำเข้า Excel) → `setFormState({mode:'new'})` + state `formState`
+  - drawer เพิ่ม **✏️ แก้ไข / เพิ่มจ่ายคืน** (สี oklch 250 น้ำเงิน, ซ้ายล่าง) → ปิด drawer + เปิด form mode='edit' + pre-filled
+  - `handleSaveForm(draft, preRows, actRows, refRows)`: deterministic id `'lit_'+loanId` + recompute totals (totalPrepaid/Actual/refunded/refundOutstanding) + แยก `principalRepaid` = Σ refund.kind='principal' + balance = principal − principalRepaid (Active) หรือ 0 (Close) + replace 3 child tables เฉพาะ loanId นั้น + forceSyncNow + toast
+  - `handleDeleteForm(draft)`: ลบ debtMaster row + 3 child tables เฉพาะ loanId + forceSyncNow + ปิด drawer + toast
+- **verify (preview, isolated render `<LeasitPanel>` + mock projects, full E2E):**
+  - autocomplete: พิมพ์ "ENC" → 2 matches (ENC165 + ENC301) → click → projectCode + projectName auto-fill ✓
+  - กรอก contract + dates + principal=550000 + rate=0.15 → termDays auto = **120** (ไม่ใช่ 121) ✓
+  - กดคำนวณ schedule → **9 rows · total 27,123.29 ตรง source** ✓
+  - กดบันทึก → modal ปิด + toast "บันทึก LITSM/PBF/68-TEST สำเร็จ" + debtMaster มี 1 row `id=lit_1` (deterministic) + prepaid 9 rows + master snapshot ครบ (`leasitTotalPrepaid=27123.29`, `leasitTermDays=120`, `status=Active`) ✓
+  - prepaid row 1: dateStart=2025-12-04 dateEnd=2025-12-20 days=17 intAmount=3,842.47 ✓ (ตรง source)
+  - prepaid row 9: dateStart=2026-04-01 dateEnd=2026-04-03 days=2 intAmount=452.05 ✓ (ตรง source — exclusive end)
+
 ## Repo rule: keep CLAUDE.md current
 **Every time you `git push`, update this `CLAUDE.md`** to reflect anything that changed (architecture, conventions, new pages, gotchas). Treat it as part of the push, like the `?v=` bump.

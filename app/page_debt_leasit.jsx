@@ -155,7 +155,7 @@ function LeasitImportModal({ open, onClose, onConfirm }) {
 }
 
 /* ── LeasitLoanDrawer — ดู schedule prepaid/actual/refund ────────────── */
-function LeasitLoanDrawer({ loan, prepaid, actual, refund, onClose, onExportOne }) {
+function LeasitLoanDrawer({ loan, prepaid, actual, refund, onClose, onExportOne, onEdit }) {
   if (!loan) return null;
   const Modal = window.Modal;
 
@@ -389,11 +389,437 @@ function LeasitLoanDrawer({ loan, prepaid, actual, refund, onClose, onExportOne 
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
-          <button className="btn btn-ghost" onClick={onClose}>ปิด</button>
-          <button className="btn btn-primary" onClick={() => onExportOne(loan)}>
-            📥 Export ชีตสัญญานี้ (มีสูตร)
-          </button>
+        <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'space-between' }}>
+          <div>
+            {onEdit && (
+              <button className="btn" style={{ background: 'oklch(60% 0.16 250)', color: '#fff' }} onClick={() => onEdit(loan)}>
+                ✏️ แก้ไข / เพิ่มจ่ายคืน
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-ghost" onClick={onClose}>ปิด</button>
+            <button className="btn btn-primary" onClick={() => onExportOne(loan)}>
+              📥 Export ชีตสัญญานี้ (มีสูตร)
+            </button>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/* ── LeasitProjectAutocomplete — ค้นหาโครงการจาก data.projects ─────────── */
+function LeasitProjectAutocomplete({ value, name, projects, onPick, onChangeManual }) {
+  const [open, setOpen] = React.useState(false);
+  const [query, setQuery] = React.useState('');
+  const wrapRef = React.useRef(null);
+
+  // ปิด dropdown เมื่อคลิกนอก
+  React.useEffect(() => {
+    const onDoc = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+
+  const matches = React.useMemo(() => {
+    if (!window.LeasitEngine) return [];
+    return window.LeasitEngine.litSearchProjects(projects, query || value, 10);
+  }, [projects, query, value]);
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 6 }}>
+        <input
+          className="input"
+          placeholder="รหัสโครงการ"
+          value={value || ''}
+          onChange={(e) => { setQuery(e.target.value); setOpen(true); onChangeManual('projectCode', e.target.value); }}
+          onFocus={() => setOpen(true)}
+        />
+        <input
+          className="input"
+          placeholder="ชื่อโครงการ"
+          value={name || ''}
+          onChange={(e) => onChangeManual('projectName', e.target.value)}
+        />
+      </div>
+      {open && matches.length > 0 && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
+          background: 'var(--panel)', border: '1px solid var(--ink-200)', borderRadius: 8,
+          marginTop: 4, maxHeight: 280, overflowY: 'auto', boxShadow: 'var(--shadow-md)'
+        }}>
+          {matches.map((m, i) => (
+            <div
+              key={m.code + '-' + i}
+              onClick={() => { onPick(m); setOpen(false); setQuery(''); }}
+              style={{
+                padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid var(--ink-100)',
+                fontSize: 13
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = 'var(--ink-50)'}
+              onMouseLeave={(e) => e.currentTarget.style.background = ''}
+            >
+              <div style={{ fontWeight: 600, color: 'var(--brand-700)' }}>{m.code || '— ไม่มีรหัส —'}</div>
+              <div style={{ color: 'var(--ink-700)', fontSize: 12 }}>{m.name || '—'}</div>
+            </div>
+          ))}
+          <div style={{ padding: '6px 12px', fontSize: 11, color: 'var(--ink-500)', background: 'var(--ink-50)' }}>
+            หรือพิมพ์เองได้เลย (ไม่จำเป็นต้องเลือกจากลิสต์)
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── LeasitLoanForm — เพิ่ม/แก้ไขสัญญาลีซอิท ─────────────────────────── */
+function LeasitLoanForm({ open, mode, initial, data, onClose, onSave, onDelete, canEdit }) {
+  const Modal = window.Modal;
+  const E = window.LeasitEngine;
+  const [draft, setDraft] = React.useState(null);
+  const [preRows, setPreRows] = React.useState([]);
+  const [actRows, setActRows] = React.useState([]);
+  const [refRows, setRefRows] = React.useState([]);
+  const [tab, setTab] = React.useState('master');
+
+  // โหลด initial เมื่อเปิด
+  React.useEffect(() => {
+    if (!open) return;
+    if (mode === 'edit' && initial) {
+      setDraft({ ...initial });
+      const loanId = initial.leasitLoanId;
+      setPreRows((data?.interestSchedulePrepaid || []).filter(r => r.loanId === loanId).slice().sort((a, b) => (a.seq || 0) - (b.seq || 0)));
+      setActRows((data?.interestScheduleActual || []).filter(r => r.loanId === loanId).slice().sort((a, b) => (a.seq || 0) - (b.seq || 0)));
+      setRefRows((data?.interestRefund || []).filter(r => r.loanId === loanId).slice());
+    } else {
+      setDraft(E.litBlankLoanDraft(data?.debtMaster || []));
+      setPreRows([]); setActRows([]); setRefRows([]);
+    }
+    setTab('master');
+  }, [open, mode, initial]);
+
+  if (!open || !draft) return null;
+
+  const set = (k, v) => setDraft(d => {
+    const next = { ...d, [k]: v };
+    // auto-compute termDays
+    if (k === 'leasitDateReceived' || k === 'leasitDateDue') {
+      next.leasitTermDays = E.litCalcTermDays(
+        k === 'leasitDateReceived' ? v : next.leasitDateReceived,
+        k === 'leasitDateDue' ? v : next.leasitDateDue
+      );
+    }
+    return next;
+  });
+
+  const projects = data?.projects || [];
+  const principal = Number(draft.principalAmount) || 0;
+  const rate = Number(draft.interestRate) || 0;
+  const totPre = preRows.reduce((s, r) => s + (Number(r.intAmount) || 0), 0);
+  const totAct = actRows.reduce((s, r) => s + (Number(r.intAmount) || 0), 0);
+  const totRef = refRows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+
+  // ── Schedule actions ──
+  const generatePrepaid = () => {
+    if (!draft.leasitDateReceived || !draft.leasitDateDue || !principal || !rate) {
+      alert('กรอก วันรับเงิน · วันครบกำหนด · จำนวนเงินกู้ · อัตราดอกเบี้ย ก่อน');
+      return;
+    }
+    const rows = E.litGenerateMonthlySchedule(principal, rate, draft.leasitDateReceived, draft.leasitDateDue);
+    setPreRows(rows);
+  };
+
+  const generateActualFromClose = () => {
+    if (!draft.leasitDateReceived || !draft.leasitDateRepaid || !principal || !rate) {
+      alert('กรอก วันรับเงิน · วันคืนเงิน · จำนวนเงินกู้ · อัตรา ก่อน');
+      return;
+    }
+    const rows = E.litGenerateActualFromClose(principal, rate, draft.leasitDateReceived, draft.leasitDateRepaid);
+    setActRows(rows);
+  };
+
+  const updateRow = (kind, idx, key, val) => {
+    const setter = kind === 'pre' ? setPreRows : kind === 'act' ? setActRows : setRefRows;
+    setter(rows => rows.map((r, i) => i === idx ? { ...r, [key]: val } : r));
+  };
+  const removeRow = (kind, idx) => {
+    const setter = kind === 'pre' ? setPreRows : kind === 'act' ? setActRows : setRefRows;
+    setter(rows => rows.filter((_, i) => i !== idx));
+  };
+  const addRefundRow = (kind) => {
+    setRefRows(rows => [...rows, { refundDate: '', amount: 0, refDoc: '', refundType: kind, note: '', kind }]);
+  };
+  const addPrepaidRow = () => {
+    setPreRows(rows => [...rows, {
+      seq: rows.length + 1, month: '', year: null, dateStart: '', dateEnd: '',
+      days: 0, principal: principal, intRate: rate, intAmount: 0, chequeNo: '', paymentDate: ''
+    }]);
+  };
+
+  const handleSave = () => {
+    if (!draft.contractNo.trim()) { alert('กรุณากรอกเลขที่สัญญา'); return; }
+    if (!principal) { alert('กรุณากรอกจำนวนเงินกู้'); return; }
+    // status = Close ถ้ามีวันคืนเงิน
+    const status = draft.leasitDateRepaid ? 'Close' : 'Active';
+    const finalDraft = { ...draft, status };
+    onSave(finalDraft, preRows, actRows, refRows);
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={mode === 'edit' ? `✏️ แก้ไขสัญญา · ลำดับ ${draft.leasitLoanId}` : '➕ เพิ่มสัญญาลีซอิทใหม่'}
+      maxWidth={1300}
+    >
+      <div style={{ padding: '8px 4px', fontSize: 13 }}>
+        {/* Tabs */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12, borderBottom: '1px solid var(--ink-200)' }}>
+          {[
+            { k: 'master', l: '📋 ข้อมูลสัญญา' },
+            { k: 'prepaid', l: `💰 ดอกล่วงหน้า (${preRows.length})` },
+            { k: 'actual', l: `✅ ดอกเกิดจริง (${actRows.length})` },
+            { k: 'refund', l: `💸 รับคืน/จ่ายคืน (${refRows.length})` }
+          ].map(t => (
+            <button
+              key={t.k}
+              className={tab === t.k ? 'btn btn-primary' : 'btn btn-ghost'}
+              onClick={() => setTab(t.k)}
+              style={{ borderRadius: '8px 8px 0 0', marginBottom: -1 }}
+            >{t.l}</button>
+          ))}
+        </div>
+
+        {/* Tab: master */}
+        {tab === 'master' && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--ink-500)' }}>ลำดับที่</label>
+              <input className="input" value={draft.leasitLoanId} disabled />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--ink-500)' }}>เลขที่สัญญา *</label>
+              <input className="input" value={draft.contractNo} onChange={(e) => set('contractNo', e.target.value)} placeholder="LITSM/PBF/68-XXXXX" />
+            </div>
+            <div style={{ gridColumn: '1/-1' }}>
+              <label style={{ fontSize: 11, color: 'var(--ink-500)' }}>โครงการ (พิมพ์เพื่อค้นหา / เลือกจากลิสต์ / กรอกเอง)</label>
+              <LeasitProjectAutocomplete
+                value={draft.projectCode}
+                name={draft.projectName}
+                projects={projects}
+                onPick={(m) => setDraft(d => ({ ...d, projectCode: m.code, projectName: m.name }))}
+                onChangeManual={(k, v) => setDraft(d => ({ ...d, [k]: v }))}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--ink-500)' }}>ประเภทตั๋ว</label>
+              <select className="input" value={draft.leasitTicketType} onChange={(e) => set('leasitTicketType', e.target.value)}>
+                <option value="PRE">PRE — Pre-financing</option>
+                <option value="POS">POS — Post-financing</option>
+                <option value="NON">NON — Non-PRE</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--ink-500)' }}>จำนวนเงินกู้ (เงินต้น) *</label>
+              <input type="number" className="input" value={draft.principalAmount} onChange={(e) => set('principalAmount', Number(e.target.value) || 0)} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--ink-500)' }}>อัตราดอกเบี้ย/ปี (decimal เช่น 0.15)</label>
+              <input type="number" step="0.01" className="input" value={draft.interestRate} onChange={(e) => set('interestRate', Number(e.target.value) || 0)} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--ink-500)' }}>วันที่รับเงิน *</label>
+              <input type="date" className="input" value={draft.leasitDateReceived || ''} onChange={(e) => set('leasitDateReceived', e.target.value)} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--ink-500)' }}>วันที่ครบกำหนด *</label>
+              <input type="date" className="input" value={draft.leasitDateDue || ''} onChange={(e) => set('leasitDateDue', e.target.value)} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--ink-500)' }}>ครบกำหนด (โรลตั๋ว)</label>
+              <input type="date" className="input" value={draft.leasitDateDueRoll || ''} onChange={(e) => set('leasitDateDueRoll', e.target.value)} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--ink-500)' }}>ระยะเวลากู้ (วัน · auto)</label>
+              <input className="input" value={draft.leasitTermDays || 0} disabled />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--ink-500)' }}>เลขที่เช็คเงินต้น</label>
+              <input className="input" value={draft.leasitPrincipalChequeNo || ''} onChange={(e) => set('leasitPrincipalChequeNo', e.target.value)} placeholder="10000081" />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--ink-500)' }}>เลขที่เช็คดอกเบี้ย (รวม — รายงวดในแท็บถัดไป)</label>
+              <input className="input" value={draft.leasitInterestChequeNo || ''} onChange={(e) => set('leasitInterestChequeNo', e.target.value)} placeholder="10066733" />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--ink-500)' }}>วันที่คืนเงิน (เว้นว่าง = ยังไม่ปิด)</label>
+              <input type="date" className="input" value={draft.leasitDateRepaid || ''} onChange={(e) => set('leasitDateRepaid', e.target.value)} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--ink-500)' }}>สถานะ (auto จากวันคืนเงิน)</label>
+              <input className="input" value={draft.leasitDateRepaid ? 'Close' : 'Active'} disabled />
+            </div>
+            <div style={{ gridColumn: '1/-1' }}>
+              <label style={{ fontSize: 11, color: 'var(--ink-500)' }}>หมายเหตุ</label>
+              <textarea className="input" rows={2} value={draft.note || ''} onChange={(e) => set('note', e.target.value)} />
+            </div>
+          </div>
+        )}
+
+        {/* Tab: prepaid */}
+        {tab === 'prepaid' && (
+          <div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+              <button className="btn btn-primary" onClick={generatePrepaid}>
+                ⚡ คำนวณตารางดอกเบี้ยอัตโนมัติ (รายเดือน)
+              </button>
+              <button className="btn btn-ghost" onClick={addPrepaidRow}>+ เพิ่มงวด</button>
+              <span style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 600 }}>
+                รวม: {LIT_fmt(totPre, 2)}
+              </span>
+            </div>
+            <div style={{ maxHeight: 380, overflowY: 'auto', border: '1px solid var(--ink-200)', borderRadius: 8 }}>
+              <table className="tbl" style={{ width: '100%', fontSize: 12 }}>
+                <thead><tr>
+                  <th>#</th><th>เริ่ม</th><th>สิ้นสุด</th>
+                  <th style={{ textAlign: 'right' }}>เงินต้น</th>
+                  <th style={{ textAlign: 'right' }}>อัตรา</th>
+                  <th style={{ textAlign: 'right' }}>วัน</th>
+                  <th style={{ textAlign: 'right' }}>ดอกเบี้ย</th>
+                  <th>เลขเช็ค</th><th>วันจ่าย</th><th></th>
+                </tr></thead>
+                <tbody>
+                  {preRows.map((r, i) => (
+                    <tr key={i}>
+                      <td>{r.seq || i + 1}</td>
+                      <td><input type="date" className="input" style={{ minWidth: 130 }} value={r.dateStart || ''} onChange={(e) => updateRow('pre', i, 'dateStart', e.target.value)} /></td>
+                      <td><input type="date" className="input" style={{ minWidth: 130 }} value={r.dateEnd || ''} onChange={(e) => updateRow('pre', i, 'dateEnd', e.target.value)} /></td>
+                      <td><input type="number" className="input" style={{ textAlign: 'right', width: 110 }} value={r.principal || 0} onChange={(e) => updateRow('pre', i, 'principal', Number(e.target.value) || 0)} /></td>
+                      <td><input type="number" step="0.01" className="input" style={{ textAlign: 'right', width: 70 }} value={r.intRate || 0} onChange={(e) => updateRow('pre', i, 'intRate', Number(e.target.value) || 0)} /></td>
+                      <td><input type="number" className="input" style={{ textAlign: 'right', width: 60 }} value={r.days || 0} onChange={(e) => updateRow('pre', i, 'days', Number(e.target.value) || 0)} /></td>
+                      <td><input type="number" step="0.01" className="input" style={{ textAlign: 'right', width: 100 }} value={r.intAmount || 0} onChange={(e) => updateRow('pre', i, 'intAmount', Number(e.target.value) || 0)} /></td>
+                      <td><input className="input" style={{ width: 110 }} value={r.chequeNo || ''} onChange={(e) => updateRow('pre', i, 'chequeNo', e.target.value)} placeholder="10066733" /></td>
+                      <td><input type="date" className="input" style={{ minWidth: 130 }} value={r.paymentDate || ''} onChange={(e) => updateRow('pre', i, 'paymentDate', e.target.value)} /></td>
+                      <td><button className="btn btn-icon btn-ghost" onClick={() => removeRow('pre', i)} title="ลบ">✕</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-500)' }}>
+              💡 สูตรคำนวณ: เงินต้น × อัตรา × วัน / 365 — กดปุ่ม "⚡ คำนวณ" เพื่อสร้างใหม่ทั้งตาราง (split รายเดือน)
+            </div>
+          </div>
+        )}
+
+        {/* Tab: actual */}
+        {tab === 'actual' && (
+          <div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+              <button className="btn btn-primary" onClick={generateActualFromClose} disabled={!draft.leasitDateRepaid}>
+                ⚡ คำนวณจากวันรับ → วันคืนเงิน
+              </button>
+              <span style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 600 }}>
+                รวม: {LIT_fmt(totAct, 2)}
+              </span>
+            </div>
+            {!draft.leasitDateRepaid && (
+              <div style={{ padding: 10, background: 'var(--ink-50)', borderRadius: 8, fontSize: 12, color: 'var(--ink-700)', marginBottom: 8 }}>
+                ℹ️ ดอกเบี้ยเกิดจริง = คำนวณตอนปิดสัญญา (กรอก "วันที่คืนเงิน" ในแท็บ "ข้อมูลสัญญา" ก่อน)
+              </div>
+            )}
+            <div style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid var(--ink-200)', borderRadius: 8 }}>
+              <table className="tbl" style={{ width: '100%', fontSize: 12 }}>
+                <thead><tr>
+                  <th>#</th><th>เริ่ม</th><th>สิ้นสุด</th>
+                  <th style={{ textAlign: 'right' }}>เงินต้น</th>
+                  <th style={{ textAlign: 'right' }}>อัตรา</th>
+                  <th style={{ textAlign: 'right' }}>วัน</th>
+                  <th style={{ textAlign: 'right' }}>ดอกเบี้ย</th>
+                  <th></th>
+                </tr></thead>
+                <tbody>
+                  {actRows.map((r, i) => (
+                    <tr key={i}>
+                      <td>{r.seq || i + 1}</td>
+                      <td><input type="date" className="input" style={{ minWidth: 130 }} value={r.dateStart || ''} onChange={(e) => updateRow('act', i, 'dateStart', e.target.value)} /></td>
+                      <td><input type="date" className="input" style={{ minWidth: 130 }} value={r.dateEnd || ''} onChange={(e) => updateRow('act', i, 'dateEnd', e.target.value)} /></td>
+                      <td><input type="number" className="input" style={{ textAlign: 'right', width: 110 }} value={r.principal || 0} onChange={(e) => updateRow('act', i, 'principal', Number(e.target.value) || 0)} /></td>
+                      <td><input type="number" step="0.01" className="input" style={{ textAlign: 'right', width: 70 }} value={r.intRate || 0} onChange={(e) => updateRow('act', i, 'intRate', Number(e.target.value) || 0)} /></td>
+                      <td><input type="number" className="input" style={{ textAlign: 'right', width: 60 }} value={r.days || 0} onChange={(e) => updateRow('act', i, 'days', Number(e.target.value) || 0)} /></td>
+                      <td><input type="number" step="0.01" className="input" style={{ textAlign: 'right', width: 100 }} value={r.intAmount || 0} onChange={(e) => updateRow('act', i, 'intAmount', Number(e.target.value) || 0)} /></td>
+                      <td><button className="btn btn-icon btn-ghost" onClick={() => removeRow('act', i)} title="ลบ">✕</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Tab: refund + principal repayment */}
+        {tab === 'refund' && (
+          <div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+              <button className="btn btn-ghost" onClick={() => addRefundRow('interest')}>+ รับคืนดอก (RV/โอน)</button>
+              <button className="btn btn-ghost" onClick={() => addRefundRow('principal')}>+ จ่ายคืนเงินต้น</button>
+              <span style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 600 }}>
+                รวม: {LIT_fmt(totRef, 2)}
+              </span>
+            </div>
+            <div style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid var(--ink-200)', borderRadius: 8 }}>
+              <table className="tbl" style={{ width: '100%', fontSize: 12 }}>
+                <thead><tr>
+                  <th>ประเภท</th><th>วันที่</th>
+                  <th style={{ textAlign: 'right' }}>จำนวน</th>
+                  <th>เอกสารอ้างอิง</th><th>หมายเหตุ</th><th></th>
+                </tr></thead>
+                <tbody>
+                  {refRows.map((r, i) => (
+                    <tr key={i}>
+                      <td>
+                        <select className="input" style={{ width: 130 }} value={r.kind || (r.refundType === 'RV' ? 'interest' : 'interest')} onChange={(e) => updateRow('ref', i, 'kind', e.target.value)}>
+                          <option value="interest">🧾 รับคืนดอก</option>
+                          <option value="principal">💰 จ่ายคืนเงินต้น</option>
+                        </select>
+                      </td>
+                      <td><input type="date" className="input" style={{ minWidth: 130 }} value={r.refundDate || ''} onChange={(e) => updateRow('ref', i, 'refundDate', e.target.value)} /></td>
+                      <td><input type="number" step="0.01" className="input" style={{ textAlign: 'right', width: 120 }} value={r.amount || 0} onChange={(e) => updateRow('ref', i, 'amount', Number(e.target.value) || 0)} /></td>
+                      <td><input className="input" style={{ minWidth: 130 }} value={r.refDoc || ''} onChange={(e) => updateRow('ref', i, 'refDoc', e.target.value)} placeholder="RV2603-036 / PV…" /></td>
+                      <td><input className="input" value={r.note || ''} onChange={(e) => updateRow('ref', i, 'note', e.target.value)} placeholder="โอนคืน/หักตอน RV/…" /></td>
+                      <td><button className="btn btn-icon btn-ghost" onClick={() => removeRow('ref', i)} title="ลบ">✕</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-500)' }}>
+              💡 รับคืนดอก = ส่วนต่างที่ลีซอิทคืนให้ (RV หักกลบ / โอนคืน) · จ่ายคืนเงินต้น = บันทึกการคืนเงินต้น (PV/ใบจ่าย)
+            </div>
+          </div>
+        )}
+
+        {/* Footer actions */}
+        <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'space-between', borderTop: '1px solid var(--ink-200)', paddingTop: 12 }}>
+          <div>
+            {mode === 'edit' && canEdit && (
+              <button
+                className="btn"
+                style={{ background: 'var(--bad)', color: '#fff' }}
+                onClick={() => { if (confirm(`ลบสัญญา ${draft.contractNo}? · จะลบ schedule prepaid/actual/refund ของสัญญานี้ทั้งหมด`)) onDelete(draft); }}
+              >
+                🗑️ ลบสัญญา
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-ghost" onClick={onClose}>ยกเลิก</button>
+            <button className="btn btn-primary" onClick={handleSave} disabled={!canEdit}>
+              💾 บันทึก
+            </button>
+          </div>
         </div>
       </div>
     </Modal>
@@ -404,6 +830,8 @@ function LeasitLoanDrawer({ loan, prepaid, actual, refund, onClose, onExportOne 
 function LeasitPanel({ data, setData, toast, canEdit }) {
   const [showImport, setShowImport] = React.useState(false);
   const [viewLoan, setViewLoan] = React.useState(null);
+  // formState: null = ปิด, { mode: 'new'|'edit', initial: row }
+  const [formState, setFormState] = React.useState(null);
   const [query, setQuery] = React.useState('');
   const [statusFilter, setStatusFilter] = React.useState('all');
 
@@ -545,6 +973,117 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
     const wb = window.LeasitEngine.litBuildExportWorkbook(single, prepaid, actual, refund);
     if (!wb) return;
     XLSX.writeFile(wb, `WTP-ลีซอิท-${loan.leasitLoanId}-${loan.contractNo.replace(/[\/\\]/g, '_')}.xlsx`);
+  };
+
+  // ── Save form (สร้างใหม่/แก้ไข) — upsert debtMaster + replace 3 child tables ──
+  const handleSaveForm = (draft, preRowsArr, actRowsArr, refRowsArr) => {
+    const loanId = draft.leasitLoanId;
+    const E = window.LeasitEngine;
+    // recompute totals
+    const totals = {
+      totalPrepaidInterest: preRowsArr.reduce((s, r) => s + (Number(r.intAmount) || 0), 0),
+      totalActualInterest: actRowsArr.reduce((s, r) => s + (Number(r.intAmount) || 0), 0),
+      totalRefunded: refRowsArr.filter(r => (r.kind || 'interest') === 'interest').reduce((s, r) => s + (Number(r.amount) || 0), 0)
+    };
+    totals.variance = totals.totalPrepaidInterest - totals.totalActualInterest;
+    totals.refundOutstanding = totals.variance - totals.totalRefunded;
+    const principalRepaid = refRowsArr.filter(r => r.kind === 'principal').reduce((s, r) => s + (Number(r.amount) || 0), 0);
+
+    setData(d => {
+      const existing = d.debtMaster || [];
+      // build/update row
+      const rowId = 'lit_' + loanId;
+      const baseFields = {
+        id: rowId,
+        debtCategory: 'LIT',
+        contractNo: draft.contractNo,
+        borrowerName: 'บจก. ลีซอิท',
+        status: draft.leasitDateRepaid ? 'Close' : 'Active',
+        facilityType: 'Loan',
+        loanType: draft.leasitTicketType === 'POS' || draft.leasitTicketType === 'NON' ? 'NON' : 'PRE',
+        principalAmount: Number(draft.principalAmount) || 0,
+        interestRate: Number(draft.interestRate) || 0,
+        balance: draft.leasitDateRepaid ? 0 : (Number(draft.principalAmount) || 0) - principalRepaid,
+        currency: 'THB',
+        projectCode: draft.projectCode || '',
+        projectName: draft.projectName || '',
+        note: draft.note || '',
+        leasitSource: true,
+        leasitLoanId: loanId,
+        leasitTicketType: draft.leasitTicketType,
+        leasitDateReceived: draft.leasitDateReceived || '',
+        leasitDateDue: draft.leasitDateDue || '',
+        leasitDateDueRoll: draft.leasitDateDueRoll || '',
+        leasitDateRepaid: draft.leasitDateRepaid || '',
+        leasitTermDays: draft.leasitTermDays || E.litCalcTermDays(draft.leasitDateReceived, draft.leasitDateDue),
+        leasitPrincipalChequeNo: draft.leasitPrincipalChequeNo || '',
+        leasitInterestChequeNo: draft.leasitInterestChequeNo || '',
+        leasitTotalPrepaid: totals.totalPrepaidInterest,
+        leasitTotalActual: totals.totalActualInterest,
+        leasitVariance: totals.variance,
+        leasitRefunded: totals.totalRefunded,
+        leasitRefundOutstanding: totals.refundOutstanding,
+        leasitPrincipalRepaid: principalRepaid,
+        maturityDate: draft.leasitDateDueRoll || draft.leasitDateDue || ''
+      };
+      const idx = existing.findIndex(r => r.id === rowId);
+      const nextDm = idx >= 0
+        ? existing.map((r, i) => i === idx ? { ...r, ...baseFields } : r)
+        : existing.concat([baseFields]);
+
+      // replace child tables for this loanId
+      const keepPre = (d.interestSchedulePrepaid || []).filter(r => r.loanId !== loanId);
+      const newPre = preRowsArr.map((p, i) => ({
+        id: litRowId(loanId, 'pre', p.seq || i + 1),
+        loanId,
+        ...p
+      }));
+      const keepAct = (d.interestScheduleActual || []).filter(r => r.loanId !== loanId);
+      const newAct = actRowsArr.map((p, i) => ({
+        id: litRowId(loanId, 'act', p.seq || i + 1),
+        loanId,
+        ...p
+      }));
+      const keepRef = (d.interestRefund || []).filter(r => r.loanId !== loanId);
+      const newRef = refRowsArr.map((p, i) => ({
+        id: litRowId(loanId, 'ref', i + 1),
+        loanId,
+        kind: p.kind || 'interest',
+        ...p
+      }));
+
+      return {
+        ...d,
+        debtMaster: nextDm,
+        interestSchedulePrepaid: keepPre.concat(newPre),
+        interestScheduleActual: keepAct.concat(newAct),
+        interestRefund: keepRef.concat(newRef)
+      };
+    });
+    if (window.WTPData && window.WTPData.forceSyncNow) {
+      setTimeout(() => window.WTPData.forceSyncNow(), 200);
+    }
+    setFormState(null);
+    if (toast) toast(`บันทึก ${draft.contractNo} สำเร็จ`, 'success');
+  };
+
+  // ── Delete loan + child rows ──
+  const handleDeleteForm = (draft) => {
+    const loanId = draft.leasitLoanId;
+    const rowId = 'lit_' + loanId;
+    setData(d => ({
+      ...d,
+      debtMaster: (d.debtMaster || []).filter(r => r.id !== rowId),
+      interestSchedulePrepaid: (d.interestSchedulePrepaid || []).filter(r => r.loanId !== loanId),
+      interestScheduleActual: (d.interestScheduleActual || []).filter(r => r.loanId !== loanId),
+      interestRefund: (d.interestRefund || []).filter(r => r.loanId !== loanId)
+    }));
+    if (window.WTPData && window.WTPData.forceSyncNow) {
+      setTimeout(() => window.WTPData.forceSyncNow(), 200);
+    }
+    setFormState(null);
+    setViewLoan(null);
+    if (toast) toast(`ลบสัญญา ${draft.contractNo} แล้ว`, 'info');
   };
 
   // ── Principal summary: PRE vs POS (drawn / repaid / outstanding) ──
@@ -720,9 +1259,14 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
           <option value="Close">⚫ ปิดแล้ว</option>
         </select>
         {canEdit && (
-          <button className="btn btn-primary" onClick={() => setShowImport(true)}>
-            📥 นำเข้า Excel
-          </button>
+          <>
+            <button className="btn btn-primary" onClick={() => setFormState({ mode: 'new', initial: null })}>
+              ➕ เพิ่มสัญญา
+            </button>
+            <button className="btn btn-ghost" onClick={() => setShowImport(true)}>
+              📥 นำเข้า Excel
+            </button>
+          </>
         )}
         <button className="btn btn-ghost" onClick={handleExportAll} disabled={!allRows.length}>
           📤 Export ทั้งหมด (มีสูตร)
@@ -805,6 +1349,17 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
         refund={refund}
         onClose={() => setViewLoan(null)}
         onExportOne={handleExportOne}
+        onEdit={canEdit ? (l) => { setFormState({ mode: 'edit', initial: l }); setViewLoan(null); } : null}
+      />
+      <LeasitLoanForm
+        open={!!formState}
+        mode={formState?.mode}
+        initial={formState?.initial}
+        data={data}
+        onClose={() => setFormState(null)}
+        onSave={handleSaveForm}
+        onDelete={handleDeleteForm}
+        canEdit={canEdit}
       />
     </div>
   );
