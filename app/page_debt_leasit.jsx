@@ -997,17 +997,19 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
       }
     }
     // ── dynamic sort ──
+    // helper: เงินต้นจ่ายคืน + คงเหลือ (computed)
+    const litRepaid = (r) => r.leasitPrincipalRepaid != null
+      ? (Number(r.leasitPrincipalRepaid) || 0)
+      : (r.status === 'Close' ? (Number(r.principalAmount) || 0) : 0);
     const getSortVal = (r, key) => {
       switch (key) {
         case 'leasitLoanId': return Number(r.leasitLoanId) || 0;
         case 'principalAmount': return Number(r.principalAmount) || 0;
+        case 'principalRepaid': return litRepaid(r);
+        case 'principalOutstanding': return (Number(r.principalAmount) || 0) - litRepaid(r);
         case 'interestRate': return Number(r.interestRate) || 0;
         case 'leasitDateReceived': return String(r.leasitDateReceived || '');
         case 'leasitDateDue': return String(r.leasitDateDue || '');
-        case 'leasitTotalPrepaid': return Number(r.leasitTotalPrepaid) || 0;
-        case 'leasitTotalActual': return Number(r.leasitTotalActual) || 0;
-        case 'leasitVariance': return Number(r.leasitVariance) || 0;
-        case 'leasitRefunded': return Number(r.leasitRefunded) || 0;
         case 'leasitRefundOutstanding': return Number(r.leasitRefundOutstanding) || 0;
         default: return String(r[sort.key] || '');
       }
@@ -1030,6 +1032,14 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
       case 'projectCode': return r.projectCode || '—';
       case 'projectName': return r.projectName || '—';
       case 'principalAmount': return LIT_fmt(r.principalAmount, 0);
+      case 'principalRepaid': {
+        const v = r.leasitPrincipalRepaid != null ? Number(r.leasitPrincipalRepaid) : (r.status === 'Close' ? Number(r.principalAmount) : 0);
+        return LIT_fmt(v || 0, 0);
+      }
+      case 'principalOutstanding': {
+        const rep = r.leasitPrincipalRepaid != null ? Number(r.leasitPrincipalRepaid) : (r.status === 'Close' ? Number(r.principalAmount) : 0);
+        return LIT_fmt((Number(r.principalAmount) || 0) - (rep || 0), 0);
+      }
       case 'interestRate': return (Number(r.interestRate) * 100).toFixed(2) + '%';
       case 'leasitDateReceived': return LIT_fmtDate(r.leasitDateReceived) || '—';
       case 'leasitDateDue': return LIT_fmtDate(r.leasitDateDue) || '—';
@@ -1044,16 +1054,15 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
   }
   // sort-value ที่แท้จริง (ISO date/raw number) สำหรับ dropdown ที่ต้องเรียงตามค่าจริง
   function getColSortValue(r, key) {
+    const rep = r.leasitPrincipalRepaid != null ? Number(r.leasitPrincipalRepaid) : (r.status === 'Close' ? Number(r.principalAmount) : 0);
     switch (key) {
       case 'leasitLoanId': return Number(r.leasitLoanId) || 0;
       case 'principalAmount': return Number(r.principalAmount) || 0;
+      case 'principalRepaid': return rep || 0;
+      case 'principalOutstanding': return (Number(r.principalAmount) || 0) - (rep || 0);
       case 'interestRate': return Number(r.interestRate) || 0;
       case 'leasitDateReceived': return r.leasitDateReceived || '';
       case 'leasitDateDue': return r.leasitDateDue || '';
-      case 'leasitTotalPrepaid': return Number(r.leasitTotalPrepaid) || 0;
-      case 'leasitTotalActual': return Number(r.leasitTotalActual) || 0;
-      case 'leasitVariance': return Number(r.leasitVariance) || 0;
-      case 'leasitRefunded': return Number(r.leasitRefunded) || 0;
       case 'leasitRefundOutstanding': return Number(r.leasitRefundOutstanding) || 0;
       default: return undefined;
     }
@@ -1660,17 +1669,15 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
                   <col style={{ width: 48 }} />        {/* ประเภท */}
                   <col style={{ width: 160 }} />       {/* เลขที่สัญญา */}
                   <col style={{ width: 110 }} />       {/* JOB */}
-                  <col style={{ minWidth: 200 }} />    {/* โครงการ — flex */}
-                  <col style={{ width: 90 }} />        {/* วงเงิน */}
+                  <col style={{ minWidth: 220 }} />    {/* โครงการ — flex */}
+                  <col style={{ width: 110 }} />       {/* เงินต้นรับ */}
+                  <col style={{ width: 110 }} />       {/* จ่ายคืน */}
+                  <col style={{ width: 110 }} />       {/* คงเหลือ */}
                   <col style={{ width: 56 }} />        {/* อัตรา */}
                   <col style={{ width: 88 }} />        {/* รับเงิน */}
                   <col style={{ width: 88 }} />        {/* ครบกำหนด */}
                   <col style={{ width: 50 }} />        {/* สถานะ */}
-                  <col style={{ width: 95 }} />        {/* ดอกล่วงหน้า */}
-                  <col style={{ width: 95 }} />        {/* ดอกเกิดจริง */}
-                  <col style={{ width: 90 }} />        {/* ส่วนต่าง */}
-                  <col style={{ width: 88 }} />        {/* รับคืนแล้ว */}
-                  <col style={{ width: 90 }} />        {/* ค้างรับคืน */}
+                  <col style={{ width: 100 }} />       {/* ค้างดอก */}
                 </colgroup>
                 <thead>
                   {(() => {
@@ -1689,16 +1696,14 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
                           <Th k="contractNo" label="เลขที่สัญญา" />
                           <Th k="projectCode" label="JOB" />
                           <Th k="projectName" label="โครงการ" />
-                          <Th k="principalAmount" label="วงเงิน" right />
+                          <Th k="principalAmount" label="เงินต้นรับ" right />
+                          <Th k="principalRepaid" label="จ่ายคืน" right />
+                          <Th k="principalOutstanding" label="คงเหลือ" right />
                           <Th k="interestRate" label="อัตรา" right />
                           <Th k="leasitDateReceived" label="รับเงิน" />
                           <Th k="leasitDateDue" label="ครบกำหนด" />
                           <Th k="status" label="สถานะ" />
-                          <Th k="leasitTotalPrepaid" label="ดอกล่วงหน้า" right />
-                          <Th k="leasitTotalActual" label="ดอกเกิดจริง" right />
-                          <Th k="leasitVariance" label="ส่วนต่าง" right />
-                          <Th k="leasitRefunded" label="รับคืนแล้ว" right />
-                          <Th k="leasitRefundOutstanding" label="ค้างรับคืน" right />
+                          <Th k="leasitRefundOutstanding" label="ค้างดอก" right />
                         </tr>
                       );
                     }
@@ -1713,16 +1718,14 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
                         <FCH {...commonProps} sortKey="contractNo" label="เลขสัญญา" align="left" />
                         <FCH {...commonProps} sortKey="projectCode" label="JOB" align="left" />
                         <FCH {...commonProps} sortKey="projectName" label="โครงการ" align="left" />
-                        <FCH {...commonProps} sortKey="principalAmount" label="วงเงิน" align="right" />
+                        <FCH {...commonProps} sortKey="principalAmount" label="เงินต้นรับ" align="right" />
+                        <FCH {...commonProps} sortKey="principalRepaid" label="จ่ายคืน" align="right" />
+                        <FCH {...commonProps} sortKey="principalOutstanding" label="คงเหลือ" align="right" />
                         <FCH {...commonProps} sortKey="interestRate" label="อัตรา" align="right" />
                         <FCH {...commonProps} sortKey="leasitDateReceived" label="รับเงิน" align="left" />
                         <FCH {...commonProps} sortKey="leasitDateDue" label="ครบกำหนด" align="left" />
                         <FCH {...commonProps} sortKey="status" label="สถานะ" align="left" />
-                        <FCH {...commonProps} sortKey="leasitTotalPrepaid" label="ดอกล่วงหน้า" align="right" />
-                        <FCH {...commonProps} sortKey="leasitTotalActual" label="ดอกเกิดจริง" align="right" />
-                        <FCH {...commonProps} sortKey="leasitVariance" label="ส่วนต่าง" align="right" />
-                        <FCH {...commonProps} sortKey="leasitRefunded" label="รับคืน" align="right" />
-                        <FCH {...commonProps} sortKey="leasitRefundOutstanding" label="ค้างรับคืน" align="right" />
+                        <FCH {...commonProps} sortKey="leasitRefundOutstanding" label="ค้างดอก" align="right" />
                       </tr>
                     );
                   })()}
@@ -1732,6 +1735,12 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
                     const t = String(r.leasitTicketType || '').toUpperCase();
                     const label = t === 'NON' ? 'NON' : t === 'PRE' ? 'PRE' : 'POS';
                     const col = label === 'PRE' ? 'oklch(52% 0.16 250)' : label === 'NON' ? 'oklch(48% 0.14 305)' : 'oklch(56% 0.18 25)';
+                    // เงินต้นจ่ายคืน: ใช้ฟิลด์ที่ฟอร์มบันทึก ถ้าไม่มี → ปิดสัญญาแล้ว = เต็มจำนวน, ยัง Active = 0
+                    const principal = Number(r.principalAmount) || 0;
+                    const repaid = r.leasitPrincipalRepaid != null
+                      ? (Number(r.leasitPrincipalRepaid) || 0)
+                      : (r.status === 'Close' ? principal : 0);
+                    const outstanding = principal - repaid;
                     return (
                       <tr key={r.id} onClick={() => setViewLoan(r)} style={{ cursor: 'pointer', borderBottom: '1px solid var(--ink-100)' }}>
                         <td style={tdBase}>{r.leasitLoanId}</td>
@@ -1741,15 +1750,13 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
                         <td style={tdBase} title={r.contractNo}>{r.contractNo}</td>
                         <td style={tdBase} title={r.projectCode}>{r.projectCode || '—'}</td>
                         <td title={r.projectName} style={tdBase}>{r.projectName}</td>
-                        <td style={tdRight}>{LIT_fmt(r.principalAmount, 0)}</td>
+                        <td style={tdRight}>{LIT_fmt(principal, 0)}</td>
+                        <td style={{ ...tdRight, color: 'oklch(50% 0.14 145)' }}>{LIT_fmt(repaid, 0)}</td>
+                        <td style={{ ...tdRight, color: outstanding > 0.01 ? 'var(--bad)' : 'var(--ink-500)', fontWeight: outstanding > 0.01 ? 600 : 400 }}>{LIT_fmt(outstanding, 0)}</td>
                         <td style={tdRight}>{(r.interestRate * 100).toFixed(2)}%</td>
                         <td style={tdBase}>{LIT_fmtDate(r.leasitDateReceived)}</td>
                         <td style={tdBase}>{LIT_fmtDate(r.leasitDateDue)}</td>
                         <td style={tdBase}>{r.status === 'Active' ? '🟢' : '⚫'}</td>
-                        <td style={tdRight}>{LIT_fmt(r.leasitTotalPrepaid, 2)}</td>
-                        <td style={tdRight}>{LIT_fmt(r.leasitTotalActual, 2)}</td>
-                        <td style={{ ...tdRight, color: 'oklch(52% 0.16 145)' }}>{LIT_fmt(r.leasitVariance, 2)}</td>
-                        <td style={tdRight}>{LIT_fmt(r.leasitRefunded, 2)}</td>
                         <td style={{ ...tdRight, color: r.leasitRefundOutstanding > 0.01 ? 'var(--bad)' : 'var(--ink-500)', fontWeight: r.leasitRefundOutstanding > 0.01 ? 600 : 400 }}>
                           {LIT_fmt(r.leasitRefundOutstanding, 2)}
                         </td>
@@ -1758,16 +1765,25 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
                   })}
                 </tbody>
                 <tfoot>
-                  <tr style={{ fontWeight: 600, background: 'var(--ink-50)' }}>
-                    <td colSpan={5} style={{ ...tdBase, textAlign: 'right' }}>รวม {filtered.length} สัญญา</td>
-                    <td style={tdRight}>{LIT_fmt(filtered.reduce((s, r) => s + (Number(r.principalAmount) || 0), 0), 0)}</td>
-                    <td colSpan={4}></td>
-                    <td style={tdRight}>{LIT_fmt(filtered.reduce((s, r) => s + (Number(r.leasitTotalPrepaid) || 0), 0), 2)}</td>
-                    <td style={tdRight}>{LIT_fmt(filtered.reduce((s, r) => s + (Number(r.leasitTotalActual) || 0), 0), 2)}</td>
-                    <td style={tdRight}>{LIT_fmt(filtered.reduce((s, r) => s + (Number(r.leasitVariance) || 0), 0), 2)}</td>
-                    <td style={tdRight}>{LIT_fmt(filtered.reduce((s, r) => s + (Number(r.leasitRefunded) || 0), 0), 2)}</td>
-                    <td style={tdRight}>{LIT_fmt(filtered.reduce((s, r) => s + (Number(r.leasitRefundOutstanding) || 0), 0), 2)}</td>
-                  </tr>
+                  {(() => {
+                    const tot = filtered.reduce((a, r) => {
+                      const p = Number(r.principalAmount) || 0;
+                      const rep = r.leasitPrincipalRepaid != null ? (Number(r.leasitPrincipalRepaid) || 0) : (r.status === 'Close' ? p : 0);
+                      a.principal += p; a.repaid += rep; a.outstanding += (p - rep);
+                      a.refundOut += Number(r.leasitRefundOutstanding) || 0;
+                      return a;
+                    }, { principal: 0, repaid: 0, outstanding: 0, refundOut: 0 });
+                    return (
+                      <tr style={{ fontWeight: 600, background: 'var(--ink-50)' }}>
+                        <td colSpan={5} style={{ ...tdBase, textAlign: 'right' }}>รวม {filtered.length} สัญญา</td>
+                        <td style={tdRight}>{LIT_fmt(tot.principal, 0)}</td>
+                        <td style={{ ...tdRight, color: 'oklch(50% 0.14 145)' }}>{LIT_fmt(tot.repaid, 0)}</td>
+                        <td style={{ ...tdRight, color: 'var(--bad)' }}>{LIT_fmt(tot.outstanding, 0)}</td>
+                        <td colSpan={4}></td>
+                        <td style={tdRight}>{LIT_fmt(tot.refundOut, 2)}</td>
+                      </tr>
+                    );
+                  })()}
                 </tfoot>
               </table>
             </div>
