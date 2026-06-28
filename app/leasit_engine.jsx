@@ -255,14 +255,15 @@ function parseLeasitWorkbook(wb) {
     }
   }
 
-  // 1b) ★ สรุปรวม sheet — authoritative ticket type per loanId
-  //     คอลัมน์ col 4 (E) "ประเภท" = PRE / POS / NON (Term Loan)
-  //     ในชีตเดี่ยวบางสัญญา ticketType=0 (ไม่ระบุ) → ดึงจาก summary แทน
-  var summaryTicket = {};   // {loanId: 'PRE'|'POS'|'NON'}
+  // 1b) ★ สรุปรวม sheet — authoritative ticket type + วันที่จ่ายเงิน (refDocs) per loanId
+  //     col 4 (E) "ประเภท" = PRE/POS/NON
+  //     col 17 (R) วันที่จ่ายงวด 1 · col 18 (S) เลขที่เอกสารงวด 1
+  //     col 19 (T) วันที่จ่ายงวด 2 · col 20 (U) เลขที่เอกสารงวด 2
+  var summaryTicket = {};      // {loanId: 'PRE'|'POS'|'NON'}
+  var summaryRepayDocs = {};   // {loanId: [{date:ISO, doc:'RV…'}, …]}
   if (wb.SheetNames.indexOf('สรุปรวม') >= 0) {
     var sws = wb.Sheets['สรุปรวม'];
     var saoa = XLSX.utils.sheet_to_json(sws, { header: 1, raw: true, defval: null });
-    // header อยู่ R4 (idx 3), data จาก R7 (idx 6) เป็นต้นไป
     for (var si = 6; si < saoa.length; si++) {
       var srow = saoa[si] || [];
       var slid = litNum(srow[0]);
@@ -271,6 +272,11 @@ function parseLeasitWorkbook(wb) {
       if (stype === 'PRE' || stype === 'POS' || stype === 'NON') {
         summaryTicket[slid] = stype;
       }
+      // ดึงวันที่จ่ายงวด 1/2 + refDocs
+      var docs = [];
+      var d1 = litToISO(srow[17]); if (d1) docs.push({ date: d1, doc: litTrim(srow[18]) });
+      var d2 = litToISO(srow[19]); if (d2) docs.push({ date: d2, doc: litTrim(srow[20]) });
+      if (docs.length) summaryRepayDocs[slid] = docs;
     }
   }
 
@@ -385,9 +391,57 @@ function parseLeasitWorkbook(wb) {
         rpre.rows[pj].loanId = loanId;
         prepaid.push(rpre.rows[pj]);
       }
+      // ★ เก็บ principal repayment events จาก actual rows ที่ principalPaid > 0
+      //   declining principal → จาก actual block ของ source Excel (loan 49 = 2,461,003.95 + 233,996.05)
+      var principalEvents = [];
       for (var aj = 0; aj < racta.rows.length; aj++) {
         racta.rows[aj].loanId = loanId;
         actual.push(racta.rows[aj]);
+        var pp = Number(racta.rows[aj].principalPaid) || 0;
+        if (pp > 0.01) {
+          principalEvents.push({
+            refundDate: racta.rows[aj].dateEnd || racta.rows[aj].paymentDate || '',
+            amount: pp,
+            kind: 'principal',
+            refundType: 'Transfer',
+            note: 'จากตารางคำนวณ (Actual block)',
+            refDoc: '',
+            loanId: loanId
+          });
+        }
+      }
+      // แนบ refDoc จาก สรุปรวม เรียงตามวันที่ (chronological)
+      if (summaryRepayDocs[loanId] && principalEvents.length) {
+        var sdocs = summaryRepayDocs[loanId].slice().sort(function (a, b) {
+          return String(a.date).localeCompare(String(b.date));
+        });
+        principalEvents.sort(function (a, b) {
+          return String(a.refundDate).localeCompare(String(b.refundDate));
+        });
+        for (var ei = 0; ei < principalEvents.length && ei < sdocs.length; ei++) {
+          if (sdocs[ei].doc) principalEvents[ei].refDoc = sdocs[ei].doc;
+          if (sdocs[ei].date) principalEvents[ei].refundDate = sdocs[ei].date;
+        }
+      }
+      // ★ FALLBACK: ถ้า actual block ไม่มี principalPaid > 0 (เช่น loan 49 ที่ detail
+      //    sheet ว่าง) แต่ summary มีวันที่จ่าย → สร้าง refund entries จาก summary
+      //    แบ่งเงินต้นเท่ากัน (user แก้ยอดทีหลังได้ตามจริง)
+      if (principalEvents.length === 0 && summaryRepayDocs[loanId] &&
+          summaryRepayDocs[loanId].length > 0 && status === 'Close') {
+        var sd = summaryRepayDocs[loanId];
+        var perPayment = principal / sd.length;
+        for (var sdi = 0; sdi < sd.length; sdi++) {
+          principalEvents.push({
+            refundDate: sd[sdi].date, amount: perPayment,
+            kind: 'principal', refundType: 'Transfer',
+            note: 'จากสรุปรวม (แบ่งเงินต้นเท่ากัน · ตรวจยอดจริงในตารางคำนวณ)',
+            refDoc: sd[sdi].doc || '',
+            loanId: loanId
+          });
+        }
+      }
+      for (var pe = 0; pe < principalEvents.length; pe++) {
+        refund.push(principalEvents[pe]);
       }
       for (var rj = 0; rj < refunds.length; rj++) {
         refunds[rj].loanId = loanId;

@@ -336,7 +336,7 @@ function LeasitLoanDrawer({ loan, prepaid, actual, refund, onClose, onExportOne,
                   <table className="tbl" style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
                     <thead><tr>
                       <th style={thStyle}>#</th><th style={thStyle}>เริ่ม</th><th style={thStyle}>สิ้นสุด</th>
-                      <th style={thR}>วัน</th><th style={thR}>ดอกเบี้ย</th>
+                      <th style={thR}>เงินต้น</th><th style={thR}>วัน</th><th style={thR}>ดอกเบี้ย</th>
                     </tr></thead>
                     <tbody>
                       {pre.map(p => (
@@ -344,13 +344,14 @@ function LeasitLoanDrawer({ loan, prepaid, actual, refund, onClose, onExportOne,
                           <td style={tdCell}>{p.seq}</td>
                           <td style={tdCell}>{LIT_fmtDate(p.dateStart)}</td>
                           <td style={tdCell}>{LIT_fmtDate(p.dateEnd)}</td>
+                          <td style={tdR} title="เงินต้นที่ใช้คำนวณดอกเบี้ยในงวดนี้">{LIT_fmt(p.principal, 0)}</td>
                           <td style={tdR}>{p.days}</td>
                           <td style={tdR}>{LIT_fmt(p.intAmount, 2)}</td>
                         </tr>
                       ))}
                     </tbody>
                     <tfoot><tr style={{ fontWeight: 700, background: 'var(--ink-50)' }}>
-                      <td colSpan={4} style={{ ...tdCell, textAlign: 'right' }}>รวม</td>
+                      <td colSpan={5} style={{ ...tdCell, textAlign: 'right' }}>รวม</td>
                       <td style={tdR}>{LIT_fmt(pre.reduce((s, p) => s + (Number(p.intAmount) || 0), 0), 2)}</td>
                     </tr></tfoot>
                   </table>
@@ -376,25 +377,34 @@ function LeasitLoanDrawer({ loan, prepaid, actual, refund, onClose, onExportOne,
                   <table className="tbl" style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
                     <thead><tr>
                       <th style={thStyle}>#</th><th style={thStyle}>เริ่ม</th><th style={thStyle}>สิ้นสุด</th>
-                      <th style={thR}>วัน</th><th style={thR}>ดอกเบี้ย</th>
+                      <th style={thR}>เงินต้น</th><th style={thR}>วัน</th><th style={thR}>ดอกเบี้ย</th>
                     </tr></thead>
                     <tbody>
                       {act.length === 0 ? (
-                        <tr><td colSpan={5} style={{ ...tdCell, textAlign: 'center', padding: '12px 6px', color: 'var(--ink-500)' }}>
+                        <tr><td colSpan={6} style={{ ...tdCell, textAlign: 'center', padding: '12px 6px', color: 'var(--ink-500)' }}>
                           ยังไม่มีข้อมูลดอกเกิดจริง — กด ⚡ คำนวณ
                         </td></tr>
-                      ) : act.map(p => (
-                        <tr key={p.seq} style={{ borderBottom: '1px solid var(--ink-100)' }}>
-                          <td style={tdCell}>{p.seq}</td>
-                          <td style={tdCell}>{LIT_fmtDate(p.dateStart)}</td>
-                          <td style={tdCell}>{LIT_fmtDate(p.dateEnd)}</td>
-                          <td style={tdR}>{p.days}</td>
-                          <td style={tdR}>{LIT_fmt(p.intAmount, 2)}</td>
-                        </tr>
-                      ))}
+                      ) : act.map((p, i) => {
+                        // ★ highlight แถวที่มีการจ่ายเงินต้น (declining principal) — เห็นชัดว่าเงินต้นเปลี่ยน
+                        const prev = i > 0 ? Number(act[i - 1].principal) || 0 : 0;
+                        const cur = Number(p.principal) || 0;
+                        const declined = i > 0 && cur < prev - 0.01;
+                        return (
+                          <tr key={p.seq} style={{ borderBottom: '1px solid var(--ink-100)', background: declined ? 'oklch(96% 0.06 145)' : 'transparent' }}>
+                            <td style={tdCell}>{p.seq}</td>
+                            <td style={tdCell}>{LIT_fmtDate(p.dateStart)}</td>
+                            <td style={tdCell}>{LIT_fmtDate(p.dateEnd)}</td>
+                            <td style={{ ...tdR, fontWeight: declined ? 700 : 400, color: declined ? 'oklch(50% 0.14 145)' : 'inherit' }} title={declined ? 'เงินต้นลดลง (มีการจ่ายคืน)' : ''}>
+                              {LIT_fmt(p.principal, 0)}{declined && ' ↓'}
+                            </td>
+                            <td style={tdR}>{p.days}</td>
+                            <td style={tdR}>{LIT_fmt(p.intAmount, 2)}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                     <tfoot><tr style={{ fontWeight: 700, background: 'var(--ink-50)' }}>
-                      <td colSpan={4} style={{ ...tdCell, textAlign: 'right' }}>รวม</td>
+                      <td colSpan={5} style={{ ...tdCell, textAlign: 'right' }}>รวม</td>
                       <td style={tdR}>{LIT_fmt(act.reduce((s, p) => s + (Number(p.intAmount) || 0), 0), 2)}</td>
                     </tr></tfoot>
                   </table>
