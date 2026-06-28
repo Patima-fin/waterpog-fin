@@ -912,8 +912,11 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
   const PAGE_SIZE = 15;
   const [query, setQuery] = React.useState('');
   const [statusFilter, setStatusFilter] = React.useState('all');
-  const [sortKey, setSortKey] = React.useState('leasitLoanId');
-  const [sortDir, setSortDir] = React.useState('asc');
+  // sort object format ที่ FilterableColHeader คาด: {key, dir}
+  const [sort, setSort] = React.useState({ key: 'leasitLoanId', dir: 'asc' });
+  // colFilters: { colKey: Set<displayValue> }
+  const [colFilters, setColFilters] = React.useState({});
+  const [openCol, setOpenCol] = React.useState(null);
 
   // ── dedupe: leasit rows ที่มี loanId เดียวกัน → เก็บ "ลำดับความสำคัญ" ──
   //   1) prefer id ที่ขึ้น 'lit_' (deterministic จาก deploy ใหม่)
@@ -987,39 +990,77 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
         String(r.leasitLoanId || '').includes(q)
       );
     }
+    // ── apply column filters (Excel-style) ──
+    for (const [key, vals] of Object.entries(colFilters)) {
+      if (vals && vals.size > 0) {
+        rows = rows.filter(r => vals.has(getColDisplayValue(r, key)));
+      }
+    }
     // ── dynamic sort ──
     const getSortVal = (r, key) => {
       switch (key) {
         case 'leasitLoanId': return Number(r.leasitLoanId) || 0;
-        case 'contractNo': return String(r.contractNo || '');
-        case 'projectCode': return String(r.projectCode || '');
-        case 'projectName': return String(r.projectName || '');
         case 'principalAmount': return Number(r.principalAmount) || 0;
         case 'interestRate': return Number(r.interestRate) || 0;
         case 'leasitDateReceived': return String(r.leasitDateReceived || '');
         case 'leasitDateDue': return String(r.leasitDateDue || '');
-        case 'status': return String(r.status || '');
-        case 'leasitTicketType': return String(r.leasitTicketType || '');
         case 'leasitTotalPrepaid': return Number(r.leasitTotalPrepaid) || 0;
         case 'leasitTotalActual': return Number(r.leasitTotalActual) || 0;
         case 'leasitVariance': return Number(r.leasitVariance) || 0;
         case 'leasitRefunded': return Number(r.leasitRefunded) || 0;
         case 'leasitRefundOutstanding': return Number(r.leasitRefundOutstanding) || 0;
-        default: return 0;
+        default: return String(r[sort.key] || '');
       }
     };
-    const dir = sortDir === 'desc' ? -1 : 1;
+    const dir = sort.dir === 'desc' ? -1 : 1;
     return rows.slice().sort((a, b) => {
-      const va = getSortVal(a, sortKey);
-      const vb = getSortVal(b, sortKey);
+      const va = getSortVal(a, sort.key);
+      const vb = getSortVal(b, sort.key);
       if (typeof va === 'number') return (va - vb) * dir;
       return va.localeCompare(vb, 'th') * dir;
     });
-  }, [allRows, query, statusFilter, sortKey, sortDir]);
+  }, [allRows, query, statusFilter, sort, colFilters]);
 
-  const handleSort = (key) => {
-    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setSortKey(key); setSortDir('asc'); }
+  // ── display value ต่อคอลัมน์ (ใช้ใน column filter dropdown) ──
+  function getColDisplayValue(r, key) {
+    switch (key) {
+      case 'leasitLoanId': return String(r.leasitLoanId || '');
+      case 'leasitTicketType': return String(r.leasitTicketType || '').toUpperCase() || 'POS';
+      case 'contractNo': return r.contractNo || '—';
+      case 'projectCode': return r.projectCode || '—';
+      case 'projectName': return r.projectName || '—';
+      case 'principalAmount': return LIT_fmt(r.principalAmount, 0);
+      case 'interestRate': return (Number(r.interestRate) * 100).toFixed(2) + '%';
+      case 'leasitDateReceived': return LIT_fmtDate(r.leasitDateReceived) || '—';
+      case 'leasitDateDue': return LIT_fmtDate(r.leasitDateDue) || '—';
+      case 'status': return r.status === 'Active' ? '🟢 Active' : '⚫ ปิดแล้ว';
+      case 'leasitTotalPrepaid': return LIT_fmt(r.leasitTotalPrepaid, 2);
+      case 'leasitTotalActual': return LIT_fmt(r.leasitTotalActual, 2);
+      case 'leasitVariance': return LIT_fmt(r.leasitVariance, 2);
+      case 'leasitRefunded': return LIT_fmt(r.leasitRefunded, 2);
+      case 'leasitRefundOutstanding': return LIT_fmt(r.leasitRefundOutstanding, 2);
+      default: return String(r[key] || '—');
+    }
+  }
+  // sort-value ที่แท้จริง (ISO date/raw number) สำหรับ dropdown ที่ต้องเรียงตามค่าจริง
+  function getColSortValue(r, key) {
+    switch (key) {
+      case 'leasitLoanId': return Number(r.leasitLoanId) || 0;
+      case 'principalAmount': return Number(r.principalAmount) || 0;
+      case 'interestRate': return Number(r.interestRate) || 0;
+      case 'leasitDateReceived': return r.leasitDateReceived || '';
+      case 'leasitDateDue': return r.leasitDateDue || '';
+      case 'leasitTotalPrepaid': return Number(r.leasitTotalPrepaid) || 0;
+      case 'leasitTotalActual': return Number(r.leasitTotalActual) || 0;
+      case 'leasitVariance': return Number(r.leasitVariance) || 0;
+      case 'leasitRefunded': return Number(r.leasitRefunded) || 0;
+      case 'leasitRefundOutstanding': return Number(r.leasitRefundOutstanding) || 0;
+      default: return undefined;
+    }
+  }
+
+  const sortToggle = (key) => {
+    setSort(s => s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
   };
 
   // KPIs
@@ -1382,12 +1423,9 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
   );
 
   return (
-    // ★ ขยาย panel ทะลุ .page max-width:1480px → ใช้ viewport-wide ติดลบ
-    //   marginLeft/Right = "ดึงกลับมาให้กว้างเท่า viewport - 60px"
-    <div style={{
-      marginLeft: 'calc((100% - min(100vw - 60px, 1820px)) / 2)',
-      marginRight: 'calc((100% - min(100vw - 60px, 1820px)) / 2)'
-    }}>
+    // ★ เคยใช้ negative margin breakout — overlap sidebar ที่ zoom 100% ในจอกว้าง
+    //   ตอนนี้คงอยู่ใน .page (max 1480px) ตาราง minWidth 1300 + scroll x ถ้าจำเป็น
+    <div>
       {/* ⏰ Maturity alert banner — Active loans ครบกำหนดใน 30 วัน (ย่อเป็น 1 บรรทัด คลิกขยาย) */}
       {maturityAlerts.length > 0 && (
         <div className="card" style={{
@@ -1445,15 +1483,54 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
         </div>
       )}
 
-      {/* ── 💰 เงินต้น (PRE/POS/NON) — สำคัญสุด แถวบน ── */}
+      {/* ── 💰 เงินต้น — Total + แยก PRE/POS/NON ── */}
       <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-700)', marginBottom: 4 }}>
         💰 เงินต้น — รับ / จ่ายคืน / คงเหลือ
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 10 }}>
-        <PrincipalCard label="PRE" bkt={principalSummary.PRE} color="oklch(52% 0.16 250)" />
-        <PrincipalCard label="POS" bkt={principalSummary.POS} color="oklch(56% 0.18 25)" />
-        <PrincipalCard label="NON" bkt={principalSummary.NON} color="oklch(48% 0.14 305)" />
-      </div>
+      {(() => {
+        const tot = ['PRE', 'POS', 'NON'].reduce((acc, k) => {
+          const b = principalSummary[k];
+          acc.count += b.count; acc.active += b.active;
+          acc.drawn += b.drawn; acc.repaid += b.repaid; acc.outstanding += b.outstanding;
+          return acc;
+        }, { count: 0, active: 0, drawn: 0, repaid: 0, outstanding: 0 });
+        return (
+          <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr 1fr', gap: 8, marginBottom: 10 }}>
+            {/* TOTAL card — เด่น */}
+            <div className="card" style={{
+              padding: 10, borderTop: '3px solid var(--brand-500)',
+              background: 'linear-gradient(135deg, oklch(98% 0.02 250), oklch(94% 0.05 250))'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <span style={{
+                  padding: '2px 9px', borderRadius: 999, fontSize: 11, fontWeight: 700,
+                  background: 'var(--brand-500)', color: '#fff'
+                }}>รวมทั้งหมด</span>
+                <span style={{ fontSize: 11, color: 'var(--ink-700)', fontWeight: 600 }}>
+                  {tot.count} สัญญา · Active {tot.active}
+                </span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+                <div>
+                  <div style={{ color: 'var(--ink-600)', fontSize: 10 }}>↗ รับเงินต้นรวม</div>
+                  <div style={{ fontSize: 17, fontWeight: 800 }}>{LIT_fmt(tot.drawn, 0)}</div>
+                </div>
+                <div>
+                  <div style={{ color: 'var(--ink-600)', fontSize: 10 }}>✓ จ่ายคืนรวม</div>
+                  <div style={{ fontSize: 17, fontWeight: 800, color: 'oklch(50% 0.14 145)' }}>{LIT_fmt(tot.repaid, 0)}</div>
+                </div>
+                <div>
+                  <div style={{ color: 'var(--ink-600)', fontSize: 10 }}>● คงเหลือรวม</div>
+                  <div style={{ fontSize: 17, fontWeight: 800, color: tot.outstanding > 0 ? 'var(--bad)' : 'var(--ink-500)' }}>{LIT_fmt(tot.outstanding, 0)}</div>
+                </div>
+              </div>
+            </div>
+            <PrincipalCard label="PRE" bkt={principalSummary.PRE} color="oklch(52% 0.16 250)" />
+            <PrincipalCard label="POS" bkt={principalSummary.POS} color="oklch(56% 0.18 25)" />
+            <PrincipalCard label="NON" bkt={principalSummary.NON} color="oklch(48% 0.14 305)" />
+          </div>
+        );
+      })()}
 
       {/* ── 📈 ดอกเบี้ย (รวมทุกสัญญา) — แถวล่าง ── */}
       <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-700)', marginBottom: 4 }}>
@@ -1594,31 +1671,55 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
                 </colgroup>
                 <thead>
                   {(() => {
-                    const arrow = (k) => sortKey === k ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
-                    const Th = ({ k, label, right }) => (
-                      <th
-                        style={{ ...(right ? tdRight : tdBase), fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
-                        onClick={() => handleSort(k)}
-                        title="คลิกเพื่อ sort"
-                      >{label}{arrow(k)}</th>
-                    );
+                    const FCH = window.FilterableColHeader;
+                    // ถ้า FilterableColHeader ไม่พร้อม → fallback simple sort header
+                    if (typeof FCH !== 'function') {
+                      const Th = ({ k, label, right }) => (
+                        <th style={{ ...(right ? tdRight : tdBase), fontWeight: 600, cursor: 'pointer' }} onClick={() => sortToggle(k)}>
+                          {label}{sort.key === k ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : ''}
+                        </th>
+                      );
+                      return (
+                        <tr style={{ background: 'var(--ink-50)' }}>
+                          <Th k="leasitLoanId" label="#" />
+                          <Th k="leasitTicketType" label="ประเภท" />
+                          <Th k="contractNo" label="เลขที่สัญญา" />
+                          <Th k="projectCode" label="JOB" />
+                          <Th k="projectName" label="โครงการ" />
+                          <Th k="principalAmount" label="วงเงิน" right />
+                          <Th k="interestRate" label="อัตรา" right />
+                          <Th k="leasitDateReceived" label="รับเงิน" />
+                          <Th k="leasitDateDue" label="ครบกำหนด" />
+                          <Th k="status" label="สถานะ" />
+                          <Th k="leasitTotalPrepaid" label="ดอกล่วงหน้า" right />
+                          <Th k="leasitTotalActual" label="ดอกเกิดจริง" right />
+                          <Th k="leasitVariance" label="ส่วนต่าง" right />
+                          <Th k="leasitRefunded" label="รับคืนแล้ว" right />
+                          <Th k="leasitRefundOutstanding" label="ค้างรับคืน" right />
+                        </tr>
+                      );
+                    }
+                    const commonProps = {
+                      sort, sortToggle, colFilters, setColFilters, openCol, setOpenCol,
+                      allRows: filtered, getValue: getColDisplayValue, getSortValue: getColSortValue
+                    };
                     return (
                       <tr style={{ background: 'var(--ink-50)' }}>
-                        <Th k="leasitLoanId" label="#" />
-                        <Th k="leasitTicketType" label="ประเภท" />
-                        <Th k="contractNo" label="เลขที่สัญญา" />
-                        <Th k="projectCode" label="JOB" />
-                        <Th k="projectName" label="โครงการ" />
-                        <Th k="principalAmount" label="วงเงิน" right />
-                        <Th k="interestRate" label="อัตรา" right />
-                        <Th k="leasitDateReceived" label="รับเงิน" />
-                        <Th k="leasitDateDue" label="ครบกำหนด" />
-                        <Th k="status" label="สถานะ" />
-                        <Th k="leasitTotalPrepaid" label="ดอกล่วงหน้า" right />
-                        <Th k="leasitTotalActual" label="ดอกเกิดจริง" right />
-                        <Th k="leasitVariance" label="ส่วนต่าง" right />
-                        <Th k="leasitRefunded" label="รับคืนแล้ว" right />
-                        <Th k="leasitRefundOutstanding" label="ค้างรับคืน" right />
+                        <FCH {...commonProps} sortKey="leasitLoanId" label="#" align="left" />
+                        <FCH {...commonProps} sortKey="leasitTicketType" label="ประเภท" align="left" />
+                        <FCH {...commonProps} sortKey="contractNo" label="เลขสัญญา" align="left" />
+                        <FCH {...commonProps} sortKey="projectCode" label="JOB" align="left" />
+                        <FCH {...commonProps} sortKey="projectName" label="โครงการ" align="left" />
+                        <FCH {...commonProps} sortKey="principalAmount" label="วงเงิน" align="right" />
+                        <FCH {...commonProps} sortKey="interestRate" label="อัตรา" align="right" />
+                        <FCH {...commonProps} sortKey="leasitDateReceived" label="รับเงิน" align="left" />
+                        <FCH {...commonProps} sortKey="leasitDateDue" label="ครบกำหนด" align="left" />
+                        <FCH {...commonProps} sortKey="status" label="สถานะ" align="left" />
+                        <FCH {...commonProps} sortKey="leasitTotalPrepaid" label="ดอกล่วงหน้า" align="right" />
+                        <FCH {...commonProps} sortKey="leasitTotalActual" label="ดอกเกิดจริง" align="right" />
+                        <FCH {...commonProps} sortKey="leasitVariance" label="ส่วนต่าง" align="right" />
+                        <FCH {...commonProps} sortKey="leasitRefunded" label="รับคืน" align="right" />
+                        <FCH {...commonProps} sortKey="leasitRefundOutstanding" label="ค้างรับคืน" align="right" />
                       </tr>
                     );
                   })()}
