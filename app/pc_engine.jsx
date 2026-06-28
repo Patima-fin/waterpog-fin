@@ -204,6 +204,14 @@
   }
 
   // ── installments (รองรับไม่จำกัดงวด) ────────────────────────────────────────
+  // Priority สำหรับ amount/percent ของแต่ละงวด (สูง→ต่ำ):
+  //   ① Payment N (CE/CI, สัดส่วน 0-1) = เจตนาล่าสุดของวิศวกร "งวดนี้รับจริงกี่ %"
+  //      → ทับ % งวด / มูลค่า งวด · paymentN=0 → absorbed (รวมเข้างวดอื่น)
+  //   ② มูลค่า งวด N (เลขตรง)
+  //   ③ % งวด N × contract / 100 (สัญญาเดิม)
+  //   ④ Summary Payment N (ยอดที่จ่ายไปแล้ว — fallback ตอนไม่มี ①-③)
+  // เพิ่ม "completeness sweep" ท้ายลูป: ถ้า Σ Payment N ≥ 99% → งวดอื่นที่
+  // ไม่มี Payment N (วิศวกรลืมแก้สัญญาเดิม) ถือเป็น absorbed อัตโนมัติ
   function buildInstallments(p, contract, fin) {
     const insts = [];
     const creditTerm = (fin && fin.creditTerm != null) ? fin.creditTerm : 30;
@@ -211,17 +219,29 @@
       let pct = toNum(p['% งวด ' + n]);
       const sumPay = toNum(p['Summary Payment ' + n]);
       const mv = toNum(p['มูลค่า งวด ' + n]);
+      // Payment N (CE/CI, …): สัดส่วน 0-1 ที่วิศวกรระบุว่า "งวดนี้รับจริงกี่ %"
+      // มีค่าเมื่อใด (รวม 0) → ทับ % งวด / มูลค่า งวด ทั้งคู่
+      const paymentN = toNum(p['Payment ' + n]);
+      const hasPaymentN = paymentN != null;
       const deliveryDate = isoOf(p['วันที่ส่งมอบงาน งวด ' + n]) || isoOf(p['Receive Date' + (n === 1 ? '' : n)]);
       const acceptDate = isoOf(p['วันที่เซ็น/รับ ใบตรวจรับ งวดที่ ' + n]) || isoOf(p['วันที่เซ็น/รับ ใบตรวจรับ งวด ' + n]);
       const hasDateEvidence = !!(deliveryDate || acceptDate);
-      // break/skip: need at least one data source (financial columns OR date evidence)
-      if (pct == null && mv == null && sumPay == null && !hasDateEvidence && n > 2) break;
-      if (pct == null && mv == null && sumPay == null && !hasDateEvidence) continue;
-      let amount = mv != null ? mv : (pct != null ? Math.round(contract * pct) / 100 : (sumPay || 0));
-      if (!amount && !pct) {
-        // date evidence only (no financial columns) — treat as single installment = full contract
-        if (hasDateEvidence && n === 1) { amount = contract || 0; pct = 100; }
-        else continue;
+      // break/skip: need at least one data source (financial columns OR Payment N OR date evidence)
+      if (pct == null && mv == null && sumPay == null && !hasPaymentN && !hasDateEvidence && n > 2) break;
+      if (pct == null && mv == null && sumPay == null && !hasPaymentN && !hasDateEvidence) continue;
+      let amount, finalPct;
+      if (hasPaymentN) {
+        // Payment N override (สูงสุดในลำดับความสำคัญ)
+        finalPct = paymentN * 100;
+        amount = Math.round(contract * paymentN);
+      } else {
+        finalPct = pct;
+        amount = mv != null ? mv : (pct != null ? Math.round(contract * pct) / 100 : (sumPay || 0));
+        if (!amount && !pct) {
+          // date evidence only (no financial columns) — treat as single installment = full contract
+          if (hasDateEvidence && n === 1) { amount = contract || 0; finalPct = 100; }
+          else continue;
+        }
       }
       const delivered = isDelivered(p, n) || !!deliveryDate;
       // Summary Payment N filled → paid (engineer confirms receipt); also accept Payment Status field
@@ -238,12 +258,32 @@
         }
       }
       insts.push({
-        no: n, percent: pct, amount,
+        no: n, percent: finalPct, amount,
         dueDate: isoOf(p['กำหนดส่งมอบงานงวด ' + n]) || null,
         deliveryDate, acceptDate, delivered, paid,
         paymentAmount: paid ? amount : 0,
         summaryPayment: sumPay || 0,   // ยอดจ่ายจริงของงวดนี้ (Summary Payment N)
         forecastDate, forecastManual: !!manualFc,   // forecastManual=true เมื่อมาจาก fin.fcDates
+        // Payment N override metadata (ใช้แสดง badge ใน UI + Home alert)
+        paymentOverride: hasPaymentN,
+        paymentN: hasPaymentN ? paymentN : null,
+        absorbed: hasPaymentN && paymentN === 0,   // paymentN=0 → งวดนี้ไม่รับเงิน (รวมเข้างวดอื่น)
+      });
+    }
+    // ── Payment N completeness sweep ────────────────────────────────────────
+    // ถ้า Σ Payment N (ที่วิศวกรกรอก) ≥ 99% ของสัญญา = วิศวกรระบุครบแล้วว่า
+    // "งวดไหนรับเท่าไร" → งวดที่ไม่มี Payment N (วิศวกรลืมแก้ % งวด เดิม) ถือเป็น
+    // absorbed อัตโนมัติ ป้องกัน amount รวมเกินสัญญา (เคส PP074: Payment 1 ว่าง
+    // แต่ % งวด 1 ยัง = 40 + Payment 2 = 1 ⇒ ถ้าไม่ sweep จะรวมเกิน contract)
+    let sumPN = 0, anyPN = false;
+    insts.forEach(i => { if (i.paymentOverride) { sumPN += (i.percent / 100); anyPN = true; } });
+    if (anyPN && sumPN >= 0.99) {
+      insts.forEach(i => {
+        if (!i.paymentOverride && !i.paid && !i.delivered && !i.acceptDate && !i.absorbed) {
+          i.amount = 0;
+          i.absorbed = true;
+          i.paymentOverrideAbsorbed = true;
+        }
       });
     }
     // ── ส่งงวดเดียว 100% (จ่ายรวม): บางโครงสัญญาแบ่งหลายงวด แต่ส่งจริงงวดเดียว ──
@@ -278,7 +318,8 @@
     }
     if (contract > 0 && received >= contract * 0.99) return { main: 'Finish', sub: 'ปิดโครงการ' };
 
-    const reqd = insts.filter(i => i.amount > 0 || i.percent > 0);
+    // absorbed = งวดที่รวมเข้างวดอื่นแล้ว (Payment N=0 หรือ Pass-2 sweep) → ไม่นับเป็นงวดต้องรับเงิน
+    const reqd = insts.filter(i => !i.absorbed && (i.amount > 0 || i.percent > 0));
     const lastReq = reqd[reqd.length - 1];
     const deliveredCount = reqd.filter(i => i.delivered).length;
     const acceptedCount = reqd.filter(i => i.acceptDate).length;
@@ -321,8 +362,8 @@
     // PRIMARY (ระหว่างทาง): ความคืบหน้างานก่อสร้างจริงจากคอลัมน์ POG (ตามที่ฝ่ายงานยึด)
     const pog = pogProgress(p);
     if (pog != null && pog > 0) return Math.min(100, Math.round(pog));
-    // FALLBACK 1: ถ่วงน้ำหนักตามงวดงาน (เมื่อไม่มีค่า POG)
-    const reqd = insts.filter(i => i.amount > 0 || i.percent > 0);
+    // FALLBACK 1: ถ่วงน้ำหนักตามงวดงาน (เมื่อไม่มีค่า POG) — absorbed ตัดออก ไม่ใช่งวดต้องรับเงิน
+    const reqd = insts.filter(i => !i.absorbed && (i.amount > 0 || i.percent > 0));
     if (reqd.length) {
       let done = 0, total = 0;
       reqd.forEach(i => {
@@ -340,7 +381,7 @@
   }
   // progress breakdown (สำหรับแสดงที่มาของ % ใน drawer)
   function progressDetail(p, insts) {
-    const reqd = insts.filter(i => i.amount > 0 || (i.percent != null && i.percent > 0));
+    const reqd = insts.filter(i => !i.absorbed && (i.amount > 0 || (i.percent != null && i.percent > 0)));
     const pogStank = toNum(p['% (POG+STANK)']);
     const pogDrink = toNum(p['% (POG DRINK)']);
     const pog = pogProgress(p);
@@ -459,8 +500,8 @@
       // forecast แยก 2 งวด (+ lines สำหรับ cashflow drill-down)
       const { lines: forecastLines, fc1, fc2, forecastReceive, forecastDate } =
         splitForecast(insts, outstandingAR, status.main, isoOf(p['Finish']));
-      // per-งวด flags (สำหรับ advanced filter)
-      const reqdInsts = insts.filter(i => i.amount > 0 || (i.percent != null && i.percent > 0));
+      // per-งวด flags (สำหรับ advanced filter) — absorbed ตัดออกให้ตรงกับ splitForecast
+      const reqdInsts = insts.filter(i => !i.absorbed && (i.amount > 0 || (i.percent != null && i.percent > 0)));
       // Align with splitForecast: single-installment → งวด 1 = none (d1/a1/p1 all false), งวด 2 = 100%
       const _fSingle = reqdInsts.length === 1;
       const _fi1 = _fSingle ? null : reqdInsts[0];

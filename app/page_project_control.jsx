@@ -1061,14 +1061,14 @@ function PcAssigneeChip({ assignee, debtTotal, hasLink, onClick, canEdit }) {
   const empty = !assignee;
   return (
     <button onClick={onClick} disabled={!canEdit && empty} title={canEdit ? 'คลิกเพื่อแก้/ผูกข้อมูลภาระหนี้' : (empty ? 'ยังไม่มีข้อมูล' : 'ดูข้อมูลภาระหนี้')}
-      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 9px', borderRadius: 100, border: '1px solid ' + (empty ? '#cbd5e1' : (hasLink ? '#86c5ff' : '#fde68a')), background: empty ? '#f8fafc' : (hasLink ? '#eaf3ff' : '#fef9e7'), color: empty ? '#94a3b8' : (hasLink ? '#1e40af' : '#92400e'), fontSize: 11.5, fontWeight: 600, cursor: canEdit ? 'pointer' : 'default', whiteSpace: 'nowrap' }}>
-      {empty ? '+ ระบุผู้รับโอนสิทธิ์' : (
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '1px 7px', borderRadius: 100, border: '1px solid ' + (empty ? '#cbd5e1' : (hasLink ? '#86c5ff' : '#fde68a')), background: empty ? '#f8fafc' : (hasLink ? '#eaf3ff' : '#fef9e7'), color: empty ? '#94a3b8' : (hasLink ? '#1e40af' : '#92400e'), fontSize: 10.5, fontWeight: 600, cursor: canEdit ? 'pointer' : 'default', whiteSpace: 'nowrap', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.4 }}>
+      {empty ? '+ ระบุ' : (
         <>
-          <span style={{ width: 6, height: 6, borderRadius: 10, background: hasLink ? '#2563eb' : '#f59e0b' }} />
-          {assignee}
+          <span style={{ width: 5, height: 5, borderRadius: 10, background: hasLink ? '#2563eb' : '#f59e0b', flexShrink: 0 }} />
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{assignee}</span>
         </>
       )}
-      {canEdit && !empty && <span style={{ opacity: .5, fontSize: 10 }}>✎</span>}
+      {canEdit && !empty && <span style={{ opacity: .5, fontSize: 9, flexShrink: 0 }}>✎</span>}
     </button>
   );
 }
@@ -1078,7 +1078,7 @@ function PcFcDateInput({ value, isManual, canEdit, onChange }) {
     <input type="date" value={value || ''} disabled={!canEdit}
       onChange={e => onChange(e.target.value || '')}
       title={isManual ? 'การเงินกรอกเอง · ใช้ในการคำนวณรายรับรายเดือน' : (value ? 'คำนวณอัตโนมัติ · กรอกเองได้' : 'ยังไม่มีข้อมูล · กรอกได้')}
-      style={{ width: 130, height: 28, fontSize: 11.5, border: '1px solid ' + (isManual ? '#86c5ff' : '#e2e8f0'), borderRadius: 7, padding: '0 7px', background: isManual ? '#eaf3ff' : '#fff', color: isManual ? '#1e40af' : '#1e293b', fontWeight: isManual ? 600 : 400, fontVariantNumeric: 'tabular-nums' }} />
+      style={{ width: '100%', maxWidth: 110, height: 22, fontSize: 11, border: '1px solid ' + (isManual ? '#86c5ff' : '#e2e8f0'), borderRadius: 5, padding: '0 4px', background: isManual ? '#eaf3ff' : '#fff', color: isManual ? '#1e40af' : '#1e293b', fontWeight: isManual ? 600 : 400, fontVariantNumeric: 'tabular-nums' }} />
   );
 }
 
@@ -1159,36 +1159,46 @@ function ProjectFinanceGrid({ rows, data, setData, canEdit, toast }) {
     );
   }
 
-  // header cells per งวด
-  const ngWidths = { d: 102, v: 102, a: 102, f: 138 };
-  const totalWidth = 50 + 290 + 180 + 130 + (ngWidths.d + ngWidths.v + ngWidths.a + ngWidths.f) * maxInst;
+  // header cells per งวด — แคบลงเทียบเดิม (Excel-like compact: ~22-26px / row)
+  const ngWidths = { d: 78, v: 96, a: 78, f: 116 };
+  const totalWidth = 36 + 232 + 132 + 100 + (ngWidths.d + ngWidths.v + ngWidths.a + ngWidths.f) * maxInst;
 
   return (
-    <div style={{ background: '#fff', border: '1px solid #e6ecf4', borderRadius: 12, overflow: 'hidden', boxShadow: '0 6px 18px rgba(13,31,58,.05)' }}>
-      <div style={{ padding: '11px 14px', borderBottom: '1px solid #eef2f7', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink-900)' }}>💰 ข้อมูลการเงินรายโครงการ · {signedRows.length} โครงการ</span>
-        <span style={{ fontSize: 11, color: '#64748b' }}>ภาระหนี้ปัจจุบัน <span style={{ background: '#eaf3ff', color: '#1e40af', padding: '1px 6px', borderRadius: 5, fontWeight: 600 }}>ผูกอัตโนมัติ</span> จาก debtMaster.projectCode</span>
-        <span style={{ fontSize: 11, color: '#64748b' }}>วันคาดการณ์รับเงิน <span style={{ background: '#fef9e7', color: '#92400e', padding: '1px 6px', borderRadius: 5, fontWeight: 600 }}>กรอกเอง</span> → feed cashflow forecast + รายรับสะสมประจำปี</span>
+    <div style={{ background: '#fff', border: '1px solid #e6ecf4', borderRadius: 10, overflow: 'hidden', boxShadow: '0 4px 12px rgba(13,31,58,.04)' }}>
+      <div style={{ padding: '7px 12px', borderBottom: '1px solid #eef2f7', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--ink-900)' }}>💰 ข้อมูลการเงินรายโครงการ · {signedRows.length} โครงการ</span>
+        <span style={{ fontSize: 10.5, color: '#64748b' }} title="ภาระหนี้ปัจจุบันผูกอัตโนมัติจาก debtMaster.projectCode">
+          <span style={{ background: '#eaf3ff', color: '#1e40af', padding: '1px 5px', borderRadius: 4, fontWeight: 600 }}>หนี้ผูกอัตโนมัติ</span>
+        </span>
+        <span style={{ fontSize: 10.5, color: '#64748b' }} title="วันคาดการณ์รับเงิน — การเงินกรอกเอง → feed cashflow forecast + รายรับสะสมประจำปี">
+          <span style={{ background: '#fef9e7', color: '#92400e', padding: '1px 5px', borderRadius: 4, fontWeight: 600 }}>📅 กรอกเอง</span>
+        </span>
+        <span style={{ fontSize: 10.5, color: '#64748b' }} title="วิศวกรปรับ % รับจริงผ่าน Payment N (ทับ % งวด เดิม)">
+          <span style={{ background: '#eaf3ff', color: '#1e40af', padding: '1px 5px', borderRadius: 4, fontWeight: 600 }}>↻ Payment N</span>
+        </span>
+        <span style={{ fontSize: 10.5, color: '#64748b' }} title="งวดถูกยกไปรวมในงวดอื่น (ส่งงวดเดียว)">
+          <span style={{ background: '#fef3c7', color: '#a16207', padding: '1px 5px', borderRadius: 4, fontWeight: 600 }}>↰ รวมงวด</span>
+        </span>
       </div>
-      <div style={{ overflow: 'auto', maxHeight: '70vh' }}>
-        <table style={{ width: totalWidth, borderCollapse: 'separate', borderSpacing: 0, fontSize: 11.5, fontVariantNumeric: 'tabular-nums' }}>
+      <div style={{ overflow: 'auto', maxHeight: '74vh' }}>
+        <table style={{ width: totalWidth, minWidth: totalWidth, borderCollapse: 'collapse', fontSize: 11, fontVariantNumeric: 'tabular-nums', tableLayout: 'fixed' }}>
           <thead style={{ position: 'sticky', top: 0, zIndex: 5, background: '#f8fafc' }}>
             <tr>
-              <th rowSpan={2} style={pcFinHCell({ width: 50, left: 0, sticky: true, borderBottom: '2px solid #cbd5e1' })}>#</th>
-              <th rowSpan={2} style={pcFinHCell({ width: 290, left: 50, sticky: true, textAlign: 'left', borderBottom: '2px solid #cbd5e1' })}>โครงการ</th>
-              <th rowSpan={2} style={pcFinHCell({ width: 180, borderBottom: '2px solid #cbd5e1' })}>ผู้รับโอนสิทธิ์</th>
-              <th rowSpan={2} style={pcFinHCell({ width: 130, textAlign: 'right', borderBottom: '2px solid #cbd5e1' })}>ภาระหนี้ปัจจุบัน</th>
+              <th rowSpan={2} style={pcFinHCell({ width: 36, left: 0, sticky: true, borderBottom: '2px solid #cbd5e1' })}>#</th>
+              <th rowSpan={2} style={pcFinHCell({ width: 232, left: 36, sticky: true, textAlign: 'left', borderBottom: '2px solid #cbd5e1' })}>โครงการ</th>
+              <th rowSpan={2} style={pcFinHCell({ width: 132, borderBottom: '2px solid #cbd5e1' })}>ผู้รับโอนสิทธิ์</th>
+              <th rowSpan={2} style={pcFinHCell({ width: 100, textAlign: 'right', borderBottom: '2px solid #cbd5e1' })}>ภาระหนี้</th>
               {Array.from({ length: maxInst }).map((_, i) => (
-                <th key={'h' + i} colSpan={4} style={pcFinHCell({ width: ngWidths.d + ngWidths.v + ngWidths.a + ngWidths.f, background: i % 2 === 0 ? '#eef2f7' : '#f1f5f9', color: 'var(--brand-700)', fontWeight: 700, fontSize: 12, padding: '7px 8px', borderBottom: '1px solid #cbd5e1' })}>งวด {i + 1}</th>
+                <th key={'h' + i} colSpan={4} style={pcFinHCell({ width: ngWidths.d + ngWidths.v + ngWidths.a + ngWidths.f, background: i % 2 === 0 ? '#eef2f7' : '#f1f5f9', color: 'var(--brand-700)', fontWeight: 700, fontSize: 11, padding: '4px 6px', borderBottom: '1px solid #cbd5e1' })}>งวด {i + 1}</th>
               ))}
             </tr>
             <tr>
               {Array.from({ length: maxInst }).map((_, i) => (
                 <React.Fragment key={'h2' + i}>
-                  <th style={pcFinHCell({ width: ngWidths.d, fontSize: 10.5, color: '#475569', padding: '6px 6px' })}>ส่งมอบ</th>
-                  <th style={pcFinHCell({ width: ngWidths.v, textAlign: 'right', fontSize: 10.5, color: '#475569', padding: '6px 6px' })}>มูลค่า</th>
-                  <th style={pcFinHCell({ width: ngWidths.a, fontSize: 10.5, color: '#475569', padding: '6px 6px' })}>ตรวจรับ</th>
-                  <th style={pcFinHCell({ width: ngWidths.f, fontSize: 10.5, color: 'var(--brand-700)', padding: '6px 6px' })}>📅 คาดการณ์รับเงิน</th>
+                  <th style={pcFinHCell({ width: ngWidths.d, fontSize: 10, color: '#475569', padding: '3px 4px' })}>ส่งมอบ</th>
+                  <th style={pcFinHCell({ width: ngWidths.v, textAlign: 'right', fontSize: 10, color: '#475569', padding: '3px 4px' })}>มูลค่า</th>
+                  <th style={pcFinHCell({ width: ngWidths.a, fontSize: 10, color: '#475569', padding: '3px 4px' })}>ตรวจรับ</th>
+                  <th style={pcFinHCell({ width: ngWidths.f, fontSize: 10, color: 'var(--brand-700)', padding: '3px 4px' })}>📅 คาดรับเงิน</th>
                 </React.Fragment>
               ))}
             </tr>
@@ -1199,19 +1209,19 @@ function ProjectFinanceGrid({ rows, data, setData, canEdit, toast }) {
               const finRaw = PCU.loadFinanceMaster()[r.contractNo] || {};
               const fcManualArr = finRaw.fcDates || [];
               const insts = r.installments || [];
+              const candCount = info.candidates ? info.candidates.length : 0;
+              const projTitle = `${r.contractNo || '—'} · ${r.site || ''} · ${r.type || ''} ${r.province || ''} · มูลค่า ${PCU.fmtBaht(r.contractAmt)}`;
               return (
                 <tr key={r.id} style={{ background: ri % 2 === 0 ? '#fff' : '#fafbfd', borderTop: '1px solid #eef2f7' }}>
-                  <td style={pcFinCell({ width: 50, left: 0, sticky: true, color: '#94a3b8', textAlign: 'center' })}>{ri + 1}</td>
-                  <td style={pcFinCell({ width: 290, left: 50, sticky: true, textAlign: 'left' })}>
-                    <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--ink-900)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      <span className="num" style={{ color: 'var(--brand-700)', marginRight: 6 }}>{r.contractNo || '—'}</span>
+                  <td style={pcFinCell({ width: 36, left: 0, sticky: true, color: '#94a3b8', textAlign: 'center' })}>{ri + 1}</td>
+                  <td style={pcFinCell({ width: 232, left: 36, sticky: true, textAlign: 'left' })} title={projTitle}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-900)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.35 }}>
+                      <span className="num" style={{ color: 'var(--brand-700)', marginRight: 5 }}>{r.contractNo || '—'}</span>
                       {r.site}
-                    </div>
-                    <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 1 }}>
-                      {r.type || '—'} · {r.province || '—'} · มูลค่า <span className="num">{PCU.fmtBaht(r.contractAmt)}</span>
+                      <span style={{ color: '#94a3b8', marginLeft: 6, fontSize: 10, fontWeight: 400 }}>· {r.province || '—'}</span>
                     </div>
                   </td>
-                  <td style={pcFinCell({ width: 180, textAlign: 'center' })}>
+                  <td style={pcFinCell({ width: 132, textAlign: 'center' })}>
                     <PcAssigneeChip
                       assignee={info.assignee || r.assignee}
                       hasLink={info.debts.length > 0}
@@ -1219,34 +1229,58 @@ function ProjectFinanceGrid({ rows, data, setData, canEdit, toast }) {
                       canEdit={canEdit}
                     />
                   </td>
-                  <td style={pcFinCell({ width: 130, textAlign: 'right' })}>
+                  <td style={pcFinCell({ width: 100, textAlign: 'right' })}
+                    title={candCount > 0 ? `สัญญาหนี้ใกล้เคียง ${candCount} — คลิกผู้รับโอนสิทธิ์เพื่อยืนยันผูก` : ''}>
                     <span className="num" style={{ color: info.total > 0 ? '#b91c1c' : '#94a3b8', fontWeight: info.total > 0 ? 600 : 400 }}>
                       {info.total > 0 ? PCU.fmtBaht(info.total) : '—'}
                     </span>
-                    {info.debts.length > 1 && <div style={{ fontSize: 9.5, color: '#94a3b8' }}>{info.debts.length} สัญญา</div>}
-                    {info.candidates && info.candidates.length > 0 && (
-                      <div title={'สัญญาหนี้ใกล้เคียง (' + info.candidates.length + ') — projectCode ว่าง แต่ตรงกับผู้รับโอนสิทธิ์ — คลิกผู้รับโอนสิทธิ์เพื่อยืนยันผูก'}
-                        style={{ fontSize: 9.5, color: '#92400e', marginTop: 2, fontWeight: 600 }}>
-                        + {info.candidates.length} น่าจะใช่
-                      </div>
+                    {(info.debts.length > 1 || candCount > 0) && (
+                      <span style={{ fontSize: 9, color: candCount > 0 ? '#92400e' : '#94a3b8', marginLeft: 4 }}>
+                        {info.debts.length > 1 ? `(${info.debts.length})` : ''}
+                        {candCount > 0 ? ` +${candCount}?` : ''}
+                      </span>
                     )}
                   </td>
                   {Array.from({ length: maxInst }).map((_, i) => {
                     const it = insts[i] || null;
+                    // หา "งวดปลายทาง" ของงวด absorbed
+                    const absorbTarget = it && it.absorbed
+                      ? (insts.find(x => x.paymentOverride && x.paymentN > 0 && !x.absorbed)
+                         || insts.find(x => x.summaryPayment > 0 && x.summaryPayment >= r.contractAmt * 0.99))
+                      : null;
                     return (
                       <React.Fragment key={'c' + i}>
                         <td style={pcFinCell({ width: ngWidths.d, textAlign: 'center', color: '#475569' })}>
                           {it && it.deliveryDate ? <span className="num">{PCU.fmtDate(it.deliveryDate)}</span> : <span style={{ color: '#cbd5e1' }}>—</span>}
                         </td>
                         <td style={pcFinCell({ width: ngWidths.v, textAlign: 'right' })}>
-                          {it && it.amount > 0 ? <span className="num" style={{ color: it.paid ? '#16a34a' : 'var(--ink-900)' }}>{PCU.fmtBaht(it.amount)}</span> : <span style={{ color: '#cbd5e1' }}>—</span>}
-                          {it && it.paid && <div style={{ fontSize: 9, color: '#16a34a' }}>✓ รับแล้ว</div>}
+                          {it && it.absorbed ? (
+                            <span title={absorbTarget ? `รวมเข้างวด ${absorbTarget.no} (Payment N)` : 'งวดนี้ไม่รับเงิน (รวมเข้างวดอื่น)'}
+                              style={{ fontSize: 10, color: '#a16207', fontWeight: 600 }}>
+                              ↰ ง.{absorbTarget ? absorbTarget.no : '?'}
+                            </span>
+                          ) : it && it.amount > 0 ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
+                              <span className="num" style={{ color: it.paid ? '#16a34a' : 'var(--ink-900)', fontWeight: it.paid ? 600 : 400 }}>
+                                {PCU.fmtBaht(it.amount)}
+                              </span>
+                              {it.paid && <span title="รับเงินแล้ว" style={{ fontSize: 10, color: '#16a34a' }}>✓</span>}
+                              {it.paymentOverride && !it.paid && (
+                                <span title={`วิศวกรปรับ % รับจริงผ่าน Payment ${it.no} = ${(it.paymentN * 100).toFixed(0)}% (ทับ % งวด ${it.no} เดิม)`}
+                                  style={{ fontSize: 9, color: '#1e40af', fontWeight: 700, background: '#eaf3ff', padding: '0 4px', borderRadius: 3 }}>
+                                  ↻{(it.paymentN * 100).toFixed(0)}%
+                                </span>
+                              )}
+                            </span>
+                          ) : (
+                            <span style={{ color: '#cbd5e1' }}>—</span>
+                          )}
                         </td>
                         <td style={pcFinCell({ width: ngWidths.a, textAlign: 'center', color: '#475569' })}>
                           {it && it.acceptDate ? <span className="num">{PCU.fmtDate(it.acceptDate)}</span> : <span style={{ color: '#cbd5e1' }}>—</span>}
                         </td>
                         <td style={pcFinCell({ width: ngWidths.f, textAlign: 'center' })}>
-                          {it && !it.paid && it.amount > 0 ? (
+                          {it && !it.paid && !it.absorbed && it.amount > 0 ? (
                             <PcFcDateInput
                               value={fcManualArr[i] || (it.forecastDate || '')}
                               isManual={!!fcManualArr[i]}
@@ -1254,7 +1288,9 @@ function ProjectFinanceGrid({ rows, data, setData, canEdit, toast }) {
                               onChange={v => saveFcDate(r, i, v)}
                             />
                           ) : it && it.paid ? (
-                            <span style={{ fontSize: 10.5, color: '#16a34a' }}>รับแล้ว</span>
+                            <span style={{ fontSize: 10, color: '#16a34a' }}>รับแล้ว</span>
+                          ) : it && it.absorbed ? (
+                            <span style={{ fontSize: 10, color: '#a16207' }}>—</span>
                           ) : (
                             <span style={{ color: '#cbd5e1' }}>—</span>
                           )}
@@ -1282,16 +1318,18 @@ function ProjectFinanceGrid({ rows, data, setData, canEdit, toast }) {
 }
 function pcFinHCell(extra) {
   return Object.assign({
-    background: '#f8fafc', color: '#475569', fontSize: 11, fontWeight: 700,
-    textAlign: 'center', padding: '8px 8px', borderRight: '1px solid #eef2f7',
+    background: '#f8fafc', color: '#475569', fontSize: 10.5, fontWeight: 700,
+    textAlign: 'center', padding: '4px 6px', borderRight: '1px solid #eef2f7',
     position: extra && extra.sticky ? 'sticky' : 'static', zIndex: extra && extra.sticky ? 3 : 1,
+    whiteSpace: 'nowrap',
   }, extra || {});
 }
 function pcFinCell(extra) {
   return Object.assign({
-    padding: '7px 8px', borderRight: '1px solid #f1f5f9', verticalAlign: 'middle',
+    padding: '3px 6px', borderRight: '1px solid #f1f5f9', verticalAlign: 'middle',
     position: extra && extra.sticky ? 'sticky' : 'static', zIndex: extra && extra.sticky ? 2 : 0,
     background: extra && extra.sticky ? 'inherit' : undefined,
+    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
   }, extra || {});
 }
 

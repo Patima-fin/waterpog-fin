@@ -311,6 +311,49 @@ function hpBuildAlerts(data, asOf, weekProj) {
     }]);
   }
 
+  // ── งวดใกล้คาดรับ · ยังไม่ส่งงาน (urgent/watch, project) ────────────────
+  //   ใช้ PCU.deriveProjects เพื่อให้ได้ installments + forecastDate ของแต่ละงวด
+  //   เป้าหมาย: ฟ้องการเงินก่อน — งวดที่ฟอร์แคชไว้ภายใน 60 วันแต่หน้างานยังไม่
+  //   ส่งงาน → เลขฟอร์แคชเดือนนั้นจะไม่จริง ต้องเลื่อน/รีเฟรช
+  const fcDue = [];
+  if (window.PCU && projects.length) {
+    try {
+      const derived = window.PCU.deriveProjects(projects, invoices, data.receipts || []);
+      derived.forEach(dp => {
+        if (dp.status !== 'Work in progress' && dp.status !== 'ยังไม่ลงนาม') return;
+        (dp.installments || []).forEach(it => {
+          if (it.paid || it.absorbed) return;
+          if (it.deliveryDate || it.acceptDate) return;     // ส่ง/ตรวจรับแล้ว ไม่ต้องเตือน
+          if (!(it.amount > 0) || !it.forecastDate) return;
+          const dd = hpDays(asOf, it.forecastDate);
+          if (dd == null || dd > 60) return;                // นอกกรอบ 60 วัน
+          const sev = dd <= 30 ? 'urgent' : 'watch';
+          const code = dp.contractNo || '—';
+          const short = (dp.site || dp.name || code).slice(0, 42);
+          const lateLabel = dd < 0 ? `เลย ${Math.abs(dd)} วัน` : (dd <= 7 ? `อีก ${dd} วัน` : (dd <= 30 ? `อีก ${dd} วัน` : `อีก ${dd} วัน`));
+          fcDue.push({
+            _amt: it.amount,
+            id: 'proj-fc-' + code + '-' + it.no,
+            severity: sev,
+            category: 'project',
+            icon: 'forecast',
+            title: `งวด ${it.no} ${code} ใกล้ฟอร์แคช · ยังไม่ส่งงาน`,
+            badge: lateLabel,
+            desc: `${short} — ฟอร์แคชรับ ${hpDateShort(it.forecastDate)} (${hpBaht(it.amount)}) แต่ยังไม่มีวันส่งงาน · เลขฟอร์แคชเดือนนั้นอาจไม่ตรง ต้องเลื่อน`,
+            amount: null,
+            action: { label: 'ดูโครงการ', route: 'projects' },
+          });
+        });
+      });
+    } catch (_) { /* PCU not ready or error — skip silently */ }
+  }
+  emit(fcDue, 5, (n, s) => ({
+    id: 'proj-fc-more', severity: 'watch', category: 'project', icon: 'forecast',
+    title: `งวดอื่นใกล้ฟอร์แคชอีก ${n} งวด`, badge: 'รวม',
+    desc: `มูลค่ารวม ${hpBaht(s)} — เปิดหน้าโครงการเพื่อตรวจสอบ`,
+    amount: null, action: { label: 'ดูโครงการ', route: 'projects' },
+  }));
+
   // ── projects waiting to sign (watch, project) ──────────────────────────────
   const waiting = [];
   projects.forEach(p => {
