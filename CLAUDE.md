@@ -814,5 +814,11 @@ Live at **https://patima-fin.github.io/waterpog-fin/** — GitHub Pages serves t
 - **ไม่แตะ (ตั้งใจ):** `WTPOverride.clear` 2 จุด (EditableNumber ✕ / cashflow Sec-01 toggle) = revert ค่า override ที่ผู้ใช้กรอกเอง **กลับได้ทันที** (กดใหม่/พิมพ์ใหม่) + ยิงบ่อย → ใส่ confirm จะกวน UX. `manualMatchPv` force-delete แต่เป็น "เปลี่ยน decision (re-match)" ไม่ใช่ทำลาย + มี modal เลือก PV อยู่แล้ว.
 - **verify (preview):** Babel transform page_bank_recon.jsx ผ่าน + มีข้อความ confirm. (พฤติกรรมจริงกับข้อมูล verify ใน prod ไม่ได้เพราะ RLS — แก้เป็น guard บรรทัดเดียว.)
 
+## 2026-06-28 — Loading state ตอนดึงข้อมูล server รอบแรก (แทนหน้าว่าง/ศูนย์) (build `app.jsx 20260628b` / `styles.css 20260628a`)
+- **ปัญหา:** หลัง splash หาย (React mount) ข้อมูลจริงจาก Supabase ยังโหลดไม่เสร็จ → หน้าโชว์ KPI 0 / ตารางว่าง ดูเหมือนพัง (โดยเฉพาะ SKIP_CACHE entities + เครื่องที่ cache ว่าง/เพิ่งล้าง).
+- **FIX (`app.jsx`):** state `firstLoadDone` (false→true เมื่อ subscribe callback แรกยิง = ข้อมูล server มาถึง; data_supabase เรียก `subscribers.forEach` หลัง `loadFromServer` เสร็จ). **data_supabase ไม่ dispatch `wtpSyncStatus`** (เป็น event ยุค Sheets) → ใช้ subscribe callback เป็นสัญญาณแทน. `showInitialLoad = !firstLoadDone && coreEmpty` (coreEmpty = invoices/bankAccounts/projects/payables ว่างหมด) → returning user ที่มี cache เห็นข้อมูลทันที **ไม่โดนบัง** (coreEmpty=false). render `<DataLoadingState/>` (spinner + "กำลังโหลดข้อมูล…") แทน `{page}` เมื่อ showInitialLoad. **failSafe `setTimeout 12s`** flip firstLoadDone กันค้าง (server error/ไม่ยิง callback → โชว์หน้าตามจริง ไม่ค้าง spinner).
+- **CSS (`styles.css`):** `.wtp-loading` + `.wtp-loading-spin` (border-top = `var(--brand-500)` หมุน `@keyframes wtpSpin`) + text/sub. WTP = น้ำเงิน.
+- **verify (preview, isolated render):** Babel ผ่าน · spinner 44px ขอบน้ำเงิน rgb(42,111,219) หมุน (animation wtpSpin) · text "กำลังโหลดข้อมูล… ดึงข้อมูลล่าสุดจากเซิร์ฟเวอร์" · ไม่มี console error. (พฤติกรรม flash จริงตอน fresh-load verify ใน prod ไม่ได้เพราะ login-gate — logic: firstLoadDone flip จาก callback หรือ 12s timeout เสมอ ไม่ค้าง). ทำคู่ BIO (spinner เขียวแบรนด์).
+
 ## Repo rule: keep CLAUDE.md current
 **Every time you `git push`, update this `CLAUDE.md`** to reflect anything that changed (architecture, conventions, new pages, gotchas). Treat it as part of the push, like the `?v=` bump.
