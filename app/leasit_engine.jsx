@@ -539,7 +539,81 @@ function litLoanToDebtRow(loan, existingId) {
   };
 }
 
-/* ── Export Excel workbook (มีสูตรคำนวณดอกเบี้ย) ──────────────────────── */
+/* ── Cell styles (xlsx-js-style supports `s` property) ────────────────── */
+var LIT_STYLE_HEADER = {
+  font: { name: 'TH SarabunPSK', bold: true, sz: 11, color: { rgb: 'FFFFFFFF' } },
+  fill: { patternType: 'solid', fgColor: { rgb: 'FF2A6FDB' } },
+  alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+  border: {
+    top: { style: 'thin', color: { rgb: 'FF1A4490' } },
+    bottom: { style: 'thin', color: { rgb: 'FF1A4490' } },
+    left: { style: 'thin', color: { rgb: 'FF1A4490' } },
+    right: { style: 'thin', color: { rgb: 'FF1A4490' } }
+  }
+};
+var LIT_STYLE_TITLE = {
+  font: { name: 'TH SarabunPSK', bold: true, sz: 14, color: { rgb: 'FF1A4490' } },
+  alignment: { horizontal: 'left', vertical: 'center' }
+};
+var LIT_STYLE_LABEL = {
+  font: { name: 'TH SarabunPSK', bold: true, sz: 10, color: { rgb: 'FF1A4490' } },
+  alignment: { horizontal: 'left', vertical: 'center' }
+};
+var LIT_STYLE_TOTAL = {
+  font: { name: 'TH SarabunPSK', bold: true, sz: 11, color: { rgb: 'FF1A4490' } },
+  fill: { patternType: 'solid', fgColor: { rgb: 'FFE8F0FA' } },
+  alignment: { horizontal: 'right', vertical: 'center' },
+  border: {
+    top: { style: 'medium', color: { rgb: 'FF2A6FDB' } },
+    bottom: { style: 'double', color: { rgb: 'FF2A6FDB' } }
+  }
+};
+var LIT_STYLE_GRAND = {
+  font: { name: 'TH SarabunPSK', bold: true, sz: 12, color: { rgb: 'FFFFFFFF' } },
+  fill: { patternType: 'solid', fgColor: { rgb: 'FF1A4490' } },
+  alignment: { horizontal: 'right', vertical: 'center' },
+  border: { top: { style: 'double', color: { rgb: 'FF1A4490' } } }
+};
+var LIT_STYLE_CELL = {
+  font: { name: 'TH SarabunPSK', sz: 10 },
+  alignment: { vertical: 'center' },
+  border: {
+    top: { style: 'thin', color: { rgb: 'FFE0E7F0' } },
+    bottom: { style: 'thin', color: { rgb: 'FFE0E7F0' } },
+    left: { style: 'thin', color: { rgb: 'FFE0E7F0' } },
+    right: { style: 'thin', color: { rgb: 'FFE0E7F0' } }
+  }
+};
+var LIT_STYLE_MONEY = Object.assign({}, LIT_STYLE_CELL, {
+  alignment: { vertical: 'center', horizontal: 'right' },
+  numFmt: '#,##0.00'
+});
+var LIT_STYLE_DATE = Object.assign({}, LIT_STYLE_CELL, {
+  alignment: { vertical: 'center', horizontal: 'center' },
+  numFmt: 'dd/mm/yyyy'
+});
+var LIT_STYLE_SUMMARY_LABEL = {
+  font: { name: 'TH SarabunPSK', bold: true, sz: 10, color: { rgb: 'FF1A4490' } },
+  fill: { patternType: 'solid', fgColor: { rgb: 'FFF4F8FE' } },
+  alignment: { horizontal: 'right', vertical: 'center' },
+  border: { top: { style: 'thin', color: { rgb: 'FF2A6FDB' } } }
+};
+
+// helper: ใส่ style ลง cell (ใช้กับ ws[cellRef])
+function litStyleCell(ws, cellRef, style, isNumber, isDate) {
+  var c = ws[cellRef];
+  if (!c) ws[cellRef] = c = { v: '', t: 's' };
+  c.s = style;
+  if (isNumber && c.v != null && c.v !== '') { c.t = 'n'; if (style.numFmt) c.z = style.numFmt; }
+  if (isDate && c.v && (c.v instanceof Date)) { c.t = 'd'; if (style.numFmt) c.z = style.numFmt; }
+}
+function litColLetter(n) {
+  var s = '';
+  while (n >= 0) { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; }
+  return s;
+}
+
+/* ── Export Excel workbook (มีสูตรคำนวณดอกเบี้ย + style สวย) ────────── */
 // คืน workbook object (ใช้กับ XLSX.writeFile) — บัญชีตรวจสูตร =F*G*H/365 ได้
 function litBuildExportWorkbook(loans, prepaid, actual, refund) {
   var XLSX = window.XLSX;
@@ -596,12 +670,34 @@ function litBuildExportWorkbook(loans, prepaid, actual, refund) {
     ''
   ]);
   var wsSum = XLSX.utils.aoa_to_sheet(sumRows);
-  // column width
   wsSum['!cols'] = [
     { wch: 8 }, { wch: 22 }, { wch: 10 }, { wch: 30 }, { wch: 8 }, { wch: 8 },
     { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 14 },
     { wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 }
   ];
+  // ★ apply styles to summary sheet
+  // Header row (row 0) — บนสุด สีฟ้า bold
+  var sumNCols = sumHeader.length;
+  for (var ch = 0; ch < sumNCols; ch++) {
+    litStyleCell(wsSum, litColLetter(ch) + '1', LIT_STYLE_HEADER);
+  }
+  // Data rows (rows 1..lastRow-1)
+  var moneyColsSum = [10, 11, 12, 13, 14, 15];  // K=10 (จำนวนเงินกู้), L-P money
+  var dateColsSum = [7, 8, 16];  // H, I, Q
+  for (var dr = 1; dr < lastRow; dr++) {
+    for (var dc = 0; dc < sumNCols; dc++) {
+      var isMoney = moneyColsSum.indexOf(dc) >= 0;
+      var isDate = dateColsSum.indexOf(dc) >= 0;
+      var style = isMoney ? LIT_STYLE_MONEY : (isDate ? LIT_STYLE_DATE : LIT_STYLE_CELL);
+      litStyleCell(wsSum, litColLetter(dc) + (dr + 1), style, isMoney, isDate);
+    }
+  }
+  // Grand total row — สีฟ้าเข้ม
+  for (var gc = 0; gc < sumNCols; gc++) {
+    litStyleCell(wsSum, litColLetter(gc) + (lastRow + 1), LIT_STYLE_GRAND, moneyColsSum.indexOf(gc) >= 0);
+  }
+  // ★ freeze ส่วนหัว
+  wsSum['!freeze'] = { xSplit: 0, ySplit: 1 };
   XLSX.utils.book_append_sheet(wb, wsSum, 'สรุปรวม');
 
   // ── ชีตต่อสัญญา — มีสูตร =F*G*H/365 ในคอลัมน์ Int.amount ───────────
@@ -712,6 +808,45 @@ function litBuildExportWorkbook(loans, prepaid, actual, refund) {
       { wch: 12 }, { wch: 10 }, { wch: 8 }, { wch: 14 }, { wch: 14 },
       { wch: 14 }, { wch: 14 }
     ];
+    // ★ apply styles ต่อสัญญา
+    // Title rows 1-2 (header text)
+    litStyleCell(ws, 'A1', LIT_STYLE_TITLE);
+    litStyleCell(ws, 'A2', LIT_STYLE_TITLE);
+    // Header block rows 3-9 (labels left col + values)
+    for (var hr = 3; hr <= 9; hr++) {
+      litStyleCell(ws, 'A' + hr, LIT_STYLE_LABEL);
+      litStyleCell(ws, 'D' + hr, LIT_STYLE_LABEL);
+      litStyleCell(ws, 'G' + hr, LIT_STYLE_LABEL);
+      litStyleCell(ws, 'K' + hr, LIT_STYLE_LABEL);
+    }
+    // Schedule header row 10 — สีฟ้าเข้ม
+    for (var sh = 0; sh < 12; sh++) {
+      litStyleCell(ws, litColLetter(sh) + '10', LIT_STYLE_HEADER);
+    }
+    // Body rows: Prepaid + Actual sections
+    // Money cols: F(5)Principal, G(6)rate, I(8)Int.amount, J(9)Installment, K(10)Paid, L(11)Outstanding
+    // Date cols: D(3)เริ่ม, E(4)สิ้นสุด
+    var totalRows = rows.length;
+    var moneyCols = [5, 6, 8, 9, 10, 11];
+    var dateCols = [3, 4];
+    for (var br = 11; br <= totalRows; br++) {
+      for (var bc = 0; bc < 12; bc++) {
+        var isM = moneyCols.indexOf(bc) >= 0;
+        var isD = dateCols.indexOf(bc) >= 0;
+        var st = isM ? LIT_STYLE_MONEY : (isD ? LIT_STYLE_DATE : LIT_STYLE_CELL);
+        litStyleCell(ws, litColLetter(bc) + br, st, isM, isD);
+      }
+    }
+    // สรุป section (sumStartRow+0..+2) + refund + final
+    if (sumStartRow) {
+      for (var sr = sumStartRow; sr <= sumStartRow + 2; sr++) {
+        for (var sc = 1; sc <= 5; sc++) {
+          litStyleCell(ws, litColLetter(sc) + sr, sc === 5 ? LIT_STYLE_TOTAL : LIT_STYLE_SUMMARY_LABEL, sc === 5);
+        }
+      }
+    }
+    // freeze หัวตาราง
+    ws['!freeze'] = { xSplit: 0, ySplit: 10 };
     XLSX.utils.book_append_sheet(wb, ws, String(loan.loanId));
   }
 

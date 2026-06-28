@@ -999,9 +999,184 @@ function LeasitLoanForm({ open, mode, initial, data, onClose, onSave, onDelete, 
   );
 }
 
+/* ── BulkCalcActualModal — คำนวณดอกเกิดจริงทุกสัญญาพร้อมกัน ───────────── */
+function BulkCalcActualModal({ open, loans, onClose, onConfirm }) {
+  const Modal = window.Modal;
+  const today = new Date().toISOString().slice(0, 10);
+  const [mode, setMode] = React.useState('today');  // 'today' | 'custom' | 'dueDate'
+  const [customDate, setCustomDate] = React.useState(today);
+  const [filterStatus, setFilterStatus] = React.useState('active');  // 'active' | 'all'
+
+  if (!open) return null;
+  const filtered = loans.filter(L => filterStatus === 'all' || L.status === 'Active');
+  const previewCount = filtered.length;
+
+  return (
+    <Modal open={open} onClose={onClose} title="⚡ คำนวณดอกเกิดจริงทุกสัญญาพร้อมกัน" maxWidth={600}>
+      <div style={{ padding: '4px 4px 12px', fontSize: 13 }}>
+        <div style={{ marginBottom: 12, padding: 10, background: 'oklch(96% 0.04 250)', borderRadius: 8, fontSize: 12 }}>
+          💡 สำหรับสรุปบัญชีรายเดือน — กดปุ่มเดียวคำนวณดอกเกิดจริงให้ทุกสัญญา. ใช้
+          <b> วันรับเงิน → end date </b>(หรือ <b>วันคืนเงิน</b>ถ้าปิดแล้ว) เป็นช่วงคำนวณ.
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-700)', display: 'block', marginBottom: 6 }}>
+            คำนวณถึงวันที่:
+          </label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+              <input type="radio" name="calcMode" checked={mode === 'today'} onChange={() => setMode('today')} />
+              <span>📅 วันนี้ ({LIT_fmtDate(today)})</span>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+              <input type="radio" name="calcMode" checked={mode === 'custom'} onChange={() => setMode('custom')} />
+              <span>🗓️ วันที่กำหนดเอง:</span>
+              <input type="date" className="input" style={{ width: 160 }} value={customDate} onChange={(e) => { setCustomDate(e.target.value); setMode('custom'); }} />
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+              <input type="radio" name="calcMode" checked={mode === 'dueDate'} onChange={() => setMode('dueDate')} />
+              <span>⏰ ถึงวันครบกำหนดของแต่ละสัญญา (เต็มอายุสัญญา)</span>
+            </label>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-700)', display: 'block', marginBottom: 6 }}>
+            เลือกสัญญา:
+          </label>
+          <div style={{ display: 'flex', gap: 14 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+              <input type="radio" name="filter" checked={filterStatus === 'active'} onChange={() => setFilterStatus('active')} />
+              <span>🟢 เฉพาะ Active</span>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+              <input type="radio" name="filter" checked={filterStatus === 'all'} onChange={() => setFilterStatus('all')} />
+              <span>🌐 ทั้งหมด (รวม Closed คำนวณใหม่)</span>
+            </label>
+          </div>
+        </div>
+
+        <div style={{ padding: 10, background: 'var(--ink-50)', borderRadius: 8, fontSize: 13, marginBottom: 14 }}>
+          จะคำนวณดอกเกิดจริงให้ <b style={{ color: 'var(--brand-500)' }}>{previewCount}</b> สัญญา
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button className="btn btn-ghost" onClick={onClose}>ยกเลิก</button>
+          <button className="btn btn-primary" onClick={() => {
+            const endDate = mode === 'today' ? today : mode === 'custom' ? customDate : null;
+            onConfirm({ endDate, mode, loans: filtered });
+          }}>⚡ คำนวณ ({previewCount} สัญญา)</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/* ── LeasitExportModal — เลือกสัญญาที่จะ export Excel ──────────────────── */
+function LeasitExportModal({ open, loans, onClose, onConfirm }) {
+  const Modal = window.Modal;
+  const [filterStatus, setFilterStatus] = React.useState('all');
+  const [selectedIds, setSelectedIds] = React.useState(new Set());
+  const [search, setSearch] = React.useState('');
+
+  React.useEffect(() => {
+    if (open) { setSelectedIds(new Set(loans.map(L => L.leasitLoanId))); setSearch(''); }
+  }, [open, loans]);
+
+  if (!open) return null;
+  const filteredLoans = loans.filter(L => {
+    if (filterStatus === 'active' && L.status !== 'Active') return false;
+    if (filterStatus === 'closed' && L.status === 'Active') return false;
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      if (!(L.contractNo || '').toLowerCase().includes(q) &&
+          !(L.projectName || '').toLowerCase().includes(q) &&
+          !(L.projectCode || '').toLowerCase().includes(q) &&
+          !String(L.leasitLoanId).includes(q)) return false;
+    }
+    return true;
+  });
+  const allFilteredSelected = filteredLoans.every(L => selectedIds.has(L.leasitLoanId));
+  const toggleAll = () => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (allFilteredSelected) filteredLoans.forEach(L => next.delete(L.leasitLoanId));
+      else filteredLoans.forEach(L => next.add(L.leasitLoanId));
+      return next;
+    });
+  };
+  const toggle = (lid) => setSelectedIds(prev => {
+    const next = new Set(prev);
+    if (next.has(lid)) next.delete(lid); else next.add(lid);
+    return next;
+  });
+
+  return (
+    <Modal open={open} onClose={onClose} title="📤 Export ตารางคำนวณดอกเบี้ย (เลือกสัญญา)" maxWidth={900}>
+      <div style={{ padding: '4px 4px 12px', fontSize: 13 }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <button className={'btn ' + (filterStatus === 'all' ? 'btn-primary' : 'btn-ghost')} style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => setFilterStatus('all')}>ทั้งหมด ({loans.length})</button>
+            <button className={'btn ' + (filterStatus === 'active' ? 'btn-primary' : 'btn-ghost')} style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => setFilterStatus('active')}>🟢 Active ({loans.filter(L => L.status === 'Active').length})</button>
+            <button className={'btn ' + (filterStatus === 'closed' ? 'btn-primary' : 'btn-ghost')} style={{ padding: '4px 10px', fontSize: 12 }} onClick={() => setFilterStatus('closed')}>⚫ ปิดแล้ว ({loans.filter(L => L.status !== 'Active').length})</button>
+          </div>
+          <input className="input" placeholder="🔍 ค้นหา…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ flex: 1, minWidth: 200 }} />
+        </div>
+
+        <div style={{ marginBottom: 8, fontSize: 12, color: 'var(--ink-500)', display: 'flex', justifyContent: 'space-between' }}>
+          <span>เลือกแล้ว <b style={{ color: 'var(--brand-500)' }}>{selectedIds.size}</b> / {loans.length} สัญญา</span>
+          <button className="btn btn-ghost" style={{ padding: '2px 8px', fontSize: 11 }} onClick={toggleAll}>
+            {allFilteredSelected ? '☐ ไม่เลือก (ที่กรอง)' : '☑ เลือกทั้งหมด (ที่กรอง)'}
+          </button>
+        </div>
+
+        <div style={{ maxHeight: 360, overflowY: 'auto', border: '1px solid var(--ink-200)', borderRadius: 8 }}>
+          <table className="tbl" style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+            <thead style={{ position: 'sticky', top: 0, background: 'var(--ink-50)' }}>
+              <tr>
+                <th style={{ padding: '4px 6px', width: 30 }}></th>
+                <th style={{ padding: '4px 6px', textAlign: 'left' }}>#</th>
+                <th style={{ padding: '4px 6px', textAlign: 'left' }}>เลขสัญญา</th>
+                <th style={{ padding: '4px 6px', textAlign: 'left' }}>JOB</th>
+                <th style={{ padding: '4px 6px', textAlign: 'left' }}>โครงการ</th>
+                <th style={{ padding: '4px 6px', textAlign: 'right' }}>เงินต้น</th>
+                <th style={{ padding: '4px 6px' }}>สถานะ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredLoans.map(L => (
+                <tr key={L.leasitLoanId} onClick={() => toggle(L.leasitLoanId)} style={{ cursor: 'pointer', borderBottom: '1px solid var(--ink-100)', background: selectedIds.has(L.leasitLoanId) ? 'oklch(97% 0.03 250)' : 'transparent' }}>
+                  <td style={{ padding: '4px 6px' }}>
+                    <input type="checkbox" checked={selectedIds.has(L.leasitLoanId)} onChange={() => toggle(L.leasitLoanId)} onClick={(e) => e.stopPropagation()} />
+                  </td>
+                  <td style={{ padding: '4px 6px' }}>{L.leasitLoanId}</td>
+                  <td style={{ padding: '4px 6px' }}>{L.contractNo}</td>
+                  <td style={{ padding: '4px 6px' }}>{L.projectCode || '—'}</td>
+                  <td style={{ padding: '4px 6px', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={L.projectName}>{L.projectName}</td>
+                  <td style={{ padding: '4px 6px', textAlign: 'right' }}>{LIT_fmt(L.principalAmount, 0)}</td>
+                  <td style={{ padding: '4px 6px' }}>{L.status === 'Active' ? '🟢' : '⚫'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
+          <button className="btn btn-ghost" onClick={onClose}>ยกเลิก</button>
+          <button className="btn btn-primary" onClick={() => onConfirm(Array.from(selectedIds))} disabled={selectedIds.size === 0}>
+            📥 Export {selectedIds.size} สัญญา
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 /* ── LeasitPanel — main component ─────────────────────────────────────── */
 function LeasitPanel({ data, setData, toast, canEdit }) {
   const [showImport, setShowImport] = React.useState(false);
+  const [showBulkCalc, setShowBulkCalc] = React.useState(false);
+  const [showExportSel, setShowExportSel] = React.useState(false);
   const [viewLoan, setViewLoan] = React.useState(null);
   // formState: null = ปิด, { mode: 'new'|'edit', initial: row }
   const [formState, setFormState] = React.useState(null);
@@ -1215,39 +1390,82 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
     if (toast) toast(`นำเข้าสำเร็จ · ${parsed.loans.length} สัญญา`, 'success');
   };
 
-  // Export all loans → workbook
-  const handleExportAll = () => {
+  // Map debtMaster row → loan shape ที่ engine ใช้ (shared helper)
+  const dmToLoan = (r) => ({
+    loanId: r.leasitLoanId, contractNo: r.contractNo, jobNo: r.projectCode,
+    projectName: r.projectName, ticketType: r.leasitTicketType, loanType: r.loanType,
+    interestRate: r.interestRate, principal: r.principalAmount,
+    dateReceived: r.leasitDateReceived, dateDue: r.leasitDateDue,
+    dateDueRoll: r.leasitDateDueRoll, termDays: r.leasitTermDays,
+    principalChequeNo: r.leasitPrincipalChequeNo, dateRepaid: r.leasitDateRepaid,
+    status: r.status, totalPrepaidInterest: r.leasitTotalPrepaid,
+    totalActualInterest: r.leasitTotalActual, variance: r.leasitVariance,
+    totalRefunded: r.leasitRefunded, refundOutstanding: r.leasitRefundOutstanding
+  });
+
+  // Export loans → workbook (รับ loanIds optional)
+  const handleExportSelected = (loanIds) => {
     const XLSX = window.XLSX;
-    if (!XLSX || !allRows.length) return;
-    // map debtMaster rows → loan shape ที่ engine ใช้
-    const loans = allRows.map(r => ({
-      loanId: r.leasitLoanId,
-      contractNo: r.contractNo,
-      jobNo: r.projectCode,
-      projectName: r.projectName,
-      ticketType: r.leasitTicketType,
-      loanType: r.loanType,
-      interestRate: r.interestRate,
-      principal: r.principalAmount,
-      dateReceived: r.leasitDateReceived,
-      dateDue: r.leasitDateDue,
-      dateDueRoll: r.leasitDateDueRoll,
-      termDays: r.leasitTermDays,
-      principalChequeNo: r.leasitPrincipalChequeNo,
-      dateRepaid: r.leasitDateRepaid,
-      status: r.status,
-      totalPrepaidInterest: r.leasitTotalPrepaid,
-      totalActualInterest: r.leasitTotalActual,
-      variance: r.leasitVariance,
-      totalRefunded: r.leasitRefunded,
-      refundOutstanding: r.leasitRefundOutstanding
-    }));
+    if (!XLSX) return;
+    const ids = loanIds && loanIds.length ? new Set(loanIds) : null;
+    const selectedRows = ids ? allRows.filter(r => ids.has(r.leasitLoanId)) : allRows;
+    if (!selectedRows.length) { if (toast) toast('ไม่มีสัญญาที่จะ export', 'error'); return; }
+    const loans = selectedRows.map(dmToLoan);
     const wb = window.LeasitEngine.litBuildExportWorkbook(loans, prepaid, actual, refund);
     if (!wb) return;
     const now = new Date();
     const stamp = `${String(now.getDate()).padStart(2, '0')}.${String(now.getMonth() + 1).padStart(2, '0')}.${now.getFullYear()}`;
     XLSX.writeFile(wb, `WTP-ตารางคำนวณดอกเบี้ยลีซอิท ${stamp}.xlsx`);
-    if (toast) toast('ส่งออก Excel สำเร็จ', 'success');
+    if (toast) toast(`ส่งออก Excel สำเร็จ · ${loans.length} สัญญา`, 'success');
+    setShowExportSel(false);
+  };
+  const handleExportAll = () => setShowExportSel(true);
+
+  // ── BULK calc actual interest — ทุกสัญญาพร้อมกัน ──
+  const handleBulkCalcActual = ({ endDate, mode, loans: loansToCalc }) => {
+    const E = window.LeasitEngine;
+    if (!E || !E.litGenerateMonthlySchedule) return;
+    let updated;
+    let okCount = 0;
+    setData(d => {
+      let newActual = (d.interestScheduleActual || []).slice();
+      let newMaster = (d.debtMaster || []).slice();
+      loansToCalc.forEach(L => {
+        const r = newMaster.find(m => m.leasitLoanId === L.leasitLoanId);
+        if (!r) return;
+        const principal = Number(r.principalAmount) || 0;
+        const rate = Number(r.interestRate) || 0;
+        const startISO = r.leasitDateReceived || '';
+        // ถ้ามี dateRepaid → ใช้วันคืน (ไม่ override)
+        // ไม่งั้นใช้ endDate ที่ user เลือก / หรือ dateDue (mode='dueDate')
+        const closedEnd = r.leasitDateRepaid || '';
+        const userEnd = mode === 'dueDate' ? (r.leasitDateDue || '') : (endDate || '');
+        const finalEnd = closedEnd || userEnd;
+        if (!principal || !rate || !startISO || !finalEnd) return;
+        const rows = E.litGenerateMonthlySchedule(principal, rate, startISO, finalEnd);
+        if (!rows.length) return;
+        const total = rows.reduce((s, x) => s + (Number(x.intAmount) || 0), 0);
+        const lid = L.leasitLoanId;
+        newActual = newActual.filter(x => x.loanId !== lid).concat(
+          rows.map((p, i) => ({ id: litRowId(lid, 'act', p.seq || i + 1), loanId: lid, ...p }))
+        );
+        // update master totals
+        newMaster = newMaster.map(m => m.leasitLoanId === lid ? {
+          ...m,
+          leasitTotalActual: total,
+          leasitVariance: (Number(m.leasitTotalPrepaid) || 0) - total,
+          leasitRefundOutstanding: (Number(m.leasitTotalPrepaid) || 0) - total - (Number(m.leasitRefunded) || 0)
+        } : m);
+        okCount++;
+      });
+      updated = { ...d, interestScheduleActual: newActual, debtMaster: newMaster };
+      return updated;
+    });
+    if (updated && window.WTPData && window.WTPData.forceSyncNow) {
+      setTimeout(() => window.WTPData.forceSyncNow(updated), 0);
+    }
+    setShowBulkCalc(false);
+    if (toast) toast(`คำนวณดอกเกิดจริง ${okCount}/${loansToCalc.length} สัญญาสำเร็จ`, 'success');
   };
 
   // Export single loan
@@ -1702,6 +1920,15 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
             <button className="btn btn-ghost" onClick={() => setShowImport(true)}>
               📥 นำเข้า Excel
             </button>
+            <button
+              className="btn"
+              style={{ background: 'oklch(58% 0.15 145)', color: '#fff' }}
+              onClick={() => setShowBulkCalc(true)}
+              disabled={!allRows.length}
+              title="คำนวณดอกเกิดจริงให้ทุกสัญญาพร้อมกัน — สำหรับสรุปบัญชีรายเดือน"
+            >
+              ⚡ คำนวณทุกสัญญา
+            </button>
           </>
         )}
         <button className="btn btn-ghost" onClick={handleExportAll} disabled={!allRows.length}>
@@ -1890,6 +2117,18 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
       })()}
 
       {/* Modals */}
+      <BulkCalcActualModal
+        open={showBulkCalc}
+        loans={allRows}
+        onClose={() => setShowBulkCalc(false)}
+        onConfirm={handleBulkCalcActual}
+      />
+      <LeasitExportModal
+        open={showExportSel}
+        loans={allRows}
+        onClose={() => setShowExportSel(false)}
+        onConfirm={handleExportSelected}
+      />
       <LeasitImportModal
         open={showImport}
         onClose={() => setShowImport(false)}
