@@ -392,7 +392,23 @@
     setSyncStatus('syncing');
     var ps = [];
     jobs.forEach(function (job) {
-      if (job.diff.upserts.length) ps.push(sb.from(job.e).upsert(job.diff.upserts.map(rowToRec)).then(chk));
+      if (job.diff.upserts.length) {
+        // ★ DEDUPE by id ก่อนส่ง — Supabase ON CONFLICT DO UPDATE จะ error
+        //   "cannot affect row a second time" ถ้ามี id ซ้ำในชุดเดียว.
+        //   เก็บแถวสุดท้าย (idx > previous = newer mutation)
+        var seen = {};
+        var deduped = [];
+        for (var ui = job.diff.upserts.length - 1; ui >= 0; ui--) {
+          var ur = job.diff.upserts[ui];
+          var uk = ur && ur.id != null ? String(ur.id) : null;
+          if (uk && !seen[uk]) { seen[uk] = true; deduped.unshift(ur); }
+        }
+        if (deduped.length < job.diff.upserts.length) {
+          console.warn('[WTP Supabase] dedupe upsert ' + job.e + ': ' +
+            job.diff.upserts.length + ' → ' + deduped.length);
+        }
+        ps.push(sb.from(job.e).upsert(deduped.map(rowToRec)).then(chk));
+      }
       if (job.diff.deleteIds.length) ps.push(sb.from(job.e).delete().in('id', job.diff.deleteIds).then(chk));
     });
     return Promise.all(ps).then(function () {

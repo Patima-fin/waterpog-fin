@@ -729,15 +729,103 @@ function LeasitLoanForm({ open, mode, initial, data, onClose, onSave, onDelete, 
               <input className="input" value={draft.leasitInterestChequeNo || ''} onChange={(e) => set('leasitInterestChequeNo', e.target.value)} placeholder="10066733" />
             </div>
             <div>
-              <label style={{ fontSize: 11, color: 'var(--ink-500)' }}>วันที่คืนเงิน (เว้นว่าง = ยังไม่ปิด)</label>
-              <input type="date" className="input" value={draft.leasitDateRepaid || ''} onChange={(e) => set('leasitDateRepaid', e.target.value)} />
+              <label style={{ fontSize: 11, color: 'var(--ink-500)' }}>สถานะ (auto จากการจ่ายคืน)</label>
+              {(() => {
+                const totRepaid = refRows.filter(r => r.kind === 'principal').reduce((s, r) => s + (Number(r.amount) || 0), 0);
+                const isClosed = totRepaid >= (Number(draft.principalAmount) || 0) && totRepaid > 0;
+                return <input className="input" value={isClosed ? 'Close · จ่ายคืนครบ' : 'Active'} disabled />;
+              })()}
             </div>
             <div>
-              <label style={{ fontSize: 11, color: 'var(--ink-500)' }}>สถานะ (auto จากวันคืนเงิน)</label>
-              <input className="input" value={draft.leasitDateRepaid ? 'Close' : 'Active'} disabled />
+              <label style={{ fontSize: 11, color: 'var(--ink-500)' }}>วันที่คืนเงินล่าสุด (auto)</label>
+              {(() => {
+                const principalRows = refRows.filter(r => r.kind === 'principal');
+                const latest = principalRows.reduce((m, r) => r.refundDate && r.refundDate > m ? r.refundDate : m, '');
+                return <input className="input" value={LIT_fmtDate(latest) || '— ยังไม่มีการคืน'} disabled />;
+              })()}
             </div>
+
+            {/* ★ Multi-row principal repayment (วันที่ / ยอด / ref / หมายเหตุ) */}
+            <div style={{ gridColumn: '1/-1', border: '1px solid var(--ink-200)', borderRadius: 8, padding: 10, background: 'oklch(98% 0.02 145)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <div style={{ fontWeight: 700, fontSize: 13 }}>
+                  💰 การจ่ายคืนเงินต้น
+                  <span style={{ fontSize: 11, color: 'var(--ink-500)', fontWeight: 400, marginLeft: 6 }}>
+                    (กดเพิ่ม + ระบุแต่ละครั้งที่คืน)
+                  </span>
+                </div>
+                <button
+                  className="btn btn-primary"
+                  style={{ padding: '3px 10px', fontSize: 12 }}
+                  onClick={() => setRefRows(rows => [...rows, {
+                    refundDate: '', amount: 0, refDoc: '', refundType: 'Transfer',
+                    note: '', kind: 'principal'
+                  }])}
+                >+ เพิ่มครั้งที่คืน</button>
+              </div>
+              {(() => {
+                const principalIdxs = refRows.map((r, i) => r.kind === 'principal' ? i : -1).filter(i => i >= 0);
+                if (principalIdxs.length === 0) {
+                  return <div style={{ padding: 12, fontSize: 12, color: 'var(--ink-500)', textAlign: 'center', fontStyle: 'italic' }}>
+                    ยังไม่มีการคืน — กด "+ เพิ่มครั้งที่คืน" ด้านบน
+                  </div>;
+                }
+                const totalRepaid = principalIdxs.reduce((s, i) => s + (Number(refRows[i].amount) || 0), 0);
+                return (
+                  <div>
+                    <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ fontSize: 11, color: 'var(--ink-500)' }}>
+                          <th style={{ textAlign: 'left', padding: '4px 6px', width: 24 }}>#</th>
+                          <th style={{ textAlign: 'left', padding: '4px 6px', width: 140 }}>วันที่คืน *</th>
+                          <th style={{ textAlign: 'right', padding: '4px 6px', width: 130 }}>ยอดเงินต้น *</th>
+                          <th style={{ textAlign: 'left', padding: '4px 6px', width: 150 }}>เลขที่เอกสาร</th>
+                          <th style={{ textAlign: 'left', padding: '4px 6px' }}>หมายเหตุ</th>
+                          <th style={{ width: 30 }}></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {principalIdxs.map((idx, n) => {
+                          const r = refRows[idx];
+                          return (
+                            <tr key={idx}>
+                              <td style={{ padding: 2, color: 'var(--ink-500)' }}>{n + 1}</td>
+                              <td style={{ padding: 2 }}>
+                                <input type="date" className="input" value={r.refundDate || ''} onChange={(e) => updateRow('ref', idx, 'refundDate', e.target.value)} />
+                              </td>
+                              <td style={{ padding: 2 }}>
+                                <input type="number" className="input" style={{ textAlign: 'right' }} value={r.amount || 0} onChange={(e) => updateRow('ref', idx, 'amount', Number(e.target.value) || 0)} />
+                              </td>
+                              <td style={{ padding: 2 }}>
+                                <input className="input" value={r.refDoc || ''} onChange={(e) => updateRow('ref', idx, 'refDoc', e.target.value)} placeholder="PV/RV/..." />
+                              </td>
+                              <td style={{ padding: 2 }}>
+                                <input className="input" value={r.note || ''} onChange={(e) => updateRow('ref', idx, 'note', e.target.value)} placeholder="—" />
+                              </td>
+                              <td style={{ padding: 2 }}>
+                                <button className="btn btn-icon btn-ghost" onClick={() => removeRow('ref', idx)} title="ลบ">✕</button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr style={{ fontWeight: 700, borderTop: '1px solid var(--ink-200)' }}>
+                          <td colSpan={2} style={{ textAlign: 'right', padding: '6px' }}>รวมจ่ายคืน {principalIdxs.length} ครั้ง:</td>
+                          <td style={{ textAlign: 'right', padding: '6px', color: 'oklch(50% 0.14 145)' }}>{LIT_fmt(totalRepaid, 2)}</td>
+                          <td colSpan={3} style={{ padding: '6px', fontSize: 11, color: 'var(--ink-500)' }}>
+                            คงเหลือ {LIT_fmt((Number(draft.principalAmount) || 0) - totalRepaid, 2)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                );
+              })()}
+            </div>
+
             <div style={{ gridColumn: '1/-1' }}>
-              <label style={{ fontSize: 11, color: 'var(--ink-500)' }}>หมายเหตุ</label>
+              <label style={{ fontSize: 11, color: 'var(--ink-500)' }}>หมายเหตุสัญญา</label>
               <textarea className="input" rows={2} value={draft.note || ''} onChange={(e) => set('note', e.target.value)} />
             </div>
           </div>
@@ -1195,7 +1283,13 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
     };
     totals.variance = totals.totalPrepaidInterest - totals.totalActualInterest;
     totals.refundOutstanding = totals.variance - totals.totalRefunded;
-    const principalRepaid = refRowsArr.filter(r => r.kind === 'principal').reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    const principalRows = refRowsArr.filter(r => r.kind === 'principal');
+    const principalRepaid = principalRows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    // ★ status + dateRepaid จาก multi-row: ปิดเมื่อ Σ ≥ principal (>0) — dateRepaid = ล่าสุด
+    const principalAmount = Number(draft.principalAmount) || 0;
+    const isClosed = principalRepaid > 0 && principalRepaid >= principalAmount - 0.01;
+    const latestRepayDate = principalRows.reduce((m, r) => r.refundDate && r.refundDate > m ? r.refundDate : m, '');
+    const computedDateRepaid = isClosed ? (latestRepayDate || draft.leasitDateRepaid || '') : '';
     let updated;
     setData(d => {
       const existing = d.debtMaster || [];
@@ -1206,12 +1300,12 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
         debtCategory: 'LIT',
         contractNo: draft.contractNo,
         borrowerName: 'บจก. ลีซอิท',
-        status: draft.leasitDateRepaid ? 'Close' : 'Active',
+        status: isClosed ? 'Close' : 'Active',
         facilityType: 'Loan',
         loanType: draft.leasitTicketType === 'POS' || draft.leasitTicketType === 'NON' ? 'NON' : 'PRE',
-        principalAmount: Number(draft.principalAmount) || 0,
+        principalAmount: principalAmount,
         interestRate: Number(draft.interestRate) || 0,
-        balance: draft.leasitDateRepaid ? 0 : (Number(draft.principalAmount) || 0) - principalRepaid,
+        balance: isClosed ? 0 : (principalAmount - principalRepaid),
         currency: 'THB',
         projectCode: draft.projectCode || '',
         projectName: draft.projectName || '',
@@ -1222,7 +1316,8 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
         leasitDateReceived: draft.leasitDateReceived || '',
         leasitDateDue: draft.leasitDateDue || '',
         leasitDateDueRoll: draft.leasitDateDueRoll || '',
-        leasitDateRepaid: draft.leasitDateRepaid || '',
+        leasitDateRepaid: computedDateRepaid,
+        leasitPrincipalRepaid: principalRepaid,
         leasitTermDays: draft.leasitTermDays || E.litCalcTermDays(draft.leasitDateReceived, draft.leasitDateDue),
         leasitPrincipalChequeNo: draft.leasitPrincipalChequeNo || '',
         leasitInterestChequeNo: draft.leasitInterestChequeNo || '',
@@ -1654,15 +1749,15 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
             : 'ไม่พบสัญญาที่ค้นหา'}
         </div>
       ) : (() => {
-        const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-        const curPage = Math.min(page, totalPages);
-        const pageRows = filtered.slice((curPage - 1) * PAGE_SIZE, curPage * PAGE_SIZE);
+        // ★ ผู้ใช้ขอ — เลิก pagination ใช้ scroll แทน (15 rows = ~400px maxHeight)
+        const pageRows = filtered;
         // ★ nowrap base — แถวสูง 1 บรรทัดเสมอ (จะ ellipsis แทน wrap)
         const tdBase = { padding: '3px 6px', fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
         const tdRight = { ...tdBase, textAlign: 'right' };
+        // sticky header: thead พื้นเทาเข้มขึ้น + position sticky top:0
         return (
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-            <div style={{ overflowX: 'auto' }}>
+            <div style={{ overflow: 'auto', maxHeight: 'calc(100vh - 380px)', minHeight: 350 }}>
               <table className="tbl" style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1300 }}>
                 <colgroup>
                   <col style={{ width: 34 }} />        {/* # */}
@@ -1679,7 +1774,7 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
                   <col style={{ width: 50 }} />        {/* สถานะ */}
                   <col style={{ width: 100 }} />       {/* ค้างดอก */}
                 </colgroup>
-                <thead>
+                <thead style={{ position: 'sticky', top: 0, zIndex: 5, background: 'var(--ink-50)' }}>
                   {(() => {
                     const FCH = window.FilterableColHeader;
                     // ถ้า FilterableColHeader ไม่พร้อม → fallback simple sort header
@@ -1787,20 +1882,10 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
                 </tfoot>
               </table>
             </div>
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 12px', borderTop: '1px solid var(--ink-100)', fontSize: 12 }}>
-                <div style={{ color: 'var(--ink-500)' }}>
-                  หน้า {curPage}/{totalPages} · แสดง {(curPage - 1) * PAGE_SIZE + 1}–{Math.min(curPage * PAGE_SIZE, filtered.length)} จาก {filtered.length}
-                </div>
-                <div style={{ display: 'flex', gap: 4 }}>
-                  <button className="btn btn-ghost" style={{ padding: '2px 8px', fontSize: 12 }} onClick={() => setPage(1)} disabled={curPage <= 1}>« หน้าแรก</button>
-                  <button className="btn btn-ghost" style={{ padding: '2px 8px', fontSize: 12 }} onClick={() => setPage(p => Math.max(1, p - 1))} disabled={curPage <= 1}>‹ ก่อนหน้า</button>
-                  <button className="btn btn-ghost" style={{ padding: '2px 8px', fontSize: 12 }} onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={curPage >= totalPages}>ถัดไป ›</button>
-                  <button className="btn btn-ghost" style={{ padding: '2px 8px', fontSize: 12 }} onClick={() => setPage(totalPages)} disabled={curPage >= totalPages}>หน้าสุดท้าย »</button>
-                </div>
-              </div>
-            )}
+            {/* footer แสดงจำนวนแถวทั้งหมด */}
+            <div style={{ padding: '4px 12px', borderTop: '1px solid var(--ink-100)', fontSize: 11, color: 'var(--ink-500)', textAlign: 'right' }}>
+              ทั้งหมด {filtered.length} สัญญา · เลื่อนเมาส์เพื่อดูทั้งหมด
+            </div>
           </div>
         );
       })()}
