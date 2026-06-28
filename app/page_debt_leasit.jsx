@@ -155,13 +155,20 @@ function LeasitImportModal({ open, onClose, onConfirm }) {
 }
 
 /* ── LeasitLoanDrawer — ดู schedule prepaid/actual/refund ────────────── */
-function LeasitLoanDrawer({ loan, prepaid, actual, refund, onClose, onExportOne, onEdit, canEdit, onCalcPrepaid, onCalcActual }) {
+function LeasitLoanDrawer({ loan, prepaid, actual, refund, onClose, onExportOne, onEdit, canEdit, onCalcPrepaid, onCalcActual, onSaveScheduleRow }) {
   if (!loan) return null;
   const Modal = window.Modal;
 
+  // ★ inline edit state for prepaid/actual rows — {section:'pre'|'act', idx:number, draft:row}
+  const [editing, setEditing] = React.useState(null);
+
   const pre = prepaid.filter(r => r.loanId === loan.leasitLoanId).sort((a, b) => (a.seq || 0) - (b.seq || 0));
   const act = actual.filter(r => r.loanId === loan.leasitLoanId).sort((a, b) => (a.seq || 0) - (b.seq || 0));
-  const ref = refund.filter(r => r.loanId === loan.leasitLoanId).sort((a, b) => (a.refundDate || '').localeCompare(b.refundDate || ''));
+  // ★ "รับคืน/จ่ายคืน" tab = ดอกเบี้ยเท่านั้น (kind!=='principal')
+  //    เงินต้นจ่ายคืน เห็นได้จากการ์ด "จ่ายคืนเงินต้น" บนสุดแล้ว
+  const refAll = refund.filter(r => r.loanId === loan.leasitLoanId).sort((a, b) => (a.refundDate || '').localeCompare(b.refundDate || ''));
+  const ref = refAll.filter(r => r.kind !== 'principal');
+  const refPrincipalCount = refAll.length - ref.length;
 
   // ── PRE/POS/NON classification + principal summary ──
   const ticketRaw = String(loan.leasitTicketType || '').toUpperCase();
@@ -186,8 +193,94 @@ function LeasitLoanDrawer({ loan, prepaid, actual, refund, onClose, onExportOne,
   const maturityNear = isActive && daysToMaturity != null && daysToMaturity >= 0 && daysToMaturity <= 30;
   const maturityOverdue = isActive && daysToMaturity != null && daysToMaturity < 0;
 
+  // ── helper สำหรับ inline edit ──
+  const openEditRow = (section, row, idx) => {
+    setEditing({ section: section, idx: idx, draft: { ...row } });
+  };
+  const saveEditRow = () => {
+    if (!editing || !onSaveScheduleRow) { setEditing(null); return; }
+    const cleaned = {
+      ...editing.draft,
+      principal: Number(editing.draft.principal) || 0,
+      intRate: Number(editing.draft.intRate) || 0,
+      days: Number(editing.draft.days) || 0,
+      intAmount: Number(editing.draft.intAmount) || 0
+    };
+    onSaveScheduleRow(loan, editing.section === 'pre' ? 'prepaid' : 'actual', cleaned);
+    setEditing(null);
+  };
+  const recalcInt = () => {
+    // ดอกเบี้ย = principal × rate × days / 365
+    if (!editing) return;
+    const p = Number(editing.draft.principal) || 0;
+    const r = Number(editing.draft.intRate) || 0;
+    const d = Number(editing.draft.days) || 0;
+    const amt = Math.round(p * r * d / 365 * 100) / 100;
+    setEditing(e => ({ ...e, draft: { ...e.draft, intAmount: amt } }));
+  };
+
   return (
     <Modal open={!!loan} onClose={onClose} title={`📑 ${loan.contractNo} · ลำดับ ${loan.leasitLoanId}`} maxWidth={1400}>
+      {/* Inline edit popup */}
+      {editing && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: 'rgba(15, 23, 42, 0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center'
+        }} onClick={() => setEditing(null)}>
+          <div className="card" style={{
+            padding: 16, width: 480, maxWidth: '92vw',
+            background: '#fff', borderRadius: 12, boxShadow: '0 12px 40px rgba(0,0,0,0.18)'
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 12 }}>
+              ✏️ แก้ไขแถว # {editing.draft.seq} · {editing.section === 'pre' ? 'ดอกล่วงหน้า' : 'ดอกเกิดจริง'}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <label style={{ fontSize: 11 }}>เริ่ม
+                <input type="date" className="input" style={{ width: '100%' }}
+                  value={editing.draft.dateStart || ''}
+                  onChange={e => setEditing(s => ({ ...s, draft: { ...s.draft, dateStart: e.target.value } }))} />
+              </label>
+              <label style={{ fontSize: 11 }}>สิ้นสุด
+                <input type="date" className="input" style={{ width: '100%' }}
+                  value={editing.draft.dateEnd || ''}
+                  onChange={e => setEditing(s => ({ ...s, draft: { ...s.draft, dateEnd: e.target.value } }))} />
+              </label>
+              <label style={{ fontSize: 11 }}>เงินต้น
+                <input type="number" className="input" style={{ width: '100%', textAlign: 'right' }}
+                  value={editing.draft.principal || 0}
+                  onChange={e => setEditing(s => ({ ...s, draft: { ...s.draft, principal: e.target.value } }))} />
+              </label>
+              <label style={{ fontSize: 11 }}>อัตรา/ปี (เช่น 0.15)
+                <input type="number" step="0.0001" className="input" style={{ width: '100%', textAlign: 'right' }}
+                  value={editing.draft.intRate || 0}
+                  onChange={e => setEditing(s => ({ ...s, draft: { ...s.draft, intRate: e.target.value } }))} />
+              </label>
+              <label style={{ fontSize: 11 }}>จำนวนวัน
+                <input type="number" className="input" style={{ width: '100%', textAlign: 'right' }}
+                  value={editing.draft.days || 0}
+                  onChange={e => setEditing(s => ({ ...s, draft: { ...s.draft, days: e.target.value } }))} />
+              </label>
+              <label style={{ fontSize: 11 }}>ดอกเบี้ย
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <input type="number" step="0.01" className="input" style={{ flex: 1, textAlign: 'right' }}
+                    value={editing.draft.intAmount || 0}
+                    onChange={e => setEditing(s => ({ ...s, draft: { ...s.draft, intAmount: e.target.value } }))} />
+                  <button type="button" className="btn btn-ghost" style={{ padding: '2px 6px', fontSize: 11 }}
+                    title="คำนวณ = เงินต้น × อัตรา × วัน / 365" onClick={recalcInt}>↻</button>
+                </div>
+              </label>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
+              <button className="btn btn-ghost" onClick={() => setEditing(null)}>ยกเลิก</button>
+              <button className="btn btn-primary" onClick={saveEditRow}>💾 บันทึก</button>
+            </div>
+            <div style={{ marginTop: 8, fontSize: 11, color: 'var(--ink-500)' }}>
+              💡 กด ↻ เพื่อคำนวณดอกเบี้ยอัตโนมัติจากเงินต้น × อัตรา × วัน / 365
+            </div>
+          </div>
+        </div>
+      )}
       <div style={{ padding: '8px 4px', fontSize: 13 }}>
         {/* ★ NON (Term Loan) banner */}
         {ticketLabel === 'NON' && (
@@ -352,9 +445,10 @@ function LeasitLoanDrawer({ loan, prepaid, actual, refund, onClose, onExportOne,
                     <thead><tr>
                       <th style={thStyle}>#</th><th style={thStyle}>เริ่ม</th><th style={thStyle}>สิ้นสุด</th>
                       <th style={thR}>เงินต้น</th><th style={thR}>วัน</th><th style={thR}>ดอกเบี้ย</th>
+                      {canEdit && onSaveScheduleRow && <th style={{ ...thStyle, width: 24 }}></th>}
                     </tr></thead>
                     <tbody>
-                      {pre.map(p => (
+                      {pre.map((p, pi) => (
                         <tr key={p.seq} style={{ borderBottom: '1px solid var(--ink-100)' }}>
                           <td style={tdCell}>{p.seq}</td>
                           <td style={tdCell}>{LIT_fmtDate(p.dateStart)}</td>
@@ -362,12 +456,19 @@ function LeasitLoanDrawer({ loan, prepaid, actual, refund, onClose, onExportOne,
                           <td style={tdR} title="เงินต้นที่ใช้คำนวณดอกเบี้ยในงวดนี้">{LIT_fmt(p.principal, 0)}</td>
                           <td style={tdR}>{p.days}</td>
                           <td style={tdR}>{LIT_fmt(p.intAmount, 2)}</td>
+                          {canEdit && onSaveScheduleRow && (
+                            <td style={tdCell}>
+                              <button className="btn btn-ghost" style={{ padding: '0 4px', fontSize: 11 }}
+                                title="แก้ไขแถวนี้" onClick={() => openEditRow('pre', p, pi)}>✏️</button>
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
                     <tfoot><tr style={{ fontWeight: 700, background: 'var(--ink-50)' }}>
                       <td colSpan={5} style={{ ...tdCell, textAlign: 'right' }}>รวม</td>
                       <td style={tdR}>{LIT_fmt(pre.reduce((s, p) => s + (Number(p.intAmount) || 0), 0), 2)}</td>
+                      {canEdit && onSaveScheduleRow && <td></td>}
                     </tr></tfoot>
                   </table>
                 </div>
@@ -393,10 +494,11 @@ function LeasitLoanDrawer({ loan, prepaid, actual, refund, onClose, onExportOne,
                     <thead><tr>
                       <th style={thStyle}>#</th><th style={thStyle}>เริ่ม</th><th style={thStyle}>สิ้นสุด</th>
                       <th style={thR}>เงินต้น</th><th style={thR}>วัน</th><th style={thR}>ดอกเบี้ย</th>
+                      {canEdit && onSaveScheduleRow && <th style={{ ...thStyle, width: 24 }}></th>}
                     </tr></thead>
                     <tbody>
                       {act.length === 0 ? (
-                        <tr><td colSpan={6} style={{ ...tdCell, textAlign: 'center', padding: '12px 6px', color: 'var(--ink-500)' }}>
+                        <tr><td colSpan={canEdit && onSaveScheduleRow ? 7 : 6} style={{ ...tdCell, textAlign: 'center', padding: '12px 6px', color: 'var(--ink-500)' }}>
                           ยังไม่มีข้อมูลดอกเกิดจริง — กด ⚡ คำนวณ
                         </td></tr>
                       ) : act.map((p, i) => {
@@ -414,6 +516,12 @@ function LeasitLoanDrawer({ loan, prepaid, actual, refund, onClose, onExportOne,
                             </td>
                             <td style={tdR}>{p.days}</td>
                             <td style={tdR}>{LIT_fmt(p.intAmount, 2)}</td>
+                            {canEdit && onSaveScheduleRow && (
+                              <td style={tdCell}>
+                                <button className="btn btn-ghost" style={{ padding: '0 4px', fontSize: 11 }}
+                                  title="แก้ไขแถวนี้" onClick={() => openEditRow('act', p, i)}>✏️</button>
+                              </td>
+                            )}
                           </tr>
                         );
                       })}
@@ -421,6 +529,7 @@ function LeasitLoanDrawer({ loan, prepaid, actual, refund, onClose, onExportOne,
                     <tfoot><tr style={{ fontWeight: 700, background: 'var(--ink-50)' }}>
                       <td colSpan={5} style={{ ...tdCell, textAlign: 'right' }}>รวม</td>
                       <td style={tdR}>{LIT_fmt(act.reduce((s, p) => s + (Number(p.intAmount) || 0), 0), 2)}</td>
+                      {canEdit && onSaveScheduleRow && <td></td>}
                     </tr></tfoot>
                   </table>
                 </div>
@@ -619,7 +728,9 @@ function LeasitLoanForm({ open, mode, initial, data, onClose, onSave, onDelete, 
   const rate = Number(draft.interestRate) || 0;
   const totPre = preRows.reduce((s, r) => s + (Number(r.intAmount) || 0), 0);
   const totAct = actRows.reduce((s, r) => s + (Number(r.intAmount) || 0), 0);
-  const totRef = refRows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  // ★ "รวม" ใน refund tab = ดอกเบี้ยรับคืนเท่านั้น (ไม่บวกเงินต้น) ตรงตามที่จะใช้คำนวณ refundOutstanding
+  const totRef = refRows.reduce((s, r) => s + (r.kind === 'principal' ? 0 : (Number(r.amount) || 0)), 0);
+  const totPrincipalRepayInForm = refRows.reduce((s, r) => s + (r.kind === 'principal' ? (Number(r.amount) || 0) : 0), 0);
 
   // ── Schedule actions ──
   const generatePrepaid = () => {
@@ -953,8 +1064,8 @@ function LeasitLoanForm({ open, mode, initial, data, onClose, onSave, onDelete, 
             <div style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
               <button className="btn btn-ghost" onClick={() => addRefundRow('interest')}>+ รับคืนดอก (RV/โอน)</button>
               <button className="btn btn-ghost" onClick={() => addRefundRow('principal')}>+ จ่ายคืนเงินต้น</button>
-              <span style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 600 }}>
-                รวม: {LIT_fmt(totRef, 2)}
+              <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 600, color: 'var(--ink-600)' }}>
+                🧾 ดอกรับคืน: {LIT_fmt(totRef, 2)} · 💰 เงินต้นจ่ายคืน: {LIT_fmt(totPrincipalRepayInForm, 2)}
               </span>
             </div>
             <div style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid var(--ink-200)', borderRadius: 8 }}>
@@ -1707,6 +1818,42 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
     if (toast) toast(`คำนวณดอกเกิดจริง ${rows.length} งวด · รวม ${total.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'success');
   };
 
+  // ── handleSaveScheduleRow — แก้ไขแถวเดียวใน prepaid/actual จาก drawer ──
+  const handleSaveScheduleRow = (loanRow, kind, newRow) => {
+    const loanId = loanRow.leasitLoanId;
+    const entityKey = kind === 'prepaid' ? 'interestSchedulePrepaid' : 'interestScheduleActual';
+    const totalsField = kind === 'prepaid' ? 'leasitTotalPrepaid' : 'leasitTotalActual';
+    let updated;
+    setData(d => {
+      const list = (d[entityKey] || []).slice();
+      const idx = list.findIndex(r => r.loanId === loanId && r.seq === newRow.seq);
+      if (idx >= 0) {
+        list[idx] = { ...list[idx], ...newRow, loanId: loanId };
+      } else {
+        list.push({ id: litRowId(loanId, kind === 'prepaid' ? 'pre' : 'act', newRow.seq), loanId: loanId, ...newRow });
+      }
+      // recompute totals
+      const total = list.filter(r => r.loanId === loanId).reduce((s, r) => s + (Number(r.intAmount) || 0), 0);
+      const dm = (d.debtMaster || []).map(r => {
+        if (r.leasitLoanId !== loanId) return r;
+        const next = { ...r, [totalsField]: total };
+        // ★ refresh variance + outstanding
+        const pre = kind === 'prepaid' ? total : (Number(r.leasitTotalPrepaid) || 0);
+        const act = kind === 'actual' ? total : (Number(r.leasitTotalActual) || 0);
+        const refunded = Number(r.leasitRefunded) || 0;
+        next.leasitVariance = pre - act;
+        next.leasitRefundOutstanding = pre - act - refunded;
+        return next;
+      });
+      updated = { ...d, [entityKey]: list, debtMaster: dm };
+      return updated;
+    });
+    if (updated && window.WTPData && window.WTPData.forceSyncNow) {
+      setTimeout(() => window.WTPData.forceSyncNow(updated), 0);
+    }
+    if (toast) toast(`บันทึกแถว #${newRow.seq} (${kind === 'prepaid' ? 'ดอกล่วงหน้า' : 'ดอกเกิดจริง'}) สำเร็จ`, 'success');
+  };
+
   const handleDeleteForm = (draft) => {
     const loanId = draft.leasitLoanId;
     const rowId = 'lit_' + loanId;
@@ -2183,6 +2330,7 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
         canEdit={canEdit}
         onCalcPrepaid={handleCalcPrepaid}
         onCalcActual={handleCalcActual}
+        onSaveScheduleRow={canEdit ? handleSaveScheduleRow : null}
       />
       <LeasitLoanForm
         open={!!formState}

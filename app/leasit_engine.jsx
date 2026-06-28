@@ -260,6 +260,7 @@ function parseLeasitWorkbook(wb) {
   //     col 17 (R) วันที่จ่ายงวด 1 · col 18 (S) เลขที่เอกสารงวด 1
   //     col 19 (T) วันที่จ่ายงวด 2 · col 20 (U) เลขที่เอกสารงวด 2
   var summaryTicket = {};      // {loanId: 'PRE'|'POS'|'NON'}
+  var summaryJob = {};         // {loanId: 'ENC156' | 'PP055' …} — JOB code (col C)
   var summaryRepayDocs = {};   // {loanId: [{date:ISO, doc:'RV…'}, …]}
   if (wb.SheetNames.indexOf('สรุปรวม') >= 0) {
     var sws = wb.Sheets['สรุปรวม'];
@@ -271,6 +272,12 @@ function parseLeasitWorkbook(wb) {
       var stype = litTrim(srow[4]).toUpperCase();
       if (stype === 'PRE' || stype === 'POS' || stype === 'NON') {
         summaryTicket[slid] = stype;
+      }
+      // ★ col C (index 2) = JOB NO — รหัสโครงการ (PP055/ENC155/TTI063/…)
+      //    ใช้เฉพาะที่ "ดูเหมือนรหัส" (3-6 ตัวอักษร+ตัวเลข) — ไม่ใช่ชื่อบ้าน
+      var sjob = litTrim(srow[2]);
+      if (sjob && /^[A-Z]{2,5}\d{2,4}$/i.test(sjob)) {
+        summaryJob[slid] = sjob.toUpperCase();
       }
       // ดึงวันที่จ่ายงวด 1/2 + refDocs + ★ ยอดจริง (col 22/23)
       var docs = [];
@@ -338,20 +345,29 @@ function parseLeasitWorkbook(wb) {
       }
       var refunds = litReadRefundRows(aoa, refundStart);
 
-      // 2e) project_id link (จาก registry / jobNo)
+      // 2e) project_id link — ลำดับความสำคัญ: สรุปรวม col C (authoritative) > registry > regex projectName
+      //     ★ summaryJob เป็น code (ENC155/PP055) ที่ผู้ใช้กรอกเองในชีต สรุปรวม
       var reg = registry[loanId] || {};
-      var jobNo = reg.jobNo || '';
-      // jobNo อาจอยู่ใน projectName field (เช่น "PP054 ...") — ลองดึง
+      var jobNo = summaryJob[loanId] || '';
+      if (!jobNo && reg.jobNo && /^[A-Z]{2,5}\d{2,4}$/i.test(reg.jobNo)) {
+        jobNo = reg.jobNo.toUpperCase();
+      }
+      // fallback: ลองดึง code จาก projectName (เช่น "PP054 …")
       if (!jobNo) {
-        var jm = projectName.match(/^([A-Z]{2,5}\d{2,4})/);
-        if (jm) jobNo = jm[1];
+        var jm = projectName.match(/^([A-Z]{2,5}\d{2,4})/i);
+        if (jm) jobNo = jm[1].toUpperCase();
       }
 
-      // 2f) คำนวณ totals
+      // 2f) คำนวณ totals — ★ refund เฉพาะ "ดอกเบี้ย" (kind!=='principal')
+      //     เงินต้นจ่ายคืน track แยก (ไม่นับเป็น refund ดอก)
       var totPre = 0; for (var ip = 0; ip < rpre.rows.length; ip++) totPre += rpre.rows[ip].intAmount;
       var totAct = 0; for (var ia = 0; ia < racta.rows.length; ia++) totAct += racta.rows[ia].intAmount;
       var variance = totPre - totAct;
-      var totRef = 0; for (var ire = 0; ire < refunds.length; ire++) totRef += refunds[ire].amount;
+      var totRef = 0;
+      for (var ire = 0; ire < refunds.length; ire++) {
+        if (refunds[ire].kind === 'principal') continue;  // ★ ข้ามเงินต้น
+        totRef += refunds[ire].amount;
+      }
       var refundOutstanding = variance - totRef;
 
       // 2g) สถานะ — ปิดหนี้ถ้ามีวันคืนเงิน
@@ -498,15 +514,20 @@ function parseLeasitWorkbook(wb) {
 
 /* ── compute totals (recompute หลัง edit) ─────────────────────────────── */
 function litComputeTotals(loanId, prepaid, actual, refund) {
-  var totPre = 0, totAct = 0, totRef = 0;
+  var totPre = 0, totAct = 0, totRef = 0, totPrincipalRepaid = 0;
   for (var i = 0; i < prepaid.length; i++) if (prepaid[i].loanId === loanId) totPre += litNum(prepaid[i].intAmount);
   for (var j = 0; j < actual.length; j++) if (actual[j].loanId === loanId) totAct += litNum(actual[j].intAmount);
-  for (var k = 0; k < refund.length; k++) if (refund[k].loanId === loanId) totRef += litNum(refund[k].amount);
+  for (var k = 0; k < refund.length; k++) {
+    if (refund[k].loanId !== loanId) continue;
+    if (refund[k].kind === 'principal') totPrincipalRepaid += litNum(refund[k].amount);
+    else totRef += litNum(refund[k].amount);
+  }
   return {
     totalPrepaidInterest: totPre,
     totalActualInterest: totAct,
     variance: totPre - totAct,
-    totalRefunded: totRef,
+    totalRefunded: totRef,                          // ★ interest only
+    totalPrincipalRepaid: totPrincipalRepaid,       // ★ track แยก
     refundOutstanding: totPre - totAct - totRef
   };
 }
