@@ -272,10 +272,12 @@ function parseLeasitWorkbook(wb) {
       if (stype === 'PRE' || stype === 'POS' || stype === 'NON') {
         summaryTicket[slid] = stype;
       }
-      // ดึงวันที่จ่ายงวด 1/2 + refDocs
+      // ดึงวันที่จ่ายงวด 1/2 + refDocs + ★ ยอดจริง (col 22/23)
       var docs = [];
-      var d1 = litToISO(srow[17]); if (d1) docs.push({ date: d1, doc: litTrim(srow[18]) });
-      var d2 = litToISO(srow[19]); if (d2) docs.push({ date: d2, doc: litTrim(srow[20]) });
+      var d1 = litToISO(srow[17]);
+      if (d1) docs.push({ date: d1, doc: litTrim(srow[18]), amount: litNum(srow[22]) });
+      var d2 = litToISO(srow[19]);
+      if (d2) docs.push({ date: d2, doc: litTrim(srow[20]), amount: litNum(srow[23]) });
       if (docs.length) summaryRepayDocs[slid] = docs;
     }
   }
@@ -423,26 +425,54 @@ function parseLeasitWorkbook(wb) {
           if (sdocs[ei].date) principalEvents[ei].refundDate = sdocs[ei].date;
         }
       }
+      // ★ LAST RESORT: ถ้าปิดสัญญาแล้ว แต่ summary ไม่มีวันจ่ายงวด 1/2 (loan งวดเดียว) →
+      //    สร้าง refund ที่ dateRepaid + amount = principal เต็ม
+      if (principalEvents.length === 0 && status === 'Close' && dateRepaid &&
+          !(summaryRepayDocs[loanId] && summaryRepayDocs[loanId].length > 0)) {
+        principalEvents.push({
+          refundDate: dateRepaid,
+          amount: principal,
+          kind: 'principal', refundType: 'Transfer',
+          note: 'จากวันคืนเงิน (ปิดงวดเดียว)',
+          refDoc: '',
+          loanId: loanId
+        });
+      }
       // ★ FALLBACK: ถ้า actual block ไม่มี principalPaid > 0 (เช่น loan 49 ที่ detail
       //    sheet ว่าง) แต่ summary มีวันที่จ่าย → สร้าง refund entries จาก summary
-      //    แบ่งเงินต้นเท่ากัน (user แก้ยอดทีหลังได้ตามจริง)
+      //    ใช้ยอดจริงจาก col 22/23 (จ่ายงวด 1/2) ถ้ามี · ถ้าไม่มี = แบ่งเท่ากัน
       if (principalEvents.length === 0 && summaryRepayDocs[loanId] &&
           summaryRepayDocs[loanId].length > 0 && status === 'Close') {
         var sd = summaryRepayDocs[loanId];
-        var perPayment = principal / sd.length;
+        // ถ้ามียอดจริงครบทุกงวด → ใช้ตามจริง, ไม่งั้น fallback แบ่งเท่ากัน
+        var hasAllAmounts = sd.every(function (x) { return Number(x.amount) > 0; });
+        var fallbackPer = principal / sd.length;
         for (var sdi = 0; sdi < sd.length; sdi++) {
+          var amt = hasAllAmounts ? Number(sd[sdi].amount) : fallbackPer;
           principalEvents.push({
-            refundDate: sd[sdi].date, amount: perPayment,
+            refundDate: sd[sdi].date,
+            amount: amt,
             kind: 'principal', refundType: 'Transfer',
-            note: 'จากสรุปรวม (แบ่งเงินต้นเท่ากัน · ตรวจยอดจริงในตารางคำนวณ)',
+            note: hasAllAmounts ? 'จากสรุปรวม (ยอดจริงจากตาราง)' : 'จากสรุปรวม (แบ่งเงินต้นเท่ากัน · ตรวจยอดจริง)',
             refDoc: sd[sdi].doc || '',
             loanId: loanId
           });
         }
       }
+      // ★ คำนวณยอดเงินต้นที่จ่ายคืนรวม + ปรับ status ถ้า partial repayment
+      var totalPrincipalRepaid = 0;
       for (var pe = 0; pe < principalEvents.length; pe++) {
+        totalPrincipalRepaid += Number(principalEvents[pe].amount) || 0;
         refund.push(principalEvents[pe]);
       }
+      // ปรับ status: ถ้า partial (paid < principal) → Active ไม่ใช่ Close
+      if (totalPrincipalRepaid > 0 && totalPrincipalRepaid < principal - 1) {
+        status = 'Active';
+        loans[loans.length - 1].status = 'Active';
+        loans[loans.length - 1].dateRepaid = '';
+      }
+      // ส่ง principalRepaid ไปกับ loan object สำหรับ litLoanToDebtRow
+      loans[loans.length - 1].principalRepaid = totalPrincipalRepaid;
       for (var rj = 0; rj < refunds.length; rj++) {
         refunds[rj].loanId = loanId;
         refund.push(refunds[rj]);
@@ -483,7 +513,7 @@ function litLoanToDebtRow(loan, existingId) {
     loanType: loan.loanType,        // 'PRE' / 'NON'
     principalAmount: loan.principal,
     interestRate: loan.interestRate,
-    balance: loan.status === 'Active' ? loan.principal : 0,
+    balance: loan.status === 'Active' ? (loan.principal - (loan.principalRepaid || 0)) : 0,
     currency: 'THB',
     projectCode: loan.jobNo,
     projectName: loan.projectName,
@@ -503,6 +533,7 @@ function litLoanToDebtRow(loan, existingId) {
     leasitVariance: loan.variance,
     leasitRefunded: loan.totalRefunded,
     leasitRefundOutstanding: loan.refundOutstanding,
+    leasitPrincipalRepaid: loan.principalRepaid || 0,
     // วันครบกำหนดสำหรับ maturity alert ในหน้า #debt_ledger
     maturityDate: loan.dateDueRoll || loan.dateDue || ''
   };
