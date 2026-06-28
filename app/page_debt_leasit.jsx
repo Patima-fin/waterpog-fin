@@ -1425,6 +1425,7 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
   const handleBulkCalcActual = ({ endDate, mode, loans: loansToCalc }) => {
     const E = window.LeasitEngine;
     if (!E || !E.litGenerateMonthlySchedule) return;
+    const allRefunds = data?.interestRefund || [];
     let updated;
     let okCount = 0;
     setData(d => {
@@ -1436,13 +1437,22 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
         const principal = Number(r.principalAmount) || 0;
         const rate = Number(r.interestRate) || 0;
         const startISO = r.leasitDateReceived || '';
-        // ถ้ามี dateRepaid → ใช้วันคืน (ไม่ override)
-        // ไม่งั้นใช้ endDate ที่ user เลือก / หรือ dateDue (mode='dueDate')
-        const closedEnd = r.leasitDateRepaid || '';
+        // ★ ดึง principal repayments — ใช้คำนวณ declining + หา endDate
+        const reps = allRefunds
+          .filter(x => x.loanId === L.leasitLoanId && x.kind === 'principal' && x.refundDate)
+          .map(x => ({ date: x.refundDate, amount: Number(x.amount) || 0 }))
+          .sort((a, b) => a.date.localeCompare(b.date));
+        const latestRepay = reps.length ? reps[reps.length - 1].date : '';
+        // endDate: ถ้ามี dateRepaid + latestRepay → ใช้ max ของทั้งสอง
+        //          ถ้าไม่มี → ใช้ตามที่ user เลือก
+        const closedEnd = r.leasitDateRepaid && r.leasitDateRepaid > latestRepay
+          ? r.leasitDateRepaid : latestRepay;
         const userEnd = mode === 'dueDate' ? (r.leasitDateDue || '') : (endDate || '');
         const finalEnd = closedEnd || userEnd;
         if (!principal || !rate || !startISO || !finalEnd) return;
-        const rows = E.litGenerateMonthlySchedule(principal, rate, startISO, finalEnd);
+        const rows = reps.length && E.litGenerateActualDeclining
+          ? E.litGenerateActualDeclining(principal, rate, startISO, finalEnd, reps)
+          : E.litGenerateMonthlySchedule(principal, rate, startISO, finalEnd);
         if (!rows.length) return;
         const total = rows.reduce((s, x) => s + (Number(x.intAmount) || 0), 0);
         const lid = L.leasitLoanId;
@@ -1642,18 +1652,31 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
     const rate = Number(loanRow.interestRate) || 0;
     const startISO = loanRow.leasitDateReceived || '';
     const todayISO = new Date().toISOString().slice(0, 10);
-    const endISO = loanRow.leasitDateRepaid || todayISO;
+    const loanId = loanRow.leasitLoanId;
+    // ★ ดึง principal repayments จาก data → คำนวณ declining
+    const reps = (data?.interestRefund || [])
+      .filter(r => r.loanId === loanId && r.kind === 'principal' && r.refundDate)
+      .map(r => ({ date: r.refundDate, amount: Number(r.amount) || 0 }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    // ถ้ามี repayments → endISO = วันสุดท้ายของ repayment + วันคืนเงินที่ผู้ใช้กรอก
+    //                 ถ้าไม่มี repayments → ใช้ dateRepaid หรือ today
+    const latestRepay = reps.length ? reps[reps.length - 1].date : '';
+    const endISO = (loanRow.leasitDateRepaid && loanRow.leasitDateRepaid > latestRepay)
+      ? loanRow.leasitDateRepaid : (latestRepay || todayISO);
     if (!principal || !rate || !startISO) {
       if (toast) toast('กรอก เงินต้น/อัตรา/วันรับ ใน "แก้ไข" ก่อน', 'error');
       return;
     }
-    const rows = E.litGenerateMonthlySchedule(principal, rate, startISO, endISO);
-    const loanId = loanRow.leasitLoanId;
+    // ★ ใช้ declining ถ้ามี repayments — ไม่งั้น flat
+    const rows = reps.length && E.litGenerateActualDeclining
+      ? E.litGenerateActualDeclining(principal, rate, startISO, endISO, reps)
+      : E.litGenerateMonthlySchedule(principal, rate, startISO, endISO);
     const total = rows.reduce((s, r) => s + (Number(r.intAmount) || 0), 0);
+    const loanIdCalc = loanId;  // alias
     let updated;
     setData(d => {
-      const keep = (d.interestScheduleActual || []).filter(r => r.loanId !== loanId);
-      const fresh = rows.map((p, i) => ({ id: litRowId(loanId, 'act', p.seq || i + 1), loanId, ...p }));
+      const keep = (d.interestScheduleActual || []).filter(r => r.loanId !== loanIdCalc);
+      const fresh = rows.map((p, i) => ({ id: litRowId(loanIdCalc, 'act', p.seq || i + 1), loanId: loanIdCalc, ...p }));
       const dm = (d.debtMaster || []).map(r => r.leasitLoanId === loanId ? {
         ...r,
         leasitTotalActual: total,

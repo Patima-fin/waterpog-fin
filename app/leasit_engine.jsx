@@ -461,8 +461,10 @@ function parseLeasitWorkbook(wb) {
       }
       // ★ คำนวณยอดเงินต้นที่จ่ายคืนรวม + ปรับ status ถ้า partial repayment
       var totalPrincipalRepaid = 0;
+      var maxRepayDate = '';
       for (var pe = 0; pe < principalEvents.length; pe++) {
         totalPrincipalRepaid += Number(principalEvents[pe].amount) || 0;
+        if (principalEvents[pe].refundDate > maxRepayDate) maxRepayDate = principalEvents[pe].refundDate;
         refund.push(principalEvents[pe]);
       }
       // ปรับ status: ถ้า partial (paid < principal) → Active ไม่ใช่ Close
@@ -470,6 +472,9 @@ function parseLeasitWorkbook(wb) {
         status = 'Active';
         loans[loans.length - 1].status = 'Active';
         loans[loans.length - 1].dateRepaid = '';
+      } else if (totalPrincipalRepaid >= principal - 1 && maxRepayDate) {
+        // ★ ปิดสัญญา → dateRepaid = วันสุดท้ายที่จ่ายครบ (ไม่ใช่วันแรก)
+        loans[loans.length - 1].dateRepaid = maxRepayDate;
       }
       // ส่ง principalRepaid ไปกับ loan object สำหรับ litLoanToDebtRow
       loans[loans.length - 1].principalRepaid = totalPrincipalRepaid;
@@ -1002,6 +1007,63 @@ function litGenerateActualFromClose(principal, rate, startISO, repaidISO) {
   return litGenerateMonthlySchedule(principal, rate, startISO, repaidISO);
 }
 
+// ★ Declining principal — คำนวณ Actual โดยลด principal ทุกครั้งที่จ่ายคืน
+//   repayments = [{date:ISO, amount:n}, ...] · จะ sort ภายใน
+//   ผลลัพธ์: schedule ราย segment ที่มี principal ลดลงตามจริง + principalPaid + outstanding ต่อแถว
+function litGenerateActualDeclining(principal, rate, startISO, endISO, repayments) {
+  if (!startISO || !endISO || !principal || !rate) return [];
+  function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+  function addDays(iso, n) {
+    var p = String(iso).slice(0, 10).split('-');
+    var dt = new Date(+p[0], +p[1] - 1, +p[2] + n);
+    return dt.getFullYear() + '-' + pad2(dt.getMonth() + 1) + '-' + pad2(dt.getDate());
+  }
+  // ไม่มี repayments → fallback monthly schedule ปกติ
+  var reps = (repayments || [])
+    .filter(function (r) { return r && r.date && Number(r.amount) > 0; })
+    .map(function (r) { return { date: String(r.date).slice(0, 10), amount: Number(r.amount) || 0 }; })
+    .sort(function (a, b) { return a.date.localeCompare(b.date); });
+  if (!reps.length) return litGenerateMonthlySchedule(principal, rate, startISO, endISO);
+
+  var allSegs = [];
+  var currentStart = startISO.slice(0, 10);
+  var currentPrincipal = principal;
+  for (var i = 0; i < reps.length; i++) {
+    var rep = reps[i];
+    if (rep.date <= currentStart) continue;
+    if (rep.date > endISO) break;
+    // สร้าง schedule ตั้งแต่ currentStart → rep.date ด้วย currentPrincipal
+    var segRows = litGenerateMonthlySchedule(currentPrincipal, rate, currentStart, rep.date);
+    // แท็ก outstanding ต่อแถว
+    for (var sj = 0; sj < segRows.length; sj++) {
+      segRows[sj].principal = currentPrincipal;
+      segRows[sj].outstanding = currentPrincipal;
+      segRows[sj].principalPaid = 0;
+    }
+    if (segRows.length) {
+      // แถวสุดท้ายของ segment = จุดจ่ายเงินต้น
+      segRows[segRows.length - 1].principalPaid = rep.amount;
+      segRows[segRows.length - 1].outstanding = Math.max(0, currentPrincipal - rep.amount);
+    }
+    allSegs = allSegs.concat(segRows);
+    currentPrincipal = Math.max(0, currentPrincipal - rep.amount);
+    currentStart = addDays(rep.date, 1);
+  }
+  // segment สุดท้ายถ้า principal > 0 + ยังไม่ถึง endISO
+  if (currentPrincipal > 0.01 && currentStart < endISO) {
+    var finalSegs = litGenerateMonthlySchedule(currentPrincipal, rate, currentStart, endISO);
+    for (var fj = 0; fj < finalSegs.length; fj++) {
+      finalSegs[fj].principal = currentPrincipal;
+      finalSegs[fj].outstanding = currentPrincipal;
+      finalSegs[fj].principalPaid = 0;
+    }
+    allSegs = allSegs.concat(finalSegs);
+  }
+  // re-number seq
+  for (var k = 0; k < allSegs.length; k++) allSegs[k].seq = k + 1;
+  return allSegs;
+}
+
 // expose
 window.LeasitEngine = {
   parseLeasitWorkbook: parseLeasitWorkbook,
@@ -1013,6 +1075,7 @@ window.LeasitEngine = {
   litDaysBetween: litDaysBetween,
   litGenerateMonthlySchedule: litGenerateMonthlySchedule,
   litGenerateActualFromClose: litGenerateActualFromClose,
+  litGenerateActualDeclining: litGenerateActualDeclining,
   litCalcTermDays: litCalcTermDays,
   litNextLoanId: litNextLoanId,
   litBlankLoanDraft: litBlankLoanDraft,
