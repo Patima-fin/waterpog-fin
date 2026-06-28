@@ -1076,41 +1076,33 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
   const handleImport = (parsed) => {
     if (!parsed || !parsed.loans.length) return;
     const litLoanIds = new Set(parsed.loans.map(L => L.loanId));
+    let updated;
     setData(d => {
       // 1) debtMaster — keep non-leasit + replace leasit rows that overlap
       const existing = d.debtMaster || [];
       const keepDm = existing.filter(r => !r.leasitSource || !litLoanIds.has(r.leasitLoanId));
       const newDm = parsed.loans.map(L => window.LeasitEngine.litLoanToDebtRow(L));
-      // map id ของแถวเดิม (กัน id ใหม่ทับ — แต่เราใช้ deterministic 'lit_<n>' อยู่แล้ว → ทับเป็นเรื่องดี)
       const nextDm = keepDm.concat(newDm);
 
-      // 2) child tables — replace rows for imported loanIds
       const keepPre = (d.interestSchedulePrepaid || []).filter(r => !litLoanIds.has(r.loanId));
-      const newPre = parsed.prepaid.map((p, i) => ({
-        id: litRowId(p.loanId, 'pre', p.seq || i + 1),
-        ...p
-      }));
+      const newPre = parsed.prepaid.map((p, i) => ({ id: litRowId(p.loanId, 'pre', p.seq || i + 1), ...p }));
       const keepAct = (d.interestScheduleActual || []).filter(r => !litLoanIds.has(r.loanId));
-      const newAct = parsed.actual.map((p, i) => ({
-        id: litRowId(p.loanId, 'act', p.seq || i + 1),
-        ...p
-      }));
+      const newAct = parsed.actual.map((p, i) => ({ id: litRowId(p.loanId, 'act', p.seq || i + 1), ...p }));
       const keepRef = (d.interestRefund || []).filter(r => !litLoanIds.has(r.loanId));
-      const newRef = parsed.refund.map((p, i) => ({
-        id: litRowId(p.loanId, 'ref', i + 1),
-        ...p
-      }));
+      const newRef = parsed.refund.map((p, i) => ({ id: litRowId(p.loanId, 'ref', i + 1), ...p }));
 
-      return {
+      updated = {
         ...d,
         debtMaster: nextDm,
         interestSchedulePrepaid: keepPre.concat(newPre),
         interestScheduleActual: keepAct.concat(newAct),
         interestRefund: keepRef.concat(newRef)
       };
+      return updated;
     });
-    if (window.WTPData && window.WTPData.forceSyncNow) {
-      setTimeout(() => window.WTPData.forceSyncNow(), 200);
+    // ★ ต้องส่ง updated เข้า forceSyncNow ไม่งั้นใช้ cachedData เก่า → push delete แถวที่เพิ่งสร้าง
+    if (updated && window.WTPData && window.WTPData.forceSyncNow) {
+      setTimeout(() => window.WTPData.forceSyncNow(updated), 0);
     }
     setShowImport(false);
     if (toast) toast(`นำเข้าสำเร็จ · ${parsed.loans.length} สัญญา`, 'success');
@@ -1195,7 +1187,7 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
     totals.variance = totals.totalPrepaidInterest - totals.totalActualInterest;
     totals.refundOutstanding = totals.variance - totals.totalRefunded;
     const principalRepaid = refRowsArr.filter(r => r.kind === 'principal').reduce((s, r) => s + (Number(r.amount) || 0), 0);
-
+    let updated;
     setData(d => {
       const existing = d.debtMaster || [];
       // build/update row
@@ -1259,22 +1251,23 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
         ...p
       }));
 
-      return {
+      updated = {
         ...d,
         debtMaster: nextDm,
         interestSchedulePrepaid: keepPre.concat(newPre),
         interestScheduleActual: keepAct.concat(newAct),
         interestRefund: keepRef.concat(newRef)
       };
+      return updated;
     });
-    if (window.WTPData && window.WTPData.forceSyncNow) {
-      setTimeout(() => window.WTPData.forceSyncNow(), 200);
+    // ★ ส่ง updated เข้า forceSyncNow (กัน race vs cachedData เก่า)
+    if (updated && window.WTPData && window.WTPData.forceSyncNow) {
+      setTimeout(() => window.WTPData.forceSyncNow(updated), 0);
     }
     setFormState(null);
     if (toast) toast(`บันทึก ${draft.contractNo} สำเร็จ`, 'success');
   };
 
-  // ── Delete loan + child rows ──
   // ── คำนวณดอกล่วงหน้าอัตโนมัติ (inline จาก drawer) ──
   const handleCalcPrepaid = (loanRow) => {
     const E = window.LeasitEngine;
@@ -1290,24 +1283,26 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
     const rows = E.litGenerateMonthlySchedule(principal, rate, startISO, endISO);
     const loanId = loanRow.leasitLoanId;
     const total = rows.reduce((s, r) => s + (Number(r.intAmount) || 0), 0);
+    let updated;
     setData(d => {
       const keep = (d.interestSchedulePrepaid || []).filter(r => r.loanId !== loanId);
       const fresh = rows.map((p, i) => ({ id: litRowId(loanId, 'pre', p.seq || i + 1), loanId, ...p }));
-      // update master totals + variance + outstanding
       const dm = (d.debtMaster || []).map(r => r.leasitLoanId === loanId ? {
         ...r,
         leasitTotalPrepaid: total,
         leasitVariance: total - (Number(r.leasitTotalActual) || 0),
         leasitRefundOutstanding: total - (Number(r.leasitTotalActual) || 0) - (Number(r.leasitRefunded) || 0)
       } : r);
-      return { ...d, interestSchedulePrepaid: keep.concat(fresh), debtMaster: dm };
+      updated = { ...d, interestSchedulePrepaid: keep.concat(fresh), debtMaster: dm };
+      return updated;
     });
-    if (window.WTPData && window.WTPData.forceSyncNow) setTimeout(() => window.WTPData.forceSyncNow(), 200);
+    if (updated && window.WTPData && window.WTPData.forceSyncNow) {
+      setTimeout(() => window.WTPData.forceSyncNow(updated), 0);
+    }
     if (toast) toast(`คำนวณดอกล่วงหน้า ${rows.length} งวด · รวม ${total.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'success');
   };
 
   // ── คำนวณดอกเกิดจริงอัตโนมัติ (inline จาก drawer) ──
-  //   ถ้าปิดสัญญาแล้ว = วันรับ → วันคืน · ถ้ายัง Active = วันรับ → วันนี้
   const handleCalcActual = (loanRow) => {
     const E = window.LeasitEngine;
     if (!E || !E.litGenerateMonthlySchedule) return;
@@ -1323,6 +1318,7 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
     const rows = E.litGenerateMonthlySchedule(principal, rate, startISO, endISO);
     const loanId = loanRow.leasitLoanId;
     const total = rows.reduce((s, r) => s + (Number(r.intAmount) || 0), 0);
+    let updated;
     setData(d => {
       const keep = (d.interestScheduleActual || []).filter(r => r.loanId !== loanId);
       const fresh = rows.map((p, i) => ({ id: litRowId(loanId, 'act', p.seq || i + 1), loanId, ...p }));
@@ -1332,24 +1328,31 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
         leasitVariance: (Number(r.leasitTotalPrepaid) || 0) - total,
         leasitRefundOutstanding: (Number(r.leasitTotalPrepaid) || 0) - total - (Number(r.leasitRefunded) || 0)
       } : r);
-      return { ...d, interestScheduleActual: keep.concat(fresh), debtMaster: dm };
+      updated = { ...d, interestScheduleActual: keep.concat(fresh), debtMaster: dm };
+      return updated;
     });
-    if (window.WTPData && window.WTPData.forceSyncNow) setTimeout(() => window.WTPData.forceSyncNow(), 200);
+    if (updated && window.WTPData && window.WTPData.forceSyncNow) {
+      setTimeout(() => window.WTPData.forceSyncNow(updated), 0);
+    }
     if (toast) toast(`คำนวณดอกเกิดจริง ${rows.length} งวด · รวม ${total.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'success');
   };
 
   const handleDeleteForm = (draft) => {
     const loanId = draft.leasitLoanId;
     const rowId = 'lit_' + loanId;
-    setData(d => ({
-      ...d,
-      debtMaster: (d.debtMaster || []).filter(r => r.id !== rowId),
-      interestSchedulePrepaid: (d.interestSchedulePrepaid || []).filter(r => r.loanId !== loanId),
-      interestScheduleActual: (d.interestScheduleActual || []).filter(r => r.loanId !== loanId),
-      interestRefund: (d.interestRefund || []).filter(r => r.loanId !== loanId)
-    }));
-    if (window.WTPData && window.WTPData.forceSyncNow) {
-      setTimeout(() => window.WTPData.forceSyncNow(), 200);
+    let updated;
+    setData(d => {
+      updated = {
+        ...d,
+        debtMaster: (d.debtMaster || []).filter(r => r.id !== rowId),
+        interestSchedulePrepaid: (d.interestSchedulePrepaid || []).filter(r => r.loanId !== loanId),
+        interestScheduleActual: (d.interestScheduleActual || []).filter(r => r.loanId !== loanId),
+        interestRefund: (d.interestRefund || []).filter(r => r.loanId !== loanId)
+      };
+      return updated;
+    });
+    if (updated && window.WTPData && window.WTPData.forceSyncNow) {
+      setTimeout(() => window.WTPData.forceSyncNow(updated), 0);
     }
     setFormState(null);
     setViewLoan(null);
