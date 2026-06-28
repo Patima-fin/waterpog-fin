@@ -189,6 +189,21 @@ function LeasitLoanDrawer({ loan, prepaid, actual, refund, onClose, onExportOne,
   return (
     <Modal open={!!loan} onClose={onClose} title={`📑 ${loan.contractNo} · ลำดับ ${loan.leasitLoanId}`} maxWidth={1400}>
       <div style={{ padding: '8px 4px', fontSize: 13 }}>
+        {/* ★ NON (Term Loan) banner */}
+        {ticketLabel === 'NON' && (
+          <div className="card" style={{
+            padding: 10, marginBottom: 10,
+            background: 'oklch(96% 0.04 305)',
+            borderLeft: '4px solid oklch(48% 0.14 305)',
+            fontSize: 12
+          }}>
+            📌 <b>เงินกู้ระยะยาว (Term Loan)</b> — ไม่มีจ่ายล่วงหน้า/รับคืนแบบ Pre-financing
+            <div style={{ marginTop: 4, color: 'var(--ink-700)' }}>
+              ทยอยขึ้นเช็ครายเดือนตามตาราง amortization · ดอกเบี้ยคำนวณจาก outstanding principal ที่ลดลงเรื่อยๆ · "ดอกล่วงหน้า" = schedule ที่ยังไม่ขึ้นเช็ค, "ดอกเกิดจริง" = ที่ขึ้นเช็คแล้ว
+            </div>
+          </div>
+        )}
+
         {/* Maturity warning banner */}
         {(maturityNear || maturityOverdue) && (
           <div className="card" style={{

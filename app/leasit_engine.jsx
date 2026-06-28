@@ -395,10 +395,14 @@ function parseLeasitWorkbook(wb) {
       }
       // ★ เก็บ principal repayment events จาก actual rows ที่ principalPaid > 0
       //   declining principal → จาก actual block ของ source Excel (loan 49 = 2,461,003.95 + 233,996.05)
+      // ★ NON (Term Loan) → ข้าม! เพราะเป็น amortization rayalเดือน ทุกแถวมี principalPaid ตาม schedule
+      //   ไม่ใช่ "partial payment" แบบ Pre/Post-financing — เก็บไว้จะกลายเป็น refund มหาศาล
       var principalEvents = [];
+      var isTermLoan = resolvedTicket === 'NON';
       for (var aj = 0; aj < racta.rows.length; aj++) {
         racta.rows[aj].loanId = loanId;
         actual.push(racta.rows[aj]);
+        if (isTermLoan) continue;  // ★ NON: ข้าม emit refund
         var pp = Number(racta.rows[aj].principalPaid) || 0;
         if (pp > 0.01) {
           principalEvents.push({
@@ -427,7 +431,8 @@ function parseLeasitWorkbook(wb) {
       }
       // ★ LAST RESORT: ถ้าปิดสัญญาแล้ว แต่ summary ไม่มีวันจ่ายงวด 1/2 (loan งวดเดียว) →
       //    สร้าง refund ที่ dateRepaid + amount = principal เต็ม
-      if (principalEvents.length === 0 && status === 'Close' && dateRepaid &&
+      //    ★ ข้าม NON (Term Loan)
+      if (!isTermLoan && principalEvents.length === 0 && status === 'Close' && dateRepaid &&
           !(summaryRepayDocs[loanId] && summaryRepayDocs[loanId].length > 0)) {
         principalEvents.push({
           refundDate: dateRepaid,
@@ -441,7 +446,8 @@ function parseLeasitWorkbook(wb) {
       // ★ FALLBACK: ถ้า actual block ไม่มี principalPaid > 0 (เช่น loan 49 ที่ detail
       //    sheet ว่าง) แต่ summary มีวันที่จ่าย → สร้าง refund entries จาก summary
       //    ใช้ยอดจริงจาก col 22/23 (จ่ายงวด 1/2) ถ้ามี · ถ้าไม่มี = แบ่งเท่ากัน
-      if (principalEvents.length === 0 && summaryRepayDocs[loanId] &&
+      //    ★ ข้าม NON
+      if (!isTermLoan && principalEvents.length === 0 && summaryRepayDocs[loanId] &&
           summaryRepayDocs[loanId].length > 0 && status === 'Close') {
         var sd = summaryRepayDocs[loanId];
         // ถ้ามียอดจริงครบทุกงวด → ใช้ตามจริง, ไม่งั้น fallback แบ่งเท่ากัน
