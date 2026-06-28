@@ -912,11 +912,67 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
   const PAGE_SIZE = 15;
   const [query, setQuery] = React.useState('');
   const [statusFilter, setStatusFilter] = React.useState('all');
+  const [sortKey, setSortKey] = React.useState('leasitLoanId');
+  const [sortDir, setSortDir] = React.useState('asc');
 
-  const allRows = (data?.debtMaster || []).filter(r => r.leasitSource === true);
+  // ── dedupe: leasit rows ที่มี loanId เดียวกัน → เก็บ "ลำดับความสำคัญ" ──
+  //   1) prefer id ที่ขึ้น 'lit_' (deterministic จาก deploy ใหม่)
+  //   2) prefer มี leasitTotalPrepaid > 0 (data ครบ)
+  //   3) prefer updated ล่าสุด (ถ้ามี updated_at)
+  const allRowsRaw = (data?.debtMaster || []).filter(r => r.leasitSource === true);
+  const dupCount = React.useMemo(() => {
+    const cnt = {};
+    allRowsRaw.forEach(r => { const k = r.leasitLoanId; cnt[k] = (cnt[k] || 0) + 1; });
+    let dup = 0;
+    Object.values(cnt).forEach(n => { if (n > 1) dup += (n - 1); });
+    return dup;
+  }, [allRowsRaw]);
+  const allRows = React.useMemo(() => {
+    const byId = new Map();
+    allRowsRaw.forEach(r => {
+      const k = r.leasitLoanId;
+      if (k == null) return;
+      const prev = byId.get(k);
+      if (!prev) { byId.set(k, r); return; }
+      // เก็บแถวที่ "ดีกว่า"
+      const score = (x) => (String(x.id || '').startsWith('lit_') ? 4 : 0)
+                        + ((Number(x.leasitTotalPrepaid) || 0) > 0 ? 2 : 0)
+                        + (x.leasitDateRepaid ? 1 : 0);
+      if (score(r) > score(prev)) byId.set(k, r);
+    });
+    return Array.from(byId.values());
+  }, [allRowsRaw]);
   const prepaid = data?.interestSchedulePrepaid || [];
   const actual = data?.interestScheduleActual || [];
   const refund = data?.interestRefund || [];
+
+  // ── คำสั่ง cleanup duplicates: ลบจริงจาก Supabase ──
+  const handleCleanupDuplicates = async () => {
+    if (!dupCount) return;
+    const groupMap = new Map();
+    allRowsRaw.forEach(r => {
+      const k = r.leasitLoanId; if (k == null) return;
+      if (!groupMap.has(k)) groupMap.set(k, []);
+      groupMap.get(k).push(r);
+    });
+    const toDelete = [];
+    groupMap.forEach((rows, k) => {
+      if (rows.length <= 1) return;
+      const winner = allRows.find(w => w.leasitLoanId === k);
+      rows.forEach(r => { if (r.id !== winner.id) toDelete.push(r.id); });
+    });
+    if (!toDelete.length) return;
+    if (!confirm(`ลบ debtMaster ซ้ำ ${toDelete.length} แถว? (คงเหลือ ${allRows.length} สัญญา)`)) return;
+    try {
+      if (window.WTPData && window.WTPData.forceDeleteRows) {
+        await window.WTPData.forceDeleteRows('debtMaster', toDelete);
+      }
+      setData(d => ({ ...d, debtMaster: (d.debtMaster || []).filter(r => !toDelete.includes(r.id)) }));
+      if (toast) toast(`ลบสัญญาซ้ำ ${toDelete.length} แถวแล้ว`, 'success');
+    } catch (e) {
+      if (toast) toast('ลบไม่สำเร็จ: ' + (e.message || e), 'error');
+    }
+  };
 
   // Filtered
   const filtered = React.useMemo(() => {
@@ -931,8 +987,40 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
         String(r.leasitLoanId || '').includes(q)
       );
     }
-    return rows.slice().sort((a, b) => (Number(a.leasitLoanId) || 0) - (Number(b.leasitLoanId) || 0));
-  }, [allRows, query, statusFilter]);
+    // ── dynamic sort ──
+    const getSortVal = (r, key) => {
+      switch (key) {
+        case 'leasitLoanId': return Number(r.leasitLoanId) || 0;
+        case 'contractNo': return String(r.contractNo || '');
+        case 'projectCode': return String(r.projectCode || '');
+        case 'projectName': return String(r.projectName || '');
+        case 'principalAmount': return Number(r.principalAmount) || 0;
+        case 'interestRate': return Number(r.interestRate) || 0;
+        case 'leasitDateReceived': return String(r.leasitDateReceived || '');
+        case 'leasitDateDue': return String(r.leasitDateDue || '');
+        case 'status': return String(r.status || '');
+        case 'leasitTicketType': return String(r.leasitTicketType || '');
+        case 'leasitTotalPrepaid': return Number(r.leasitTotalPrepaid) || 0;
+        case 'leasitTotalActual': return Number(r.leasitTotalActual) || 0;
+        case 'leasitVariance': return Number(r.leasitVariance) || 0;
+        case 'leasitRefunded': return Number(r.leasitRefunded) || 0;
+        case 'leasitRefundOutstanding': return Number(r.leasitRefundOutstanding) || 0;
+        default: return 0;
+      }
+    };
+    const dir = sortDir === 'desc' ? -1 : 1;
+    return rows.slice().sort((a, b) => {
+      const va = getSortVal(a, sortKey);
+      const vb = getSortVal(b, sortKey);
+      if (typeof va === 'number') return (va - vb) * dir;
+      return va.localeCompare(vb, 'th') * dir;
+    });
+  }, [allRows, query, statusFilter, sortKey, sortDir]);
+
+  const handleSort = (key) => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(key); setSortDir('asc'); }
+  };
 
   // KPIs
   const totPre = allRows.reduce((s, r) => s + (Number(r.leasitTotalPrepaid) || 0), 0);
@@ -1445,6 +1533,20 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
         </button>
       </div>
 
+      {/* Duplicate warning + cleanup */}
+      {dupCount > 0 && (
+        <div className="card" style={{ padding: 10, marginBottom: 10, background: 'oklch(96% 0.05 22)', borderLeft: '4px solid var(--bad)', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <div>
+            ⚠️ <b>พบสัญญาซ้ำ {dupCount} แถว</b> (loanId เดียวกันแต่มีหลาย debtMaster row) — โชว์เหลือ {allRows.length} จาก {allRowsRaw.length}
+          </div>
+          {canEdit && (
+            <button className="btn" style={{ background: 'var(--bad)', color: '#fff', padding: '4px 12px', fontSize: 12 }} onClick={handleCleanupDuplicates}>
+              🧹 ลบซ้ำทั้งหมด
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Warning: ถ้า debtMaster มี leasit rows แต่ 3 child tables ว่างหมด → SQL ยังไม่รัน */}
       {allRows.length > 0 && (data?.interestSchedulePrepaid || []).length === 0 && (data?.interestScheduleActual || []).length === 0 && (data?.interestRefund || []).length === 0 && (
         <div className="card" style={{ padding: 10, marginBottom: 10, background: 'oklch(96% 0.05 80)', borderLeft: '4px solid oklch(70% 0.18 80)', fontSize: 12 }}>
@@ -1491,23 +1593,35 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
                   <col style={{ width: 90 }} />        {/* ค้างรับคืน */}
                 </colgroup>
                 <thead>
-                  <tr style={{ background: 'var(--ink-50)' }}>
-                    <th style={{ ...tdBase, fontWeight: 600 }}>#</th>
-                    <th style={{ ...tdBase, fontWeight: 600 }}>ประเภท</th>
-                    <th style={{ ...tdBase, fontWeight: 600 }}>เลขที่สัญญา</th>
-                    <th style={{ ...tdBase, fontWeight: 600 }}>JOB</th>
-                    <th style={{ ...tdBase, fontWeight: 600 }}>โครงการ</th>
-                    <th style={{ ...tdRight, fontWeight: 600 }}>วงเงิน</th>
-                    <th style={{ ...tdRight, fontWeight: 600 }}>อัตรา</th>
-                    <th style={{ ...tdBase, fontWeight: 600 }}>รับเงิน</th>
-                    <th style={{ ...tdBase, fontWeight: 600 }}>ครบกำหนด</th>
-                    <th style={{ ...tdBase, fontWeight: 600 }}>สถานะ</th>
-                    <th style={{ ...tdRight, fontWeight: 600 }}>ดอกล่วงหน้า</th>
-                    <th style={{ ...tdRight, fontWeight: 600 }}>ดอกเกิดจริง</th>
-                    <th style={{ ...tdRight, fontWeight: 600 }}>ส่วนต่าง</th>
-                    <th style={{ ...tdRight, fontWeight: 600 }}>รับคืนแล้ว</th>
-                    <th style={{ ...tdRight, fontWeight: 600 }}>ค้างรับคืน</th>
-                  </tr>
+                  {(() => {
+                    const arrow = (k) => sortKey === k ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
+                    const Th = ({ k, label, right }) => (
+                      <th
+                        style={{ ...(right ? tdRight : tdBase), fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}
+                        onClick={() => handleSort(k)}
+                        title="คลิกเพื่อ sort"
+                      >{label}{arrow(k)}</th>
+                    );
+                    return (
+                      <tr style={{ background: 'var(--ink-50)' }}>
+                        <Th k="leasitLoanId" label="#" />
+                        <Th k="leasitTicketType" label="ประเภท" />
+                        <Th k="contractNo" label="เลขที่สัญญา" />
+                        <Th k="projectCode" label="JOB" />
+                        <Th k="projectName" label="โครงการ" />
+                        <Th k="principalAmount" label="วงเงิน" right />
+                        <Th k="interestRate" label="อัตรา" right />
+                        <Th k="leasitDateReceived" label="รับเงิน" />
+                        <Th k="leasitDateDue" label="ครบกำหนด" />
+                        <Th k="status" label="สถานะ" />
+                        <Th k="leasitTotalPrepaid" label="ดอกล่วงหน้า" right />
+                        <Th k="leasitTotalActual" label="ดอกเกิดจริง" right />
+                        <Th k="leasitVariance" label="ส่วนต่าง" right />
+                        <Th k="leasitRefunded" label="รับคืนแล้ว" right />
+                        <Th k="leasitRefundOutstanding" label="ค้างรับคืน" right />
+                      </tr>
+                    );
+                  })()}
                 </thead>
                 <tbody>
                   {pageRows.map(r => {
