@@ -652,6 +652,10 @@
     'bankReconLines', // ระยะกลาง — varies, import-only; BankReconStore localStorage เป็น backup
     'receipts',       // ระยะกลาง — ~137KB (686 rows)
     'payables',       // ระยะกลาง — ~163KB (545 rows)
+    'debtMaster',     // ★ 2026-06-28: 769 rows + leasit fields → ขนาดโต ทำ quota เกิน
+    'interestSchedulePrepaid',  // ★ leasit — 750+ rows ต่องวด
+    'interestScheduleActual',   // ★ leasit — 159+ rows ต่องวด
+    'interestRefund',           // ★ leasit — เพิ่มต่อเนื่องจากการคืน
   ]);
   // ── localStorage write — เคยกลืน QuotaExceededError เงียบ → wedge loop:
   //   localStorage ค้างว่าง → load() คืน freshState ว่าง → diff บอก "ลบทั้งตาราง" →

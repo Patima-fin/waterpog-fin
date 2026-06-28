@@ -1760,19 +1760,8 @@ function LeasitPanel({ data, setData, toast, canEdit }) {
             <div style={{ overflow: 'auto', maxHeight: 'calc(100vh - 380px)', minHeight: 350 }}>
               <table className="tbl" style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1300 }}>
                 <colgroup>
-                  <col style={{ width: 34 }} />        {/* # */}
-                  <col style={{ width: 48 }} />        {/* ประเภท */}
-                  <col style={{ width: 160 }} />       {/* เลขที่สัญญา */}
-                  <col style={{ width: 110 }} />       {/* JOB */}
-                  <col style={{ minWidth: 220 }} />    {/* โครงการ — flex */}
-                  <col style={{ width: 110 }} />       {/* เงินต้นรับ */}
-                  <col style={{ width: 110 }} />       {/* จ่ายคืน */}
-                  <col style={{ width: 110 }} />       {/* คงเหลือ */}
-                  <col style={{ width: 56 }} />        {/* อัตรา */}
-                  <col style={{ width: 88 }} />        {/* รับเงิน */}
-                  <col style={{ width: 88 }} />        {/* ครบกำหนด */}
-                  <col style={{ width: 50 }} />        {/* สถานะ */}
-                  <col style={{ width: 100 }} />       {/* ค้างดอก */}
+                  {/* widths: # / ประเภท / เลขสัญญา / JOB / โครงการ / เงินต้นรับ / จ่ายคืน / คงเหลือ / อัตรา / รับเงิน / ครบกำหนด / สถานะ / ค้างดอก */}
+                  <col style={{ width: 34 }} /><col style={{ width: 48 }} /><col style={{ width: 160 }} /><col style={{ width: 110 }} /><col style={{ minWidth: 220 }} /><col style={{ width: 110 }} /><col style={{ width: 110 }} /><col style={{ width: 110 }} /><col style={{ width: 56 }} /><col style={{ width: 88 }} /><col style={{ width: 88 }} /><col style={{ width: 50 }} /><col style={{ width: 100 }} />
                 </colgroup>
                 <thead style={{ position: 'sticky', top: 0, zIndex: 5, background: 'var(--ink-50)' }}>
                   {(() => {
