@@ -981,6 +981,23 @@ function CashFlowDashboard({ data, setData, toast }) {
     return grid;
   }, [pvVouchers, payables, ovTick, weeks, year, month]);
 
+  // ── PV ทั้งหมด (จ่ายแล้ว+รอจ่าย) ราย week × cat — ใช้เช็คว่าหมวดนั้น "มี PV ไหม" ──────────
+  //   หมวดที่ไม่มี PV เลย (เช่น 04 เงินเดือน/เบ็ดเตล็ด ที่จ่ายไม่ผ่าน PV) → โหมด 'pv' จะ fallback ประมาณการ
+  const pvAnyByWeekCat = cfMemo(() => {
+    const grid = weeks.map(() => ({ 1: 0, 2: 0, 3: 0, 4: 0 }));
+    pvVouchers.forEach(pv => {
+      const date = pv.Pmt_Date;
+      if (!inMonth(date, year, month)) return;
+      const wIdx = findWeekIdx(date, weeks);
+      if (wIdx < 0) return;
+      const ap = pv.AP_No ? (payables.find(p => p.vchno === pv.AP_No) || null) : null;
+      const cat = resolvePvCategory(pv, ap);
+      const amt = Number(pv.Net_Amount != null && pv.Net_Amount !== '' ? pv.Net_Amount : (pv.Amount || 0));
+      grid[wIdx][cat] += Math.abs(amt);
+    });
+    return grid;
+  }, [pvVouchers, payables, weeks, year, month]);
+
   // ── ประมาณการรายจ่าย "คงเหลือ" = forecast − จ่ายจริงแล้ว (ราย week × cat, floor 0) ──────
   //   ตารางประมาณการรายสัปดาห์ (Section 01) แสดง "ยอดที่ยังต้องจ่าย" — หักส่วนที่จ่าย Actual (PV) ไปแล้ว
   //   เหตุผล: เงินที่จ่ายจริงไปแล้วออกจากยอดเงินสดคงเหลือ (B/F สัปดาห์ = ยอดสดปัจจุบัน) ไปแล้ว
@@ -998,6 +1015,17 @@ function CashFlowDashboard({ data, setData, toast }) {
         4: Math.max(0, (g[4] || 0) - (a[4] || 0)),
       };
     }), [forecastByWeekCat, pvActualByWeekCat]);
+
+  // ── โหมด 'pv' (ยอด PV ที่ตัด) ราย week × cat ─────────────────────────────────
+  //   หมวดที่ "มี PV" (จ่ายแล้ว/รอจ่าย) → ใช้ยอด PV ตัดล่วงหน้า (pending; กดจ่ายจริง→หักเป็น 0)
+  //   หมวดที่ "ไม่มี PV เลย" (เช่น 04 เงินเดือน/เบ็ดเตล็ด) → fallback ใช้ประมาณการคงเหลือ (ไม่ปล่อยว่าง)
+  const pvModeGridByWeekCat = cfMemo(() =>
+    pendingPvByWeekCat.map((g, i) => {
+      const any = pvAnyByWeekCat[i] || {};
+      const f   = forecastRemainingByWeekCat[i] || {};
+      const v = (c) => (any[c] || 0) > 0 ? (g[c] || 0) : (f[c] || 0);
+      return { 1: v(1), 2: v(2), 3: v(3), 4: v(4) };
+    }), [pendingPvByWeekCat, pvAnyByWeekCat, forecastRemainingByWeekCat]);
 
   // ── โหมด "แผนจ่ายจริง (AP)" — grids เพิ่มเติมสำหรับ Section 01 ─────────────
   //   paidApSet: เลขที่ AP ที่จ่ายผ่าน PV แล้ว (ตัดออกจากแผน AP)
@@ -1327,7 +1355,7 @@ function CashFlowDashboard({ data, setData, toast }) {
   //   KPI การ์ด + Section 02 (ติดตามจ่ายจริง) ยังใช้ forecast เต็ม — ตัวเลขจึงต่างกันโดยตั้งใจ
   //   'pv' = ใช้ยอด PV ที่ตัดล่วงหน้า (รอจ่าย) ตรงๆ · 'apPlan' = แผน AP · 'remaining' = ประมาณการ − จ่ายแล้ว
   const _outGrid     = s01OutMode === 'apPlan' ? apPlanScopedByWeekCat
-                     : s01OutMode === 'pv'     ? pendingPvByWeekCat
+                     : s01OutMode === 'pv'     ? pvModeGridByWeekCat
                      : forecastRemainingByWeekCat;
   const _outRollover = (s01OutMode === 'apPlan' || s01OutMode === 'pv') ? { 1: 0, 2: 0, 3: 0, 4: 0 } : nextMonthInflow.out;
   const planOut  = {
@@ -1623,8 +1651,12 @@ function CashFlowDashboard({ data, setData, toast }) {
       const fA   = currentRestSplit(pvActualByWeekCat.map(g => g[cat] || 0),          0);
       const fR   = currentRestSplit(forecastRemainingByWeekCat.map(g => g[cat] || 0), nextMonthInflow.out[cat]);
       const fP   = currentRestSplit(pendingPvByWeekCat.map(g => g[cat] || 0),         0);
-      const cell = s01OutMode === 'pv' ? fP[period] : fR[period];   // ยอดที่แสดงในช่อง ตามโหมด
-      outRecon = { mode: s01OutMode, forecast: fF[period], actual: fA[period], planRemaining: fR[period], pending: fP[period], remaining: cell };
+      const fPvM = currentRestSplit(pvModeGridByWeekCat.map(g => g[cat] || 0),        0);
+      const fAny = currentRestSplit(pvAnyByWeekCat.map(g => g[cat] || 0),             0);
+      const cell = s01OutMode === 'pv' ? fPvM[period] : fR[period];   // ยอดที่แสดงในช่อง ตามโหมด
+      // โหมด pv + หมวดนี้ไม่มี PV เลย → ช่องใช้ประมาณการแทน (เช่น เงินเดือน/เบ็ดเตล็ด)
+      const usedFallback = s01OutMode === 'pv' && (fAny[period] || 0) <= 0;
+      outRecon = { mode: s01OutMode, usedFallback, forecast: fF[period], actual: fA[period], planRemaining: fR[period], pending: fP[period], remaining: cell };
       // เก็บ PV ตัดล่วงหน้า (ยังไม่ถึงวันจ่าย) ของหมวด+ช่วงนี้ → โชว์ + กดยืนยันจ่ายจริงได้จาก SEC01
       pvVouchers.forEach(pv => {
         const d = pv.Pmt_Date;
@@ -2192,7 +2224,7 @@ function CashFlowDashboard({ data, setData, toast }) {
                       {s01OutMode === 'apPlan'
                         ? <span>· <strong>แผนจ่ายจริง</strong> = รายการ AP ที่เลือกจ่าย (CARD BANK) + ตั้งมือที่ติ๊กรวม{s01ApScope === 'week' ? <span> · <strong>เฉพาะสัปดาห์นี้</strong></span> : ''}</span>
                         : s01OutMode === 'pv'
-                        ? <span>· <strong>ยอด PV ที่ตัด</strong> = ใบจ่าย (PV) ที่ตัดล่วงหน้า ยังไม่ถึงวันจ่าย · พอกดจ่ายจริงแล้วจะหักออก</span>
+                        ? <span>· <strong>ยอด PV ที่ตัด</strong> = ใบจ่าย (PV) ที่ตัดล่วงหน้า ยังไม่ถึงวันจ่าย · พอกดจ่ายจริงแล้วจะหักออก · <strong>หมวดที่ไม่มี PV (เช่น เงินเดือน) ใช้ประมาณการแทน</strong></span>
                         : <span>· ยอด<strong>คงเหลือต้องจ่าย</strong> (หักที่จ่ายจริงแล้ว)</span>}
                     </span>
                   </div>
@@ -2811,13 +2843,15 @@ function CashFlowDashboard({ data, setData, toast }) {
                       <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--warn)', fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>{fmtNum(drillDown.outRecon.pending, 0)}</div>
                     </div>
                     <div style={{ padding: '11px 12px', borderRadius: 8, background: 'var(--brand-50)', textAlign: 'center', border: '1.5px solid color-mix(in oklch, var(--brand-500) 40%, transparent)' }}>
-                      <div style={{ fontSize: 11, color: 'var(--ink-600)', fontWeight: 600 }}>= ยอดในช่องนี้ ({drillDown.outRecon.mode === 'pv' ? 'ยอด PV' : 'ประมาณการ'})</div>
+                      <div style={{ fontSize: 11, color: 'var(--ink-600)', fontWeight: 600 }}>= ยอดในช่องนี้ ({drillDown.outRecon.mode === 'pv' ? (drillDown.outRecon.usedFallback ? 'ประมาณการ — ไม่มี PV' : 'ยอด PV') : 'ประมาณการ'})</div>
                       <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--brand-700)', fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>{fmtNum(drillDown.outRecon.remaining, 0)}</div>
                     </div>
                   </div>
                   <div style={{ fontSize: 10.5, color: 'var(--ink-500)', margin: '0 0 12px', lineHeight: 1.5 }}>
                     {drillDown.outRecon.mode === 'pv'
-                      ? <span>💡 โหมด <strong>ยอด PV ที่ตัด</strong> — ช่องนี้ใช้ยอด PV ตัดล่วงหน้า (รอจ่าย) ตรงๆ · กดยืนยันจ่ายจริงได้ที่ตาราง 🕐 ด้านล่าง พอกดแล้วจะหักออกจากช่องนี้</span>
+                      ? (drillDown.outRecon.usedFallback
+                          ? <span>💡 หมวดนี้<strong>ไม่มี PV ตัดล่วงหน้า</strong> (เช่น เงินเดือน/เบ็ดเตล็ด ที่จ่ายไม่ผ่าน PV) → ช่องนี้ใช้<strong>ยอดประมาณการคงเหลือ</strong>แทน</span>
+                          : <span>💡 โหมด <strong>ยอด PV ที่ตัด</strong> — ช่องนี้ใช้ยอด PV ตัดล่วงหน้า (รอจ่าย) ตรงๆ · กดยืนยันจ่ายจริงได้ที่ตาราง 🕐 ด้านล่าง พอกดแล้วจะหักออกจากช่องนี้</span>)
                       : <span>💡 โหมด <strong>ประมาณการคงเหลือ</strong> — ช่องนี้ = ประมาณการ − จ่ายจริงแล้ว · <strong>PV ตัดล่วงหน้ายังไม่ถูกรวม</strong> (กดปุ่ม <strong>ยอด PV ที่ตัด</strong> เพื่อใช้ยอด PV) · กดยืนยันจ่ายจริงได้ที่ตาราง 🕐 ด้านล่าง</span>}
                   </div>
                 </>
