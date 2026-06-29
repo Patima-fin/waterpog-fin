@@ -80,6 +80,7 @@
                        'debtEvents', 'users', 'cashflowSnapshots',
                        'followUpsLog', 'manualOverrides',
                        'bankReconLines', 'bankReconState',
+                       'bankReconBook', 'bankReconMatch',
                        'interestSchedulePrepaid', 'interestScheduleActual',
                        'interestRefund'];
   var ALL_TABLES = CRUD_ENTITIES.concat(['presence']);   // 26 ตาราง อ่านทั้งหมดตอน load
@@ -238,7 +239,7 @@
     home:          ['cashflowSnapshots', 'payables', 'checks', 'receipts', 'projects'],
     cashflow:      ['cashflowSnapshots', 'pvVouchers', 'payables', 'receipts'],
     bank_diary:    ['cashflowSnapshots', 'pvVouchers', 'payables', 'checks', 'bankEntries', 'bankTransfers'],
-    bank_recon:    ['bankReconLines', 'bankReconState', 'pvVouchers'],
+    bank_recon:    ['bankReconLines', 'bankReconState', 'bankReconBook', 'bankReconMatch', 'pvVouchers'],
     daily_balance: ['cashflowSnapshots'],
     daily:         ['pvVouchers', 'receipts'],
     warroom1:      ['pvVouchers', 'receipts', 'projects', 'cashflowSnapshots'],

@@ -547,6 +547,9 @@
     // กระทบยอดธนาคาร — sync แท็บแยก (statement lines + สถานะการกระทบ)
     bankReconLines: [],
     bankReconState: [],
+    // กระทบยอด Mango ERP ↔ statement — สมุดบัญชี (งบกระทบยอด) + การจับคู่ (incl M-to-N)
+    bankReconBook: [],
+    bankReconMatch: [],
     presence: [],   // ใครออนไลน์อยู่ (heartbeat) — อ่านจากแท็บ presence
     bankEntries: [
       // ── กรุงเทพ 123-4-56789-0 (Main) ────────────────────────────────────
@@ -609,7 +612,7 @@
     'payables','debtLedger','receipts','bankEntries','checks','debtMaster','bankTransfers',
     'stsServiceFee','stsPendingCalc','stsCalcResult','debtEvents','users',
     'cashflowSnapshots','followUpsLog','manualOverrides',
-    'bankReconLines','bankReconState','presence',
+    'bankReconLines','bankReconState','bankReconBook','bankReconMatch','presence',
     'interestSchedulePrepaid','interestScheduleActual','interestRefund'];
   const isOnline = () => !!(window.WTP_CONFIG && window.WTP_CONFIG.SHEET_ID);
   // ค่าตั้งต้นเมื่อ localStorage ว่าง:
@@ -650,6 +653,7 @@
     'projects',       // ★ ใหม่  — ~4–5MB (648 rows × 120 cols) ← ตัวการหลักที่ยังทำให้ blob เกิน
     'pvVouchers',     // ระยะกลาง — ~184KB (614 rows)
     'bankReconLines', // ระยะกลาง — varies, import-only; BankReconStore localStorage เป็น backup
+    'bankReconBook',  // กระทบยอด Mango — สมุดบัญชี import-only, อาจใหญ่ (movements รายเดือน)
     'receipts',       // ระยะกลาง — ~137KB (686 rows)
     'payables',       // ระยะกลาง — ~163KB (545 rows)
     'debtMaster',     // ★ 2026-06-28: 769 rows + leasit fields → ขนาดโต ทำ quota เกิน
