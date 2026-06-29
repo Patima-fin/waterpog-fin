@@ -2061,6 +2061,236 @@ function parseNum(v) {
 }
 
 // Amount input: formatted display (2,000.00) when not focused; raw number when editing
+// ── Aging buckets for เจ้าหนี้คงค้าง — by days until due (negative = overdue) ──
+const PAYABLE_AGING = [
+  { key: 'overdue', label: 'เกินกำหนด',         color: 'var(--bad)',         bg: 'color-mix(in oklch, var(--bad) 13%, transparent)' },
+  { key: 'due7',    label: 'ครบใน 7 วัน',        color: 'oklch(58% 0.17 70)', bg: 'color-mix(in oklch, oklch(58% 0.17 70) 13%, transparent)' },
+  { key: 'due30',   label: 'ครบใน 8–30 วัน',     color: 'oklch(72% 0.15 85)', bg: 'color-mix(in oklch, oklch(72% 0.15 85) 15%, transparent)' },
+  { key: 'future',  label: 'เกิน 30 วัน',        color: 'var(--ink-500)',     bg: 'color-mix(in oklch, var(--ink-500) 8%, transparent)' },
+  { key: 'none',    label: 'ไม่ระบุวันครบกำหนด', color: 'var(--ink-400)',     bg: 'color-mix(in oklch, var(--ink-400) 8%, transparent)' },
+];
+const PAYABLE_AGING_BY_KEY = Object.fromEntries(PAYABLE_AGING.map(a => [a.key, a]));
+function payableAging(row, today) {
+  const due = parseDue(row.due2);
+  if (!due) return { key: 'none', days: null };
+  const days = Math.ceil((due - (today || new Date())) / 86400000);
+  if (days < 0)  return { key: 'overdue', days };
+  if (days < 7)  return { key: 'due7', days };
+  if (days < 30) return { key: 'due30', days };
+  return { key: 'future', days };
+}
+const payableCreditorName = (r) => String(r.cust_name || '').trim() || '(ไม่ระบุชื่อ)';
+
+// ── ตารางอายุหนี้ (AP Aging) 6 ระดับ — overdue days = today − due (บวก = เกินกำหนด) ──
+const PAYABLE_AGING6 = [
+  { key: 'notdue', label: 'ยังไม่ถึงกำหนด',     short: 'ยังไม่ถึงกำหนด', color: 'var(--ink-600)',     tint: 'transparent' },
+  { key: 'od1',    label: 'เกินกำหนด < 30 วัน', short: 'เกิน < 30 วัน',  color: 'oklch(68% 0.15 78)', tint: 'color-mix(in oklch, oklch(68% 0.15 78) 10%, transparent)' },
+  { key: 'od30',   label: 'เกินกำหนด 30 วัน',   short: 'เกิน 30 วัน',    color: 'oklch(64% 0.17 56)', tint: 'color-mix(in oklch, oklch(64% 0.17 56) 11%, transparent)' },
+  { key: 'od60',   label: 'เกินกำหนด 60 วัน',   short: 'เกิน 60 วัน',    color: 'oklch(60% 0.19 40)', tint: 'color-mix(in oklch, oklch(60% 0.19 40) 12%, transparent)' },
+  { key: 'od90',   label: 'เกินกำหนด 90 วัน',   short: 'เกิน 90 วัน',    color: 'oklch(57% 0.21 30)', tint: 'color-mix(in oklch, oklch(57% 0.21 30) 13%, transparent)' },
+  { key: 'od120',  label: 'เกินกำหนด 120 วัน+', short: 'เกิน 120 วัน+',  color: 'var(--bad)',         tint: 'color-mix(in oklch, var(--bad) 14%, transparent)' },
+];
+const PAYABLE_AGING6_KEYS = PAYABLE_AGING6.map(a => a.key);
+const PAYABLE_OD_KEYS = ['od1', 'od30', 'od60', 'od90', 'od120'];   // เฉพาะถังที่เกินกำหนด
+function payableAging6(row, today) {
+  const due = parseDue(row.due2);
+  if (!due) return 'none';
+  const od = Math.floor(((today || new Date()) - due) / 86400000);   // จำนวนวันที่เกินกำหนด (≤0 = ยังไม่ถึง)
+  if (od <= 0)  return 'notdue';
+  if (od < 30)  return 'od1';
+  if (od < 60)  return 'od30';
+  if (od < 90)  return 'od60';
+  if (od < 120) return 'od90';
+  return 'od120';
+}
+
+// helper: แปลงค่าวันที่ใดๆ (ISO / DD/MM/YYYY / พ.ศ.) → ISO YYYY-MM-DD สำหรับ <input type=date>
+function _isoDate(v) {
+  const d = parseDue(v);
+  if (!d || isNaN(d)) return '';
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+// helper: วันที่ default = วันครบกำหนดของใบ (ไม่งั้นวันนี้) → ISO
+function _apDueISO(a) {
+  const d = a && parseDue(a.due2);
+  const t = (d && !isNaN(d)) ? d : new Date();
+  return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`;
+}
+const _AP_INP = { height: 34, fontSize: 13, padding: '0 10px', border: '1px solid var(--ink-150)', borderRadius: 8, background: 'var(--panel)', color: 'var(--ink-800)', width: '100%', cursor: 'pointer' };
+function _apBanks(bankAccounts) {
+  return (bankAccounts || []).map(b => ({ no: hpBankAcNo(b), name: hpBankName(b) })).filter(b => b.no);
+}
+function _ApCatBank({ bankAc, setBankAc, category, setCategory, banks }) {
+  return (<>
+    <div className="field">
+      <label style={{ fontSize: 12 }}>บัญชีที่จ่าย (ถ้ามี)</label>
+      <select value={bankAc} onChange={e => setBankAc(e.target.value)} style={_AP_INP}>
+        <option value="">— ไม่ระบุ —</option>
+        {banks.map(b => <option key={b.no} value={b.no}>{b.name} · {b.no}</option>)}
+      </select>
+    </div>
+    <div className="field">
+      <label style={{ fontSize: 12 }}>หมวด Cashflow (ถ้ามี)</label>
+      <select value={category} onChange={e => setCategory(e.target.value)} style={_AP_INP}>
+        <option value="">— ใช้ค่าเดิมของรายการ —</option>
+        <option value="1">1 · ดำเนินงาน</option>
+        <option value="2">2 · โครงการ</option>
+        <option value="3">3 · การเงิน</option>
+        <option value="4">4 · เบ็ดเตล็ด+เงินเดือน</option>
+      </select>
+    </div>
+  </>);
+}
+
+// ── Modal วางแผนจ่าย AP — router: ใบเดียว = ผ่อนหลายงวด, หลายใบ = วางแผนเต็มทีละใบ ──
+function PayablePlanModal(props) {
+  const aps = (props.target && props.target.aps) || [];
+  return aps.length === 1
+    ? <APPlanSingle ap={aps[0]} {...props} />
+    : <APPlanBulk aps={aps} {...props} />;
+}
+
+// ใบเดียว — แบ่งจ่ายหลายงวด (partial / ผ่อน): เพิ่ม/แก้/ลบงวด, เห็นยอดเหลือ
+function APPlanSingle({ ap, apPlansByVchno, bankAccounts, onCommitInstallments, onCancelPlan, onClose }) {
+  const ref = String(ap.vchno || '').trim();
+  const existing = (apPlansByVchno && apPlansByVchno[ref]) || [];
+  const net = parseNum(ap.netpayment);
+  const [lines, setLines] = dxState(() => existing.length
+    ? existing.map(e => ({ id: e.id, date: e.date, amount: e.amount, actual: e.actual }))
+    : [{ date: _apDueISO(ap), amount: net, actual: false }]);
+  const [bankAc, setBankAc]     = dxState(existing[0] ? existing[0].bankAc : '');
+  const [category, setCategory] = dxState(existing[0] ? existing[0].category : '');
+  const banks = _apBanks(bankAccounts);
+  const plannedSum = lines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
+  const remaining = net - plannedSum;
+  const anyExisting = existing.length > 0;
+  const setLine = (i, patch) => setLines(ls => ls.map((l, idx) => idx === i ? { ...l, ...patch } : l));
+  const addLine = () => setLines(ls => {
+    const used = ls.reduce((s, l) => s + (Number(l.amount) || 0), 0);
+    return [...ls, { date: _apDueISO(ap), amount: Math.max(0, net - used), actual: false }];
+  });
+  const removeLine = (i) => setLines(ls => ls.filter((_, idx) => idx !== i));
+  const canSave = lines.some(l => l.date && Number(l.amount) > 0);
+  const remColor = Math.abs(remaining) < 0.01 ? 'var(--good)' : remaining < 0 ? 'var(--bad)' : 'oklch(60% 0.16 75)';
+  return (
+    <Modal open maxWidth={600}
+      title={<span>📅 วางแผนจ่าย · {ap.cust_name || ap.vchno || '—'}</span>}
+      onClose={onClose}
+      footer={<>
+        {anyExisting && <button className="btn btn-ghost" style={{ color: 'var(--bad)', borderColor: 'var(--bad)', marginRight: 'auto' }} onClick={() => onCancelPlan([ap])}><Icon name="trash" size={13} /> ยกเลิกแผนทั้งหมด</button>}
+        <button className="btn btn-ghost" onClick={onClose}>ปิด</button>
+        <button className="btn btn-primary" onClick={() => onCommitInstallments(ap, lines.map(l => ({ id: l.id, date: l.date, amount: Number(l.amount) || 0, bankAc, category, actual: l.actual })))} disabled={!canSave}><Icon name="check" size={13} /> บันทึกแผนจ่าย</button>
+      </>}>
+      <div style={{ display: 'grid', gap: 13 }}>
+        {/* สรุปยอด: เต็มใบ / วางแผนแล้ว / คงเหลือ */}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: 120, padding: '8px 12px', background: 'var(--ink-50)', borderRadius: 8 }}>
+            <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>ยอดเต็มใบ ({ap.vchno || '—'})</div>
+            <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink-800)', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(net, 2)}</div>
+          </div>
+          <div style={{ flex: 1, minWidth: 120, padding: '8px 12px', background: 'var(--brand-50)', borderRadius: 8 }}>
+            <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>วางแผนจ่ายรวม</div>
+            <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--brand-700)', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(plannedSum, 2)}</div>
+          </div>
+          <div style={{ flex: 1, minWidth: 120, padding: '8px 12px', background: 'color-mix(in oklch, ' + remColor + ' 10%, transparent)', borderRadius: 8 }}>
+            <div style={{ fontSize: 11, color: 'var(--ink-500)' }}>{remaining < -0.01 ? 'เกินยอด' : 'คงเหลือยังไม่วางแผน'}</div>
+            <div style={{ fontWeight: 700, fontSize: 15, color: remColor, fontVariantNumeric: 'tabular-nums' }}>{fmtNum(remaining, 2)}</div>
+          </div>
+        </div>
+
+        {/* งวดผ่อน */}
+        <div style={{ display: 'grid', gap: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-700)' }}>งวดที่วางแผนจ่าย ({lines.length})</div>
+          {lines.map((l, i) => (
+            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <span style={{ width: 28, fontSize: 12, fontWeight: 700, color: 'var(--brand-600)', flex: '0 0 auto', textAlign: 'center' }}>{i + 1}</span>
+              <input type="date" value={_isoDate(l.date)} disabled={l.actual}
+                onChange={e => setLine(i, { date: e.target.value })}
+                style={{ ..._AP_INP, flex: '1 1 130px', opacity: l.actual ? 0.6 : 1 }} />
+              <input type="text" inputMode="decimal" value={l.amount} disabled={l.actual}
+                onChange={e => setLine(i, { amount: e.target.value.replace(/[^0-9.]/g, '') })}
+                placeholder="จำนวนเงิน"
+                style={{ ..._AP_INP, flex: '0 0 130px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', cursor: 'text', opacity: l.actual ? 0.6 : 1 }} />
+              {l.actual
+                ? <span style={{ flex: '0 0 auto', width: 30, textAlign: 'center', fontSize: 11, color: 'var(--good)', fontWeight: 700 }} title="จ่ายจริงแล้ว">✓</span>
+                : <button onClick={() => removeLine(i)} title="ลบงวดนี้" style={{ flex: '0 0 auto', width: 30, height: 30, border: '1px solid var(--ink-150)', background: 'var(--panel)', color: 'var(--bad)', borderRadius: 7, cursor: 'pointer', fontSize: 15 }}>×</button>}
+            </div>
+          ))}
+          <button className="btn btn-ghost" style={{ height: 32, fontSize: 12, justifySelf: 'start' }} onClick={addLine}>+ เพิ่มงวด (แบ่งจ่าย)</button>
+        </div>
+
+        <_ApCatBank bankAc={bankAc} setBankAc={setBankAc} category={category} setCategory={setCategory} banks={banks} />
+        <div style={{ fontSize: 11.5, color: 'var(--ink-500)', lineHeight: 1.55 }}>
+          แบ่งจ่ายได้หลายงวด (ผ่อน) — แต่ละงวดเลือกวัน + ใส่จำนวนเงินบางส่วน. รวมทุกงวดจะเป็น "ประมาณการจ่าย" ใน Bank Diary / Cashflow. ยอดคงเหลือที่ยังไม่วางแผนจะแสดงในตาราง.
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// หลายใบ — วางแผนจ่าย "ยอดคงเหลือ" ของแต่ละใบในวันเดียว (1 งวด/ใบ)
+function APPlanBulk({ aps, apPlansByVchno, bankAccounts, onBulkPlan, onCancelPlan, onClose }) {
+  const refOf = (a) => String(a.vchno || '').trim();
+  const initDate = (() => {
+    let best = null;
+    aps.forEach(a => { const d = parseDue(a.due2); if (d && (!best || d < best)) best = d; });
+    return _apDueISO(best ? { due2: best } : null);
+  })();
+  const [payDate, setPayDate]   = dxState(initDate);
+  const [bankAc, setBankAc]     = dxState('');
+  const [category, setCategory] = dxState('');
+  const banks = _apBanks(bankAccounts);
+  const remOf = (a) => {
+    const plans = (apPlansByVchno && apPlansByVchno[refOf(a)]) || [];
+    return parseNum(a.netpayment) - plans.reduce((s, p) => s + p.amount, 0);
+  };
+  const totalRem = aps.reduce((s, a) => s + Math.max(0, remOf(a)), 0);
+  const anyPlanned = aps.some(a => ((apPlansByVchno && apPlansByVchno[refOf(a)]) || []).length > 0);
+  return (
+    <Modal open maxWidth={560}
+      title={<span>📅 วางแผนจ่าย {aps.length} รายการ</span>}
+      onClose={onClose}
+      footer={<>
+        {anyPlanned && <button className="btn btn-ghost" style={{ color: 'var(--bad)', borderColor: 'var(--bad)', marginRight: 'auto' }} onClick={() => onCancelPlan(aps)}><Icon name="trash" size={13} /> ยกเลิกแผน</button>}
+        <button className="btn btn-ghost" onClick={onClose}>ปิด</button>
+        <button className="btn btn-primary" onClick={() => onBulkPlan(aps, { payDate, bankAc, category })} disabled={!payDate}><Icon name="check" size={13} /> บันทึกแผนจ่าย</button>
+      </>}>
+      <div style={{ display: 'grid', gap: 13 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'var(--brand-50)', borderRadius: 8 }}>
+          <span style={{ fontSize: 12.5, color: 'var(--ink-700)' }}>{aps.length} รายการ · วางแผน "ยอดคงเหลือ" ของแต่ละใบ</span>
+          <span style={{ fontWeight: 700, color: 'var(--bad)', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(totalRem, 2)}</span>
+        </div>
+        {aps.length <= 14 && (
+          <div style={{ maxHeight: 184, overflowY: 'auto', border: '1px solid var(--ink-100)', borderRadius: 8 }}>
+            <table className="tbl" style={{ width: '100%', fontSize: 12 }}>
+              <tbody>
+                {aps.map(a => {
+                  const rem = remOf(a);
+                  return (
+                    <tr key={a.id}>
+                      <td style={{ fontFamily: 'ui-monospace', color: 'var(--brand-700)', width: 116 }}>{a.vchno || '—'}</td>
+                      <td style={{ color: 'var(--ink-700)' }}>{a.cust_name || '—'}</td>
+                      <td style={{ textAlign: 'right', color: 'var(--bad)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{fmtNum(rem > 0 ? rem : 0, 0)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div className="field">
+          <label style={{ fontSize: 12 }}>วันที่วางแผนจ่าย<span style={{ color: 'var(--bad)' }}> *</span></label>
+          <input type="date" value={payDate} onChange={e => setPayDate(e.target.value)} style={{ ..._AP_INP, cursor: 'pointer' }} />
+        </div>
+        <_ApCatBank bankAc={bankAc} setBankAc={setBankAc} category={category} setCategory={setCategory} banks={banks} />
+        <div style={{ fontSize: 11.5, color: 'var(--ink-500)', lineHeight: 1.55 }}>
+          วางแผนจ่าย "ยอดคงเหลือ" ของแต่ละใบในวันเดียว (ใบที่วางแผนครบแล้วจะข้าม). อยากแบ่งจ่ายเป็นงวดให้กดวางแผนทีละใบ.
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function AmountInput({ value, onChange, label, required }) {
   const [focused, setFocused] = dxState(false);
   const [raw, setRaw] = dxState('');
@@ -2086,7 +2316,7 @@ function AmountInput({ value, onChange, label, required }) {
 }
 
 // ─── AP Edit Modal — 3-col grid, highlight due date + netpayment ─────────────
-function APEditModal({ row, onClose, onSave, onDelete }) {
+function APEditModal({ row, onClose, onSave, onDelete, canEdit }) {
   const [draft, setDraft]             = dxState(null);
   const [confirmDelete, setConfirm]   = dxState(false);
   dxEffect(() => {
@@ -2143,24 +2373,57 @@ function APEditModal({ row, onClose, onSave, onDelete }) {
     );
   };
 
+  // แปลงค่าวันที่ (ISO / DD/MM/YYYY / พ.ศ.) → ISO YYYY-MM-DD สำหรับ <input type=date>
+  const toISOInput = (v) => {
+    const d = parseDue(v);
+    if (!d || isNaN(d)) return '';
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  };
+  // ช่องวันที่ที่ "แก้ได้" — ปฏิทินกดเลือก (กรณีตั้งวันมาผิด แก้เองได้เลย ไม่ต้องรออัปไฟล์ใหม่)
+  const DateF = ({ fkey, label, highlight }) => {
+    const iso = toISOInput(draft[fkey]);
+    const hi = highlight === 'due' ? dueStyle : {};
+    return (
+      <div className="field">
+        <label style={{ fontSize: 12, color: 'var(--ink-500)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          {label}{canEdit && <span style={{ color: 'var(--brand-600)', fontSize: 10, fontWeight: 700 }}>✎ แก้ได้</span>}
+        </label>
+        {canEdit
+          ? <input type="date" value={iso} onChange={e => setDraft(d => ({ ...d, [fkey]: e.target.value }))}
+              style={{ height: 34, borderRadius: 7, border: '1px solid var(--ink-150)', padding: '0 10px', fontSize: 13, width: '100%', cursor: 'pointer', fontFamily: 'inherit', ...hi }} />
+          : <div style={{ minHeight: 34, borderRadius: 7, border: '1px solid var(--ink-100)', padding: '6px 10px', fontSize: 13, lineHeight: 1.5, color: 'var(--ink-700)', background: 'var(--ink-25, #f9fafb)', ...hi }}>{draft[fkey] ? (fmtDate(draft[fkey]) || draft[fkey]) : '—'}</div>}
+      </div>
+    );
+  };
+  const datesDirty = canEdit && (toISOInput(draft.vchdate) !== toISOInput(row.vchdate) || toISOInput(draft.due2) !== toISOInput(row.due2));
+  const saveDates = () => {
+    onSave && onSave({ ...row, vchdate: draft.vchdate, due2: draft.due2 });   // เปลี่ยนเฉพาะ 2 วันที่ ฟิลด์อื่นคงเดิม
+  };
+
   return (
     <>
       <Modal open={!!row} title={`ข้อมูล AP · ${draft.vchno || '—'}`}
         maxWidth={900} onClose={onClose}
         footer={<>
           <button className="btn btn-ghost" onClick={onClose}>ปิด</button>
+          {canEdit && <button className="btn btn-primary" onClick={saveDates} disabled={!datesDirty}><Icon name="check" size={13} /> บันทึกวันที่</button>}
         </>}>
+        {canEdit && (
+          <div style={{ fontSize: 12, color: 'var(--ink-600)', background: 'color-mix(in oklch, var(--brand-500) 7%, transparent)', border: '1px solid color-mix(in oklch, var(--brand-500) 22%, transparent)', borderRadius: 8, padding: '8px 12px', marginBottom: 12, lineHeight: 1.55 }}>
+            ✎ แก้ <strong>วันที่ใบสำคัญ</strong> / <strong>วันครบกำหนด</strong> ได้เลย (กรณีตั้งวันมาผิด) แล้วกด "บันทึกวันที่" — ไม่ต้องรออัปไฟล์ใหม่. ฟิลด์อื่นแก้ได้จากการนำเข้าไฟล์เท่านั้น.
+          </div>
+        )}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px 16px' }}>
 
           <Hdr label="ข้อมูลเอกสาร" icon="invoice" />
           {/* บรรทัด 1: วันที่ | vchno | docno */}
-          <F fkey="vchdate" label="วันที่ใบสำคัญ" />
+          <DateF fkey="vchdate" label="วันที่ใบสำคัญ" />
           <F fkey="vchno"   label="vchno · ใบสำคัญ" />
           <F fkey="docno"   label="docno (col B)" />
-          {/* บรรทัด 2: refno | refcode | due (highlight) */}
+          {/* บรรทัด 2: refno | refcode | due (highlight, แก้ได้) */}
           <F fkey="refno"   label="refno · เลขที่อ้างอิง" />
           <F fkey="refcode" label="refcode" />
-          <F fkey="due2"    label="วันครบกำหนด" highlight="due" />
+          <DateF fkey="due2" label="วันครบกำหนด" highlight="due" />
 
           <Hdr label="เจ้าหนี้ (VENDOR)" icon="money" />
           <F fkey="cust_name" label="ชื่อเจ้าหนี้" span={2} />
@@ -2384,6 +2647,20 @@ function DataPayablePage({ data, setData, toast }) {
   const [importFileName, setImportFileName]   = dxState('');
   const [importPreview, setImportPreview]     = dxState(null);   // {added,changed,unchanged,missing,paidCut,…}
   const [selectedMissing, setSelectedMissing] = dxState(() => new Set());   // id แถวเดิม (หาย) ที่เลือกจะลบ
+  // ── มุมมองจัดกลุ่ม + ตัวกรองเจ้าหนี้ + วางแผนจ่าย + รายงาน ───────────────────
+  const [viewMode, setViewMode]       = dxState('list');      // 'list' | 'group' | 'matrix'
+  const [groupBy, setGroupBy]         = dxState('creditor');  // 'creditor' | 'aging'
+  const [excluded, setExcluded]       = dxState(() => new Set());  // ชื่อเจ้าหนี้ที่ติ๊กออก (ซ่อน)
+  const [credFilterOpen, setCredFilterOpen] = dxState(false);
+  const [credQuery, setCredQuery]     = dxState('');
+  const [expanded, setExpanded]       = dxState(() => new Set());  // กลุ่มที่กางอยู่
+  const [planTarget, setPlanTarget]   = dxState(null);   // {aps:[...]} → เปิด modal วางแผนจ่าย
+  const [selectedAp, setSelectedAp]   = dxState(() => new Set());  // id รายการที่ติ๊กเลือก (วางแผนหลายอัน)
+  const [reportMode, setReportMode]   = dxState('all');  // 'all' | 'unplanned' | 'planned'
+  const [rptFrom, setRptFrom]         = dxState('');
+  const [rptTo, setRptTo]             = dxState('');
+  const matrixRef = React.useRef(null);
+  const canEdit = window.WTPAuth ? window.WTPAuth.can('canEdit') : true;
 
   // อัปโหลด .xlsx ตรงๆ → แปลงเป็น TSV → ใส่ใน textarea (reuse handleImport)
   const handleFileUpload = (file) => {
@@ -2461,7 +2738,7 @@ function DataPayablePage({ data, setData, toast }) {
     [...new Set(rows.map(r => r.dpt_code).filter(Boolean))].sort()
   , [rows]);
 
-  const filtered = dxMemo(() => {
+  const scoped = dxMemo(() => {
     let xs = rows;
     if (docFilter !== 'all') xs = xs.filter(r => getDocType(r.vchno) === docFilter);
     if (dptFilter !== 'all') xs = xs.filter(r => r.dpt_code === dptFilter);
@@ -2470,6 +2747,31 @@ function DataPayablePage({ data, setData, toast }) {
       xs = xs.filter(r => ['cust_name','vchno','docno','jobcode','jobname','remark','dpt_code']
         .some(k => String(r[k]||'').toLowerCase().includes(q)));
     }
+    return xs;
+  }, [rows, docFilter, dptFilter, query]);
+
+  // ตัวเลือกเจ้าหนี้สำหรับตัวกรอง — จากขอบเขต doc+dept (ไม่อิงคำค้น/ติ๊กออก เพื่อให้รายชื่อนิ่ง)
+  const creditorOptions = dxMemo(() => {
+    let xs = rows;
+    if (docFilter !== 'all') xs = xs.filter(r => getDocType(r.vchno) === docFilter);
+    if (dptFilter !== 'all') xs = xs.filter(r => r.dpt_code === dptFilter);
+    const today = new Date();
+    const map = new Map();
+    xs.forEach(r => {
+      const name = payableCreditorName(r);
+      let o = map.get(name);
+      if (!o) { o = { name, count: 0, net: 0, overdue: 0, overdueCount: 0 }; map.set(name, o); }
+      o.count++;
+      const np = parseNum(r.netpayment);
+      o.net += np;
+      if (payableAging(r, today).key === 'overdue') { o.overdue += np; o.overdueCount++; }
+    });
+    return [...map.values()].sort((a, b) => b.overdue - a.overdue || b.net - a.net);
+  }, [rows, docFilter, dptFilter]);
+
+  const filtered = dxMemo(() => {
+    let xs = scoped;
+    if (excluded.size) xs = xs.filter(r => !excluded.has(payableCreditorName(r)));
     return xs.slice().sort((a, b) => {
       let av = a[sortKey], bv = b[sortKey];
       if (sortKey === 'vchdate' || sortKey === 'due2') {
@@ -2481,7 +2783,204 @@ function DataPayablePage({ data, setData, toast }) {
       av = String(av||''); bv = String(bv||'');
       return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
     });
-  }, [rows, docFilter, dptFilter, query, sortKey, sortDir]);
+  }, [scoped, excluded, sortKey, sortDir]);
+
+  // ── แผนจ่าย: map เลขที่ใบ (REF_DOC) → "งวด" ที่วางแผน (forecastEntries EXPENSE_TYPE=AP, ผ่อนได้หลายงวด) ──
+  const apPlansByVchno = dxMemo(() => {
+    const m = {};
+    (data.forecastEntries || []).forEach(f => {
+      if (f.EXPENSE_TYPE !== 'AP') return;
+      const ref = String(f.REF_DOC || '').trim();
+      if (!ref) return;
+      const isActual = (f.ACTUAL_AMOUNT != null && f.ACTUAL_AMOUNT !== '') || f.STATUS === 'ACTUAL';
+      (m[ref] || (m[ref] = [])).push({
+        id: f.id, date: f.PAYMENT_DATE || f.DATE || '', amount: Math.abs(parseNum(f.AMOUNT)),
+        actual: isActual, bankAc: f.Bank_AC || '', category: f.CATEGORY != null ? String(f.CATEGORY) : '',
+      });
+    });
+    Object.keys(m).forEach(k => m[k].sort((a, b) => (parseDue(a.date) || 0) - (parseDue(b.date) || 0)));
+    return m;
+  }, [data.forecastEntries]);
+  const apPlanInfo = (r) => {
+    const plans = apPlansByVchno[String(r.vchno || '').trim()] || [];
+    const net = parseNum(r.netpayment);
+    const plannedSum = plans.reduce((s, p) => s + p.amount, 0);
+    return { plans, plannedSum, net, remaining: net - plannedSum, anyActual: plans.some(p => p.actual) };
+  };
+  const isPlanned = (r) => (apPlansByVchno[String(r.vchno || '').trim()] || []).length > 0;
+
+  const isoOfDate = (dt) => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+  const _feIsActual = (f) => (f.ACTUAL_AMOUNT != null && f.ACTUAL_AMOUNT !== '') || f.STATUS === 'ACTUAL';
+  const _newApRow = (ap, payDate, amount, opts, idSuffix) => ({
+    id: 'ap-' + idSuffix, DATE: isoOfDate(new Date()), PAYMENT_DATE: payDate, EXPENSE_TYPE: 'AP',
+    DESCRIPTION: 'จ่าย ' + (ap.cust_name || '') + (ap.vchno ? ' (' + ap.vchno + ')' : ''),
+    JOB_NO: null, PROJECT_NAME: null, AMOUNT: String(-Math.abs(amount)),
+    Bank_AC: (opts && opts.bankAc) || null, STATUS: 'PLANNED', CATEGORY: ((opts && opts.category) || ap.cf_category) || null,
+    IS_ACCRUED: null, NOTE: null, ACTUAL_AMOUNT: null, ACTUAL_DATE: null,
+    REF_DOC: ap.vchno || null, BOOKED_AT: null, CFS_ACTIVITY: null,
+  });
+
+  // ใบเดียว — แบ่งจ่ายหลายงวด: reconcile forecast AP ของใบนี้ตาม lines (เพิ่ม/แก้/ลบ)
+  const commitInstallments = (ap, lines) => {
+    if (!setData || !ap) return;
+    const ref = String(ap.vchno || '').trim();
+    if (!ref) { toast && toast('รายการนี้ไม่มีเลขที่ใบ — วางแผนไม่ได้'); return; }
+    const clean = (lines || []).filter(l => l.date && Number(l.amount) > 0);
+    const ts = Date.now();
+    setData(prev => {
+      const fe = prev.forecastEntries || [];
+      const keepIds = new Set(clean.filter(l => l.id).map(l => l.id));
+      // คงทุกแถวที่ไม่ใช่ AP-plan ของใบนี้ ; AP-plan ของใบนี้เก็บเฉพาะ (จ่ายจริง หรือยังอยู่ใน lines)
+      let next = fe.filter(f => {
+        if (f.EXPENSE_TYPE !== 'AP' || String(f.REF_DOC || '').trim() !== ref) return true;
+        return _feIsActual(f) || keepIds.has(f.id);
+      });
+      const byId = new Map(clean.filter(l => l.id).map(l => [l.id, l]));
+      next = next.map(f => {
+        if (!byId.has(f.id) || _feIsActual(f)) return f;
+        const l = byId.get(f.id);
+        return { ...f, PAYMENT_DATE: l.date, AMOUNT: String(-Math.abs(Number(l.amount) || 0)),
+          Bank_AC: l.bankAc || null, CATEGORY: (l.category || ap.cf_category) || null,
+          DESCRIPTION: 'จ่าย ' + (ap.cust_name || '') + ' (' + ap.vchno + ')' };
+      });
+      const adds = clean.filter(l => !l.id).map((l, i) => _newApRow(ap, l.date, Number(l.amount) || 0, { bankAc: l.bankAc, category: l.category }, ts + '-' + i));
+      return { ...prev, forecastEntries: [...next, ...adds] };
+    });
+    if (window.WTPData && typeof window.WTPData.forceSyncNow === 'function') window.WTPData.forceSyncNow();
+    toast && toast('บันทึกแผนจ่าย ' + clean.length + ' งวดแล้ว');
+    setPlanTarget(null);
+    setSelectedAp(new Set());
+  };
+
+  // หลายใบ — วางแผน "ยอดคงเหลือ" ของแต่ละใบในวันเดียว (เพิ่มงวดใหม่ ; ใบที่วางแผนครบแล้วข้าม)
+  const commitBulkPlan = (aps, opts) => {
+    if (!setData || !aps.length) return;
+    const payDate = opts.payDate;
+    if (!payDate) { toast && toast('เลือกวันที่วางแผนจ่ายก่อน'); return; }
+    const ts = Date.now();
+    setData(prev => {
+      const fe = prev.forecastEntries || [];
+      const plannedSum = {};
+      fe.forEach(f => { if (f.EXPENSE_TYPE === 'AP') { const ref = String(f.REF_DOC || '').trim(); if (ref) plannedSum[ref] = (plannedSum[ref] || 0) + Math.abs(parseNum(f.AMOUNT)); } });
+      const rows = [];
+      aps.forEach((ap, i) => {
+        const remaining = parseNum(ap.netpayment) - (plannedSum[String(ap.vchno || '').trim()] || 0);
+        if (remaining <= 0.01) return;   // วางแผนครบแล้ว ข้าม
+        rows.push(_newApRow(ap, payDate, remaining, opts, ts + '-' + i));
+      });
+      return { ...prev, forecastEntries: [...fe, ...rows] };
+    });
+    if (window.WTPData && typeof window.WTPData.forceSyncNow === 'function') window.WTPData.forceSyncNow();
+    toast && toast('วางแผนจ่าย ' + aps.length + ' รายการ → ' + fmtDate(payDate));
+    setPlanTarget(null);
+    setSelectedAp(new Set());
+  };
+
+  // ยกเลิกแผนจ่าย — ลบ forecast ที่ผูก AP (เฉพาะที่ยังไม่จ่ายจริง)
+  const cancelPlan = (aps) => {
+    if (!setData || !aps.length) return;
+    const refs = new Set(aps.map(a => String(a.vchno || '').trim()).filter(Boolean));
+    if (!refs.size) return;
+    if (!window.confirm('ยกเลิกแผนจ่าย ' + aps.length + ' รายการ?')) return;
+    setData(prev => ({
+      ...prev,
+      forecastEntries: (prev.forecastEntries || []).filter(f => {
+        if (f.EXPENSE_TYPE !== 'AP') return true;
+        const ref = String(f.REF_DOC || '').trim();
+        if (!ref || !refs.has(ref)) return true;
+        return _feIsActual(f);   // จ่ายจริงแล้ว = เก็บ ; แผนล้วน = ลบ (ทุกงวด)
+      }),
+    }));
+    if (window.WTPData && typeof window.WTPData.forceSyncNow === 'function') window.WTPData.forceSyncNow();
+    toast && toast('ยกเลิกแผนจ่าย ' + aps.length + ' รายการแล้ว');
+    setPlanTarget(null);
+    setSelectedAp(new Set());
+  };
+
+  // ── ขอบเขตรายงาน (มุมมองอายุหนี้) — กรอง filtered ตามโหมด + ช่วงวันที่ ──
+  const matrixRows = dxMemo(() => {
+    if (reportMode === 'all' && !rptFrom && !rptTo) return filtered;
+    const from = rptFrom ? parseDue(rptFrom) : null;
+    const to = rptTo ? (() => { const d = parseDue(rptTo); if (d) d.setHours(23, 59, 59, 999); return d; })() : null;
+    return filtered.filter(r => {
+      const plans = apPlansByVchno[String(r.vchno || '').trim()] || [];
+      const planned = plans.length > 0;
+      if (reportMode === 'unplanned' && planned) return false;
+      if (reportMode === 'planned' && !planned) return false;
+      if (from || to) {
+        if (reportMode === 'planned') {
+          // วางแผนแล้ว: เข้าช่วงถ้ามี "งวด" ใดวันจ่ายอยู่ในช่วง
+          const inRange = plans.some(p => { const d = parseDue(p.date); return d && (!from || d >= from) && (!to || d <= to); });
+          if (!inRange) return false;
+        } else {
+          const d = parseDue(r.due2);
+          if (!d || (from && d < from) || (to && d > to)) return false;
+        }
+      }
+      return true;
+    });
+  }, [filtered, reportMode, rptFrom, rptTo, apPlansByVchno]);
+
+  // จัดกลุ่มตามเจ้าหนี้ — เรียงเจ้าหนี้ที่ "เกินดิว" มากสุดขึ้นก่อน
+  const groupByCreditor = dxMemo(() => {
+    const today = new Date();
+    const map = new Map();
+    filtered.forEach(r => {
+      const name = payableCreditorName(r);
+      let o = map.get(name);
+      if (!o) { o = { name, rows: [], net: 0, overdue: 0, overdueCount: 0, buckets: {} }; map.set(name, o); }
+      o.rows.push(r);
+      const np = parseNum(r.netpayment);
+      o.net += np;
+      const ag = payableAging(r, today);
+      o.buckets[ag.key] = (o.buckets[ag.key] || 0) + np;
+      if (ag.key === 'overdue') { o.overdue += np; o.overdueCount++; }
+    });
+    return [...map.values()].sort((a, b) => b.overdue - a.overdue || b.net - a.net);
+  }, [filtered]);
+
+  // จัดกลุ่มตามช่วงอายุ (เกินกำหนด → ครบใน 7/30 วัน → เกิน 30 → ไม่ระบุ)
+  const groupByAging = dxMemo(() => {
+    const today = new Date();
+    const map = {};
+    PAYABLE_AGING.forEach(a => { map[a.key] = { ...a, rows: [], net: 0 }; });
+    filtered.forEach(r => {
+      const g = map[payableAging(r, today).key];
+      g.rows.push(r);
+      g.net += parseNum(r.netpayment);
+    });
+    PAYABLE_AGING.forEach(a => {
+      map[a.key].rows.sort((x, y) => (parseDue(x.due2) || new Date(0)) - (parseDue(y.due2) || new Date(0)));
+    });
+    return PAYABLE_AGING.map(a => map[a.key]).filter(g => g.rows.length);
+  }, [filtered]);
+
+  // ตารางอายุหนี้รายเจ้าหนี้ — 1 แถว/เจ้า แตกยอดเป็น 6 ช่วงอายุ (+ ไม่ระบุ ถ้ามี)
+  const agingMatrix = dxMemo(() => {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const map = new Map();
+    matrixRows.forEach(r => {
+      const name = payableCreditorName(r);
+      let o = map.get(name);
+      if (!o) { o = { name, total: 0, overdue: 0, none: 0, buckets: {}, rows: [] }; map.set(name, o); }
+      o.rows.push(r);
+      const np = parseNum(r.netpayment);
+      o.total += np;
+      const b = payableAging6(r, today);
+      if (b === 'none') o.none += np;
+      else o.buckets[b] = (o.buckets[b] || 0) + np;
+    });
+    const list = [...map.values()];
+    list.forEach(o => { o.overdue = PAYABLE_OD_KEYS.reduce((s, k) => s + (o.buckets[k] || 0), 0); });
+    list.sort((a, b) => b.overdue - a.overdue || b.total - a.total);
+    const colTotals = { total: 0, none: 0 };
+    PAYABLE_AGING6_KEYS.forEach(k => { colTotals[k] = 0; });
+    list.forEach(o => {
+      colTotals.total += o.total; colTotals.none += o.none;
+      PAYABLE_AGING6_KEYS.forEach(k => { colTotals[k] += (o.buckets[k] || 0); });
+    });
+    return { list, colTotals, hasNone: list.some(o => o.none > 0) };
+  }, [matrixRows]);
 
   const suggestions = dxMemo(() => {
     if (!query || query.length < 2) return [];
@@ -2524,6 +3023,219 @@ function DataPayablePage({ data, setData, toast }) {
   };
   const apSort = { key: sortKey, dir: sortDir };
 
+  // ── ตัวกรองเจ้าหนี้ + กลุ่ม ──────────────────────────────────────────────────
+  const toggleExcluded = (name) => setExcluded(prev => {
+    const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n;
+  });
+  const showAllCreditors  = () => setExcluded(new Set());
+  const hideAllCreditors  = () => setExcluded(new Set(creditorOptions.map(o => o.name)));
+  const toggleGroup = (key) => setExpanded(prev => {
+    const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n;
+  });
+  const credOptShown = creditorOptions.filter(o =>
+    !credQuery.trim() || o.name.toLowerCase().includes(credQuery.toLowerCase()));
+
+  // ติ๊กเลือกรายการเพื่อวางแผนจ่ายหลายอัน
+  const toggleSelAp = (id) => setSelectedAp(prev => {
+    const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n;
+  });
+  const setManyAp = (ids, on) => setSelectedAp(prev => {
+    const n = new Set(prev); ids.forEach(id => on ? n.add(id) : n.delete(id)); return n;
+  });
+
+  // ── พิมพ์ PDF (ใช้ window.print + print CSS ซ่อน chrome) ────────────────────
+  const printAging = () => {
+    const styleId = 'ap-aging-print-style';
+    let style = document.getElementById(styleId);
+    if (!style) { style = document.createElement('style'); style.id = styleId; document.head.appendChild(style); }
+    // override .tbl print rules ใน styles.css (ใช้ specificity .ap-aging-card .tbl + !important → ชนะ)
+    style.textContent = `
+      @media print {
+        @page { size: A4 portrait; margin: 9mm 8mm; }
+        html, body { background: #fff !important; }
+        .sb, .sb-scrim, .topbar, .no-print { display: none !important; }
+        .app { grid-template-columns: 1fr !important; display: block !important; }
+        .main { display: block !important; }
+        .page { max-width: none !important; padding: 0 !important; margin: 0 !important; overflow: visible !important; }
+        /* เอาเฉพาะตารางอายุหนี้ — ซ่อนหัวการ์ด KPI / ชื่อหน้า / แถบกรอง / แบนเนอร์ */
+        .page > *:not(.ap-aging-card) { display: none !important; }
+        .ap-aging-card, .ap-aging-card * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+        .ap-aging-card { box-shadow: none !important; border: none !important; padding: 0 !important; break-inside: auto; }
+        .ap-aging-scroll { max-height: none !important; overflow: visible !important; }
+        /* ── ตารางโฉมใหม่: หัวเขียวตัวขาว · ไม่มีเส้นกริดแนวตั้ง · เว้นช่องหายใจ ── */
+        .ap-aging-card .tbl { min-width: 0 !important; width: 100% !important; font-size: 8.5pt !important; border-collapse: separate !important; border-spacing: 0 !important; }
+        .ap-aging-card .tbl th, .ap-aging-card .tbl td { min-width: 0 !important; position: static !important; }
+        .ap-aging-card .tbl thead { display: table-header-group !important; }
+        .ap-aging-card .tbl thead th { background: #2a6fdb !important; color: #fff !important; border: none !important; padding: 7pt 7pt !important; font-weight: 700 !important; font-size: 8.5pt !important; white-space: nowrap !important; }
+        .ap-aging-card .tbl tbody td { border: none !important; border-bottom: 1px solid #e6edf7 !important; padding: 5.5pt 7pt !important; font-size: 8.5pt !important; }
+        .ap-aging-card .tbl tbody tr { break-inside: avoid; }
+        .ap-aging-card .tbl tbody tr:hover td { background: inherit !important; }
+        .ap-aging-card .tbl tfoot td { border: none !important; border-top: 2px solid #2a6fdb !important; background: #eaf1fb !important; padding: 7pt !important; font-weight: 700 !important; font-size: 8.5pt !important; }
+        /* คอลัมน์ชื่อเจ้าหนี้: ตัดบรรทัดได้ ไม่ดันตารางล้นแนวตั้ง */
+        .ap-aging-card .tbl th:first-child, .ap-aging-card .tbl td:first-child { max-width: 52mm !important; white-space: normal !important; word-break: break-word !important; }
+      }`;
+    const _d = new Date(); const p2 = (n) => String(n).padStart(2, '0');
+    const brand = (window.WTP_CONFIG && window.WTP_CONFIG.BRAND_CODE) || 'BIO';
+    const prevTitle = document.title;
+    document.title = `${brand} - อายุหนี้เจ้าหนี้ ${p2(_d.getDate())}.${p2(_d.getMonth() + 1)}.${_d.getFullYear()}`;
+    const cleanup = () => { document.title = prevTitle; if (style.parentNode) style.parentNode.removeChild(style); window.removeEventListener('afterprint', cleanup); };
+    window.addEventListener('afterprint', cleanup);
+    setTimeout(cleanup, 60000);
+    setTimeout(() => window.print(), 50);
+  };
+
+  // ── บันทึกเป็นรูป PNG (html2canvas) ─────────────────────────────────────────
+  const saveAgingImage = async () => {
+    if (typeof window.html2canvas !== 'function') { toast && toast('ตัวช่วยบันทึกรูปยังโหลดไม่เสร็จ — ลองใหม่อีกครั้ง'); return; }
+    const node = matrixRef.current; if (!node) return;
+    const scroll = node.querySelector('.ap-aging-scroll');
+    const prevMax = scroll ? scroll.style.maxHeight : null, prevOv = scroll ? scroll.style.overflow : null;
+    if (scroll) { scroll.style.maxHeight = 'none'; scroll.style.overflow = 'visible'; }
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    try {
+      const canvas = await window.html2canvas(node, { backgroundColor: '#ffffff', scale: 2, useCORS: true, logging: false,
+        ignoreElements: (el) => el.classList && el.classList.contains('no-print') });   // ตัดแถบควบคุม/ปุ่มออกจากรูป
+      const link = document.createElement('a');
+      const _d = new Date(); const p2 = (n) => String(n).padStart(2, '0');
+      const brand = (window.WTP_CONFIG && window.WTP_CONFIG.BRAND_CODE) || 'BIO';
+      link.download = `${brand}-อายุหนี้-${_d.getFullYear()}${p2(_d.getMonth() + 1)}${p2(_d.getDate())}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } catch (err) { console.error('save image failed', err); toast && toast('บันทึกรูปไม่สำเร็จ: ' + (err && err.message ? err.message : err)); }
+    finally { if (scroll) { scroll.style.maxHeight = prevMax; scroll.style.overflow = prevOv; } }
+  };
+
+  // ── เรนเดอร์ตารางรายการย่อยในกลุ่ม (คลิกแถวเพื่อแก้ไข + วางแผนจ่ายรายใบ) ──────
+  const renderDetailTable = (rowsArr) => {
+    const selectable = canEdit ? rowsArr.filter(r => r.vchno) : [];
+    const unplanned  = canEdit ? rowsArr.filter(r => r.vchno && !isPlanned(r)) : [];
+    const selInTable = selectable.filter(r => selectedAp.has(r.id));
+    const allSel     = selectable.length > 0 && selInTable.length === selectable.length;
+    return (
+      <div>
+        {canEdit && selectable.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'flex-end', padding: '6px 0 4px', borderBottom: '1px solid var(--ink-50)', marginBottom: 4 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: 'var(--ink-600)', cursor: 'pointer', marginRight: 'auto' }} onClick={(e) => e.stopPropagation()}>
+              <input type="checkbox" checked={allSel} ref={el => { if (el) el.indeterminate = selInTable.length > 0 && !allSel; }}
+                onChange={() => setManyAp(selectable.map(r => r.id), !allSel)} style={{ cursor: 'pointer' }} />
+              เลือกทั้งหมด ({selectable.length})
+            </label>
+            {selInTable.length > 0
+              ? <button className="btn btn-primary" style={{ height: 28, fontSize: 12, padding: '0 10px' }}
+                  onClick={(e) => { e.stopPropagation(); setPlanTarget({ aps: selInTable }); }}>
+                  📅 วางแผนจ่ายที่เลือก ({selInTable.length})
+                </button>
+              : unplanned.length > 0 && <button className="btn btn-ghost" style={{ height: 28, fontSize: 12, padding: '0 10px' }}
+                  onClick={(e) => { e.stopPropagation(); setPlanTarget({ aps: unplanned }); }}>
+                  📅 วางแผนจ่ายทั้งหมดที่ยังไม่วางแผน ({unplanned.length})
+                </button>}
+          </div>
+        )}
+        <table className="tbl" style={{ width: '100%', fontSize: 12 }}>
+          <tbody>
+            {rowsArr.map(r => {
+              const ag  = payableAging(r);
+              const am  = PAYABLE_AGING_BY_KEY[ag.key];
+              const due = parseDue(r.due2);
+              const info = apPlanInfo(r);
+              const sel  = selectedAp.has(r.id);
+              return (
+                <tr key={r.id} onClick={() => setEdit(r)} style={{ cursor: 'pointer', background: sel ? 'var(--brand-50)' : undefined }}>
+                  {canEdit && (
+                    <td style={{ width: 30, textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                      {r.vchno ? <input type="checkbox" checked={sel} onChange={() => toggleSelAp(r.id)} style={{ cursor: 'pointer' }} /> : null}
+                    </td>
+                  )}
+                  <td style={{ whiteSpace: 'nowrap', color: 'var(--ink-500)', width: 84 }}>{fmtDate(r.vchdate) || '—'}</td>
+                  <td style={{ fontFamily: 'ui-monospace', color: 'var(--brand-700)', fontWeight: 600, width: 130 }}>{r.vchno || '—'}</td>
+                  <td style={{ color: 'var(--ink-700)' }}>{r.cust_name || '—'}</td>
+                  <td style={{ whiteSpace: 'nowrap', width: 96, color: am.color }}>
+                    {due ? `${String(due.getDate()).padStart(2,'0')}/${String(due.getMonth()+1).padStart(2,'0')}/${due.getFullYear()}` : '—'}
+                  </td>
+                  <td style={{ width: 100, textAlign: 'center' }}>
+                    {ag.days === null ? <span className="muted">—</span>
+                      : ag.key === 'overdue' ? <span style={{ background: 'var(--bad)', color: '#fff', borderRadius: 5, padding: '1px 6px', fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap' }}>เกิน {Math.abs(ag.days)} วัน</span>
+                      : ag.days === 0 ? <span style={{ color: 'var(--bad)', fontWeight: 700, fontSize: 11 }}>วันนี้!</span>
+                      : <span style={{ color: am.color, fontSize: 11 }}>อีก {ag.days} วัน</span>}
+                  </td>
+                  <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--bad)', fontVariantNumeric: 'tabular-nums', width: 120 }}>{fmtNum(parseNum(r.netpayment), 2)}</td>
+                  <td style={{ width: 168, textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                    {(() => {
+                      const planLabel = info.anyActual
+                        ? (info.remaining > 0.01 ? `จ่าย+ผ่อน · เหลือ ${fmtNum(info.remaining, 0)}` : 'จ่ายแล้ว')
+                        : (info.plans.length > 1
+                            ? `${info.plans.length} งวด` + (info.remaining > 0.01 ? ` · เหลือ ${fmtNum(info.remaining, 0)}` : ' · ครบ')
+                            : (info.remaining > 0.01 ? `วางแผน ${fmtNum(info.plannedSum, 0)} · เหลือ ${fmtNum(info.remaining, 0)}` : `วางแผนครบ`));
+                      const full = info.remaining <= 0.01;
+                      if (info.plans.length === 0) {
+                        return canEdit
+                          ? <button className="no-print" onClick={() => setPlanTarget({ aps: [r] })}
+                              style={{ border: '1px solid var(--ink-200)', background: 'var(--panel)', color: 'var(--ink-600)', borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                              วางแผนจ่าย
+                            </button>
+                          : <span className="muted">—</span>;
+                      }
+                      const col = full ? 'var(--brand-700)' : 'oklch(52% 0.13 70)';
+                      const bg  = full ? 'var(--brand-50)' : 'color-mix(in oklch, oklch(60% 0.16 75) 12%, transparent)';
+                      return canEdit
+                        ? <button className="no-print" title="แก้/แบ่งงวด/ยกเลิกแผนจ่าย" onClick={() => setPlanTarget({ aps: [r] })}
+                            style={{ border: '1px solid ' + (full ? 'var(--brand-300, #9ad3ab)' : 'color-mix(in oklch, oklch(60% 0.16 75) 40%, transparent)'), background: bg, color: col, borderRadius: 6, padding: '2px 8px', fontSize: 10.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                            📅 {planLabel}
+                          </button>
+                        : <span style={{ color: col, fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap' }}>📅 {planLabel}</span>;
+                    })()}
+                  </td>
+                  <td style={{ color: 'var(--ink-500)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.remark || ''}>{r.remark || '—'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
+  // กลุ่มตามเจ้าหนี้ — แถบสรุปต่อเจ้า + chips ช่วงอายุ, คลิกกางดูรายการ
+  const renderCreditorGroup = (g) => {
+    const key = 'c:' + g.name;
+    const open = expanded.has(key);
+    return (
+      <div key={key} style={{ borderBottom: '1px solid var(--ink-100)' }}>
+        <div onClick={() => toggleGroup(key)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', cursor: 'pointer', background: open ? 'var(--brand-50)' : 'transparent' }}>
+          <span style={{ width: 12, fontSize: 11, color: 'var(--ink-400)', display: 'inline-block', transition: 'transform .12s', transform: open ? 'rotate(90deg)' : 'none' }}>▶</span>
+          <span style={{ flex: 1, fontWeight: 600, fontSize: 13, color: 'var(--ink-900)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 120 }} title={g.name}>{g.name}</span>
+          <div style={{ display: 'flex', gap: 5, flex: '0 0 auto', flexWrap: 'wrap', justifyContent: 'flex-end', maxWidth: 360 }}>
+            {PAYABLE_AGING.map(a => g.buckets[a.key] ? (
+              <span key={a.key} style={{ fontSize: 10.5, fontWeight: 700, color: a.color, background: a.bg, borderRadius: 5, padding: '2px 7px', whiteSpace: 'nowrap' }} title={a.label}>
+                {a.key === 'overdue' ? 'เกิน ' : ''}{fmtNum(g.buckets[a.key], 0)}
+              </span>
+            ) : null)}
+          </div>
+          <span style={{ fontSize: 11, color: 'var(--ink-400)', flex: '0 0 auto', minWidth: 56, textAlign: 'right' }}>{g.rows.length} รายการ</span>
+          <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--bad)', fontVariantNumeric: 'tabular-nums', flex: '0 0 auto', minWidth: 118, textAlign: 'right' }}>{fmtNum(g.net, 2)}</span>
+        </div>
+        {open && <div style={{ padding: '0 16px 12px 38px', background: 'color-mix(in oklch, var(--brand-50) 38%, transparent)' }}>{renderDetailTable(g.rows)}</div>}
+      </div>
+    );
+  };
+
+  // กลุ่มตามช่วงอายุ — แถบสีตามถัง, คลิกกางดูรายการ
+  const renderAgingGroup = (g) => {
+    const key = 'a:' + g.key;
+    const open = expanded.has(key);
+    return (
+      <div key={key} style={{ borderBottom: '1px solid var(--ink-100)' }}>
+        <div onClick={() => toggleGroup(key)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 16px', cursor: 'pointer', borderLeft: `4px solid ${g.color}`, background: open ? g.bg : 'transparent' }}>
+          <span style={{ width: 12, fontSize: 11, color: 'var(--ink-400)', display: 'inline-block', transition: 'transform .12s', transform: open ? 'rotate(90deg)' : 'none' }}>▶</span>
+          <span style={{ flex: 1, fontWeight: 700, fontSize: 13, color: g.color }}>{g.label}</span>
+          <span style={{ fontSize: 11, color: 'var(--ink-400)', flex: '0 0 auto', minWidth: 56, textAlign: 'right' }}>{g.rows.length} รายการ</span>
+          <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--bad)', fontVariantNumeric: 'tabular-nums', flex: '0 0 auto', minWidth: 118, textAlign: 'right' }}>{fmtNum(g.net, 2)}</span>
+        </div>
+        {open && <div style={{ padding: '0 16px 12px 24px' }}>{renderDetailTable(g.rows)}</div>}
+      </div>
+    );
+  };
+
   const save = (row) => {
     setData(d => ({
       ...d,
@@ -2531,6 +3243,7 @@ function DataPayablePage({ data, setData, toast }) {
         ? d.payables.map(x => x.id === row.id ? row : x)
         : [{ ...row, id: WTPData.newId() }, ...d.payables],
     }));
+    if (window.WTPData && typeof window.WTPData.forceSyncNow === 'function') window.WTPData.forceSyncNow();
     setEdit(null);
     toast('บันทึกข้อมูลแล้ว');
   };
@@ -2734,7 +3447,77 @@ function DataPayablePage({ data, setData, toast }) {
           ))}
         </div>
 
+        {/* มุมมอง: รายการ / จัดกลุ่ม / อายุหนี้ */}
+        <div className="tabnav" style={{ flex: '0 0 auto' }}>
+          <button className={viewMode === 'list' ? 'active' : ''} onClick={() => setViewMode('list')}>📄 รายการ</button>
+          <button className={viewMode === 'group' ? 'active' : ''} onClick={() => setViewMode('group')}>🗂 จัดกลุ่ม</button>
+          <button className={viewMode === 'matrix' ? 'active' : ''} onClick={() => setViewMode('matrix')}>📊 อายุหนี้</button>
+        </div>
+        {/* เมื่อจัดกลุ่ม: เลือกจัดกลุ่มตามเจ้าหนี้ / ช่วงอายุ */}
+        {viewMode === 'group' && (
+          <div className="tabnav" style={{ flex: '0 0 auto' }}>
+            <button className={groupBy === 'creditor' ? 'active' : ''} onClick={() => setGroupBy('creditor')}>ตามเจ้าหนี้</button>
+            <button className={groupBy === 'aging' ? 'active' : ''} onClick={() => setGroupBy('aging')}>ตามช่วงอายุ</button>
+          </div>
+        )}
+
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+          {/* ตัวกรองเจ้าหนี้ — เลือกหลายเจ้า / ติ๊กออกเจ้าที่จะจ่ายเอง */}
+          <div style={{ position: 'relative' }}>
+            <button className="btn btn-ghost" onClick={() => setCredFilterOpen(o => !o)}
+              style={{ height: 34, display: 'inline-flex', alignItems: 'center', gap: 6,
+                       border: excluded.size ? '1px solid var(--bad)' : '1px solid var(--ink-150)',
+                       background: excluded.size ? 'color-mix(in oklch, var(--bad) 8%, var(--surface))' : 'var(--surface)' }}>
+              <Icon name="filter" size={13} /> เจ้าหนี้
+              {excluded.size > 0
+                ? <span style={{ background: 'var(--bad)', color: '#fff', borderRadius: 20, padding: '1px 8px', fontSize: 11, fontWeight: 700 }}>ซ่อน {excluded.size}</span>
+                : <span style={{ color: 'var(--ink-400)', fontSize: 11 }}>({creditorOptions.length})</span>}
+              <span style={{ fontSize: 10, color: 'var(--ink-400)' }}>▾</span>
+            </button>
+            {credFilterOpen && (
+              <>
+                <div onClick={() => setCredFilterOpen(false)}
+                  style={{ position: 'fixed', inset: 0, zIndex: 290 }} />
+                <div style={{ position: 'absolute', top: '100%', right: 0, zIndex: 300, width: 360, marginTop: 6,
+                              background: '#fff', border: '1px solid var(--ink-150)', borderRadius: 10,
+                              boxShadow: '0 12px 32px rgba(0,0,0,0.18)', overflow: 'hidden' }}>
+                  <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--ink-100)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink-800)' }}>กรองเจ้าหนี้ ({creditorOptions.length})</span>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button className="btn btn-ghost" style={{ height: 26, fontSize: 11, padding: '0 8px' }} onClick={showAllCreditors}>แสดงทั้งหมด</button>
+                        <button className="btn btn-ghost" style={{ height: 26, fontSize: 11, padding: '0 8px' }} onClick={hideAllCreditors}>ซ่อนทั้งหมด</button>
+                      </div>
+                    </div>
+                    <div className="tb-search" style={{ background: 'var(--surface)', border: '1px solid var(--ink-150)', borderRadius: 8, boxShadow: 'none' }}>
+                      <Icon name="search" size={13} />
+                      <input value={credQuery} onChange={e => setCredQuery(e.target.value)} placeholder="ค้นหาชื่อเจ้าหนี้…" style={{ background: 'transparent' }} />
+                      {credQuery && <button style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 4px', color: 'var(--ink-400)' }} onClick={() => setCredQuery('')}>✕</button>}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--ink-400)', marginTop: 6 }}>ติ๊กออก = ซ่อนเจ้านั้นจากทุกมุมมอง (เจ้าที่เลือกจ่ายเอง)</div>
+                  </div>
+                  <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                    {credOptShown.length === 0 && <div style={{ padding: 18, textAlign: 'center', fontSize: 12 }} className="muted">ไม่พบเจ้าหนี้</div>}
+                    {credOptShown.map(o => {
+                      const checked = !excluded.has(o.name);
+                      return (
+                        <label key={o.name} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '7px 12px', cursor: 'pointer', borderBottom: '1px solid var(--ink-50)', opacity: checked ? 1 : 0.55 }}
+                          onMouseEnter={e => e.currentTarget.style.background = 'var(--brand-50)'}
+                          onMouseLeave={e => e.currentTarget.style.background = ''}>
+                          <input type="checkbox" checked={checked} onChange={() => toggleExcluded(o.name)} style={{ flex: '0 0 auto', cursor: 'pointer' }} />
+                          <span style={{ flex: 1, fontSize: 12.5, color: 'var(--ink-800)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={o.name}>{o.name}</span>
+                          {o.overdue > 0 && <span style={{ background: 'var(--bad)', color: '#fff', borderRadius: 5, padding: '1px 5px', fontSize: 10, fontWeight: 700, flex: '0 0 auto' }} title={`เกินกำหนด ${o.overdueCount} รายการ`}>เกิน {fmtNum(o.overdue, 0)}</span>}
+                          <span style={{ fontSize: 11.5, color: 'var(--ink-500)', fontVariantNumeric: 'tabular-nums', flex: '0 0 auto', minWidth: 78, textAlign: 'right' }}>{fmtNum(o.net, 0)}</span>
+                          <span style={{ fontSize: 10.5, color: 'var(--ink-400)', flex: '0 0 auto' }}>×{o.count}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
           {/* Dept dropdown */}
           <select value={dptFilter} onChange={e => setDptFilter(e.target.value)}
             style={{ height: 34, fontSize: 13, padding: '0 10px', border: '1px solid var(--ink-150)', borderRadius: 8, background: 'var(--surface)', color: 'var(--ink-800)', minWidth: 158, cursor: 'pointer' }}>
@@ -2769,7 +3552,8 @@ function DataPayablePage({ data, setData, toast }) {
         </div>
       </div>
 
-      {/* Table */}
+      {/* Table (มุมมองรายการ) */}
+      {viewMode === 'list' ? (
       <div className="card anim-in" style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'min(480px, calc(100vh - 400px))' }}>
           <table className="tbl" style={{ minWidth: 1300 }}>
@@ -2849,6 +3633,140 @@ function DataPayablePage({ data, setData, toast }) {
           </table>
         </div>
       </div>
+      ) : viewMode === 'group' ? (
+      /* มุมมองจัดกลุ่ม — ตามเจ้าหนี้ / ตามช่วงอายุ */
+      <div className="card anim-in" style={{ padding: 0, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center', padding: '10px 16px', borderBottom: '1px solid var(--ink-100)', background: 'var(--brand-50)' }}>
+          <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--brand-700)' }}>
+            {groupBy === 'creditor' ? `${groupByCreditor.length} เจ้าหนี้` : `${groupByAging.length} ช่วงอายุ`}
+          </span>
+          <span style={{ fontSize: 12.5, color: 'var(--ink-600)' }}>{filtered.length} รายการ</span>
+          {overdueNet > 0 && (
+            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--bad)' }}>เกินกำหนด {fmtNum(overdueNet, 0)} ({overdue} รายการ)</span>
+          )}
+          <span style={{ marginLeft: 'auto', fontSize: 13.5, fontWeight: 700, color: 'var(--bad)', fontVariantNumeric: 'tabular-nums' }}>รวม {fmtNum(fNet, 2)}</span>
+        </div>
+        <div style={{ maxHeight: 'min(560px, calc(100vh - 360px))', overflowY: 'auto' }}>
+          {filtered.length === 0
+            ? <div style={{ padding: 40, textAlign: 'center' }} className="muted">ไม่พบข้อมูล</div>
+            : groupBy === 'creditor'
+              ? groupByCreditor.map(renderCreditorGroup)
+              : groupByAging.map(renderAgingGroup)}
+        </div>
+      </div>
+      ) : (
+      /* มุมมองตารางอายุหนี้ — รายเจ้าหนี้ × 6 ช่วงอายุ */
+      <div className="card anim-in ap-aging-card" ref={matrixRef} style={{ padding: 0, overflow: 'hidden' }}>
+        {/* แถบควบคุมรายงาน — ไม่ขึ้นตอนพิมพ์/บันทึกรูป */}
+        <div className="no-print" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', padding: '10px 16px', borderBottom: '1px solid var(--ink-100)' }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-600)' }}>📤 รายงาน:</span>
+          <div className="tabnav" style={{ flex: '0 0 auto' }}>
+            <button className={reportMode === 'all' ? 'active' : ''} onClick={() => setReportMode('all')}>ทั้งหมด</button>
+            <button className={reportMode === 'unplanned' ? 'active' : ''} onClick={() => setReportMode('unplanned')}>ยังไม่วางแผนจ่าย</button>
+            <button className={reportMode === 'planned' ? 'active' : ''} onClick={() => setReportMode('planned')}>วางแผนแล้ว</button>
+          </div>
+          <span style={{ fontSize: 12, color: 'var(--ink-500)' }}>{reportMode === 'planned' ? 'วันจ่ายที่วางแผน' : 'วันครบกำหนด'}:</span>
+          <YmdPicker value={rptFrom} onChange={setRptFrom} size="sm" />
+          <span style={{ color: 'var(--ink-400)' }}>–</span>
+          <YmdPicker value={rptTo} onChange={setRptTo} size="sm" />
+          {(rptFrom || rptTo) && <button className="btn btn-ghost" style={{ height: 30, fontSize: 12 }} onClick={() => { setRptFrom(''); setRptTo(''); }}>ล้างช่วง</button>}
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+            <button className="btn btn-ghost" style={{ height: 32 }} onClick={printAging} title="พิมพ์ / บันทึกเป็น PDF">🖨️ พิมพ์ PDF</button>
+            <button className="btn btn-ghost" style={{ height: 32 }} onClick={saveAgingImage} title="บันทึกเป็นรูป PNG">🖼️ บันทึกรูป</button>
+          </div>
+        </div>
+        {/* แถบสรุป — แสดงตอนพิมพ์ด้วย */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center', padding: '10px 16px', borderBottom: '1px solid var(--ink-100)', background: 'var(--brand-50)' }}>
+          <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--brand-700)' }}>ตารางอายุหนี้เจ้าหนี้ · {agingMatrix.list.length} เจ้าหนี้</span>
+          <span style={{ fontSize: 12.5, color: 'var(--ink-600)' }}>{matrixRows.length} รายการ</span>
+          {(reportMode !== 'all' || rptFrom || rptTo) && (
+            <span style={{ fontSize: 12, color: 'var(--ink-500)', background: 'var(--panel)', borderRadius: 6, padding: '2px 8px' }}>
+              {reportMode === 'unplanned' ? 'เฉพาะยังไม่วางแผนจ่าย' : reportMode === 'planned' ? 'เฉพาะที่วางแผนจ่ายแล้ว' : 'ทั้งหมด'}
+              {(rptFrom || rptTo) ? ` · ${reportMode === 'planned' ? 'วันจ่าย' : 'ครบกำหนด'} ${rptFrom ? fmtDate(rptFrom) : '…'}–${rptTo ? fmtDate(rptTo) : '…'}` : ''}
+            </span>
+          )}
+          {PAYABLE_OD_KEYS.reduce((s, k) => s + agingMatrix.colTotals[k], 0) > 0 && (
+            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--bad)' }}>
+              เกินกำหนดรวม {fmtNum(PAYABLE_OD_KEYS.reduce((s, k) => s + agingMatrix.colTotals[k], 0), 0)}
+            </span>
+          )}
+          <span style={{ marginLeft: 'auto', fontSize: 13.5, fontWeight: 700, color: 'var(--bad)', fontVariantNumeric: 'tabular-nums' }}>รวม {fmtNum(agingMatrix.colTotals.total, 2)}</span>
+        </div>
+        <div className="ap-aging-scroll" style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'min(560px, calc(100vh - 360px))' }}>
+          <table className="tbl" style={{ minWidth: 1080 }}>
+            <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--panel)' }}>
+              <tr>
+                <th style={{ textAlign: 'left', minWidth: 220, position: 'sticky', left: 0, zIndex: 4, background: 'var(--brand-100)', color: 'var(--brand-700)' }}>เจ้าหนี้ / Vendor</th>
+                {PAYABLE_AGING6.map(a => (
+                  <th key={a.key} style={{ textAlign: 'right', minWidth: 116, whiteSpace: 'nowrap', color: a.color, background: 'var(--panel)' }} title={a.label}>{a.short}</th>
+                ))}
+                {agingMatrix.hasNone && <th style={{ textAlign: 'right', minWidth: 100, color: 'var(--ink-400)', background: 'var(--panel)' }} title="ไม่ระบุวันครบกำหนด">ไม่ระบุ</th>}
+                <th style={{ textAlign: 'right', minWidth: 130, color: 'var(--ink-800)', background: 'var(--panel)' }}>รวม</th>
+              </tr>
+            </thead>
+            <tbody>
+              {agingMatrix.list.length === 0 && (
+                <tr><td colSpan={2 + PAYABLE_AGING6.length + (agingMatrix.hasNone ? 1 : 0)} style={{ padding: 40, textAlign: 'center' }} className="muted">ไม่พบข้อมูล</td></tr>
+              )}
+              {agingMatrix.list.map(o => {
+                const key = 'm:' + o.name;
+                const open = expanded.has(key);
+                return (
+                  <React.Fragment key={key}>
+                    <tr onClick={() => toggleGroup(key)} style={{ cursor: 'pointer', background: open ? 'var(--brand-50)' : undefined }}>
+                      <td style={{ position: 'sticky', left: 0, zIndex: 2, background: open ? 'var(--brand-100)' : 'var(--brand-50)', fontWeight: 600, color: 'var(--ink-900)' }}>
+                        <span style={{ display: 'inline-block', width: 12, fontSize: 10, color: 'var(--ink-400)', transform: open ? 'rotate(90deg)' : 'none' }}>▶</span>{' '}
+                        <span title={o.name}>{o.name}</span>
+                      </td>
+                      {PAYABLE_AGING6.map(a => {
+                        const v = o.buckets[a.key] || 0;
+                        return (
+                          <td key={a.key} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', background: v ? a.tint : undefined, color: v ? (a.key === 'notdue' ? 'var(--ink-700)' : a.color) : 'var(--ink-300)', fontWeight: v && a.key !== 'notdue' ? 700 : 400 }}>
+                            {v ? fmtNum(v, 0) : '–'}
+                          </td>
+                        );
+                      })}
+                      {agingMatrix.hasNone && <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: o.none ? 'var(--ink-500)' : 'var(--ink-300)' }}>{o.none ? fmtNum(o.none, 0) : '–'}</td>}
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--bad)', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(o.total, 0)}</td>
+                    </tr>
+                    {open && (
+                      <tr>
+                        <td colSpan={2 + PAYABLE_AGING6.length + (agingMatrix.hasNone ? 1 : 0)} style={{ padding: '0 16px 12px 30px', background: 'color-mix(in oklch, var(--brand-50) 38%, transparent)' }}>
+                          {renderDetailTable(o.rows.slice().sort((x, y) => (parseDue(x.due2) || new Date(0)) - (parseDue(y.due2) || new Date(0))))}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr style={{ background: 'var(--brand-50)', fontWeight: 700 }}>
+                <td style={{ position: 'sticky', left: 0, zIndex: 2, background: 'var(--brand-50)', color: 'var(--brand-700)' }}>รวม {agingMatrix.list.length} เจ้าหนี้</td>
+                {PAYABLE_AGING6.map(a => (
+                  <td key={a.key} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: a.key === 'notdue' ? 'var(--ink-700)' : a.color }}>{agingMatrix.colTotals[a.key] ? fmtNum(agingMatrix.colTotals[a.key], 0) : '–'}</td>
+                ))}
+                {agingMatrix.hasNone && <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--ink-500)' }}>{agingMatrix.colTotals.none ? fmtNum(agingMatrix.colTotals.none, 0) : '–'}</td>}
+                <td style={{ textAlign: 'right', color: 'var(--bad)', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(agingMatrix.colTotals.total, 0)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+      )}
+
+      {/* Plan-payment modal */}
+      {planTarget && (
+        <PayablePlanModal
+          target={planTarget}
+          apPlansByVchno={apPlansByVchno}
+          bankAccounts={data.bankAccounts || []}
+          onCommitInstallments={commitInstallments}
+          onBulkPlan={commitBulkPlan}
+          onCancelPlan={cancelPlan}
+          onClose={() => setPlanTarget(null)}
+        />
+      )}
 
       {/* Import modal */}
       {showImport && (
@@ -3022,7 +3940,7 @@ function DataPayablePage({ data, setData, toast }) {
       )}
 
       {/* Edit / view modal */}
-      <APEditModal row={edit} onClose={() => setEdit(null)} onSave={save} onDelete={remove} />
+      <APEditModal row={edit} onClose={() => setEdit(null)} onSave={save} onDelete={remove} canEdit={canEdit} />
     </div>
   );
 }
