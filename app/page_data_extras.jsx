@@ -2084,11 +2084,11 @@ const payableCreditorName = (r) => String(r.cust_name || '').trim() || '(ไม�
 // ── ตารางอายุหนี้ (AP Aging) 6 ระดับ — overdue days = today − due (บวก = เกินกำหนด) ──
 const PAYABLE_AGING6 = [
   { key: 'notdue', label: 'ยังไม่ถึงกำหนด',     short: 'ยังไม่ถึงกำหนด', color: 'var(--ink-600)',     tint: 'transparent' },
-  { key: 'od1',    label: 'เกินกำหนด < 30 วัน', short: 'เกิน < 30 วัน',  color: 'oklch(68% 0.15 78)', tint: 'color-mix(in oklch, oklch(68% 0.15 78) 10%, transparent)' },
-  { key: 'od30',   label: 'เกินกำหนด 30 วัน',   short: 'เกิน 30 วัน',    color: 'oklch(64% 0.17 56)', tint: 'color-mix(in oklch, oklch(64% 0.17 56) 11%, transparent)' },
-  { key: 'od60',   label: 'เกินกำหนด 60 วัน',   short: 'เกิน 60 วัน',    color: 'oklch(60% 0.19 40)', tint: 'color-mix(in oklch, oklch(60% 0.19 40) 12%, transparent)' },
-  { key: 'od90',   label: 'เกินกำหนด 90 วัน',   short: 'เกิน 90 วัน',    color: 'oklch(57% 0.21 30)', tint: 'color-mix(in oklch, oklch(57% 0.21 30) 13%, transparent)' },
-  { key: 'od120',  label: 'เกินกำหนด 120 วัน+', short: 'เกิน 120 วัน+',  color: 'var(--bad)',         tint: 'color-mix(in oklch, var(--bad) 14%, transparent)' },
+  { key: 'od1',    label: 'เกินกำหนด < 30 วัน', short: 'เกิน < 30 วัน',  color: 'oklch(54% 0.15 70)', tint: '#fdf3e6' },
+  { key: 'od30',   label: 'เกินกำหนด 30 วัน',   short: 'เกิน 30 วัน',    color: 'oklch(52% 0.16 52)', tint: '#fceadb' },
+  { key: 'od60',   label: 'เกินกำหนด 60 วัน',   short: 'เกิน 60 วัน',    color: 'oklch(50% 0.17 38)', tint: '#fbe1d4' },
+  { key: 'od90',   label: 'เกินกำหนด 90 วัน',   short: 'เกิน 90 วัน',    color: 'oklch(49% 0.18 28)', tint: '#f9d7d0' },
+  { key: 'od120',  label: 'เกินกำหนด 120 วัน+', short: 'เกิน 120 วัน+',  color: 'oklch(48% 0.19 25)', tint: '#f6cccc' },
 ];
 const PAYABLE_AGING6_KEYS = PAYABLE_AGING6.map(a => a.key);
 const PAYABLE_OD_KEYS = ['od1', 'od30', 'od60', 'od90', 'od120'];   // เฉพาะถังที่เกินกำหนด
@@ -2808,6 +2808,12 @@ function DataPayablePage({ data, setData, toast }) {
     return { plans, plannedSum, net, remaining: net - plannedSum, anyActual: plans.some(p => p.actual) };
   };
   const isPlanned = (r) => (apPlansByVchno[String(r.vchno || '').trim()] || []).length > 0;
+  // ยอดที่ลงตารางอายุหนี้ตามโหมดรายงาน: all=ยอดเต็มใบ · planned=ยอดที่วางแผน · unplanned=ยอดคงเหลือ (เต็ม−วางแผน)
+  const matrixAmt = (r) => {
+    if (reportMode === 'all') return parseNum(r.netpayment);
+    const info = apPlanInfo(r);
+    return reportMode === 'planned' ? Math.min(info.plannedSum, info.net) : Math.max(0, info.remaining);
+  };
 
   const isoOfDate = (dt) => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
   const _feIsActual = (f) => (f.ACTUAL_AMOUNT != null && f.ACTUAL_AMOUNT !== '') || f.STATUS === 'ACTUAL';
@@ -2904,9 +2910,11 @@ function DataPayablePage({ data, setData, toast }) {
     const to = rptTo ? (() => { const d = parseDue(rptTo); if (d) d.setHours(23, 59, 59, 999); return d; })() : null;
     return filtered.filter(r => {
       const plans = apPlansByVchno[String(r.vchno || '').trim()] || [];
-      const planned = plans.length > 0;
-      if (reportMode === 'unplanned' && planned) return false;
-      if (reportMode === 'planned' && !planned) return false;
+      const plannedSum = plans.reduce((s, p) => s + p.amount, 0);
+      const remaining = parseNum(r.netpayment) - plannedSum;
+      // วางแผนแล้ว = มียอดวางแผน · ยังไม่วางแผน = ยังมีคงเหลือ (รวมใบที่วางแผนบางส่วน)
+      if (reportMode === 'planned' && plannedSum <= 0.01) return false;
+      if (reportMode === 'unplanned' && remaining <= 0.01) return false;
       if (from || to) {
         if (reportMode === 'planned') {
           // วางแผนแล้ว: เข้าช่วงถ้ามี "งวด" ใดวันจ่ายอยู่ในช่วง
@@ -2964,7 +2972,7 @@ function DataPayablePage({ data, setData, toast }) {
       let o = map.get(name);
       if (!o) { o = { name, total: 0, overdue: 0, none: 0, buckets: {}, rows: [] }; map.set(name, o); }
       o.rows.push(r);
-      const np = parseNum(r.netpayment);
+      const np = matrixAmt(r);   // all=ยอดเต็ม · planned=ยอดที่วางแผน · unplanned=ยอดคงเหลือ
       o.total += np;
       const b = payableAging6(r, today);
       if (b === 'none') o.none += np;
@@ -2980,7 +2988,44 @@ function DataPayablePage({ data, setData, toast }) {
       PAYABLE_AGING6_KEYS.forEach(k => { colTotals[k] += (o.buckets[k] || 0); });
     });
     return { list, colTotals, hasNone: list.some(o => o.none > 0) };
-  }, [matrixRows]);
+  }, [matrixRows, reportMode, apPlansByVchno]);
+
+  // รายการที่ "วางแผนจ่าย" (รายงวด) — สำหรับดึงออก Excel เพื่อหาเอกสารจริง/ทำบัญชี
+  // เคารพตัวกรองเจ้าหนี้ (filtered) + ช่วงวันที่รายงาน (rptFrom/rptTo จับกับวันจ่ายที่วางแผน)
+  const plannedRows = dxMemo(() => {
+    const from = rptFrom ? parseDue(rptFrom) : null;
+    const to = rptTo ? (() => { const d = parseDue(rptTo); if (d) d.setHours(23, 59, 59, 999); return d; })() : null;
+    const out = [];
+    filtered.forEach(r => {
+      const plans = apPlansByVchno[String(r.vchno || '').trim()] || [];
+      plans.forEach(p => {
+        const d = parseDue(p.date);
+        if (from && (!d || d < from)) return;
+        if (to && (!d || d > to)) return;
+        out.push({
+          planDate: p.date || '', vchno: r.vchno || '', cust_name: r.cust_name || '',
+          due2: r.due2 || '', installAmount: p.amount, fullAmount: parseNum(r.netpayment),
+          status: p.actual ? 'จ่ายจริงแล้ว' : 'วางแผน', bankAc: p.bankAc || '',
+          category: p.category || r.cf_category || '', dpt_code: r.dpt_code || '', remark: r.remark || '',
+        });
+      });
+    });
+    out.sort((a, b) => (parseDue(a.planDate) || new Date(0)) - (parseDue(b.planDate) || new Date(0)));
+    return out;
+  }, [filtered, apPlansByVchno, rptFrom, rptTo]);
+  const PLANNED_COLS = [
+    { key: 'planDate', label: 'วันที่วางแผนจ่าย', type: 'date' },
+    { key: 'vchno', label: 'เลขที่ใบสำคัญ' },
+    { key: 'cust_name', label: 'เจ้าหนี้ / Vendor' },
+    { key: 'due2', label: 'วันครบกำหนด', type: 'date' },
+    { key: 'installAmount', label: 'ยอดงวดที่วางแผน', type: 'number' },
+    { key: 'fullAmount', label: 'ยอดเต็มใบ', type: 'number' },
+    { key: 'status', label: 'สถานะ' },
+    { key: 'bankAc', label: 'บัญชีจ่าย' },
+    { key: 'category', label: 'หมวด CF' },
+    { key: 'dpt_code', label: 'แผนก' },
+    { key: 'remark', label: 'หมายเหตุ' },
+  ];
 
   const suggestions = dxMemo(() => {
     if (!query || query.length < 2) return [];
@@ -3088,12 +3133,35 @@ function DataPayablePage({ data, setData, toast }) {
   const saveAgingImage = async () => {
     if (typeof window.html2canvas !== 'function') { toast && toast('ตัวช่วยบันทึกรูปยังโหลดไม่เสร็จ — ลองใหม่อีกครั้ง'); return; }
     const node = matrixRef.current; if (!node) return;
+    // โหมดสแนปช็อต: หัวเขียว · ชื่อเจ้าหนี้บรรทัดเดียว (nowrap) · กางเต็ม · ขนาดพอดีเนื้อหา (พื้นช่วงอายุเป็น hex ทึบจาก cell อยู่แล้ว)
+    const styleId = 'ap-aging-snap-style';
+    let st = document.getElementById(styleId);
+    if (!st) { st = document.createElement('style'); st.id = styleId; document.head.appendChild(st); }
+    st.textContent = `
+      body.ap-aging-snap .ap-aging-card { box-shadow: none !important; animation: none !important; opacity: 1 !important; }
+      body.ap-aging-snap .ap-aging-card .no-print { display: none !important; }
+      body.ap-aging-snap .ap-aging-scroll { max-height: none !important; overflow: visible !important; }
+      body.ap-aging-snap .ap-aging-card .tbl { min-width: 0 !important; width: auto !important; font-size: 11px !important; }
+      body.ap-aging-snap .ap-aging-card .tbl th, body.ap-aging-snap .ap-aging-card .tbl td { min-width: 0 !important; position: static !important; padding: 5px 10px !important; white-space: nowrap !important; }
+      body.ap-aging-snap .ap-aging-card .tbl thead th { background: #2a6fdb !important; color: #fff !important; border: none !important; }
+      body.ap-aging-snap .ap-aging-card .tbl tbody td:first-child { background: #eef4fb !important; }
+      body.ap-aging-snap .ap-aging-card .tbl tfoot td { background: #eaf1fb !important; border-top: 2px solid #2a6fdb !important; }`;
+    document.body.classList.add('ap-aging-snap');
     const scroll = node.querySelector('.ap-aging-scroll');
     const prevMax = scroll ? scroll.style.maxHeight : null, prevOv = scroll ? scroll.style.overflow : null;
     if (scroll) { scroll.style.maxHeight = 'none'; scroll.style.overflow = 'visible'; }
+    const prevW = node.style.width, prevMaxW = node.style.maxWidth;
+    node.style.setProperty('width', 'max-content', 'important');
+    node.style.setProperty('max-width', 'none', 'important');
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+    // วัดความกว้างจาก "ตาราง" จริง (ไม่เอาความกว้างแถบควบคุมที่ซ่อนแล้ว)
+    const tbl = node.querySelector('.ap-aging-scroll table');
+    const capW = Math.ceil(Math.max((tbl ? tbl.scrollWidth : node.scrollWidth), 600));
     try {
       const canvas = await window.html2canvas(node, { backgroundColor: '#ffffff', scale: 2, useCORS: true, logging: false,
+        width: capW, windowWidth: capW + 60,
+        // กัน "หมอก": neutralize animation/opacity/filter ใน clone (anim-in fade ทำให้รูปซีด)
+        onclone: (cdoc) => { cdoc.querySelectorAll('.ap-aging-card, .ap-aging-card *').forEach(el => { if (!el.style) return; el.style.setProperty('animation', 'none', 'important'); el.style.setProperty('opacity', '1', 'important'); el.style.setProperty('filter', 'none', 'important'); el.style.setProperty('backdrop-filter', 'none', 'important'); }); },
         ignoreElements: (el) => el.classList && el.classList.contains('no-print') });   // ตัดแถบควบคุม/ปุ่มออกจากรูป
       const link = document.createElement('a');
       const _d = new Date(); const p2 = (n) => String(n).padStart(2, '0');
@@ -3102,7 +3170,12 @@ function DataPayablePage({ data, setData, toast }) {
       link.href = canvas.toDataURL('image/png');
       link.click();
     } catch (err) { console.error('save image failed', err); toast && toast('บันทึกรูปไม่สำเร็จ: ' + (err && err.message ? err.message : err)); }
-    finally { if (scroll) { scroll.style.maxHeight = prevMax; scroll.style.overflow = prevOv; } }
+    finally {
+      document.body.classList.remove('ap-aging-snap');
+      if (st.parentNode) st.parentNode.removeChild(st);
+      node.style.width = prevW; node.style.maxWidth = prevMaxW;
+      if (scroll) { scroll.style.maxHeight = prevMax; scroll.style.overflow = prevOv; }
+    }
   };
 
   // ── เรนเดอร์ตารางรายการย่อยในกลุ่ม (คลิกแถวเพื่อแก้ไข + วางแผนจ่ายรายใบ) ──────
@@ -3671,26 +3744,17 @@ function DataPayablePage({ data, setData, toast }) {
           <YmdPicker value={rptTo} onChange={setRptTo} size="sm" />
           {(rptFrom || rptTo) && <button className="btn btn-ghost" style={{ height: 30, fontSize: 12 }} onClick={() => { setRptFrom(''); setRptTo(''); }}>ล้างช่วง</button>}
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+            {plannedRows.length > 0 && (
+              <ExportButton
+                rows={plannedRows} columns={PLANNED_COLS}
+                filename="AP_planned_payments" sheetName="แผนจ่าย"
+                title={`รายการเจ้าหนี้ที่วางแผนจ่าย${(rptFrom || rptTo) ? ` · วันจ่าย ${rptFrom ? fmtDate(rptFrom) : '…'}–${rptTo ? fmtDate(rptTo) : '…'}` : ''}`}
+                label={`📋 รายการวางแผน (${plannedRows.length})`}
+              />
+            )}
             <button className="btn btn-ghost" style={{ height: 32 }} onClick={printAging} title="พิมพ์ / บันทึกเป็น PDF">🖨️ พิมพ์ PDF</button>
             <button className="btn btn-ghost" style={{ height: 32 }} onClick={saveAgingImage} title="บันทึกเป็นรูป PNG">🖼️ บันทึกรูป</button>
           </div>
-        </div>
-        {/* แถบสรุป — แสดงตอนพิมพ์ด้วย */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center', padding: '10px 16px', borderBottom: '1px solid var(--ink-100)', background: 'var(--brand-50)' }}>
-          <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--brand-700)' }}>ตารางอายุหนี้เจ้าหนี้ · {agingMatrix.list.length} เจ้าหนี้</span>
-          <span style={{ fontSize: 12.5, color: 'var(--ink-600)' }}>{matrixRows.length} รายการ</span>
-          {(reportMode !== 'all' || rptFrom || rptTo) && (
-            <span style={{ fontSize: 12, color: 'var(--ink-500)', background: 'var(--panel)', borderRadius: 6, padding: '2px 8px' }}>
-              {reportMode === 'unplanned' ? 'เฉพาะยังไม่วางแผนจ่าย' : reportMode === 'planned' ? 'เฉพาะที่วางแผนจ่ายแล้ว' : 'ทั้งหมด'}
-              {(rptFrom || rptTo) ? ` · ${reportMode === 'planned' ? 'วันจ่าย' : 'ครบกำหนด'} ${rptFrom ? fmtDate(rptFrom) : '…'}–${rptTo ? fmtDate(rptTo) : '…'}` : ''}
-            </span>
-          )}
-          {PAYABLE_OD_KEYS.reduce((s, k) => s + agingMatrix.colTotals[k], 0) > 0 && (
-            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--bad)' }}>
-              เกินกำหนดรวม {fmtNum(PAYABLE_OD_KEYS.reduce((s, k) => s + agingMatrix.colTotals[k], 0), 0)}
-            </span>
-          )}
-          <span style={{ marginLeft: 'auto', fontSize: 13.5, fontWeight: 700, color: 'var(--bad)', fontVariantNumeric: 'tabular-nums' }}>รวม {fmtNum(agingMatrix.colTotals.total, 2)}</span>
         </div>
         <div className="ap-aging-scroll" style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'min(560px, calc(100vh - 360px))' }}>
           <table className="tbl" style={{ minWidth: 1080 }}>
@@ -3714,14 +3778,14 @@ function DataPayablePage({ data, setData, toast }) {
                 return (
                   <React.Fragment key={key}>
                     <tr onClick={() => toggleGroup(key)} style={{ cursor: 'pointer', background: open ? 'var(--brand-50)' : undefined }}>
-                      <td style={{ position: 'sticky', left: 0, zIndex: 2, background: open ? 'var(--brand-100)' : 'var(--brand-50)', fontWeight: 600, color: 'var(--ink-900)' }}>
+                      <td style={{ position: 'sticky', left: 0, zIndex: 2, background: open ? 'var(--brand-100)' : 'var(--brand-50)', fontWeight: 600, color: 'var(--ink-900)', whiteSpace: 'nowrap' }}>
                         <span style={{ display: 'inline-block', width: 12, fontSize: 10, color: 'var(--ink-400)', transform: open ? 'rotate(90deg)' : 'none' }}>▶</span>{' '}
                         <span title={o.name}>{o.name}</span>
                       </td>
                       {PAYABLE_AGING6.map(a => {
                         const v = o.buckets[a.key] || 0;
                         return (
-                          <td key={a.key} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', background: v ? a.tint : undefined, color: v ? (a.key === 'notdue' ? 'var(--ink-700)' : a.color) : 'var(--ink-300)', fontWeight: v && a.key !== 'notdue' ? 700 : 400 }}>
+                          <td key={a.key} className={v ? ('apg-' + a.key) : undefined} style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', background: v ? a.tint : undefined, color: v ? (a.key === 'notdue' ? 'var(--ink-700)' : a.color) : 'var(--ink-300)', fontWeight: v && a.key !== 'notdue' ? 700 : 400 }}>
                             {v ? fmtNum(v, 0) : '–'}
                           </td>
                         );
