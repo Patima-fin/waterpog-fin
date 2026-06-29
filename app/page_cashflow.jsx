@@ -754,7 +754,7 @@ function CashFlowDashboard({ data, setData, toast }) {
     setS01OutMode(m);
     try { localStorage.setItem('wtp-cf-s01outmode', m); } catch (_) {}
   };
-  // ขอบเขตของโหมด 'apPlan': 'month' = ตั้งแต่สัปดาห์ปัจจุบันถึงสิ้นเดือน (เดิม) | 'week' = เฉพาะสัปดาห์ปัจจุบัน
+  // ขอบเขตของโหมด 'apPlan' + 'pv': 'month' = ตั้งแต่สัปดาห์ปัจจุบันถึงสิ้นเดือน (เดิม) | 'week' = เฉพาะสัปดาห์ปัจจุบัน
   const [s01ApScope, setS01ApScope] = cfState(() => {
     try { return localStorage.getItem('wtp-cf-s01apscope') === 'week' ? 'week' : 'month'; }
     catch (_) { return 'month'; }
@@ -1081,6 +1081,13 @@ function CashFlowDashboard({ data, setData, toast }) {
       ? apPlanCombinedByWeekCat.map((g, i) => i === nowWeek ? g : (forecastRemainingByWeekCat[i] || { 1: 0, 2: 0, 3: 0, 4: 0 }))
       : apPlanCombinedByWeekCat,
     [apPlanCombinedByWeekCat, s01ApScope, nowWeek, forecastRemainingByWeekCat]);
+  //   pvModeScopedByWeekCat = โหมด 'pv' จำกัดขอบเขตตาม s01ApScope (ใช้ปุ่มเดียวกับ AP)
+  //   'week' = สัปดาห์ปัจจุบัน = ยอด PV ที่ตัด · สัปดาห์ที่เหลือ = ประมาณการคงเหลือ (เหมือน AP) · 'month' = เต็มเดือน
+  const pvModeScopedByWeekCat = cfMemo(() =>
+    s01ApScope === 'week'
+      ? pvModeGridByWeekCat.map((g, i) => i === nowWeek ? g : (forecastRemainingByWeekCat[i] || { 1: 0, 2: 0, 3: 0, 4: 0 }))
+      : pvModeGridByWeekCat,
+    [pvModeGridByWeekCat, s01ApScope, nowWeek, forecastRemainingByWeekCat]);
 
   // ── IV PLAN lock — baseline "คาดรับ" ที่ freeze ตั้งแต่วันที่ 1 ของเดือน ──
   //   ovTick กระตุ้น recompute เมื่อ override (จาก cloud/user อื่น) เปลี่ยน
@@ -1355,7 +1362,7 @@ function CashFlowDashboard({ data, setData, toast }) {
   //   KPI การ์ด + Section 02 (ติดตามจ่ายจริง) ยังใช้ forecast เต็ม — ตัวเลขจึงต่างกันโดยตั้งใจ
   //   'pv' = ใช้ยอด PV ที่ตัดล่วงหน้า (รอจ่าย) ตรงๆ · 'apPlan' = แผน AP · 'remaining' = ประมาณการ − จ่ายแล้ว
   const _outGrid     = s01OutMode === 'apPlan' ? apPlanScopedByWeekCat
-                     : s01OutMode === 'pv'     ? pvModeGridByWeekCat
+                     : s01OutMode === 'pv'     ? pvModeScopedByWeekCat
                      : forecastRemainingByWeekCat;
   const _outRollover = (s01OutMode === 'apPlan' || s01OutMode === 'pv') ? { 1: 0, 2: 0, 3: 0, 4: 0 } : nextMonthInflow.out;
   const planOut  = {
@@ -1651,7 +1658,7 @@ function CashFlowDashboard({ data, setData, toast }) {
       const fA   = currentRestSplit(pvActualByWeekCat.map(g => g[cat] || 0),          0);
       const fR   = currentRestSplit(forecastRemainingByWeekCat.map(g => g[cat] || 0), nextMonthInflow.out[cat]);
       const fP   = currentRestSplit(pendingPvByWeekCat.map(g => g[cat] || 0),         0);
-      const fPvM = currentRestSplit(pvModeGridByWeekCat.map(g => g[cat] || 0),        0);
+      const fPvM = currentRestSplit(pvModeScopedByWeekCat.map(g => g[cat] || 0),      0);
       const fAny = currentRestSplit(pvAnyByWeekCat.map(g => g[cat] || 0),             0);
       const cell = s01OutMode === 'pv' ? fPvM[period] : fR[period];   // ยอดที่แสดงในช่อง ตามโหมด
       // โหมด pv + หมวดนี้ไม่มี PV เลย → ช่องใช้ประมาณการแทน (เช่น เงินเดือน/เบ็ดเตล็ด)
@@ -2224,17 +2231,17 @@ function CashFlowDashboard({ data, setData, toast }) {
                       {s01OutMode === 'apPlan'
                         ? <span>· <strong>แผนจ่ายจริง</strong> = รายการ AP ที่เลือกจ่าย (CARD BANK) + ตั้งมือที่ติ๊กรวม{s01ApScope === 'week' ? <span> · <strong>เฉพาะสัปดาห์นี้</strong></span> : ''}</span>
                         : s01OutMode === 'pv'
-                        ? <span>· <strong>ยอด PV ที่ตัด</strong> = ใบจ่าย (PV) ที่ตัดล่วงหน้า ยังไม่ถึงวันจ่าย · พอกดจ่ายจริงแล้วจะหักออก · <strong>หมวดที่ไม่มี PV (เช่น เงินเดือน) ใช้ประมาณการแทน</strong></span>
+                        ? <span>· <strong>ยอด PV ที่ตัด</strong> = ใบจ่าย (PV) ที่ตัดล่วงหน้า ยังไม่ถึงวันจ่าย · พอกดจ่ายจริงแล้วจะหักออก · <strong>หมวดที่ไม่มี PV (เช่น เงินเดือน) ใช้ประมาณการแทน</strong>{s01ApScope === 'week' ? <span> · <strong>เฉพาะสัปดาห์นี้</strong></span> : ''}</span>
                         : <span>· ยอด<strong>คงเหลือต้องจ่าย</strong> (หักที่จ่ายจริงแล้ว)</span>}
                     </span>
                   </div>
                   {/* ปุ่มสลับโหมด/ขอบเขต — ซ่อนในโหมดนำเสนอ (no-present) + ไม่ติดใน PNG capture (data-no-capture) */}
                   <div data-no-capture="1" className="no-present" style={{ display: 'inline-flex', alignItems: 'center', gap: cfScale(8), flexShrink: 0, flexWrap: 'wrap' }}>
-                    {s01OutMode === 'apPlan' && (
+                    {(s01OutMode === 'apPlan' || s01OutMode === 'pv') && (
                       <div style={{ display: 'inline-flex', borderRadius: cfScale(8), overflow: 'hidden', border: '1px solid var(--ink-400)', fontSize: cfScale(11), fontWeight: 700 }}>
                         {[['month', 'ทั้งเดือน'], ['week', 'เฉพาะสัปดาห์นี้']].map(([s, lbl]) => (
                           <button key={s} type="button" onClick={() => setS01ApScopePersist(s)}
-                            title={s === 'week' ? 'แสดงแผนจ่ายเฉพาะสัปดาห์ปัจจุบัน' : 'แสดงตั้งแต่สัปดาห์ปัจจุบันถึงสิ้นเดือน'}
+                            title={s === 'week' ? 'แสดงเฉพาะสัปดาห์ปัจจุบัน' : 'แสดงตั้งแต่สัปดาห์ปัจจุบันถึงสิ้นเดือน'}
                             style={{ padding: `${cfScale(4)} ${cfScale(9)}`, border: 'none', cursor: 'pointer',
                               background: s01ApScope === s ? 'var(--ink-600)' : 'transparent',
                               color: s01ApScope === s ? '#fff' : 'var(--ink-600)' }}>{lbl}</button>

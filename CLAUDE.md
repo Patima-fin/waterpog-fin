@@ -851,5 +851,11 @@ Live at **https://patima-fin.github.io/waterpog-fin/** — GitHub Pages serves t
 - **drill mode-aware:** `outRecon` เพิ่ม `usedFallback` (pv mode + `pvAny[period]<=0`) → กล่อง "= ยอดในช่องนี้ (ประมาณการ — ไม่มี PV)" + note "หมวดนี้ไม่มี PV ตัดล่วงหน้า (เช่น เงินเดือน/เบ็ดเตล็ด) → ใช้ยอดประมาณการแทน". `cell` ของ pv mode คำนวณจาก `pvModeGridByWeekCat` (ตรงช่อง). subtitle เพิ่ม "หมวดที่ไม่มี PV ใช้ประมาณการแทน".
 - **verify (preview, isolated render + clear override เก่า + mock: cat4 forecast เงินเดือน 3M [ไม่มี PV] + cat1 PV อนาคต 300k):** Babel OK · 'remaining': cat4=3M, cat1=PV ไม่โชว์ · กด 'ยอด PV ที่ตัด' → **cat1=(300,000) [PV] · cat4=(3,000,000) [fallback ประมาณการ]** ทั้งคู่ขึ้น · คลิก cat4 → กล่อง "(ประมาณการ — ไม่มี PV)" + note fallback + รายการ "เงินเดือนพนักงาน". ไม่มี console error. **ยังไม่ได้ทำฝั่ง BIO** (รอผู้ใช้สั่ง).
 
+## 2026-06-29 — Weekly Forecast โหมด 'pv': เพิ่มปุ่มขอบเขต "ทั้งเดือน / เฉพาะสัปดาห์นี้" (เหมือน AP) (build `page_cashflow 20260629g`)
+- **โจทย์ (เตย):** ในโหมด "ยอด PV ที่ตัด" อยากได้ปุ่มเลือก "ทั้งเดือน / เฉพาะสัปดาห์นี้" เหมือนโหมด AP.
+- **FIX = mirror AP scope:** `pvModeScopedByWeekCat` (mirror `apPlanScopedByWeekCat`): `s01ApScope==='week'` → สัปดาห์ปัจจุบัน=`pvModeGridByWeekCat`, สัปดาห์ที่เหลือ=`forecastRemainingByWeekCat` (เหมือน AP เป๊ะ) · `'month'`=เต็มเดือน. **ใช้ state `s01ApScope` ตัวเดียวกับ AP** (ปุ่ม scope คุมทั้ง 2 โหมด, persist `wtp-cf-s01apscope`). `_outGrid` โหมด pv ใช้ `pvModeScopedByWeekCat`. openDrillDown cell ของ pv ใช้ scoped grid (ให้ตรงช่อง).
+- **UI:** ปุ่ม scope (`ทั้งเดือน/เฉพาะสัปดาห์นี้`) แสดงเมื่อ `s01OutMode==='apPlan' || 'pv'` (เดิม apPlan อย่างเดียว) · subtitle pv เพิ่ม "· เฉพาะสัปดาห์นี้" เมื่อ week.
+- **verify (preview):** Babel OK · scope toggle ไม่โชว์ในโหมด remaining ✓ · สลับเป็น pv → ปุ่ม ทั้งเดือน/เฉพาะสัปดาห์นี้ โผล่ ✓ · กด เฉพาะสัปดาห์นี้ → subtitle อัปเดต + PV ยังโชว่ + persist `s01apscope=week` + ไม่ crash. (ตัวเลข month vs week ต่างกันเห็นชัดเฉพาะเมื่อ "วันนี้" ไม่ใช่สัปดาห์สุดท้ายของเดือน — วันที่เทสต์ 29 มิ.ย.=สัปดาห์สุดท้าย จึงไม่เห็นต่าง; logic เป็น mirror ของ AP scope ที่ใช้จริงอยู่แล้ว.)
+
 ## Repo rule: keep CLAUDE.md current
 **Every time you `git push`, update this `CLAUDE.md`** to reflect anything that changed (architecture, conventions, new pages, gotchas). Treat it as part of the push, like the `?v=` bump.
