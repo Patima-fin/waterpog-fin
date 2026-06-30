@@ -1848,6 +1848,53 @@ function BRMangoDetail({ acct, month, stmLines, book, matches, readOnly, toast,
   const inpSt = { padding: '6px 8px', border: '1px solid var(--line)', borderRadius: 7, fontSize: 12, fontFamily: 'inherit' };
   const lblSt = { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: 'var(--ink-500)' };
 
+  // ── ดาวน์โหลด Excel ของตารางที่กำลังดู (ตามแท็บ + ตัวกรอง) ──
+  const brExportExcel = () => {
+    const acctLabel = (acct ? bdBrand(brBrandKey(acct)).label + ' ···' + bdLast4(accNo) : '') + ' · ' + brFmtMonth(month);
+    const tabLabel = (tabs.find(t => t.key === tab) || {}).label || tab;
+    if (tab === 'outstanding') {
+      const rows = outs.map(o => ({ vno: o.vno || '', vendor: o.vendor || '', amount: Number(o.amount) || 0 }));
+      exportRowsToExcel(rows, [
+        { key: 'vno',    label: 'เลขที่' },
+        { key: 'vendor', label: 'ผู้รับ/รายการ' },
+        { key: 'amount', label: 'จำนวน', type: 'number' },
+      ], { filename: 'Mango_Outstanding_' + bdLast4(accNo) + '_' + month, sheetName: 'Outstanding',
+        title: 'Outstanding Cheque · ' + acctLabel });
+      return;
+    }
+    const joinSide = (rows, f) => (rows || []).map(f).filter(v => v !== '' && v != null).join(' | ');
+    const sumSide  = (rows) => (rows || []).reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    const data = shownItems.map(it => {
+      const stt = BR_STATUS[it.statusKind] || { t: it.statusKind };
+      return {
+        status: stt.t + (it.statusSub ? ' (' + it.statusSub + ')' : ''),
+        mDate: joinSide(it.mango, r => fmtDate(r.date) || r.date || ''),
+        mRef:  joinSide(it.mango, r => r.ref || ''),
+        mDesc: joinSide(it.mango, r => r.desc || ''),
+        mAmt:  it.mango ? sumSide(it.mango) : '',
+        bDate: joinSide(it.bank, r => fmtDate(r.date) || r.date || ''),
+        bRef:  joinSide(it.bank, r => r.ref || ''),
+        bDesc: joinSide(it.bank, r => r.desc || ''),
+        bAmt:  it.bank ? sumSide(it.bank) : '',
+      };
+    });
+    exportRowsToExcel(data, [
+      { key: 'status', label: 'สถานะ' },
+      { key: 'mDate',  label: 'MANGO วันที่' },
+      { key: 'mRef',   label: 'MANGO เลขที่' },
+      { key: 'mDesc',  label: 'MANGO รายการ' },
+      { key: 'mAmt',   label: 'MANGO จำนวน', type: 'number' },
+      { key: 'bDate',  label: 'BANK วันที่' },
+      { key: 'bRef',   label: 'BANK ref' },
+      { key: 'bDesc',  label: 'BANK คำอธิบาย' },
+      { key: 'bAmt',   label: 'BANK จำนวน', type: 'number' },
+    ], {
+      filename: 'Mango_' + tabLabel + '_' + bdLast4(accNo) + '_' + month,
+      sheetName: tabLabel.slice(0, 31),
+      title: 'กระทบยอด Mango ↔ Bank · ' + acctLabel + ' · ' + tabLabel,
+    });
+  };
+
   return (
     <div>
       {/* header: back + นำเข้า */}
@@ -1859,16 +1906,20 @@ function BRMangoDetail({ acct, month, stmLines, book, matches, readOnly, toast,
             <div style={{ fontSize: 12, color: 'var(--ink-500)', marginTop: 2 }}>Mango {moves.length} รายการ · STM {(stmLines || []).length} รายการ</div>
           </div>
         </div>
-        {!readOnly && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {onImportStatement && <button className="btn btn-ghost" onClick={onImportStatement} title="นำเข้า statement ธนาคารของบัญชีนี้">📥 statement</button>}
-          {pendingItems.length > 0 && <button className="btn btn-ghost" onClick={() => setTab('pending')} title="ดูคู่ที่ระบบจับให้อัตโนมัติ"
-            style={{ color: 'var(--warn)', borderColor: 'var(--warn)' }}>⚡ จับคู่อัตโนมัติ ({pendingItems.length})</button>}
-          <button className="btn btn-primary" onClick={() => fileRef.current && fileRef.current.click()}>
-            {busy ? 'กำลังอ่าน…' : (noBook ? '📂 นำเข้างบกระทบยอด Mango' : '📂 นำเข้า/อัปเดต Mango')}
-          </button>
-          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
-            onChange={e => { const f = e.target.files && e.target.files[0]; if (f) onFile(f); e.target.value = ''; }} />
-        </div>}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {!noBook && <button className="btn btn-ghost" onClick={brExportExcel} title="ดาวน์โหลดตารางที่กำลังดู (ตามแท็บ+ตัวกรอง) เป็น Excel"
+            style={{ color: 'var(--good)', borderColor: 'var(--good)' }}>⬇ Excel</button>}
+          {!readOnly && <React.Fragment>
+            {onImportStatement && <button className="btn btn-ghost" onClick={onImportStatement} title="นำเข้า statement ธนาคารของบัญชีนี้">📥 statement</button>}
+            {pendingItems.length > 0 && <button className="btn btn-ghost" onClick={() => setTab('pending')} title="ดูคู่ที่ระบบจับให้อัตโนมัติ"
+              style={{ color: 'var(--warn)', borderColor: 'var(--warn)' }}>⚡ จับคู่อัตโนมัติ ({pendingItems.length})</button>}
+            <button className="btn btn-primary" onClick={() => fileRef.current && fileRef.current.click()}>
+              {busy ? 'กำลังอ่าน…' : (noBook ? '📂 นำเข้างบกระทบยอด Mango' : '📂 นำเข้า/อัปเดต Mango')}
+            </button>
+            <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
+              onChange={e => { const f = e.target.files && e.target.files[0]; if (f) onFile(f); e.target.value = ''; }} />
+          </React.Fragment>}
+        </div>
       </div>
 
       {orphans.length > 0 && (
