@@ -841,3 +841,12 @@ Newest entries are at the bottom. Architecture/conventions/gotchas stay in `CLAU
 - **ซ่อนของรกตอนเต็มจอ:** หัวการ์ด back/นำเข้า (`!fullscreen`) + การ์ด KPI 5 ใบ (`!fullscreen`) → เหลือแค่ tabs (รอยืนยัน/รอกระทบยอด/กระทบแล้ว/ทั้งหมด/Outstanding) + filter bar + ตาราง. มี **แถบหัวบาง** ตอนเต็มจอ (ชื่อบัญชี/เดือน/จำนวน Mango·STM + ปุ่ม ⬇ Excel + ปุ่ม "ออกจากเต็มจอ"). กด **Esc** ออกได้ (`brEffect` ผูก keydown เฉพาะตอน fullscreen).
 - **`BRReconTable`** รับ prop ใหม่ **`maxH`** (default `'54vh'`) → ตอนเต็มจอส่ง `tableMaxH = 'calc(100vh - 210px)'` ให้ตารางใช้พื้นที่เต็ม (ทั้ง 4 จุดเรียก + scroll container ของแท็บ Outstanding). pattern เลียนหน้า `page_invoices` (fullscreen overlay + slim bar + ซ่อน head/KPI).
 - **verify:** preview 8000 — Babel transpile `page_bank_recon.jsx?v=...i` ไม่มี SyntaxError (สคริปต์ที่โหลดถัดไปรันปกติ) · หน้าติด login-gate+RLS กดจริงในพรีวิวไม่ได้.
+
+## 2026-06-30 — กระทบยอด หน้า "เทียบ Mango": จัดหน้าใหม่ให้กระชับ (build `page_bank_recon 20260630p`)
+- **ปุ่ม สำรอง/กู้คืน:** เอาออกจากหัวหน้า + popup → ลบทิ้งทั้งหมดตามคำขอ (รวมโค้ด exportBackup/importBackup/backupRef ที่ตายแล้ว) — หัวหน้าเหลือแค่ เลื่อนเดือน + 📥 นำเข้า statement.
+- **คู่มือ "ไฟล์ที่ใช้นำเข้า (แต่ละธนาคารใช้นามสกุลอะไร)"** ย้ายจากหน้าหลัก → เข้าไปอยู่ใน popup นำเข้า statement (ใต้ช่องลากไฟล์ พับเก็บได้) · `BRImportHelp` ไม่รับ props แล้ว.
+- **แท็บย่อย 2 อัน** (เทียบ PV / เทียบ Mango) ย่อ padding/ฟอนต์ให้เล็กลง · ลบการ์ดหัวข้อ "📒 กระทบยอด Mango ERP ↔ Bank Statement" ในแท็บ Mango ออก.
+- **การ์ดบัญชี (overview เทียบ Mango)** จัดใหม่ให้กระชับ: กริด `290→220px`, ย้าย **% ไปมุมขวาบน** (แถวเดียวกับชื่อบัญชี), คงโลโก้แต่ย่อ `×0.82`, **ซ่อนบรรทัดชื่อบัญชีถ้าซ้ำกับชื่อย่อแบงค์** (กัน "SCB" ซ้ำ 2 บรรทัด), ฟอนต์/แถบ progress เล็กลง.
+- **KPI strip 4 ช่อง** (บัญชีทั้งหมด/% กระทบเฉลี่ย/รอยืนยัน/ค้างกระทบ) เปลี่ยนจาก `KpiTile` ใหญ่ → มินิการ์ด (label 11px · ตัวเลข 20px · แถบสีซ้ายบาง) — `KpiTile` ไม่มีโหมด compact.
+- **เส้นคั่น/หัวตาราง `BRReconTable`** (จากรอบก่อน): หัวตารางสีพื้นฟ้าอ่อน (`BR_TH_BG` srgb+white ตั้งที่ `<th>`) + เส้นคั่นแนวตั้งบางจาง `1px var(--ink-100)` + คอลัมน์ผู้รับผิดชอบ 120px.
+- verify (preview, login-gate): Babel 0 error ทุกแก้ · isolated render: import modal มีคู่มือ ไม่มีปุ่มสำรอง/กู้คืน · BRImportHelp มี toggle อย่างเดียว.
