@@ -1690,20 +1690,24 @@ function BRAssignSelect({ itemId, financeUsers, readOnly }) {
   );
 }
 
+// สีพื้นหัวตาราง — ต้องตั้งที่ <th> ราย cell (border-collapse + sticky ทำให้ bg บน <thead>/<tr> ไม่วาด)
+//   ใช้ srgb + white (ไม่ใช่ oklch/var(--surface)) เพราะ var(--surface)=โปร่งใส & บางเบราว์เซอร์ไม่รองรับ
+//   color-mix แบบ oklch → ออกมาโปร่งใส (หัวตารางเลยไม่มีสี). srgb+white = ฟ้าอ่อนทึบ เห็นชัดทุกเบราว์เซอร์.
+const BR_TH_BG = 'color-mix(in srgb, var(--brand-500) 12%, white)';
 // ตารางแถวกระทบ side-by-side (MANGO | BANK STATEMENT | สถานะ | [ผู้รับผิดชอบ] | จัดการ) — item: {key,mango[],bank[],statusKind,statusSub,action,assignee,checkId,checkSide,rowBg}
 function BRReconTable({ items, selectable, sel, onToggle, emptyText, showAssignee }) {
   if (!items.length) return <BREmpty text={emptyText || 'ไม่มีรายการ'} />;
   return (
     <div style={{ maxHeight: '54vh', overflow: 'auto', border: '1px solid var(--line)', borderRadius: 10 }}>
       <table style={{ width: '100%', fontSize: 12, tableLayout: 'fixed', borderCollapse: 'collapse' }}>
-        <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
-          <tr style={{ fontSize: 10.5, color: 'var(--ink-500)', letterSpacing: .3 }}>
-            {selectable && <th style={{ width: 32 }}></th>}
-            <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 700 }}>MANGO (สมุดบัญชี)</th>
-            <th style={{ textAlign: 'left', padding: '8px 10px', borderLeft: '2px solid var(--line)', fontWeight: 700 }}>BANK STATEMENT</th>
-            <th style={{ width: 118, textAlign: 'left', padding: '8px 8px', fontWeight: 700 }}>สถานะ</th>
-            {showAssignee && <th style={{ width: 158, textAlign: 'left', padding: '8px 8px', fontWeight: 700 }}>ผู้รับผิดชอบ</th>}
-            <th style={{ width: 86, textAlign: 'center', fontWeight: 700 }}>จัดการ</th>
+        <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+          <tr style={{ fontSize: 10.5, color: 'var(--ink-600)', letterSpacing: .3 }}>
+            {selectable && <th style={{ width: 32, background: BR_TH_BG, borderBottom: '1px solid var(--line)' }}></th>}
+            <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 700, background: BR_TH_BG, borderBottom: '1px solid var(--line)' }}>MANGO (สมุดบัญชี)</th>
+            <th style={{ textAlign: 'left', padding: '8px 10px', borderLeft: '1px solid var(--ink-100)', borderBottom: '1px solid var(--line)', fontWeight: 700, background: BR_TH_BG }}>BANK STATEMENT</th>
+            <th style={{ width: 118, textAlign: 'left', padding: '8px 8px', borderLeft: '1px solid var(--ink-100)', borderBottom: '1px solid var(--line)', fontWeight: 700, background: BR_TH_BG }}>สถานะ</th>
+            {showAssignee && <th style={{ width: 120, textAlign: 'left', padding: '8px 8px', borderLeft: '1px solid var(--ink-100)', borderBottom: '1px solid var(--line)', fontWeight: 700, background: BR_TH_BG }}>ผู้รับผิดชอบ</th>}
+            <th style={{ width: 86, textAlign: 'center', borderLeft: '1px solid var(--ink-100)', borderBottom: '1px solid var(--line)', fontWeight: 700, background: BR_TH_BG }}>จัดการ</th>
           </tr>
         </thead>
         <tbody>
@@ -1711,10 +1715,10 @@ function BRReconTable({ items, selectable, sel, onToggle, emptyText, showAssigne
             <tr key={it.key} style={Object.assign({ borderTop: '1px solid var(--ink-100)' }, it.rowBg ? { background: it.rowBg } : null)}>
               {selectable && <td style={{ textAlign: 'center', verticalAlign: 'middle' }}>{it.checkId != null ? <input type="checkbox" checked={!!(sel && sel[it.checkId])} onChange={() => onToggle(it.checkId, it.checkSide)} /> : null}</td>}
               <td style={{ verticalAlign: 'middle', padding: '7px 10px' }}><BRSide rows={it.mango} emptyLabel="— ไม่พบใน Mango —" /></td>
-              <td style={{ verticalAlign: 'middle', padding: '7px 10px', borderLeft: '2px solid var(--line)' }}><BRSide rows={it.bank} emptyLabel="— ไม่พบใน Bank —" /></td>
-              <td style={{ verticalAlign: 'middle', padding: '7px 8px' }}><BRStatusBadge kind={it.statusKind} sub={it.statusSub} /></td>
-              {showAssignee && <td style={{ verticalAlign: 'middle', padding: '7px 8px' }}>{it.assignee || <span style={{ color: 'var(--ink-300)' }}>—</span>}</td>}
-              <td style={{ textAlign: 'center', verticalAlign: 'middle' }}>{it.action}</td>
+              <td style={{ verticalAlign: 'middle', padding: '7px 10px', borderLeft: '1px solid var(--ink-100)' }}><BRSide rows={it.bank} emptyLabel="— ไม่พบใน Bank —" /></td>
+              <td style={{ verticalAlign: 'middle', padding: '7px 8px', borderLeft: '1px solid var(--ink-100)' }}><BRStatusBadge kind={it.statusKind} sub={it.statusSub} /></td>
+              {showAssignee && <td style={{ verticalAlign: 'middle', padding: '7px 8px', borderLeft: '1px solid var(--ink-100)' }}>{it.assignee || <span style={{ color: 'var(--ink-300)' }}>—</span>}</td>}
+              <td style={{ textAlign: 'center', verticalAlign: 'middle', borderLeft: '1px solid var(--ink-100)' }}>{it.action}</td>
             </tr>
           ))}
         </tbody>
