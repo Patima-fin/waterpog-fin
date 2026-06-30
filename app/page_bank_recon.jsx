@@ -1668,8 +1668,30 @@ function BRStatusBadge({ kind, sub }) {
     </div>
   );
 }
-// ตารางแถวกระทบ side-by-side (MANGO | BANK STATEMENT | สถานะ | จัดการ) — item: {key,mango[],bank[],statusKind,statusSub,action,checkId,checkSide,rowBg}
-function BRReconTable({ items, selectable, sel, onToggle, emptyText }) {
+// ── ตัวเลือก "ผู้รับผิดชอบ" ราย item ที่ค้างกระทบ → เก็บ synced ใน manualOverrides
+//    คีย์ brAssign.<itemId> = username (ฝ่ายการเงิน) · ทีมเห็นร่วม → คนทำมากดดูของตัวเองได้
+function BRAssignSelect({ itemId, financeUsers, readOnly }) {
+  const cur = (window.WTPOverride && WTPOverride.get('brAssign.' + itemId)) || '';
+  const known = financeUsers.find(f => f.u === cur);
+  const nameOf = (uname) => { const f = financeUsers.find(x => x.u === uname); return f ? (f.n || f.u) : uname; };
+  if (readOnly) {
+    return <span style={{ fontSize: 11.5, color: cur ? 'var(--ink-700)' : 'var(--ink-400)', fontWeight: cur ? 600 : 400 }}>
+      {cur ? '👤 ' + nameOf(cur) : '—'}</span>;
+  }
+  return (
+    <select value={cur} onChange={e => WTPOverride.setRaw('brAssign.' + itemId, e.target.value || null)} title="มอบหมายผู้รับผิดชอบบันทึกรายการนี้"
+      style={{ width: '100%', maxWidth: 150, padding: '4px 6px', fontSize: 11.5, fontFamily: 'inherit', borderRadius: 7,
+        border: '1px solid ' + (cur ? 'var(--brand-400)' : 'var(--line)'), background: cur ? 'color-mix(in oklch, var(--brand-500) 8%, #fff)' : '#fff',
+        color: cur ? 'var(--brand-700)' : 'var(--ink-500)', fontWeight: cur ? 600 : 400 }}>
+      <option value="">— ไม่ระบุ —</option>
+      {financeUsers.map(f => <option key={f.u} value={f.u}>{f.n || f.u}</option>)}
+      {cur && !known && <option value={cur}>{cur} (นอกฝ่ายการเงิน)</option>}
+    </select>
+  );
+}
+
+// ตารางแถวกระทบ side-by-side (MANGO | BANK STATEMENT | สถานะ | [ผู้รับผิดชอบ] | จัดการ) — item: {key,mango[],bank[],statusKind,statusSub,action,assignee,checkId,checkSide,rowBg}
+function BRReconTable({ items, selectable, sel, onToggle, emptyText, showAssignee }) {
   if (!items.length) return <BREmpty text={emptyText || 'ไม่มีรายการ'} />;
   return (
     <div style={{ maxHeight: '54vh', overflow: 'auto', border: '1px solid var(--line)', borderRadius: 10 }}>
@@ -1680,6 +1702,7 @@ function BRReconTable({ items, selectable, sel, onToggle, emptyText }) {
             <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 700 }}>MANGO (สมุดบัญชี)</th>
             <th style={{ textAlign: 'left', padding: '8px 10px', borderLeft: '2px solid var(--line)', fontWeight: 700 }}>BANK STATEMENT</th>
             <th style={{ width: 118, textAlign: 'left', padding: '8px 8px', fontWeight: 700 }}>สถานะ</th>
+            {showAssignee && <th style={{ width: 158, textAlign: 'left', padding: '8px 8px', fontWeight: 700 }}>ผู้รับผิดชอบ</th>}
             <th style={{ width: 86, textAlign: 'center', fontWeight: 700 }}>จัดการ</th>
           </tr>
         </thead>
@@ -1690,6 +1713,7 @@ function BRReconTable({ items, selectable, sel, onToggle, emptyText }) {
               <td style={{ verticalAlign: 'middle', padding: '7px 10px' }}><BRSide rows={it.mango} emptyLabel="— ไม่พบใน Mango —" /></td>
               <td style={{ verticalAlign: 'middle', padding: '7px 10px', borderLeft: '2px solid var(--line)' }}><BRSide rows={it.bank} emptyLabel="— ไม่พบใน Bank —" /></td>
               <td style={{ verticalAlign: 'middle', padding: '7px 8px' }}><BRStatusBadge kind={it.statusKind} sub={it.statusSub} /></td>
+              {showAssignee && <td style={{ verticalAlign: 'middle', padding: '7px 8px' }}>{it.assignee || <span style={{ color: 'var(--ink-300)' }}>—</span>}</td>}
               <td style={{ textAlign: 'center', verticalAlign: 'middle' }}>{it.action}</td>
             </tr>
           ))}
@@ -1719,6 +1743,14 @@ function BRMangoDetail({ acct, month, stmLines, book, matches, readOnly, toast,
   const outs  = (book && book.outs) || [];
   const meta  = (book && book.meta) || null;
   const accNo = acct ? acct.accountNo : '';
+
+  // ── ผู้รับผิดชอบ (ฝ่ายการเงิน) — รายชื่อจาก user directory (synced) + ผู้ใช้ปัจจุบัน + ตัวกรอง ──
+  const [assignFilter, setAssignFilter] = brState('all');   // 'all' | 'mine' | 'none' | <username>
+  const financeUsers = (window.wtpUsersByDept ? wtpUsersByDept('finance') : [])
+    .slice().sort((a, b) => String(a.n || a.u).localeCompare(String(b.n || b.u), 'th'));
+  const meUser = (() => { try { return (JSON.parse(localStorage.getItem('wtp-session') || 'null') || {}).username || ''; } catch (_) { return ''; } })();
+  const assigneeOf = (id) => (window.WTPOverride && WTPOverride.get('brAssign.' + id)) || '';
+  const assigneeName = (uname) => { const f = financeUsers.find(x => x.u === uname); return f ? (f.n || f.u) : uname; };
 
   const st = brMemo(() => brMangoStat(accNo, month, { [accNo]: { [month]: book } }, { [accNo]: { [month]: stmLines || [] } }, matches),
     [accNo, month, book, stmLines, matches]);
@@ -1763,6 +1795,12 @@ function BRMangoDetail({ acct, month, stmLines, book, matches, readOnly, toast,
       if (dir === 'in' && (it._amt || 0) < 0) return false;
       if (dir === 'out' && (it._amt || 0) > 0) return false;
     }
+    if (tab === 'unmatched' && assignFilter !== 'all') {
+      const a = it._assignee || '';
+      if (assignFilter === 'mine') { if (a !== meUser) return false; }
+      else if (assignFilter === 'none') { if (a) return false; }
+      else if (a !== assignFilter) return false;
+    }
     return true;
   };
   const sortItems = (arr) => arr.slice().sort((x, y) => {
@@ -1786,6 +1824,8 @@ function BRMangoDetail({ acct, month, stmLines, book, matches, readOnly, toast,
     key: 'b' + (m.id || i), mango: [moveSide(m)], bank: null, statusKind: 'bookOnly', statusSub: 'Mango ลง · ธนาคารยังไม่มี',
     checkId: m.id, checkSide: 'book', rowBg: selB[m.id] ? 'color-mix(in oklch, var(--brand-500) 8%, transparent)' : null,
     _iso: m.bkDate, _amt: m.amount, _text: [m.vendor, m.vno, m.remark, m.amount].join(' '),
+    _assignee: assigneeOf(m.id), _assigneeName: assigneeName(assigneeOf(m.id)),
+    assignee: <BRAssignSelect itemId={m.id} financeUsers={financeUsers} readOnly={readOnly} />,
     action: readOnly ? null : <button onClick={() => setSelB(s => Object.assign({}, s, { [m.id]: !s[m.id] }))}
       style={{ fontSize: 11.5, padding: '4px 10px', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700, whiteSpace: 'nowrap',
         border: '1px solid ' + (selB[m.id] ? 'var(--brand-600)' : 'var(--line)'), background: selB[m.id] ? 'var(--brand-600)' : '#fff', color: selB[m.id] ? '#fff' : 'var(--brand-600)' }}>
@@ -1794,6 +1834,8 @@ function BRMangoDetail({ acct, month, stmLines, book, matches, readOnly, toast,
     key: 's' + (l.id || i), mango: null, bank: [stmSide(l)], statusKind: 'bankOnly', statusSub: 'ธนาคารหัก · ยังไม่ลงบัญชี',
     checkId: l.id, checkSide: 'stm', rowBg: selS[l.id] ? 'color-mix(in oklch, var(--brand-500) 8%, transparent)' : null,
     _iso: l.date, _amt: l.amount, _text: [l.desc, l.ref, l.amount].join(' '),
+    _assignee: assigneeOf(l.id), _assigneeName: assigneeName(assigneeOf(l.id)),
+    assignee: <BRAssignSelect itemId={l.id} financeUsers={financeUsers} readOnly={readOnly} />,
     action: readOnly ? null : <button onClick={() => setSelS(s => Object.assign({}, s, { [l.id]: !s[l.id] }))}
       style={{ fontSize: 11.5, padding: '4px 10px', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700, whiteSpace: 'nowrap',
         border: '1px solid ' + (selS[l.id] ? 'var(--brand-600)' : 'var(--line)'), background: selS[l.id] ? 'var(--brand-600)' : '#fff', color: selS[l.id] ? '#fff' : 'var(--brand-600)' }}>
@@ -1868,6 +1910,7 @@ function BRMangoDetail({ acct, month, stmLines, book, matches, readOnly, toast,
       const stt = BR_STATUS[it.statusKind] || { t: it.statusKind };
       return {
         status: stt.t + (it.statusSub ? ' (' + it.statusSub + ')' : ''),
+        assignee: it._assigneeName || '',
         mDate: joinSide(it.mango, r => fmtDate(r.date) || r.date || ''),
         mRef:  joinSide(it.mango, r => r.ref || ''),
         mDesc: joinSide(it.mango, r => r.desc || ''),
@@ -1880,6 +1923,7 @@ function BRMangoDetail({ acct, month, stmLines, book, matches, readOnly, toast,
     });
     exportRowsToExcel(data, [
       { key: 'status', label: 'สถานะ' },
+      { key: 'assignee', label: 'ผู้รับผิดชอบ' },
       { key: 'mDate',  label: 'MANGO วันที่' },
       { key: 'mRef',   label: 'MANGO เลขที่' },
       { key: 'mDesc',  label: 'MANGO รายการ' },
@@ -2027,7 +2071,26 @@ function BRMangoDetail({ acct, month, stmLines, book, matches, readOnly, toast,
                     ))}
                   </div>
                 </div>
-                <BRReconTable items={shownItems} selectable={!readOnly} sel={selMerged} onToggle={toggleSel} emptyText="✓ ไม่มีรายการค้างกระทบ" />
+                {/* ── ตัวกรองผู้รับผิดชอบ — ฝ่ายการเงินกดดู "ของฉัน" เพื่อรู้ว่าตัวเองต้องบันทึกอะไรบ้าง ── */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 10, padding: '8px 12px', background: 'color-mix(in oklch, var(--brand-500) 5%, transparent)', borderRadius: 8 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-700)' }}>👤 ผู้รับผิดชอบ:</span>
+                  {[{ k: 'all', t: 'ทั้งหมด' }].concat(meUser ? [{ k: 'mine', t: '⭐ ของฉัน' }] : []).concat([{ k: 'none', t: 'ยังไม่มอบหมาย' }]).map(f => (
+                    <button key={f.k} onClick={() => setAssignFilter(f.k)} style={{ border: '1px solid ' + (assignFilter === f.k ? 'var(--brand-600)' : 'var(--line)'), cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, padding: '4px 11px', borderRadius: 999,
+                      background: assignFilter === f.k ? 'var(--brand-600)' : '#fff', color: assignFilter === f.k ? '#fff' : 'var(--ink-600)', fontWeight: assignFilter === f.k ? 700 : 500 }}>{f.t}</button>
+                  ))}
+                  {financeUsers.length > 0 && (
+                    <select value={(['all', 'mine', 'none'].indexOf(assignFilter) >= 0) ? '' : assignFilter}
+                      onChange={e => setAssignFilter(e.target.value || 'all')}
+                      style={{ padding: '5px 8px', border: '1px solid var(--line)', borderRadius: 8, fontSize: 12, fontFamily: 'inherit', background: '#fff', marginLeft: 'auto' }}>
+                      <option value="">— เลือกรายคน —</option>
+                      {financeUsers.map(f => <option key={f.u} value={f.u}>{f.n || f.u}</option>)}
+                    </select>
+                  )}
+                  {financeUsers.length === 0 && (
+                    <span className="muted" style={{ fontSize: 11.5, marginLeft: 'auto' }}>ยังไม่มีผู้ใช้ฝ่าย "การเงิน" — ตั้งฝ่ายงานที่หน้าจัดการผู้ใช้ก่อน</span>
+                  )}
+                </div>
+                <BRReconTable items={shownItems} selectable={!readOnly} sel={selMerged} onToggle={toggleSel} showAssignee emptyText={assignFilter !== 'all' ? 'ไม่มีรายการค้างกระทบตามตัวกรองผู้รับผิดชอบ' : '✓ ไม่มีรายการค้างกระทบ'} />
               </div>
             )}
 

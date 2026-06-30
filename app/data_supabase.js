@@ -847,6 +847,7 @@
       username:    meta.username || (u.email || '').split('@')[0] || '',
       displayName: meta.displayName || meta.display_name || um.displayName || um.display_name || '',
       role:        meta.role || 'viewer',
+      department:  meta.department || meta.dept || '',
       pages:       Array.isArray(meta.pages) ? meta.pages : null,
       createdAt:   u.created_at || null,
       lastSignIn:  u.last_sign_in_at || null,
@@ -886,6 +887,7 @@
         displayName: opts.displayName || username,
         role:        opts.role || 'viewer',
       };
+      if (opts.department != null) meta.department = String(opts.department);
       if (Array.isArray(opts.pages)) meta.pages = opts.pages.slice();
       return sba.auth.admin.createUser({
         email:         email,
@@ -907,6 +909,7 @@
       var hasMeta = false;
       var meta = {};
       if (opts.displayName != null) { meta.displayName = opts.displayName; hasMeta = true; }
+      if (opts.department  != null) { meta.department  = String(opts.department); hasMeta = true; }
       if (opts.role        != null) { meta.role        = opts.role;        hasMeta = true; }
       if (opts.pages !== undefined) {
         meta.pages = Array.isArray(opts.pages) ? opts.pages.slice() : null;

@@ -1274,6 +1274,39 @@ function wtpMoveBankAccount(acNo, dir, groupAcs, allAcs, manualOverrides) {
   return true;
 }
 
+// ─── User directory (synced via manualOverrides) ─────────────────────────────
+//   ปัญหา: รายชื่อ+ฝ่ายของผู้ใช้อยู่ใน Supabase Auth (app_metadata) ซึ่งอ่านได้เฉพาะ
+//   หน้า Users ที่มี service_role key. หน้าอื่น (เช่นกระทบยอด — dropdown "ผู้รับผิดชอบ")
+//   ไม่มีคีย์ → อ่านไม่ได้. แก้ด้วยการ mirror รายชื่อลง manualOverrides (synced ทั้งทีม)
+//   เป็นคีย์ `userdir.<username>` = JSON {u:username, n:displayName, d:departmentKey, r:role}.
+//   manager หน้า Users เป็นคนเขียน/ลบ ตอนสร้าง/แก้/ลบผู้ใช้.
+function wtpWriteUserDir(username, info) {
+  const u = String(username || '').trim().toLowerCase();
+  if (!u) return;
+  try {
+    WTPOverride.setRaw('userdir.' + u, JSON.stringify({
+      u: u, n: (info && info.displayName) || u, d: (info && info.department) || '', r: (info && info.role) || '',
+    }));
+  } catch (_) {}
+}
+function wtpClearUserDir(username) {
+  const u = String(username || '').trim().toLowerCase();
+  if (!u) return;
+  try { WTPOverride.setRaw('userdir.' + u, null); } catch (_) {}
+}
+function wtpUserDirectory() {
+  const all = WTPOverride._load();
+  const out = [];
+  Object.keys(all || {}).forEach(k => {
+    if (k.indexOf('userdir.') !== 0) return;
+    try { const o = JSON.parse(all[k]); if (o && o.u) out.push(o); } catch (_) {}
+  });
+  return out;
+}
+function wtpUsersByDept(deptKey) {
+  return wtpUserDirectory().filter(u => u.d === deptKey);
+}
+
 // ─── Export to globals ───────────────────────────────────────────────────────
 Object.assign(window, {
   fmtNum, fmtInt, fmtMoney, fmtDate, fmtDateLong, parseDateFlexible,
@@ -1284,4 +1317,5 @@ Object.assign(window, {
   WTPOverride, EditableNumber, EditModeToggle, useOverrideSub, useOverrideSubAny,
   CloudSyncStatusButton,
   wtpBankSortOrderFrom, wtpSortBankAccounts, wtpMoveBankAccount,
+  wtpWriteUserDir, wtpClearUserDir, wtpUserDirectory, wtpUsersByDept,
 });

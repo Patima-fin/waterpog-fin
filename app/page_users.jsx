@@ -1,11 +1,15 @@
-/* page_users.jsx — Users management (manager-only) · build 20260625a
+/* page_users.jsx — Users management (manager-only) · build 20260630a
  *
- * จัดการรายชื่อผู้ใช้ + รหัสผ่าน + สิทธิ์เข้าถึงต่อหน้า — รวมในที่เดียว.
+ * จัดการรายชื่อผู้ใช้ + รหัสผ่าน + ฝ่ายงาน + สิทธิ์เข้าถึงต่อหน้า — รวมในที่เดียว.
  *
  * แหล่งข้อมูล:
- *   - Supabase Auth (admin.listUsers)  = ต้นจริงของรหัสผ่าน + role + per-user pages
+ *   - Supabase Auth (admin.listUsers)  = ต้นจริงของรหัสผ่าน + role + ฝ่าย + per-user pages
  *   - config.js USERS                  = bootstrap directory (เผื่อ Auth ยังไม่มี)
- *   - data.users (Sheet entity)        = ของเก่า (เก็บไว้แค่อ่าน + import)
+ *   (เลิกอ่าน data.users (Sheet entity) แล้ว — ของเก่า เกะกะ)
+ *
+ * ฝ่ายงาน (department) เก็บใน app_metadata.department ของ Supabase Auth + mirror ลง
+ *   manualOverrides (`userdir.<username>`) ผ่าน wtpWriteUserDir เพื่อให้หน้าอื่นที่ไม่มี
+ *   service_role key (เช่นกระทบยอดธนาคาร — dropdown "ผู้รับผิดชอบ") อ่านรายชื่อ "การเงิน" ได้.
  *
  * Admin ops (สร้าง/รีเซ็ตรหัส/ลบ/แก้ role/แก้ pages) = ผ่าน service_role key
  *   ที่ manager วาง 1 ครั้งต่อแท็บ (เก็บใน sessionStorage `wtp-srk` — หายเมื่อปิดแท็บ)
@@ -26,6 +30,18 @@ const ROLE_LABELS = {
   manager: { label: 'Manager', color: 'b-green',  desc: 'ทุกอย่าง (รวม users + audit)' },
   owner:   { label: 'Owner',   color: 'b-violet', desc: 'ดูทุกหน้า แต่แก้/ลบไม่ได้' },
 };
+
+// ─── ฝ่ายงาน (department) — key เก็บใน Auth meta + userdir · "finance" ใช้กรอง
+//   dropdown "ผู้รับผิดชอบ" หน้ากระทบยอดธนาคาร ──
+const DEPARTMENTS = [
+  { key: 'finance',    label: 'การเงิน',   color: 'b-green' },
+  { key: 'accounting', label: 'บัญชี',     color: 'b-blue'  },
+  { key: 'admin',      label: 'ธุรการ',    color: 'b-amber' },
+  { key: 'management', label: 'ผู้บริหาร', color: 'b-violet' },
+  { key: 'other',      label: 'อื่นๆ',     color: 'b-gray'  },
+];
+const DEPT_LABEL = (() => { const m = {}; DEPARTMENTS.forEach(d => { m[d.key] = d.label; }); return m; })();
+const DEPT_META  = (() => { const m = {}; DEPARTMENTS.forEach(d => { m[d.key] = d; }); return m; })();
 
 // ─── หน้า ทั้งหมดของระบบ จัดกลุ่มตามที่ Sidebar ใช้จริง (สำหรับ checkbox grid) ──
 //   key ต้องตรงกับ key ใน routes ของ app.jsx เป๊ะ
@@ -146,20 +162,14 @@ function UsersPage({ data, setData, toast }) {
     toast('บันทึก service_role key (เฉพาะแท็บนี้)');
   };
 
-  // ─── รวมแหล่ง: Auth users (primary) + Sheet/config (legacy display) ───
-  const sheetUsers   = (data && data.users) || [];
+  // ─── รวมแหล่ง: Auth users (primary) + config (bootstrap fallback) ───
+  //   (เลิกอ่าน data.users (Sheet) แล้ว — ของเก่า เกะกะ)
   const configUsers  = (window.WTP_CONFIG && window.WTP_CONFIG.USERS) || [];
 
   const combinedRows = uMemo(() => {
     const byName = new Map();
     authUsers.forEach(u => {
       byName.set(u.username, { ...u, _sources: new Set(['auth']) });
-    });
-    sheetUsers.forEach(u => {
-      const k = u.username || '';
-      const ex = byName.get(k);
-      if (ex) { ex._sources.add('sheet'); ex._sheetId = u.id; ex._sheetPassword = u.password; ex.department = ex.department || u.department; ex.note = ex.note || u.note; }
-      else byName.set(k, { id: 'sheet_' + (u.id || k), username: k, displayName: u.displayName, role: u.role, pages: null, _sources: new Set(['sheet']), _sheetId: u.id, _sheetPassword: u.password, department: u.department, note: u.note });
     });
     configUsers.forEach(u => {
       const k = u.username || '';
@@ -168,7 +178,7 @@ function UsersPage({ data, setData, toast }) {
       else byName.set(k, { id: 'cfg_' + k, username: k, displayName: u.displayName, role: u.role, pages: null, _sources: new Set(['config']) });
     });
     return Array.from(byName.values()).map(u => ({ ...u, _sourcesStr: Array.from(u._sources).join(',') }));
-  }, [authUsers, sheetUsers, configUsers]);
+  }, [authUsers, configUsers]);
 
   const uSortVal = (u, key) => String(u[key] || '').toLowerCase();
   const toggleSort = (key) => setSort(s =>
@@ -238,10 +248,13 @@ function UsersPage({ data, setData, toast }) {
       toast('รหัสผ่านต้องอย่างน้อย 6 ตัวอักษร'); return;
     }
     const pages = draft._pagesOverride ? draft._pagesArray : null;
+    const uname = draft.username.trim().toLowerCase();
+    const dept  = draft.department || '';
     const opts = {
-      username:    draft.username.trim().toLowerCase(),
+      username:    uname,
       displayName: draft.displayName || draft.username,
       role:        draft.role,
+      department:  dept,
       pages:       pages,
     };
     let p;
@@ -252,6 +265,8 @@ function UsersPage({ data, setData, toast }) {
       p = WTPData.admin.updateUser(originalId, opts);
     }
     p.then(() => {
+      // mirror รายชื่อ+ฝ่ายลง manualOverrides (synced) → หน้าอื่นอ่านได้โดยไม่ต้องมี service_role
+      try { wtpWriteUserDir(uname, { displayName: opts.displayName, department: dept, role: draft.role }); } catch (_) {}
       toast(isNew ? 'สร้างผู้ใช้ใหม่แล้ว' : 'อัปเดตข้อมูลแล้ว · ผู้ใช้ต้อง logout/login เพื่อให้สิทธิ์ใหม่มีผล');
       setEdit(null);
       loadAuthUsers();
@@ -265,7 +280,7 @@ function UsersPage({ data, setData, toast }) {
     }
     if (!confirm(`ลบบัญชี "${u.username}" ออกจาก Supabase Auth?\n\nผู้ใช้คนนี้จะ login ไม่ได้อีก (กู้คืนไม่ได้)`)) return;
     WTPData.admin.deleteUser(u.id)
-      .then(() => { toast('ลบบัญชีแล้ว'); loadAuthUsers(); })
+      .then(() => { try { wtpClearUserDir(u.username); } catch (_) {} toast('ลบบัญชีแล้ว'); loadAuthUsers(); })
       .catch(e => toast('ลบไม่สำเร็จ: ' + String(e && e.message || e)));
   };
 
@@ -292,7 +307,7 @@ function UsersPage({ data, setData, toast }) {
     }
   };
 
-  const emptyUser = { username: '', _password: '', displayName: '', role: 'staff', pages: null };
+  const emptyUser = { username: '', _password: '', displayName: '', role: 'staff', department: 'finance', pages: null };
 
   return (
     <div className="page">
@@ -305,13 +320,14 @@ function UsersPage({ data, setData, toast }) {
         </div>
         <div className="page-head-r">
           <ExportButton
-            rows={filtered.map(u => ({ ...u, source: u._sourcesStr }))}
+            rows={filtered.map(u => ({ ...u, source: u._sourcesStr, departmentLabel: DEPT_LABEL[u.department] || '' }))}
             columns={[
-              { key: 'username',    label: 'Username' },
-              { key: 'displayName', label: 'ชื่อผู้ใช้' },
-              { key: 'role',        label: 'Role' },
-              { key: 'source',      label: 'แหล่ง' },
-              { key: 'lastSignIn',  label: 'login ล่าสุด' },
+              { key: 'username',        label: 'Username' },
+              { key: 'displayName',     label: 'ชื่อผู้ใช้' },
+              { key: 'role',            label: 'Role' },
+              { key: 'departmentLabel', label: 'ฝ่ายงาน' },
+              { key: 'source',          label: 'แหล่ง' },
+              { key: 'lastSignIn',      label: 'login ล่าสุด' },
             ]}
             filename="users"
             sheetName="ผู้ใช้"
@@ -396,9 +412,10 @@ function UsersPage({ data, setData, toast }) {
                   { k: 'username',    label: 'Username',     w: 150 },
                   { k: 'displayName', label: 'ชื่อแสดง' },
                   { k: 'role',        label: 'Role',         w: 120 },
+                  { k: 'department',  label: 'ฝ่ายงาน',       w: 120 },
                   { k: null,          label: 'สิทธิ์เข้าหน้า', w: 150 },
                   { k: 'lastSignIn',  label: 'login ล่าสุด', w: 150 },
-                  { k: null,          label: 'แหล่ง',         w: 130 },
+                  { k: null,          label: 'แหล่ง',         w: 110 },
                   { k: null,          label: '',              w: 200 },
                 ].map((c, ci) => (
                   <th key={ci}
@@ -412,14 +429,13 @@ function UsersPage({ data, setData, toast }) {
             </thead>
             <tbody>
               {filtered.length === 0 && (
-                <tr><td colSpan={7} style={{ padding: 36, textAlign: 'center' }} className="muted">
+                <tr><td colSpan={8} style={{ padding: 36, textAlign: 'center' }} className="muted">
                   {srk ? 'ไม่พบผู้ใช้ที่ตรงกับเงื่อนไข' : 'วาง service_role key เพื่อโหลดรายชื่อจาก Supabase Auth'}
                 </td></tr>
               )}
               {filtered.map(u => {
                 const meta = ROLE_LABELS[u.role] || { label: u.role || '—', color: 'b-gray' };
                 const inAuth = u._sources.has('auth');
-                const inSheet = u._sources.has('sheet');
                 const inConfig = u._sources.has('config');
                 const pagesCount = Array.isArray(u.pages) ? u.pages.length : null;
                 const roleDefault = rolePages(u.role).length;
@@ -431,6 +447,11 @@ function UsersPage({ data, setData, toast }) {
                       {u.email && <div className="muted" style={{ fontSize: 11 }}>{u.email}</div>}
                     </td>
                     <td><Badge kind={meta.color} dot={false}>{meta.label}</Badge></td>
+                    <td>
+                      {u.department && DEPT_META[u.department]
+                        ? <Badge kind={DEPT_META[u.department].color} dot={false}>{DEPT_LABEL[u.department]}</Badge>
+                        : <span className="muted" style={{ fontSize: 12 }}>—</span>}
+                    </td>
                     <td>
                       {pagesCount != null
                         ? <span title={u.pages.map(p => PAGE_LABEL[p] || p).join(', ')}>
@@ -444,7 +465,6 @@ function UsersPage({ data, setData, toast }) {
                     <td>
                       <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>
                         {inAuth   && <Badge kind="b-green" dot={false}>Auth</Badge>}
-                        {inSheet  && <Badge kind="b-blue"  dot={false}>Sheet</Badge>}
                         {inConfig && <Badge kind="b-amber" dot={false}>config.js</Badge>}
                       </span>
                     </td>
@@ -476,8 +496,9 @@ function UsersPage({ data, setData, toast }) {
       <div className="card" style={{ marginTop: 14, padding: 14, background: '#fffbeb', borderLeft: '4px solid #f6ad55', fontSize: 12, color: 'var(--ink-700)' }}>
         <div style={{ fontWeight: 700, marginBottom: 6 }}>💡 หมายเหตุ</div>
         <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.7 }}>
-          <li><b>Auth (เขียว)</b> = บัญชีจริงใน Supabase Auth — แก้รหัส/สิทธิ์/role ได้ที่นี่</li>
+          <li><b>Auth (เขียว)</b> = บัญชีจริงใน Supabase Auth — แก้รหัส/สิทธิ์/role/ฝ่ายงาน ได้ที่นี่</li>
           <li><b>config.js (ส้ม)</b> = bootstrap directory — ไม่ใช่บัญชีจริง ใช้เป็น fallback display</li>
+          <li><b>ฝ่ายงาน</b> = เลือกในหน้าแก้ไขผู้ใช้ · ฝ่าย "การเงิน" จะโผล่ใน dropdown "ผู้รับผิดชอบ" หน้ากระทบยอดธนาคาร</li>
           <li><b>สิทธิ์เข้าหน้า</b> = ถ้าไม่ตั้ง override ใช้ default ตาม role · ถ้าตั้ง override = เปิดเฉพาะหน้าที่ติ๊ก</li>
           <li>เปลี่ยน role/สิทธิ์/รหัส → ผู้ใช้ต้อง <b>logout แล้ว login ใหม่</b> ถึงจะมีผล (อยู่ใน JWT)</li>
           <li>service_role key ถูกเก็บใน sessionStorage ของแท็บนี้เท่านั้น (ปิดแท็บ = ต้องวางใหม่)</li>
@@ -628,6 +649,16 @@ function UserEditModal({ row, onSave, onClose }) {
               <option key={k} value={k}>{m.label} — {m.desc}</option>
             ))}
           </select>
+        </div>
+        <div className="field" style={{ gridColumn: '1/-1' }}>
+          <label>ฝ่ายงาน (Department)</label>
+          <select className="select input" value={draft.department || ''} onChange={e => set('department', e.target.value)}>
+            <option value="">— ไม่ระบุ —</option>
+            {DEPARTMENTS.map(d => (
+              <option key={d.key} value={d.key}>{d.label}</option>
+            ))}
+          </select>
+          <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>ฝ่าย "การเงิน" จะเลือกเป็นผู้รับผิดชอบในหน้ากระทบยอดธนาคารได้</div>
         </div>
         <div className="field" style={{ gridColumn: '1/-1' }}>
           <label>ชื่อ-นามสกุล (Display Name)</label>
