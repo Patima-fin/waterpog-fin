@@ -2739,37 +2739,11 @@ function DataPayablePage({ data, setData, toast }) {
   // Normalise due-date field variants → 'due2' before any filtering / display
   const rows = dxMemo(() => (data.payables || []).map(_normPayableRow), [data.payables]);
 
-  // ── รายการที่ "จ่ายแล้ว" = vchno ตรงกับ AP_No ในหน้า PV
-  //    เกณฑ์เดียวกับ import paidCut (handleImport) และ cashflow isApPaid — จ่ายผ่าน PV แล้ว
-  //    จึงไม่ใช่เจ้าหนี้คงค้าง ไม่ควรอยู่ในชีตนี้ (ผู้ใช้กดล้างได้จาก banner ด้านบน)
-  const paidVchnoSet = dxMemo(() => {
-    const s = new Set();
-    (data.pvVouchers || []).forEach(pv => { const a = String(pv.AP_No || '').trim(); if (a) s.add(a); });
-    return s;
-  }, [data.pvVouchers]);
-  const paidRows = dxMemo(() =>
-    rows.filter(r => { const v = String(r.vchno || '').trim(); return v && paidVchnoSet.has(v); })
-  , [rows, paidVchnoSet]);
-
-  // ล้างรายการที่จ่ายแล้วออกจากชีต — ลบจริงผ่าน forceDeleteRows
-  //   ⚠ ต้องใช้ forceDeleteRows (ไม่ใช่ setData filter) เพราะ Supabase มี "เกราะกัน
-  //   mass-delete" (data_supabase.js) ที่ทิ้ง diff-delete เงียบๆ เมื่อจำนวนลบ > 50%
-  //   ของตาราง → ถ้าใช้ setData รายการจ่ายแล้วเป็นร้อยจะไม่ถูกลบจริง แล้ว realtime
-  //   ดึงกลับมา (ยอดเยอะเหมือนเดิม). forceDeleteRows ลบตรงตามเจตนา ข้ามเกราะ.
-  const cleanPaidNow = () => {
-    if (!paidRows.length) return;
-    if (!confirm(`พบ ${paidRows.length} รายการที่จ่ายแล้ว (vchno มีใน PV)\nยืนยันลบออกจากรายการคงค้าง (ชีต payables)?`)) return;
-    const ids = paidRows.map(r => r.id).filter(Boolean).map(String);
-    if (!ids.length) { toast('รายการที่จ่ายแล้วไม่มี id — ลบไม่ได้'); return; }
-    if (window.WTPData && typeof window.WTPData.forceDeleteRows === 'function') {
-      window.WTPData.forceDeleteRows('payables', ids)
-        .then(() => toast(`ล้างรายการที่จ่ายแล้ว ${ids.length} รายการออกจากชีตแล้ว`));
-    } else {
-      const set = new Set(ids);
-      setData(d => ({ ...d, payables: (d.payables || []).filter(r => !set.has(String(r.id))) }));
-      toast(`ล้างรายการที่จ่ายแล้ว ${ids.length} รายการออกจากชีตแล้ว`);
-    }
-  };
+  // หมายเหตุ: เดิมมี banner "ล้างรายการที่จ่ายแล้ว" ที่ถือว่า vchno ตรงกับ AP_No ใน PV
+  //   = จ่ายแล้ว → เสนอให้ลบทั้งชุด. **เอาออกแล้ว** เพราะการมี PV ≠ จ่ายครบ (แบ่งจ่าย/
+  //   จ่ายไม่หมด ก็มี PV แต่ยังค้าง). รายงาน g14 = หนี้คงค้าง หัก PV ที่จ่ายแล้วในตัว →
+  //   register = mirror รายงาน; รายการที่ชำระครบจะหายจากรายงานเอง แล้ว import (paidCut)
+  //   ตัดของเดิมที่หาย+มี PV ออกให้. อยากลบรายเดี่ยว = กดที่แถว → ปุ่มลบใน modal.
 
   const getDocType = (vchno) => {
     if (!vchno) return 'other';
@@ -3410,11 +3384,14 @@ function DataPayablePage({ data, setData, toast }) {
 
     const importedVchno = new Set();
     const added = [], changed = [], unchanged = [];
-    let paidImportSkipped = 0;
+    let paidWithPv = 0;   // มี PV แต่ยังอยู่ในรายงานคงค้าง = แบ่งจ่าย/จ่ายไม่หมด
 
     detail.forEach(obj => {
       const v = String(obj.vchno || '').trim();
-      if (paidSet.has(v)) { paidImportSkipped++; return; }   // จ่ายแล้ว → ไม่นำเข้า
+      // ★ อย่าข้ามแถวที่มี PV — รายงาน g14 = "หนี้คงค้าง" หัก PV ที่จ่ายแล้วในตัว
+      //   (netpayment = ยอดที่ยังค้างจริง). แถวที่ยังโผล่ในรายงาน = ยังค้าง แม้มี PV
+      //   (แบ่งจ่าย) → ต้องนำเข้าตามยอดคงเหลือ ไม่งั้นยอดขาด. แค่นับไว้ให้ผู้ใช้รู้
+      if (paidSet.has(v)) paidWithPv++;
       importedVchno.add(v);
       const ex = existingByVchno.get(v);
       if (!ex) { added.push({ row: obj, key: v, primary: v }); return; }
@@ -3447,7 +3424,7 @@ function DataPayablePage({ data, setData, toast }) {
       blankSkipped, noKeyCount: 0,
       fieldByKey: _PAYABLE_FIELD_BY_KEY,
       dedupKeys: ['vchno'], primaryKey: 'vchno', dateRange: null,
-      summarySkipped, paidImportSkipped, paidCut,
+      summarySkipped, paidWithPv, paidCut,
     });
   };
 
@@ -3539,27 +3516,6 @@ function DataPayablePage({ data, setData, toast }) {
           </button>
         </div>
       </div>
-
-      {/* ⚠️ Banner — รายการที่จ่ายแล้ว (มี PV) ยังปนอยู่ในรายการคงค้าง → ล้างออกได้ทันที */}
-      {paidRows.length > 0 && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
-          margin: '0 0 14px', padding: '11px 16px', borderRadius: 10,
-          background: 'color-mix(in oklch, var(--bad) 9%, var(--surface))',
-          border: '1px solid color-mix(in oklch, var(--bad) 36%, transparent)',
-          borderLeft: '4px solid var(--bad)',
-        }}>
-          <span style={{ fontSize: 20, lineHeight: 1 }}>⚠️</span>
-          <div style={{ flex: 1, minWidth: 220, fontSize: 13, lineHeight: 1.55, color: 'var(--ink-800)' }}>
-            <strong>พบ {paidRows.length} รายการที่จ่ายแล้ว</strong> (vchno ตรงกับ AP_No ในหน้า PV) ปนอยู่ในรายการคงค้าง —
-            จ่ายผ่าน PV ไปแล้วจึงไม่ใช่เจ้าหนี้คงค้าง ควรล้างออกจากชีต
-          </div>
-          <button className="btn btn-primary" onClick={cleanPaidNow}
-            style={{ background: 'var(--bad)', borderColor: 'var(--bad)', flex: '0 0 auto' }}>
-            <Icon name="trash" size={14} /> ล้างออกจากชีต ({paidRows.length})
-          </button>
-        </div>
-      )}
 
       {/* KPI — 4 cards (grid-4, same size as all other data pages, no delta to keep height equal) */}
       <div className="grid grid-4 anim-stagger" style={{ marginBottom: 16 }}>
@@ -3929,16 +3885,17 @@ function DataPayablePage({ data, setData, toast }) {
               borderRadius: 7, color: 'var(--ink-700)', lineHeight: 1.65,
             }}>
               <div>📥 <strong>อัปโหลดไฟล์ .xlsx/.csv</strong> หรือ <strong>วาง TSV</strong>. แถวแรกต้องเป็นชื่อคอลัมน์ (header)</div>
-              <div>🧹 <strong>แถวสรุปยอด</strong> (Total By Vendor) ถูกตัดออกอัตโนมัติ — นำเข้าเฉพาะรายการจริง (vchno = APO/APS/APV)</div>
+              <div>🧹 <strong>แถวสรุปยอด</strong> (Total By Vendor / หัวตารางซ้ำ) ถูกตัดออกอัตโนมัติ — นำเข้าเฉพาะรายการจริง (APO/APS/APV, RR, CN ใบลดหนี้)</div>
               <div>🔁 รายการที่ <strong>vchno ซ้ำ</strong> แต่ค่าเปลี่ยน (ยอด/วันครบกำหนด) จะ <strong>แจ้งเตือนให้ตรวจทาน</strong> ก่อนอัปเดต</div>
-              <div>✅ รายการที่ <strong>ดึงไป PV แล้ว</strong> (vchno = AP_No ใน PV) จะไม่นำเข้า และตัดของเดิมในลิสต์ออกให้</div>
+              <div>💡 รายงานนี้คือ <strong>หนี้คงค้าง</strong> — ยอดหัก PV ที่จ่ายไปแล้วในตัว. รายการที่ <strong>มี PV แต่ยังค้าง</strong> (แบ่งจ่าย) จะนำเข้าตามยอดคงเหลือ (ไม่ตัดทิ้ง)</div>
+              <div>💸 ของเดิมในลิสต์ที่ <strong>หายจากรายงาน + มี PV</strong> = ชำระครบแล้ว → ตัดออกให้อัตโนมัติ</div>
               <div>📆 คอลัมน์วันครบกำหนด: ถ้าไม่มี <code>due2</code> ระบบจะ map จาก due/duedate/Due/maturity ฯลฯ ให้อัตโนมัติ</div>
             </div>
           )}
 
           {importPreview ? (
             <div style={{ display: 'grid', gap: 10 }}>
-              {(importPreview.paidCut.length > 0 || importPreview.paidImportSkipped > 0) && (
+              {importPreview.paidCut.length > 0 && (
                 <div style={{
                   padding: '10px 13px', borderRadius: 8, fontSize: 12.5, lineHeight: 1.6,
                   background: 'color-mix(in oklch, var(--bad) 9%, transparent)',
@@ -3946,9 +3903,20 @@ function DataPayablePage({ data, setData, toast }) {
                   borderLeft: '4px solid var(--bad)',
                   display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', color: 'var(--ink-800)',
                 }}>
-                  <span style={{ fontWeight: 700, color: 'var(--bad)' }}>💸 จ่ายแล้ว (มี PV):</span>
-                  {importPreview.paidCut.length > 0    && <span>ตัดออกจากรายการคงค้าง <strong>{importPreview.paidCut.length}</strong> รายการ</span>}
-                  {importPreview.paidImportSkipped > 0 && <span>ข้ามในไฟล์นำเข้า <strong>{importPreview.paidImportSkipped}</strong> รายการ</span>}
+                  <span style={{ fontWeight: 700, color: 'var(--bad)' }}>💸 ชำระครบแล้ว (หายจากรายงาน):</span>
+                  <span>ตัดออกจากรายการคงค้าง <strong>{importPreview.paidCut.length}</strong> รายการ</span>
+                </div>
+              )}
+              {importPreview.paidWithPv > 0 && (
+                <div style={{
+                  padding: '10px 13px', borderRadius: 8, fontSize: 12.5, lineHeight: 1.6,
+                  background: 'color-mix(in oklch, var(--brand-500) 8%, transparent)',
+                  border: '1px solid color-mix(in oklch, var(--brand-500) 30%, transparent)',
+                  borderLeft: '4px solid var(--brand-500)',
+                  display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', color: 'var(--ink-800)',
+                }}>
+                  <span style={{ fontWeight: 700, color: 'var(--brand-700)' }}>ℹ️ มี PV แล้ว {importPreview.paidWithPv} รายการ</span>
+                  <span>— ยังอยู่ในรายงานคงค้าง (แบ่งจ่าย/จ่ายไม่หมด) → <strong>นำเข้าตามยอดคงเหลือ</strong> ไม่ตัดทิ้ง</span>
                 </div>
               )}
               {importPreview.summarySkipped > 0 && (
