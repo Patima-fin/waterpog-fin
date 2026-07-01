@@ -265,6 +265,42 @@ function ivIsProject(iv) {
   return String(iv.invType || iv.invtype || 'P').trim().toUpperCase() !== 'O';
 }
 
+// ─── กติกา "จับ IV เข้าแผนรับเงินต้นเดือน" (single source — ใช้ร่วม lock + live forecast + drill) ───
+//   นิยาม (มิเรอร์ 3 การ์ดหน้าใบแจ้งหนี้ = คาดรับสัปดาห์นี้ + สัปดาห์หน้า + กำลังติดตาม):
+//     • งานโครงการ (invType=P) · สถานะ 'ติดตามเงิน' · ยังไม่รับเงิน · net ≥ 1
+//     • ตัด "รอใบตรวจรับ" (pending_inspection) และ "ติดปัญหา" (issue) ออก
+//     • ตัดใบที่ "รับเงินจริงไปก่อนต้นเดือน" (เป็นเงินของเดือนก่อน)
+//   ลงช่องสัปดาห์ (wk 0-based ในเดือนที่ดู):
+//     • วันคาดรับก่อนต้นเดือน (overdue/ค้างข้ามเดือน) → สัปดาห์ปัจจุบัน (nowWeek)
+//     • วันคาดรับอยู่ในเดือนนี้ → ตามวัน (findWeekIdx)
+//     • ไม่มีวันคาดรับ หรือวันไกลเกินเดือน (อนาคต) → สัปดาห์สุดท้าย
+//   คืน { net, wk } ถ้าเข้าเงื่อนไข, หรือ null
+function ivPlanCapture(iv, weeks, year, month, nowWeek, financeByCode) {
+  if (!ivIsProject(iv)) return null;
+  if (ivIsPaid(iv)) return null;
+  if (!ivIsTracking(iv)) return null;            // เฉพาะสถานะ 'ติดตามเงิน'
+  const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
+  const ad = ivActualReceiveDate(iv);
+  if (ad && toISODate(ad) < monthStart) return null;   // รับจริงไปก่อนเดือนนี้ → เงินเดือนก่อน
+  const net = ivNetExpected(iv, financeByCode);
+  if (!(net >= 1)) return null;                  // net ≈ 0 (หนี้กลบหมด) — ไม่มีอะไรให้รับ
+  const lastWk = Math.max(0, weeks.length - 1);
+  const er = iv.expectedReceive;
+  let wk;
+  if (!er) {
+    wk = lastWk;                                 // ไม่มีวันคาดรับ → สัปดาห์สุดท้าย
+  } else if (inMonth(er, year, month)) {
+    const wi = findWeekIdx(er, weeks);
+    wk = wi >= 0 ? wi : lastWk;                  // มีวันในเดือน → ตามวัน
+  } else {
+    const erISO = toISODate(er);
+    wk = (erISO && erISO < monthStart)
+      ? (nowWeek != null ? nowWeek : 0)          // overdue/ค้างข้ามเดือน → สัปดาห์ปัจจุบัน
+      : lastWk;                                  // ไกลเกินเดือน (อนาคต) → สัปดาห์สุดท้าย
+  }
+  return { net, wk };
+}
+
 // ─── IV PLAN lock — freeze "คาดรับ" baseline ตั้งแต่วันที่ 1 ของเดือน ─────────
 //   ปัญหาเดิม: forecast คำนวณสด + ตัด IV ที่ paid ออก → ยอด PLAN หดลงเรื่อยๆ
 //   แก้: จับ baseline ราย IV ตอนต้นเดือน (net + สัปดาห์คาดรับ) แล้ว freeze ไว้
@@ -1118,11 +1154,9 @@ function CashFlowDashboard({ data, setData, toast }) {
       const s = sanitizeIvKey(iv.ivNo || iv.IV_NO || iv.invoiceNo); if (s) bySafe[s] = iv;
       if (!ivIsProject(iv)) return;  // เฉพาะประเภทงานโครงการ (P) — ตัด O ออก
       const net = ivNetExpected(iv, financeByCode);
-      // Live forecast (fallback เมื่อเดือนยังไม่ถูกล็อก) — IV ที่ยังไม่รับเงิน + คาดรับเดือนนี้
-      if (!ivIsPaid(iv) && iv.expectedReceive && inMonth(iv.expectedReceive, year, month)) {
-        const w = findWeekIdx(iv.expectedReceive, weeks);
-        if (w >= 0) liveForecast[w] += net;
-      }
+      // Live forecast (fallback เมื่อเดือนยังไม่ถูกล็อก) — กติกาเดียวกับ lock (ivPlanCapture)
+      const cap = ivPlanCapture(iv, weeks, year, month, nowWeek, financeByCode);
+      if (cap) liveForecast[cap.wk] += cap.net;
       // Actual bucket — เฉพาะ IV ที่มี actualReceive.date ตกในเดือนนี้ (เปลี่ยนตามจริงเสมอ)
       const ad = ivActualReceiveDate(iv);
       if (ad && inMonth(ad, year, month)) {
@@ -1149,7 +1183,7 @@ function CashFlowDashboard({ data, setData, toast }) {
       forecastRemaining = liveForecast.slice();   // ยังไม่ล็อก → liveForecast ตัด paid อยู่แล้ว
     }
     return { forecast, actual, liveForecast, forecastRemaining };
-  }, [invoices, weeks, year, month, ivPlanLock, financeByCode]);
+  }, [invoices, weeks, year, month, nowWeek, ivPlanLock, financeByCode]);
 
   // ── What-if items: รายการ "แผนที่ยังไม่เกิดจริง" รายตัว (จ่าย/รับ) สำหรับพาเนลจำลอง ──
   //   ใช้ filter เดียวกับ forecastByWeekCat (จ่าย) + ivInflowByWeek.liveForecast (รับ) แต่ emit รายตัว
@@ -1242,24 +1276,17 @@ function CashFlowDashboard({ data, setData, toast }) {
     if (cfIsReadOnly()) { if (!auto && typeof toast === 'function') toast('สิทธิ์นี้ดูได้อย่างเดียว — ล็อกแผนไม่ได้'); return; }
     if (typeof WTPOverride === 'undefined' || typeof WTPOverride.setMany !== 'function') return;
     const prefix = `${ovPrefix}.${IVPLAN_SEG}.`;
-    const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
     const entries = {};
     let count = 0;
     invoices.forEach(iv => {
-      if (!iv.expectedReceive || !inMonth(iv.expectedReceive, year, month)) return;
-      if (!ivIsProject(iv)) return;  // เฉพาะประเภทงานโครงการ (P) — ตัด O ออกจากการล็อกแผน
-      // ตัด IV ที่ "รับเงินจริงไปแล้วก่อนเดือนนี้" — เป็นเงินของเดือนก่อน ไม่ใช่แผนเดือนนี้
-      //   (ใบที่รับเงินภายในเดือนนี้ยังคงไว้ — เคยเป็นแผน + เกิดจริงในเดือนเดียวกัน)
-      const ad = ivActualReceiveDate(iv);
-      if (ad && toISODate(ad) < monthStart) return;
-      const net = ivNetExpected(iv, financeByCode);
-      if (!(net >= 1)) return;                 // net ≈ 0 (หนี้กลบหมด) — ไม่มีอะไรให้รับ ข้าม
+      // กติกาเดียวกับการ์ด/ตาราง/drill (ivPlanCapture): งานโครงการ · 'ติดตามเงิน' · ยังไม่รับ · net≥1
+      //   overdue→W ปัจจุบัน · มีวันในเดือน→ตามวัน · ไม่มีวัน/ไกลเกินเดือน→สัปดาห์สุดท้าย
+      const cap = ivPlanCapture(iv, weeks, year, month, nowWeek, financeByCode);
+      if (!cap) return;
       const safe = sanitizeIvKey(iv.ivNo || iv.IV_NO || iv.invoiceNo);
       if (!safe) return;
-      const w = findWeekIdx(iv.expectedReceive, weeks);
-      if (w < 0) return;
-      entries[`${prefix}${safe}.net`] = net;
-      entries[`${prefix}${safe}.wk`]  = w;
+      entries[`${prefix}${safe}.net`] = cap.net;
+      entries[`${prefix}${safe}.wk`]  = cap.wk;
       count++;
     });
     // เคลียร์คีย์เก่าของเดือนนี้ที่ไม่อยู่ในชุดใหม่ (IV ที่ถูกลบ/เปลี่ยนเลขที่ไปแล้ว)
@@ -1578,12 +1605,16 @@ function CashFlowDashboard({ data, setData, toast }) {
           });
         }
       } else {
-        // ── โหมดสด (เดือนที่ยังไม่เคยล็อก / ก่อนมีฟีเจอร์) — ตามเดิม ──
+        // ── โหมดสด (เดือนที่ยังไม่เคยล็อก / ก่อนมีฟีเจอร์) — กติกาเดียวกับ ivPlanCapture + กรองตามสัปดาห์ ──
+        const wkInPeriod = (wk) => {
+          if (period === 'current') return wk === nowWeek;
+          if (period === 'rest')    return !isLastWeek && wk > nowWeek;
+          return wk >= nowWeek;   // total = สัปดาห์ปัจจุบันเป็นต้นไป
+        };
         invoices.forEach(iv => {
-          // ลูกหนี้คงค้างทุกใบที่ยังไม่ได้รับเงิน — เดียวกับ logic main
-          if (ivIsPaid(iv)) return;
+          const cap = ivPlanCapture(iv, weeks, year, month, nowWeek, financeByCode);
+          if (!cap || !wkInPeriod(cap.wk)) return;
           const d = iv.expectedReceive;
-          if (!d || !inPeriod(d)) return;
           const ivStatusShort = window.WTPData?.IV_STATUS_META?.[iv.status]?.short || iv.status || '—';
           items.push({
             source: 'IV',
@@ -1596,7 +1627,7 @@ function CashFlowDashboard({ data, setData, toast }) {
               ['โครงการ', iv.projectName || iv.PROJECT_NAME || '—'],
               ['ลูกค้า', iv.customer || '—'],
               ['เลขที่ IV', iv.ivNo || iv.IV_NO || iv.invoiceNo || '—'],
-              ['วันคาดรับ', fmtDate(d) || d],
+              ['วันคาดรับ', d ? (fmtDate(d) || d) : '— (ยังไม่ระบุ)'],
               ['ยอดคงค้าง', fmtNum(Number(iv.balance) || 0, 0) + ' '],
               ['คาดรับสุทธิ (หัก WHT/หนี้)', fmtNum(ivNetExpected(iv, financeByCode), 0) + ' '],
               ['สถานะ', ivStatusShort],
