@@ -193,10 +193,44 @@
     }
     var dimOf = function (f) { return actReg && f.region !== actReg ? 0.22 : 1; };
 
+    // ── pseudo-3D: extrude provinces with data as raised "bars" (dark riser + lit
+    // top face + glossy sheen), give every tile a soft drop shadow so the whole
+    // mosaic reads as raised tiles rather than a flat choropleth. Purely additive —
+    // interaction (hover/click/zoom/pan) stays bound to the original top-face path.
+    var MAXH = 15;
+    function heightFor(f) { var v = bp[f.th] || 0; if (!v) return 0; return 4 + MAXH * Math.sqrt(v / maxV); }
+    var LIGHT_DX = 0.34, LIGHT_DY = 0.88; // shadow falls lower-right, light from upper-left
+
+    var defs = el('defs', { key: 'defs' },
+      el('linearGradient', { id: 'invMapSheen', x1: '0%', y1: '0%', x2: '100%', y2: '100%' },
+        el('stop', { offset: '0%', stopColor: '#ffffff', stopOpacity: 0.38 }),
+        el('stop', { offset: '45%', stopColor: '#ffffff', stopOpacity: 0 }),
+        el('stop', { offset: '100%', stopColor: '#000000', stopOpacity: 0.16 })
+      ),
+      el('radialGradient', { id: 'invMapBadge', cx: '35%', cy: '30%', r: '75%' },
+        el('stop', { offset: '0%', stopColor: '#ffffff' }),
+        el('stop', { offset: '100%', stopColor: '#dbe3ee' })
+      ),
+      el('filter', { id: 'invMapShadow', x: '-50%', y: '-50%', width: '200%', height: '200%' },
+        el('feDropShadow', { dx: 2, dy: 4, stdDeviation: 2.2, floodColor: '#0b1b33', floodOpacity: 0.28 })
+      )
+    );
+
+    var risers = cache.feats.filter(function (f) { return heightFor(f) > 0; }).map(function (f, i) {
+      var h = heightFor(f);
+      var base = (REG_META[f.region] || {}).color || '#9aa7bd';
+      var darker = mix(base, '#000000', 0.5);
+      return el('path', {
+        key: 'riser' + i, d: f.d, fill: darker, opacity: dimOf(f) * 0.85,
+        transform: 'translate(' + r1(h * LIGHT_DX) + ',' + r1(h * LIGHT_DY) + ')',
+        style: { pointerEvents: 'none' }
+      });
+    });
+
     var paths = cache.feats.map(function (f, i) {
       var isHov = hov && hov.en === f.en;
       return el('path', {
-        key: i, d: f.d, fill: fillFor(f),
+        key: i, d: f.d, fill: fillFor(f), filter: 'url(#invMapShadow)',
         stroke: isHov ? ink : card, strokeWidth: isHov ? 1.7 : 0.6,
         opacity: dimOf(f), style: { cursor: 'pointer', transition: 'opacity .15s ease' },
         onMouseEnter: function () { setHov(f); },
@@ -204,10 +238,14 @@
       });
     });
 
-    // small count badges on provinces that carry data
+    var sheens = cache.feats.map(function (f, i) {
+      return el('path', { key: 'sheen' + i, d: f.d, fill: 'url(#invMapSheen)', opacity: dimOf(f), style: { pointerEvents: 'none', mixBlendMode: 'overlay' } });
+    });
+
+    // small count badges on provinces that carry data — glossy pin look + drop shadow
     var badges = cache.feats.filter(function (f) { return (bp[f.th] || 0) > 0; }).map(function (f, i) {
       return el('g', { key: 'b' + i, opacity: dimOf(f), style: { pointerEvents: 'none' } },
-        el('circle', { cx: f.cx, cy: f.cy, r: 12, fill: '#ffffff', opacity: 0.92, stroke: (REG_META[f.region] || {}).color || sub, strokeWidth: 1.4 }),
+        el('circle', { cx: f.cx, cy: f.cy, r: 12, fill: 'url(#invMapBadge)', opacity: 0.95, stroke: (REG_META[f.region] || {}).color || sub, strokeWidth: 1.4, filter: 'url(#invMapShadow)' }),
         el('text', { x: f.cx, y: f.cy + 4, textAnchor: 'middle', fontSize: 13, fontWeight: 800, fill: '#10233f', style: { fontVariantNumeric: 'tabular-nums' } }, bp[f.th])
       );
     });
@@ -332,7 +370,7 @@
           : { position: 'relative', width: '100%', maxWidth: props.maxWidth || 380, margin: '0 auto', cursor: cur, overflow: 'hidden' }
       },
         controls(isFull),
-        el('svg', { viewBox: vbox().s, style: isFull ? { width: '100%', height: '100%', display: 'block' } : { width: '100%', height: 'auto', display: 'block' } }, paths, badges),
+        el('svg', { viewBox: vbox().s, style: isFull ? { width: '100%', height: '100%', display: 'block' } : { width: '100%', height: 'auto', display: 'block' } }, defs, risers, paths, sheens, badges),
         tipFor(isFull),
         isFull ? provPanel(true) : null
       );
