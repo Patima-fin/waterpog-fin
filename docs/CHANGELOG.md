@@ -866,3 +866,13 @@ Newest entries are at the bottom. Architecture/conventions/gotchas stay in `CLAU
   - **`commitImport`** (ยืนยันนำเข้า) → ลำดับ **ลบก่อน** (`forceDeleteRows` กับ paidCut+selectedMissing) → แล้วค่อย **add/แก้** (`setData` ให้ diff push upsert) เพื่อกัน snapshot race; มี fallback เป็น `setData` filter ถ้าไม่มี `forceDeleteRows` (backend ไม่ใช่ Supabase).
 - **หมายเหตุ:** ไม่แตะเกราะ mass-delete เอง (เป็น data-loss protection) — ใช้ทางออกที่สถาปัตยกรรมตั้งใจไว้ (forceDeleteRows) ตามคอมเมนต์ในโค้ด. เกราะยังกัน cache เพี้ยน/แท็บค้างสั่งลบทั้งตารางเหมือนเดิม.
 - verify: หน้าติด login-gate + RLS พรีวิวจริงไม่ได้ (ต้องมีข้อมูล production จริงเป็นร้อยแถวถึงจะ trip เกราะ) · `forceDeleteRows` มีอยู่แล้วใน `data_supabase.js` คืน Promise + อัป cache/snapshot/subscribers (read-your-writes).
+
+## 2026-07-01 — DATA เจ้าหนี้คงค้าง: นำเข้ารายงาน g14 แล้วรายการ/ยอดไม่ครบ (filter ทิ้ง RR/CN) — build 20260701c
+- **อาการ (เตย):** หน้า `#data_payable` นำเข้ารายงาน `v_ap_rptg14` แล้ว **รายการมาไม่ครบ ยอดหนี้คงค้างไม่ตรง footer รายงาน (98 ล้าน)**.
+- **ต้นเหตุ:** `_isPayableDetailRow` (`page_data_extras.jsx`) เดิม **whitelist เฉพาะ vchno ที่ขึ้นต้น `APO/APS/APV`** → ทิ้งแถว detail จริงชนิดอื่นเงียบๆ: `RR…` (ปรับปรุง/รับของ, 22 แถว +฿325k) และ `CN…` (**ใบลดหนี้ ยอดติดลบ**, 6 แถว −฿4.26M). พอ CN หายไป ยอดหักหนี้เลยขาด → นำเข้าได้แค่ 376 แถว (102M) ไม่มีทางตรงกับ 98M ในรายงาน.
+- **แก้:** เปลี่ยนตรรกะจาก "รับเฉพาะ AP\*" → **"ตัดเฉพาะแถวสรุป/หัวตาราง แล้วเก็บ detail ที่เหลือทั้งหมด"** — reject: vchno ว่าง/`"0"` · `maincode` ขึ้นต้น `Vendor :` (subtotal) · `ty` ขึ้นต้น `Total` (Total By Vendor/grand total) · หัวคอลัมน์ซ้ำ (`maincode==="maincode"` / `vchno==="vchno"` ที่ติดมาตอน copy ทั้งรายงาน). RR/CN และ doc-type อื่นในอนาคตจึงเข้ามาครบ.
+- **verify:** จำลอง filter ใหม่กับไฟล์จริง (461 แถว) → เก็บ **404 แถว = ฿98,354,376.76** ตรง footer รายงาน (ตัดทิ้ง 57 แถว = หัวตารางซ้ำ 55 + ว่าง 1 + subtotal 1). ทุกแถว detail จริงในรายงานนี้ = `maincode="MG1"`, `ty="AP"`. ดู memory [[payable-import-rr-cn-dropped]].
+
+## 2026-07-01 — Bank Diary: แถวในการ์ดเรียงตรงกัน (build `page_bank_diary 20260701a`)
+- แถวในการ์ดบัญชี (วันที่กางออก) เดิม "ยึกยักแหว่งๆ ไม่เท่ากัน": มีแถว 2 แบบปน — **แถวกลุ่มเจ้าหนี้** (`BDDayItemGroup`) มีลูกศร `▶` นำหน้าก่อนป้าย/ชื่อ ส่วน **แถวเดี่ยว** (`BDItemRow` เช่นรายการโอน) ไม่มีลูกศร → ป้าย/ชื่อขยับซ้าย ~15px ไม่ตรงกับแถวข้างบน + จำนวนเงินลอยชิดบนเพราะแถวโอนเป็น 2 บรรทัด.
+- **แก้ที่ `BDItemRow`:** เพิ่ม prop `indent` → เว้น spacer กว้างเท่า `▶` (width 9 + gap) ให้ป้าย/ชื่อของแถวเดี่ยวเรียงตรงกับแถวกลุ่ม · `alignItems:'center'`+`alignSelf:'center'` ให้จำนวนเงินอยู่กึ่งกลางแนวตั้ง · ellipsis กันชื่อยาวดันแถวเบี้ยว. จุดเรียกใน `BDDayGroup` (เคสแถวเดี่ยว/โอน) ส่ง `indent`. แก้ layout ล้วน ไม่แตะ logic/ข้อมูล. (พอร์ตพร้อมกับ BIO)

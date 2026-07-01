@@ -2514,13 +2514,20 @@ const _PAYABLE_DIFF_FIELDS = [
 ];
 const _PAYABLE_FIELD_BY_KEY = Object.fromEntries(_PAYABLE_DIFF_FIELDS.map(f => [f.key, f]));
 
-// แถวรายการจริง = vchno ขึ้นต้น APO/APS/APV; แถวสรุปยอด "Total By Vendor" มี vchno="0"
-// + กัน maincode="Vendor :…" / ty="Total…" หลุดเข้ามา
+// แถวรายการจริง = ทุกแถว detail ของรายงาน (maincode=MG1, ty=AP) — ครอบคลุม vchno
+//   APO/APS/APV (ตั้งหนี้) · RR… (ปรับปรุง/รับของ) · CN… (ใบลดหนี้ ยอดติดลบ)
+//   ★ ห้าม whitelist เฉพาะ AP* — RR/CN ก็เป็นหนี้จริงในรายงาน g14 เคยตกหล่น 28 แถว
+//     (RR 22 + CN 6 = สุทธิ −3.9M) ทำให้ยอดนำเข้าไม่ตรง footer รายงาน 98 ล้าน
+// ตัดเฉพาะแถว "สรุป/หัวตาราง": Total By Vendor (vchno="0", maincode="Vendor :…",
+//   ty="Total…") และแถวหัวคอลัมน์ซ้ำ (maincode="maincode") ที่ติดมาตอน copy ทั้งรายงาน
 function _isPayableDetailRow(o) {
-  const vch = String(o.vchno || '').trim();
-  if (!/^AP[OSV]/i.test(vch)) return false;
-  if (/^Vendor\s*:/i.test(String(o.maincode || ''))) return false;
-  if (/^Total/i.test(String(o.ty || '').trim()))     return false;
+  const vch  = String(o.vchno || '').trim();
+  const main = String(o.maincode || '').trim();
+  const ty   = String(o.ty || '').trim();
+  if (!vch || vch === '0')                     return false;  // สรุปยอด/แถวว่าง
+  if (/^Vendor\s*:/i.test(main))               return false;  // subtotal รายเจ้าหนี้
+  if (/^Total/i.test(ty))                       return false;  // Total By Vendor / grand total
+  if (main === 'maincode' || vch === 'vchno')  return false;  // หัวตารางซ้ำ (copy ทั้งไฟล์)
   return true;
 }
 
