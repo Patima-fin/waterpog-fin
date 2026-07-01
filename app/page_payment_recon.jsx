@@ -310,7 +310,7 @@ function prBuildAll(data) {
 
       return {
         code, ncode, name: d.site || d.name || code, customer: custByCode[ncode] || d.customer || '—',
-        contractor: contractorLabel, vendorCount: vendorNames.length,
+        contractor: contractorLabel, vendorCount: vendorNames.length, vendors: vendorNames,
         contractValue: d.contractAmt || 0, fy: d.fy, arFull,
         productType, expectedNguad, signedDate,
         arItems, apGroups: groups,
@@ -326,7 +326,7 @@ function prBuildAll(data) {
 // ════════════════════════════════════════════════════════════════════════════
 function PaymentReconPage({ data, setData, toast }) {
   const canEdit = window.WTPAuth ? (window.WTPAuth.can('canEdit') || window.WTPAuth.can('canApprove')) : true;
-  const [state, setState] = React.useState({ filters: [], expanded: {}, sort: 'code', searchDate: '', search: '', fy: null, exportFrom: '', exportTo: '' });
+  const [state, setState] = React.useState({ filters: [], expanded: {}, sort: 'code', searchDate: '', search: '', fy: null, company: '', nguad: 'all', exportFrom: '', exportTo: '' });
   const [planTarget, setPlanTarget] = React.useState(null);
   const [planForm, setPlanForm] = React.useState({ payDate: '', bankAc: '' });
 
@@ -335,6 +335,18 @@ function PaymentReconPage({ data, setData, toast }) {
 
   const fyProjects = React.useMemo(() => all.projects.filter(p => fy === 'all' || p.fy === fy), [all, fy]);
   const fyHasAp = fyProjects.some(p => p.apGroups.length > 0);
+  // ตัวเลือกผู้รับเหมา (contractor) — รายชื่อ vendor จริงทั้งหมดในปีที่เลือก
+  const companyOptions = React.useMemo(() => {
+    const set = new Set();
+    fyProjects.forEach(p => (p.vendors || []).forEach(v => { if (v && v !== '—') set.add(v); }));
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'th'));
+  }, [fyProjects]);
+  // ตัวเลือกงวด (ADV / งวด N) — คีย์งวดที่มีจริง เรียงตามลำดับงวด
+  const nguadOptions = React.useMemo(() => {
+    const set = new Set();
+    fyProjects.forEach(p => p.apGroups.forEach(g => set.add(g.key)));
+    return Array.from(set).sort((a, b) => prInstOrder(a) - prInstOrder(b));
+  }, [fyProjects]);
   const diag = React.useMemo(() => ({
     signed: all.projects.length,
     withAp: all.projects.filter(p => p.apGroups.length > 0).length,
@@ -397,19 +409,35 @@ function PaymentReconPage({ data, setData, toast }) {
   // ── filter (multi-select) / sort / date-search ──
   const fset = state.filters || [];
   const sd = state.searchDate;
+  const company = state.company || '';
+  const nguad = state.nguad || 'all';
+  // งวดที่แสดง = ทุกงวด หรือเฉพาะงวดที่เลือก
+  const viewGroupsOf = (p) => nguad === 'all' ? p.apGroups : p.apGroups.filter(g => g.key === nguad);
   let projects = fyProjects.slice();
-  if (fset.length) projects = projects.filter(p => fset.some(f => f === 'done' ? p.overall === 'done' : p._keys.includes(f)));
+  // ผู้รับเหมา — เก็บเฉพาะโครงการที่มี vendor นี้
+  if (company) projects = projects.filter(p => (p.vendors || []).includes(company));
+  // งวด — เก็บเฉพาะโครงการที่มีงวดนั้น
+  if (nguad !== 'all') projects = projects.filter(p => p.apGroups.some(g => g.key === nguad));
+  // สถานะ — เทียบกับงวดที่แสดง (viewGroups) เมื่อเลือกงวด, ไม่งั้นเทียบทั้งโครงการ
+  if (fset.length) projects = projects.filter(p => {
+    const gs = viewGroupsOf(p);
+    return fset.some(f => f === 'done'
+      ? (nguad === 'all' ? p.overall === 'done' : (gs.length > 0 && gs.every(g => g.status === 'paid')))
+      : gs.some(g => g.status === f));
+  });
   const q = (state.search || '').trim().toLowerCase();
   if (q) projects = projects.filter(p => (p.code + ' ' + p.name + ' ' + p.contractor + ' ' + p.customer).toLowerCase().includes(q));
-  if (sd) projects = projects.filter(p => p.apGroups.some(g => (g.status === 'ready') && (g.unlockDate || '') <= sd));
+  if (sd) projects = projects.filter(p => viewGroupsOf(p).some(g => (g.status === 'ready') && (g.unlockDate || '') <= sd));
   projects = projects.slice().sort((a, b) => {
     if (state.sort === 'contractor') return a.contractor.localeCompare(b.contractor, 'th');
     if (state.sort === 'ready') return b.readySum - a.readySum;
     if (state.sort === 'value') return b.contractValue - a.contractValue;
     return a.code.localeCompare(b.code, 'th');
   });
+  // แนบงวดที่แสดงให้การ์ด (เมื่อเลือกงวด → การ์ดโชว์แค่งวดนั้น)
+  if (nguad !== 'all') projects = projects.map(p => ({ ...p, _viewGroups: viewGroupsOf(p) }));
   let planSum = 0, planCnt = 0;
-  if (sd) projects.forEach(p => p.apGroups.forEach(g => { if ((g.status === 'ready') && (g.unlockDate || '') <= sd) { planSum += g.outAmt; planCnt++; } }));
+  if (sd) projects.forEach(p => (p._viewGroups || p.apGroups).forEach(g => { if ((g.status === 'ready') && (g.unlockDate || '') <= sd) { planSum += g.outAmt; planCnt++; } }));
 
   const toggle = (code) => setState(s => ({ ...s, expanded: { ...s.expanded, [code]: !s.expanded[code] } }));
   const toggleFilter = (key) => setState(s => {
@@ -443,7 +471,7 @@ function PaymentReconPage({ data, setData, toast }) {
       return true;
     };
     const rows = [];
-    projects.forEach(p => p.apGroups.forEach(g => {
+    projects.forEach(p => (p._viewGroups || p.apGroups).forEach(g => {
       g.paidRows.forEach(r => {
         if (!inRange(r.date)) return;
         rows.push({ code: p.code, name: p.name, productType: p.productType || '', signedDate: p.signedDate ? fmtDate(p.signedDate) : '',
@@ -543,7 +571,7 @@ function PaymentReconPage({ data, setData, toast }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: '1px solid var(--line)', borderRadius: 10, padding: '6px 12px' }}>
             <span style={{ fontSize: 12, color: 'var(--ink-400)' }}>ปีสัญญา</span>
-            <select value={String(fy)} onChange={e => { const v = e.target.value; setState(s => ({ ...s, fy: v === 'all' ? 'all' : Number(v), expanded: {} })); }}
+            <select value={String(fy)} onChange={e => { const v = e.target.value; setState(s => ({ ...s, fy: v === 'all' ? 'all' : Number(v), expanded: {}, company: '', nguad: 'all' })); }}
               style={{ border: 'none', background: 'transparent', font: 'inherit', fontSize: 13, fontWeight: 700, color: 'var(--ink-900)', outline: 'none', cursor: 'pointer' }}>
               <option value="all">ทุกปี</option>
               {all.fys.map(y => <option key={y} value={y}>25{y} (FY{y})</option>)}
@@ -567,6 +595,23 @@ function PaymentReconPage({ data, setData, toast }) {
             style={{ border: 'none', background: 'transparent', font: 'inherit', fontSize: 13, fontWeight: 600, color: 'var(--ink-900)', outline: 'none', cursor: 'pointer' }}>
             <option value="code">รหัสโครงการ</option><option value="contractor">ชื่อผู้รับเหมา</option>
             <option value="ready">พร้อมจ่ายมากสุด</option><option value="value">มูลค่าสัญญา</option>
+          </select>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: '1px solid var(--line)', borderRadius: 10, padding: '6px 12px' }}>
+          <span style={{ fontSize: 12, color: 'var(--ink-400)' }}>ผู้รับเหมา</span>
+          <select value={state.company} onChange={e => setState(s => ({ ...s, company: e.target.value }))}
+            style={{ border: 'none', background: 'transparent', font: 'inherit', fontSize: 13, fontWeight: 600, color: 'var(--ink-900)', outline: 'none', cursor: 'pointer', maxWidth: 200 }}>
+            <option value="">ทุกบริษัท</option>
+            {companyOptions.map(v => <option key={v} value={v}>{v}</option>)}
+          </select>
+          {state.company && <button onClick={() => setState(s => ({ ...s, company: '' }))} style={{ border: 'none', background: 'var(--ink-100)', color: 'var(--ink-500)', borderRadius: 6, padding: '4px 9px', fontSize: 12, cursor: 'pointer' }}>ล้าง</button>}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: '1px solid var(--line)', borderRadius: 10, padding: '6px 12px' }}>
+          <span style={{ fontSize: 12, color: 'var(--ink-400)' }}>งวด</span>
+          <select value={state.nguad} onChange={e => setState(s => ({ ...s, nguad: e.target.value }))}
+            style={{ border: 'none', background: 'transparent', font: 'inherit', fontSize: 13, fontWeight: 600, color: 'var(--ink-900)', outline: 'none', cursor: 'pointer' }}>
+            <option value="all">ทุกงวด</option>
+            {nguadOptions.map(k => <option key={k} value={k}>{k}</option>)}
           </select>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: '1px solid var(--line)', borderRadius: 10, padding: '6px 12px' }}>
@@ -615,7 +660,8 @@ function PaymentReconPage({ data, setData, toast }) {
 
         {projects.map(p => {
           const expanded = !!state.expanded[p.code];
-          const minis = p.apGroups.slice(0, 6);
+          const vg = p._viewGroups || p.apGroups;
+          const minis = vg.slice(0, 6);
           const om = PR_META[p.overall] || PR_META.none;
           const overallLabel = p.overall === 'done' ? 'จ่ายครบ' : (om.label + (p.readyCount > 0 ? ' ' + p.readyCount + ' งวด' : ''));
           return (
@@ -632,8 +678,8 @@ function PaymentReconPage({ data, setData, toast }) {
                 </div>
                 <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', justifyContent: 'center', alignItems: 'center' }}>
                   {minis.map((g, i) => { const m = PR_META[g.status] || PR_META.none; return <span key={i} title={g.key + ' · ' + m.label} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 30, height: 21, padding: '0 6px', borderRadius: 6, fontSize: 10.5, fontWeight: 600, fontFamily: "'IBM Plex Mono',monospace", background: m.bg, color: m.color }}>{g.key === 'ADV' ? 'Adv' : g.key.replace('งวด ', 'ง')}</span>; })}
-                  {p.apGroups.length > 6 && <span style={{ fontSize: 11, color: 'var(--ink-400)', alignSelf: 'center' }}>+{p.apGroups.length - 6}</span>}
-                  {p.apGroups.length === 0 && <span style={{ fontSize: 11, color: 'var(--ink-300)' }}>— ไม่มี AP</span>}
+                  {vg.length > 6 && <span style={{ fontSize: 11, color: 'var(--ink-400)', alignSelf: 'center' }}>+{vg.length - 6}</span>}
+                  {vg.length === 0 && <span style={{ fontSize: 11, color: 'var(--ink-300)' }}>— ไม่มี AP</span>}
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontFamily: "'IBM Plex Mono',monospace", fontSize: 14, fontWeight: 700, color: p.readySum > 0 ? '#15803d' : 'var(--ink-300)' }}>{p.readySum > 0 ? prMoney(p.readySum) : '—'}</div>
@@ -673,10 +719,10 @@ function PaymentReconPage({ data, setData, toast }) {
                     </div>
                     {/* AP — ราย งวด (card per งวด พร้อมรายละเอียดราย PV/AP) */}
                     <div>
-                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--brand-700)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 6, height: 6, borderRadius: 999, background: 'var(--brand-500)' }} />จ่ายผู้รับเหมา · AP รายงวด ({p.apGroups.length})</div>
-                      {p.apGroups.length === 0 && <div style={{ border: '1px solid var(--line-soft)', borderRadius: 12, background: '#fff', padding: '12px', fontSize: 12, color: 'var(--ink-400)' }}>ยังไม่มีรายการ AP (APS) ของโครงการนี้</div>}
+                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--brand-700)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ width: 6, height: 6, borderRadius: 999, background: 'var(--brand-500)' }} />จ่ายผู้รับเหมา · AP รายงวด ({vg.length}{nguad !== 'all' ? ' · เฉพาะ ' + nguad : ''})</div>
+                      {vg.length === 0 && <div style={{ border: '1px solid var(--line-soft)', borderRadius: 12, background: '#fff', padding: '12px', fontSize: 12, color: 'var(--ink-400)' }}>ยังไม่มีรายการ AP (APS) ของโครงการนี้</div>}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {p.apGroups.map((g, i) => {
+                        {vg.map((g, i) => {
                           const m = PR_META[g.status] || PR_META.none;
                           const detail = [...g.paidRows.map(r => ({ ...r, _paid: true })), ...g.outRows.map(r => ({ ...r, _paid: false }))];
                           return (

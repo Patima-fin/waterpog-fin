@@ -2744,14 +2744,24 @@ function DataPayablePage({ data, setData, toast }) {
     rows.filter(r => { const v = String(r.vchno || '').trim(); return v && paidVchnoSet.has(v); })
   , [rows, paidVchnoSet]);
 
-  // ล้างรายการที่จ่ายแล้วออกจากชีต — ลบจริงผ่าน sync (replaceAll + baseIds ลบเฉพาะ id ที่ตัดออก)
+  // ล้างรายการที่จ่ายแล้วออกจากชีต — ลบจริงผ่าน forceDeleteRows
+  //   ⚠ ต้องใช้ forceDeleteRows (ไม่ใช่ setData filter) เพราะ Supabase มี "เกราะกัน
+  //   mass-delete" (data_supabase.js) ที่ทิ้ง diff-delete เงียบๆ เมื่อจำนวนลบ > 50%
+  //   ของตาราง → ถ้าใช้ setData รายการจ่ายแล้วเป็นร้อยจะไม่ถูกลบจริง แล้ว realtime
+  //   ดึงกลับมา (ยอดเยอะเหมือนเดิม). forceDeleteRows ลบตรงตามเจตนา ข้ามเกราะ.
   const cleanPaidNow = () => {
     if (!paidRows.length) return;
     if (!confirm(`พบ ${paidRows.length} รายการที่จ่ายแล้ว (vchno มีใน PV)\nยืนยันลบออกจากรายการคงค้าง (ชีต payables)?`)) return;
-    const ids = new Set(paidRows.map(r => r.id).filter(Boolean));
-    if (!ids.size) { toast('รายการที่จ่ายแล้วไม่มี id — ลบไม่ได้'); return; }
-    setData(d => ({ ...d, payables: (d.payables || []).filter(r => !ids.has(r.id)) }));
-    toast(`ล้างรายการที่จ่ายแล้ว ${ids.size} รายการออกจากชีตแล้ว`);
+    const ids = paidRows.map(r => r.id).filter(Boolean).map(String);
+    if (!ids.length) { toast('รายการที่จ่ายแล้วไม่มี id — ลบไม่ได้'); return; }
+    if (window.WTPData && typeof window.WTPData.forceDeleteRows === 'function') {
+      window.WTPData.forceDeleteRows('payables', ids)
+        .then(() => toast(`ล้างรายการที่จ่ายแล้ว ${ids.length} รายการออกจากชีตแล้ว`));
+    } else {
+      const set = new Set(ids);
+      setData(d => ({ ...d, payables: (d.payables || []).filter(r => !set.has(String(r.id))) }));
+      toast(`ล้างรายการที่จ่ายแล้ว ${ids.length} รายการออกจากชีตแล้ว`);
+    }
   };
 
   const getDocType = (vchno) => {
@@ -3435,25 +3445,37 @@ function DataPayablePage({ data, setData, toast }) {
   };
 
   // ยืนยัน → upsert changed + add new + ตัด paidCut เสมอ + (option) ลบ missing
+  //   ⚠ การลบ (paidCut/missing) ต้องผ่าน forceDeleteRows ไม่ใช่ setData filter —
+  //   เพราะ Supabase มีเกราะกัน mass-delete ที่ทิ้ง diff-delete เงียบๆ เมื่อจำนวนลบ
+  //   > 50% ของตาราง (นำเข้ารายงานใหม่ที่ตัดของจ่ายแล้วเป็นร้อย = เกินเกณฑ์) →
+  //   ถ้าใช้ setData รายการเก่าจะไม่ถูกลบจริงแล้ว realtime ดึงกลับ (ยอดเยอะเหมือนเดิม).
+  //   ลำดับ: ลบก่อน (forceDeleteRows) → แล้วค่อย add/แก้ (setData) เพื่อกัน snapshot race.
   const commitImport = () => {
     const p = importPreview;
     if (!p) return;
-    setData(d => {
+    const removeIds = [];
+    p.paidCut.forEach(m => { if (m.row?.id != null) removeIds.push(String(m.row.id)); });
+    selectedMissing.forEach(id => { if (id != null) removeIds.push(String(id)); });
+    const removeSet = new Set(removeIds);
+
+    // add/แก้ — ทำผ่าน setData (diff push จะ upsert ให้); ตัด removeSet ออกจาก state ด้วย
+    const applyUpserts = () => setData(d => {
       let next = [...(d.payables || [])];
-      // update changed (merge ฟิลด์จากไฟล์เข้า row เดิม คง id)
       const changedById = new Map();
       p.changed.forEach(({ existing, row }) => { if (existing?.id) changedById.set(existing.id, row); });
       if (changedById.size) next = next.map(r => changedById.has(r.id) ? { ...r, ...changedById.get(r.id) } : r);
-      // add new
       const newRows = p.added.map(({ row }) => _normPayableRow({ ...row, id: WTPData.newId() }));
       if (newRows.length) next = [...newRows, ...next];
-      // delete: paidCut เสมอ + missing เฉพาะที่ผู้ใช้เลือก
-      const removeIds = new Set();
-      p.paidCut.forEach(m => { if (m.row?.id) removeIds.add(m.row.id); });
-      selectedMissing.forEach(id => removeIds.add(id));
-      if (removeIds.size) next = next.filter(r => !removeIds.has(r.id));
+      if (removeSet.size) next = next.filter(r => !removeSet.has(String(r.id)));
       return { ...d, payables: next };
     });
+
+    if (removeIds.length && window.WTPData && typeof window.WTPData.forceDeleteRows === 'function') {
+      window.WTPData.forceDeleteRows('payables', removeIds).then(applyUpserts, applyUpserts);
+    } else {
+      applyUpserts();
+    }
+
     const parts = [`เพิ่ม ${p.added.length}`, `แก้ ${p.changed.length}`];
     if (p.paidCut.length) parts.push(`ตัดจ่ายแล้ว ${p.paidCut.length}`);
     if (selectedMissing.size) parts.push(`ลบที่หาย ${selectedMissing.size}`);
