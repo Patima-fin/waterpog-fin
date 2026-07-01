@@ -857,3 +857,12 @@ Newest entries are at the bottom. Architecture/conventions/gotchas stay in `CLAU
 - **DataPVPage** ตั้ง `yearField: 'Pmt_Date'` (วันที่จ่าย). เลือกปีแล้ว **ทั้งตาราง + KPI ด้านบน** (จำนวน PV / ยอดสุทธิรวม / เดือนนี้ / Ref สูงสุด) สะท้อนเฉพาะปีนั้น — ทำได้ด้วย `yearRows` (rows กรองปีอย่างเดียว) ป้อนให้ `config.summary`, และ `filtered` เพิ่มขั้นกรองปีก่อนตัวกรอง Ref/ค้นหา/per-column. state `yearFilter` เพิ่มใน dep ของ effect ล้าง selection + memo `filtered`.
 - ใช้ซ้ำได้ทันทีกับหน้า DATA อื่น (Bank/Payable/Forecast) แค่ใส่ `yearField` — ยังไม่เปิดให้หน้าอื่น.
 - verify: หน้าติด login-gate+RLS พรีวิวจริงไม่ได้ · โค้ดใช้ pattern `dxState/dxMemo` เดิมในคอมโพเนนต์เดียวกัน.
+
+## 2026-07-01 — DATA เจ้าหนี้คงค้าง: ลบ/ล้างรายการจ่ายแล้วไม่ติด (mass-delete guard) — build 20260701b
+- **อาการ (เตย):** หน้า `#data_payable` ลบรายการไม่ได้ — โดยเฉพาะรายการที่จ่ายจริงไปแล้วเยอะ กด "ล้างรายการจ่ายแล้ว" หรือ นำเข้ารายงานใหม่แล้วยอดกลับมาเยอะเหมือนเดิม.
+- **ต้นเหตุ:** Supabase (`data_supabase.js` `pushDiff`) มี **เกราะกัน mass-delete** — ถ้า diff สั่งลบ > `max(8, 50%)` ของจำนวนแถวในตาราง จะ **ทิ้ง deleteIds ทั้งชุดเงียบๆ** (แค่ `console.warn` "ลบจริงให้ใช้ forceDeleteRows"). payables มีของจ่ายแล้วเป็นร้อย → การล้าง/นำเข้าตัด paidCut เกินเกณฑ์ → ลบไม่จริง → realtime ดึงกลับ = ยอดเยอะเหมือนเดิม. (ลบทีละแถวไม่เจอปัญหาเพราะ 1 < 8.)
+- **แก้:** เปลี่ยน 2 จุดใน `DataPayablePage` (`page_data_extras.jsx`) ให้ลบผ่าน **`WTPData.forceDeleteRows('payables', ids)`** (ลบตรงตามเจตนา ข้ามเกราะ) แทน `setData` filter:
+  - **`cleanPaidNow`** (แบนเนอร์ "ล้างรายการที่จ่ายแล้ว") → `forceDeleteRows` แล้ว toast.
+  - **`commitImport`** (ยืนยันนำเข้า) → ลำดับ **ลบก่อน** (`forceDeleteRows` กับ paidCut+selectedMissing) → แล้วค่อย **add/แก้** (`setData` ให้ diff push upsert) เพื่อกัน snapshot race; มี fallback เป็น `setData` filter ถ้าไม่มี `forceDeleteRows` (backend ไม่ใช่ Supabase).
+- **หมายเหตุ:** ไม่แตะเกราะ mass-delete เอง (เป็น data-loss protection) — ใช้ทางออกที่สถาปัตยกรรมตั้งใจไว้ (forceDeleteRows) ตามคอมเมนต์ในโค้ด. เกราะยังกัน cache เพี้ยน/แท็บค้างสั่งลบทั้งตารางเหมือนเดิม.
+- verify: หน้าติด login-gate + RLS พรีวิวจริงไม่ได้ (ต้องมีข้อมูล production จริงเป็นร้อยแถวถึงจะ trip เกราะ) · `forceDeleteRows` มีอยู่แล้วใน `data_supabase.js` คืน Promise + อัป cache/snapshot/subscribers (read-your-writes).
