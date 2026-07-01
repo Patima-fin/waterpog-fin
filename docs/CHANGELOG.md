@@ -850,3 +850,10 @@ Newest entries are at the bottom. Architecture/conventions/gotchas stay in `CLAU
 - **KPI strip 4 ช่อง** (บัญชีทั้งหมด/% กระทบเฉลี่ย/รอยืนยัน/ค้างกระทบ) เปลี่ยนจาก `KpiTile` ใหญ่ → มินิการ์ด (label 11px · ตัวเลข 20px · แถบสีซ้ายบาง) — `KpiTile` ไม่มีโหมด compact.
 - **เส้นคั่น/หัวตาราง `BRReconTable`** (จากรอบก่อน): หัวตารางสีพื้นฟ้าอ่อน (`BR_TH_BG` srgb+white ตั้งที่ `<th>`) + เส้นคั่นแนวตั้งบางจาง `1px var(--ink-100)` + คอลัมน์ผู้รับผิดชอบ 120px.
 - verify (preview, login-gate): Babel 0 error ทุกแก้ · isolated render: import modal มีคู่มือ ไม่มีปุ่มสำรอง/กู้คืน · BRImportHelp มี toggle อย่างเดียว.
+
+## 2026-07-01 — DATA PV: แบ่งดูรายปี (build `page_data_extras 20260701a`)
+- **โจทย์ (เตย):** หน้า `#data_pv` (DATA PV) อยากให้ **แบ่งเป็นปี** เลือกดูได้ว่าทุกปี หรือปีไหน.
+- **ทำเป็น option กลางใน `DataCrudPage`** (คอมโพเนนต์ที่หน้า DATA ทุกหน้าใช้ร่วม): config ใหม่ **`yearField`** = ชื่อคอลัมน์วันที่ที่ใช้ดึงปี (ค.ศ. จาก 4 ตัวแรกของค่า ISO). เมื่อตั้งค่า → โผล่ **แถบเลือกปี** (`tabnav`: ปุ่ม "ทุกปี (N)" + ปีแต่ละปี เรียงล่าสุดก่อน พร้อมจำนวนในวงเล็บ) วางข้างช่องค้นหา.
+- **DataPVPage** ตั้ง `yearField: 'Pmt_Date'` (วันที่จ่าย). เลือกปีแล้ว **ทั้งตาราง + KPI ด้านบน** (จำนวน PV / ยอดสุทธิรวม / เดือนนี้ / Ref สูงสุด) สะท้อนเฉพาะปีนั้น — ทำได้ด้วย `yearRows` (rows กรองปีอย่างเดียว) ป้อนให้ `config.summary`, และ `filtered` เพิ่มขั้นกรองปีก่อนตัวกรอง Ref/ค้นหา/per-column. state `yearFilter` เพิ่มใน dep ของ effect ล้าง selection + memo `filtered`.
+- ใช้ซ้ำได้ทันทีกับหน้า DATA อื่น (Bank/Payable/Forecast) แค่ใส่ `yearField` — ยังไม่เปิดให้หน้าอื่น.
+- verify: หน้าติด login-gate+RLS พรีวิวจริงไม่ได้ · โค้ดใช้ pattern `dxState/dxMemo` เดิมในคอมโพเนนต์เดียวกัน.

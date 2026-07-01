@@ -16,6 +16,7 @@ function DataCrudPage({ data, setData, toast, config }) {
   const [view, setView] = dxState(null);  // popup for viewing row details (read-only)
   const [query, setQuery] = dxState('');
   const [filter, setFilter] = dxState('all');
+  const [yearFilter, setYearFilter] = dxState('all');   // ปีที่เลือกดู (จาก config.yearField) — 'all' = ทุกปี
   const [sortKey, setSortKey] = dxState(null);
   const [sortDir, setSortDir] = dxState('asc');
   // Bulk-select mode — off by default; user toggles ON when they want to
@@ -33,7 +34,7 @@ function DataCrudPage({ data, setData, toast, config }) {
   const [importDragOver, setImportDragOver]   = dxState(false);
   const [importFileName, setImportFileName]   = dxState('');
   // Clear selection whenever the filter/search/mode changes
-  dxEffect(() => { setSelected(new Set()); }, [filter, query, bulkMode]);
+  dxEffect(() => { setSelected(new Set()); }, [filter, query, bulkMode, yearFilter]);
   // Excel-like per-column filters — { [colKey]: Set<displayValue> }
   const [colFilters, setColFilters] = dxState({});
   const [openCol, setOpenCol] = dxState(null);
@@ -51,8 +52,23 @@ function DataCrudPage({ data, setData, toast, config }) {
   // config.hideRow(row, data) → true = ซ่อนจากการแสดงผล (ไม่แตะข้อมูลในชีต — แค่ไม่โชว์)
   const rows = (data[config.dataKey] || []).filter(r => !(config.hideRow && config.hideRow(r, data)));
 
+  // ปี (ค.ศ.) จากคอลัมน์วันที่ config.yearField — สำหรับตัวเลือก "แบ่งเป็นปี"
+  const yearOf = (r) => String((config.yearField && r[config.yearField]) || '').slice(0, 4);
+  const years = dxMemo(() => {
+    if (!config.yearField) return [];
+    const set = new Set();
+    rows.forEach(r => { const y = yearOf(r); if (/^\d{4}$/.test(y)) set.add(y); });
+    return [...set].sort((a, b) => b.localeCompare(a));   // ปีล่าสุดก่อน
+  }, [rows, config.yearField]);
+  const passYear = (r) => yearFilter === 'all' || yearOf(r) === yearFilter;
+  // rows กรองตามปีเท่านั้น — ใช้ป้อน summary/KPI ให้สะท้อนปีที่เลือก
+  const yearRows = dxMemo(() => (config.yearField && yearFilter !== 'all') ? rows.filter(passYear) : rows, [rows, config.yearField, yearFilter]);
+
   const filtered = dxMemo(() => {
     let xs = rows;
+    if (config.yearField && yearFilter !== 'all') {
+      xs = xs.filter(passYear);
+    }
     if (config.filters && filter !== 'all') {
       xs = xs.filter(r => config.filterFn(r, filter));
     }
@@ -66,7 +82,7 @@ function DataCrudPage({ data, setData, toast, config }) {
       xs = xs.filter(r => activeKeys.every(k => colFilters[k].has(colDisplay(r, k))));
     }
     return xs;
-  }, [rows, filter, query, colFilters]);
+  }, [rows, filter, query, colFilters, yearFilter]);
 
   const sortedFiltered = dxMemo(() => {
     if (!sortKey) return filtered;
@@ -576,7 +592,7 @@ function DataCrudPage({ data, setData, toast, config }) {
     reader.readAsArrayBuffer(file);
   };
 
-  const stats = config.summary ? config.summary(rows) : [];
+  const stats = config.summary ? config.summary(yearRows) : [];
 
   return (
     <div className="page">
@@ -649,9 +665,21 @@ function DataCrudPage({ data, setData, toast, config }) {
             ))}
           </div>
         ) : <div />}
-        <div className="tb-search" style={{ width: 300 }}>
-          <Icon name="search" size={14} />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={config.searchPlaceholder || 'ค้นหา…'} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {config.yearField && years.length > 0 && (
+            <div className="tabnav">
+              <button className={yearFilter === 'all' ? 'active' : ''} onClick={() => setYearFilter('all')}>ทุกปี ({rows.length})</button>
+              {years.map(y => (
+                <button key={y} className={yearFilter === y ? 'active' : ''} onClick={() => setYearFilter(y)}>
+                  {y} ({rows.filter(r => yearOf(r) === y).length})
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="tb-search" style={{ width: 300 }}>
+            <Icon name="search" size={14} />
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={config.searchPlaceholder || 'ค้นหา…'} />
+          </div>
         </div>
       </div>
 
@@ -1970,6 +1998,7 @@ function DataPVPage({ data, setData, toast }) {
       // ทะเบียน PV ต้นทางตั้งหัวคอลัมน์บัญชีที่ตัดจ่ายว่า "Account_Code" (ไม่ใช่ Bank_AC) → map เข้าให้ตรง
       headerAliases: { 'Account_Code': 'Bank_AC' },
       dedupKey: ['PL_PV_No', 'AP_No'],   // compound key — PV เดียวมีหลาย AP ได้
+      yearField: 'Pmt_Date',              // แบ่งดูรายปีจากวันที่จ่าย — ทุกปี / เลือกปี
       scopeDateField: 'Pmt_Date',         // เทียบ missing เฉพาะ row ที่อยู่ในช่วงวันที่ของไฟล์ import
       previewSubFields: ['Payee', 'cc_remark'],   // subtitle ใน preview
       addLabel: 'เพิ่ม PV',
